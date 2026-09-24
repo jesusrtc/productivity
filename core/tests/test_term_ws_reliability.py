@@ -391,3 +391,111 @@ def test_vault_discovery_during_connect_leaves_event_loop_responsive(monkeypatch
     asyncio.run(run())
     ws.accept.assert_awaited_once()
     assert json.loads(ws.send_text.call_args.args[0]) == {'type': 'exit', 'reason': 'no-session'}
+
+
+@pytest.mark.parametrize('outcome', ['eof', 'eio', 'wait', 'timeout', 'continuous', 'gone', 'bad-fd'])
+def test_detach_drains_bounded_output_and_releases_owned_pty(monkeypatch, outcome):
+    from types import SimpleNamespace
+    from core.routes import term
+    import signal
+
+    calls = []
+    now = 0
+    reads = 0
+
+    def clock():
+        nonlocal now
+        now += .01
+        return now
+
+    def read(fd, size):
+        nonlocal reads
+        reads += 1
+        calls.append(('read', fd))
+        if outcome == 'eio':
+            raise OSError('closed slave')
+        if outcome in ('wait', 'timeout') and reads == 1:
+            raise BlockingIOError()
+        return b'final terminal reset' if reads == 1 or outcome == 'continuous' else b''
+
+    def kill(pid, sig):
+        calls.append(('kill', pid, sig))
+        if outcome == 'gone':
+            raise ProcessLookupError()
+
+    def blocking(fd, value):
+        calls.append(('blocking', fd, value))
+        if outcome == 'bad-fd':
+            raise OSError('already closed')
+
+    def wait_readable(readers, writers, errors, timeout):
+        assert readers == [77] and writers == errors == [] and 0 < timeout <= .1
+        calls.append(('select', 77))
+        return ([] if outcome == 'timeout' else readers), [], []
+
+    monkeypatch.setattr(term, 'os', SimpleNamespace(
+        kill=kill, set_blocking=blocking, read=read, close=lambda fd:calls.append(('close', fd)),
+        WNOHANG=1, waitpid=lambda pid, flags:calls.append(('reap', pid, flags))))
+    monkeypatch.setattr(term, 'time', SimpleNamespace(monotonic=clock))
+    monkeypatch.setattr(term, 'select', SimpleNamespace(select=wait_readable))
+    term._term_stop_pty(42, 77)
+    assert calls[0] == ('kill', 42, signal.SIGHUP)
+    assert calls[-2:] == [('close', 77), ('reap', 42, 1)]
+    assert calls.count(('close', 77)) == 1
+    assert reads <= 10 and now <= .12
+    if outcome == 'wait':
+        assert ('select', 77) in calls and reads == 2
+    if outcome == 'timeout':
+        assert reads == 1
+    if outcome == 'continuous':
+        assert reads > 1
+
+
+def test_detach_cleanup_leaves_event_loop_responsive(monkeypatch):
+    import os
+    import threading
+    from types import SimpleNamespace
+    from core import document_terminals
+    from core.routes import term
+
+    fd, writer = os.pipe()
+    entered, release = threading.Event(), threading.Event()
+    cleaned = []
+
+    def cleanup(pid, master):
+        entered.set()
+        try:
+            assert release.wait(2), 'cleanup blocked the event loop'
+            cleaned.append((pid, master))
+        finally:
+            os.close(master)
+
+    monkeypatch.setattr(term, '_term_ws_context', lambda *args: (['lab-'], 'owned'))
+    monkeypatch.setattr(term, '_tmux_available', lambda: True)
+    monkeypatch.setattr(term, '_tmux_find_session_socket', lambda *args: 'owned')
+    monkeypatch.setattr(term, 'pty', SimpleNamespace(fork=lambda: (42, fd)))
+    monkeypatch.setattr(term, '_set_winsize', lambda *args: None)
+    monkeypatch.setattr(term, '_term_stop_pty', cleanup)
+    monkeypatch.setattr(document_terminals, 'input_callback', lambda name: None)
+    ws = SimpleNamespace(query_params={}, accept=AsyncMock(), close=AsyncMock(),
+                         send_text=AsyncMock(), receive_text=AsyncMock(return_value='{"type":"detach"}'))
+
+    async def run():
+        connection = asyncio.create_task(term.term_ws(ws, 'lab-owned'))
+        try:
+            async with asyncio.timeout(1):
+                while not entered.is_set():
+                    await asyncio.sleep(.001)
+            assert not connection.done()
+            # Other terminal and HTTP tasks can run while the old PTY drains.
+            await asyncio.sleep(0)
+        finally:
+            release.set()
+        await connection
+
+    try:
+        asyncio.run(run())
+    finally:
+        os.close(writer)
+    assert cleaned == [(42, fd)]
+    ws.close.assert_awaited_once()

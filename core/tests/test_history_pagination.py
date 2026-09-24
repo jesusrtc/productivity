@@ -113,13 +113,16 @@ def test_recent_empty_window_and_unborn_repository(client, monorepo):
 
 
 def test_status_rename_skips_source_path_record(client, monorepo):
-    init_repo(monorepo)
+    # Keep background vault logs/index writes outside the Git fixture.
+    repo = monorepo / "rename-repo"
+    repo.mkdir()
+    init_repo(repo)
     # A source path that looks like a status record must never be parsed as one.
-    (monorepo / ' M fake.txt').write_text('content\n')
-    git(monorepo, 'add', '.')
-    git(monorepo, 'commit', '-m', 'initial')
-    git(monorepo, 'mv', ' M fake.txt', 'renamed.txt')
+    (repo / ' M fake.txt').write_text('content\n')
+    git(repo, 'add', '.')
+    git(repo, 'commit', '-m', 'initial')
+    git(repo, 'mv', ' M fake.txt', 'renamed.txt')
     response = client.get('/api/workspace-entry/history', params={
-        'path': str(monorepo), 'file': '.', 'phase': 'working-tree',
+        'path': str(repo), 'file': '.', 'phase': 'working-tree',
     })
     assert response.json()['commits'][0]['states'] == ['staged']

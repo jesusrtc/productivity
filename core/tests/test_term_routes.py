@@ -474,7 +474,16 @@ def test_wheel_binding_passes_mouse_apps_through(monkeypatch) -> None:
 
     term_mod._configure_tmux_wheel_scrolling("sess-x")
 
-    wheel_up = [c for c in calls if "WheelUpPane" in c]
+    assert len(calls) == 1
+    commands, command = [], ["tmux"]
+    for arg in calls[0][1:]:
+        if arg == ";":
+            commands.append(command)
+            command = ["tmux"]
+        else:
+            command.append(arg)
+    commands.append(command)
+    wheel_up = [c for c in commands if "WheelUpPane" in c]
     assert wheel_up == [[
         "tmux", "bind-key", "-T", "root", "WheelUpPane",
         "if-shell", "-F", "#{||:#{pane_in_mode},#{mouse_any_flag}}",
@@ -482,11 +491,34 @@ def test_wheel_binding_passes_mouse_apps_through(monkeypatch) -> None:
     ]]
     # Wheel-down stays unbound: tmux forwards it to mouse-enabled panes
     # itself and drops it for plain shells (nothing injected into stdin).
-    assert ["tmux", "unbind-key", "-T", "root", "WheelDownPane"] in calls
-    assert not any("bind-key" in c and "WheelDownPane" in c for c in calls)
-    # Per-session options still applied.
-    assert ["tmux", "set-option", "-t", "sess-x", "mouse", "on"] in calls
-    assert ["tmux", "set-option", "-t", "sess-x", "alternate-screen", "off"] in calls
+    assert ["tmux", "unbind-key", "-T", "root", "WheelDownPane"] in commands
+    assert not any("bind-key" in c and "WheelDownPane" in c for c in commands)
+    assert ["tmux", "set-option", "-t", "sess-x", "mouse", "on"] in commands
+    assert ["tmux", "set-option", "-t", "sess-x", "alternate-screen", "off"] in commands
+
+
+@pytest.mark.parametrize("socket_name", ["default", "lab-wheel-test"])
+def test_wheel_configuration_continues_after_batch_failure(monkeypatch, socket_name):
+    from core.routes import term
+    calls = []
+    env = {"PATH": "/fixture/bin"}
+    monkeypatch.setattr(term, "_tmux_available", lambda: True)
+    monkeypatch.setattr(term, "_tmux_child_env", lambda: env)
+
+    def run(argv, **kwargs):
+        assert kwargs == {"capture_output": True, "text": True, "env": env}
+        calls.append(argv)
+        # Failed options must not prevent either root-table binding command.
+        return subprocess.CompletedProcess(argv, 1 if "set-option" in argv else 0)
+
+    monkeypatch.setattr(term.subprocess, "run", run)
+    term._configure_tmux_wheel_scrolling("missing-session", socket_name)
+    prefix = ["tmux"] if socket_name == "default" else ["tmux", "-L", socket_name]
+    assert len(calls) == 5 and all(argv[:len(prefix)] == prefix for argv in calls)
+    individual = calls[1:]
+    assert [argv[len(prefix)] for argv in individual] == ["set-option", "set-option", "bind-key", "unbind-key"]
+    assert all(";" not in argv for argv in individual)
+    assert "WheelUpPane" in individual[2] and "WheelDownPane" in individual[3]
 
 
 def test_agent_argv_copilot_prefers_standalone(monkeypatch) -> None:
@@ -622,6 +654,37 @@ def test_codex_metadata_cache_covers_ttys_without_a_matching_thread(
     ) == cached
 
 
+@pytest.mark.parametrize("ttys,selection", [
+    ({"/dev/ttys002", "ttys001"}, "ttys001,ttys002"),
+    ({"/dev/pts/4", "pts/2"}, "pts/2,pts/4"),
+])
+def test_codex_metadata_limits_process_scan_to_requested_ttys(
+    monkeypatch, tmp_path: Path, ttys, selection,
+) -> None:
+    import core.routes.term as term_mod
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    codex_home = tmp_path / ".codex"
+    codex_home.mkdir()
+    (codex_home / "state_5.sqlite").touch()
+    (codex_home / "logs_2.sqlite").touch()
+    monkeypatch.setattr(term_mod, "_CODEX_METADATA_CACHE", None)
+    commands = []
+
+    def processes(command, **kwargs):
+        commands.append(command)
+        # Defensively ignore unexpected rows as well as narrowing ps itself.
+        return subprocess.CompletedProcess(command, 0, stdout="999 ttys999\n")
+
+    monkeypatch.setattr(term_mod.subprocess, "run", processes)
+    assert term_mod._codex_session_metadata_by_tty(ttys) == {}
+    assert commands == [["ps", "-t", selection, "-o", "pid=,tty="]]
+    assert term_mod._CODEX_METADATA_CACHE[1] == set(selection.split(","))
+    # A pane with no agent still belongs to the covered set.
+    assert term_mod._codex_session_metadata_by_tty(ttys) == {}
+    assert len(commands) == 1
+
+
 def test_codex_metadata_returns_all_user_requests_after_clear(
     monkeypatch, tmp_path: Path, metadata_connections_closed,
 ) -> None:
@@ -698,8 +761,9 @@ def test_codex_metadata_returns_all_user_requests_after_clear(
     }
 
 
+@pytest.mark.parametrize("indexed", [False, True])
 def test_codex_metadata_uses_empty_thread_started_by_clear(
-    monkeypatch, tmp_path: Path, metadata_connections_closed,
+    monkeypatch, tmp_path: Path, metadata_connections_closed, indexed,
 ) -> None:
     import core.routes.term as term_mod
 
@@ -723,12 +787,16 @@ def test_codex_metadata_uses_empty_thread_started_by_clear(
         conn.execute(
             """
             CREATE TABLE logs (
+                id INTEGER PRIMARY KEY, ts_nanos INTEGER DEFAULT 0,
                 process_uuid TEXT, thread_id TEXT, ts INTEGER, target TEXT
             )
             """,
         )
+        if indexed:
+            conn.execute("CREATE INDEX idx_logs_thread_id_ts ON logs(thread_id, ts DESC, ts_nanos DESC, id DESC)")
+            conn.execute("CREATE INDEX idx_logs_ts ON logs(ts DESC, ts_nanos DESC, id DESC)")
         conn.executemany(
-            "INSERT INTO logs VALUES ('pid:123:live', ?, ?, ?)",
+            "INSERT INTO logs (process_uuid,thread_id,ts,target) VALUES ('pid:123:live', ?, ?, ?)",
             [
                 ("thread-old", 10, "codex_core::shell_snapshot"),
                 ("thread-old", 20, "codex_core::session::turn"),

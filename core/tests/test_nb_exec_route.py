@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -621,6 +623,130 @@ def test_pending_tracker_counts_queued_runs(tmp_path: Path) -> None:
     finally:
         nb_exec_route._mark_done(target)
     assert nb_exec_route.is_path_pending(target) is False
+
+
+def test_empty_pending_tracker_does_not_touch_the_filesystem(monkeypatch, tmp_path):
+    monkeypatch.setattr(nb_exec_route, '_pending_paths', {})
+    target = tmp_path / 'idle.ipynb'
+
+    def unexpected_resolution(path, *args, **kwargs):
+        raise AssertionError('An empty in-memory tracker must not resolve file paths')
+
+    with monkeypatch.context() as patch:
+        patch.setattr(Path, 'resolve', unexpected_resolution)
+        assert nb_exec_route.is_path_pending(target) is False
+
+
+def test_pending_tracker_keeps_symlink_identity_fresh_while_busy(monkeypatch, tmp_path):
+    monkeypatch.setattr(nb_exec_route, '_pending_paths', {})
+    monkeypatch.setattr(nb_exec_route, '_pending_leases', {})
+    first, second, alias = (tmp_path / name for name in ('first.ipynb', 'second.ipynb', 'alias.ipynb'))
+    first.write_text('{}')
+    second.write_text('{}')
+    alias.symlink_to(first)
+    assert nb_exec_route.is_path_pending(alias) is False
+    nb_exec_route._mark_running(first)
+    nb_exec_route._mark_running(first)
+    try:
+        assert nb_exec_route.is_path_pending(alias) is True
+        nb_exec_route._mark_done(first)
+        assert nb_exec_route.is_path_pending(alias) is True
+        alias.unlink()
+        alias.symlink_to(second)
+        assert nb_exec_route.is_path_pending(alias) is False
+        nb_exec_route._mark_running(second)
+        try:
+            assert nb_exec_route.is_path_pending(alias) is True
+        finally:
+            nb_exec_route._mark_done(second)
+        assert nb_exec_route.is_path_pending(alias) is False
+    finally:
+        nb_exec_route._mark_done(first)
+    assert nb_exec_route.is_path_pending(first) is False
+
+
+@pytest.mark.skipif(os.name != 'posix', reason='POSIX filename fast path')
+def test_busy_pending_tracker_skips_ancestor_resolution_for_unrelated_regular_file(monkeypatch, tmp_path):
+    running = tmp_path / 'running.ipynb'
+    idle = tmp_path / 'idle.ipynb'
+    running.write_text('{}')
+    idle.write_text('{}')
+    monkeypatch.setattr(nb_exec_route, '_pending_paths', {str(running.resolve()): 1})
+
+    def unexpected_resolution(path, *args, **kwargs):
+        raise AssertionError('An unrelated regular filename cannot match the running identity')
+
+    monkeypatch.setattr(Path, 'resolve', unexpected_resolution)
+    assert nb_exec_route.is_path_pending(idle) is False
+
+
+def test_non_posix_pending_lookup_retains_canonical_name_resolution(monkeypatch, tmp_path):
+    canonical = tmp_path / 'running.ipynb'
+    monkeypatch.setattr(nb_exec_route, '_pending_paths', {str(canonical): 1})
+    monkeypatch.setattr(nb_exec_route, 'os', SimpleNamespace(name='nt'))
+    # Preserve platforms whose resolution can canonicalize ordinary names.
+    def unexpected_metadata():
+        raise AssertionError('Non-POSIX lookup must retain the original resolver')
+    target = SimpleNamespace(name='RUNNING.IPYNB', lstat=unexpected_metadata,
+                             resolve=lambda: canonical)
+    assert nb_exec_route.is_path_pending(target)
+
+
+def test_busy_pending_tracker_keeps_same_name_and_ancestor_symlink_identity(monkeypatch, tmp_path):
+    first, second = tmp_path / 'first', tmp_path / 'second'
+    first.mkdir()
+    second.mkdir()
+    running, other = first / 'same.ipynb', second / 'same.ipynb'
+    running.write_text('{}')
+    other.write_text('{}')
+    alias = tmp_path / 'alias'
+    alias.symlink_to(first, target_is_directory=True)
+    monkeypatch.setattr(nb_exec_route, '_pending_paths', {str(running.resolve()): 2})
+    assert nb_exec_route.is_path_pending(running)
+    assert not nb_exec_route.is_path_pending(other)
+    assert nb_exec_route.is_path_pending(alias / 'same.ipynb')
+    alias.unlink()
+    alias.symlink_to(second, target_is_directory=True)
+    assert not nb_exec_route.is_path_pending(alias / 'same.ipynb')
+    # A previously ordinary entry can become an alias without a cached result.
+    idle = second / 'idle.ipynb'
+    idle.write_text('{}')
+    assert not nb_exec_route.is_path_pending(idle)
+    idle.unlink()
+    idle.symlink_to(running)
+    assert nb_exec_route.is_path_pending(idle)
+
+
+@pytest.mark.parametrize('kind', ['missing', 'lstat_failure', 'parent_directory'])
+def test_busy_pending_tracker_preserves_resolution_fallbacks(monkeypatch, tmp_path, kind):
+    target = tmp_path / 'running.ipynb'
+    alias = tmp_path / 'alias.ipynb'
+    if kind == 'parent_directory':
+        target.mkdir()
+        (target / 'child').mkdir()
+        alias = target / 'child' / '..'
+    else:
+        alias.symlink_to(target)
+        if kind == 'lstat_failure':
+            target.write_text('{}')
+    monkeypatch.setattr(nb_exec_route, '_pending_paths', {str(target.resolve()): 1})
+    if kind == 'lstat_failure':
+        def inaccessible(path):
+            raise PermissionError('lstat failed')
+        monkeypatch.setattr(Path, 'lstat', inaccessible)
+    assert nb_exec_route.is_path_pending(alias)
+
+
+@pytest.mark.parametrize('count', [1, 16, 17, 64])
+def test_busy_pending_tracker_retains_aliases_with_many_active_paths(monkeypatch, tmp_path, count):
+    targets = [tmp_path / f'active-{number}.ipynb' for number in range(count)]
+    monkeypatch.setattr(nb_exec_route, '_pending_paths', {str(path.resolve()): 1 for path in targets})
+    alias = tmp_path / 'alias.ipynb'
+    alias.symlink_to(targets[-1])
+    idle = tmp_path / 'idle.ipynb'
+    idle.write_text('{}')
+    assert nb_exec_route.is_path_pending(alias)
+    assert not nb_exec_route.is_path_pending(idle)
 
 
 @pytest.mark.parametrize("endpoint", ["exec", "session/restart", "session/interrupt"])

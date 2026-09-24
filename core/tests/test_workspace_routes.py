@@ -1002,3 +1002,152 @@ def test_workspace_mtime_depth_capped(seed_workspace, client) -> None:
     r = client.get(f"/api/workspace-mtime?path={pdir}")
     assert r.status_code == 200
     assert "mtime" in r.json()
+
+
+def test_workspace_file_scan_sees_edits_and_retargeted_links_on_each_request(
+    client, seed_workspace, monkeypatch,
+) -> None:
+    """Directory-entry reuse is local to one scan, including link targets."""
+    import os
+    from core.routes import nb_exec
+
+    root = seed_workspace('scan-freshness')
+    first = root / 'docs' / 'a.md'
+    first.write_text('# First\n')
+    notebook = root / 'docs' / 'running.ipynb'
+    notebook.write_text('{}')
+    link = root / 'linked'
+    link.symlink_to('docs/a.md')
+    broken = root / 'broken'
+    broken.symlink_to('missing.md')
+    monkeypatch.setattr(nb_exec, '_pending_paths', {str(notebook.resolve()): 1})
+
+    def scan():
+        result = client.get('/api/workspace-files', params={'path': str(root)})
+        assert result.status_code == 200
+        return {row['path']: row for row in result.json()}
+
+    before = scan()
+    assert before['docs/running.ipynb']['pending'] is True
+    assert before['linked']['symlink_target'] == 'docs/a.md'
+    assert before['linked']['mtime'] == first.stat().st_mtime
+    assert before['broken']['broken'] is True
+    assert 'mtime' not in before['broken']
+
+    future = first.stat().st_mtime + 100
+    os.utime(first, (future, future))
+    (root / 'missing.md').write_text('Now exists\n')
+    link.unlink()
+    link.symlink_to('docs', target_is_directory=True)
+    after = scan()
+    assert after['docs/a.md']['mtime'] == future
+    assert after['linked']['type'] == 'dir'
+    assert after['linked']['symlink_target'] == 'docs'
+    assert after['linked/a.md']['mtime'] == future
+    assert 'broken' not in after['broken']
+    assert after['broken']['mtime'] == (root / 'missing.md').stat().st_mtime
+
+    first.unlink()
+    last = scan()
+    assert 'docs/a.md' not in last and 'linked/a.md' not in last
+
+
+def test_workspace_file_scan_preserves_unusual_names_and_notebook_paths(client, seed_workspace, monkeypatch):
+    from core.routes import nb_exec
+
+    root = seed_workspace('file-names')
+    names = {
+        'résumé.PNG': 'image',
+        '.png': 'file',
+        '...png': 'file',
+        '.photo.png': 'image',
+        'archive.tar.gz': 'file',
+        'trailing.': 'file',
+        'quoted \' " & name.md': 'file',
+        'running.IPYNB': 'file',
+    }
+    for name in names:
+        (root / 'docs' / name).write_text('fixture')
+    notebook = root / 'docs' / 'running.IPYNB'
+    monkeypatch.setattr(nb_exec, '_pending_paths', {str(notebook.resolve()): 1})
+    response = client.get('/api/workspace-files', params={'path': str(root), 'include_dotfiles': True})
+    assert response.status_code == 200
+    rows = {row['path']: row for row in response.json()}
+    for name, kind in names.items():
+        row = rows['docs/' + name]
+        assert row['name'] == 'docs/' + name
+        assert row['type'] == kind
+        assert row['mtime'] == (root / 'docs' / name).stat().st_mtime
+    assert rows['docs/running.IPYNB']['pending'] is True
+
+
+def test_workspace_file_scan_refreshes_pending_state_without_file_edits(client, seed_workspace, monkeypatch):
+    from core.routes import nb_exec
+
+    root = seed_workspace('pending-freshness')
+    notebook = root / 'docs' / 'running.ipynb'
+    notebook.write_text('{}')
+    alias = root / 'docs' / 'alias.ipynb'
+    alias.symlink_to(notebook)
+    monkeypatch.setattr(nb_exec, '_pending_paths', {})
+
+    def scan():
+        response = client.get('/api/workspace-files', params={'path': str(root)})
+        assert response.status_code == 200
+        return {row['path']: row for row in response.json()}
+
+    before = scan()
+    assert 'pending' not in before['docs/running.ipynb']
+    # Simulate the registry transition without launching a kernel or editing a file.
+    with nb_exec._pending_guard:
+        nb_exec._pending_paths[str(notebook.resolve())] = 1
+    running = scan()
+    assert running['docs/running.ipynb']['pending'] is True
+    assert running['docs/alias.ipynb']['pending'] is True
+    assert running['docs/running.ipynb']['mtime'] == before['docs/running.ipynb']['mtime']
+    with nb_exec._pending_guard:
+        nb_exec._pending_paths.clear()
+    assert scan() == before
+
+
+def test_successful_file_scan_releases_request_paths_without_cyclic_gc(tmp_path, monkeypatch):
+    """Completed scans must not retain their response through a closure cycle."""
+    import gc
+    import weakref
+    from core.routes import diff
+
+    root = tmp_path / 'scan'
+    nested = root / 'docs' / 'nested'
+    nested.mkdir(parents=True)
+    (root / 'docs' / 'one.md').write_text('# One')
+    (nested / 'two.ipynb').write_text('{}')
+    observed = []
+
+    class TrackedPath(type(root)):
+        pass
+
+    def track_path(*args, **kwargs):
+        value = TrackedPath(*args, **kwargs)
+        observed.append(weakref.ref(value))
+        return value
+
+    monkeypatch.setattr(diff, 'Path', track_path)
+    monkeypatch.setattr(diff.lab_paths, 'assistant_root', lambda: None)
+    monkeypatch.setattr(diff.auth, 'request_root', lambda _: tmp_path)
+    # Isolate route lifetime from executor bookkeeping after Future completion.
+    monkeypatch.setattr(diff.fsguard, 'guarded', lambda _, fn: fn())
+    enabled = gc.isenabled()
+    gc.disable()
+    try:
+        # Main moved collection into a background snapshot worker. Exercise
+        # that complete collector directly, excluding the store's intentional
+        # cache retention from the temporary path-lifetime assertion.
+        from core.workspace_snapshot import Progress
+        result = diff._collect_workspace_snapshot(track_path(str(root)), False, Progress(str(root)))
+        assert {row['path'] for row in result.files} == {'docs/one.md', 'docs/nested/two.ipynb'}
+        assert observed
+        assert not any(reference() is not None for reference in observed), (
+            'Completed scan retains paths until a cyclic garbage collection')
+    finally:
+        if enabled:
+            gc.enable()

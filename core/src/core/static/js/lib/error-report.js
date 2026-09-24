@@ -112,10 +112,14 @@
     if (id) bits.push('#' + id);
     var name = el.getAttribute && (el.getAttribute('name') || el.getAttribute('aria-label') || el.getAttribute('title'));
     var action = el.getAttribute && (el.getAttribute('data-log-action') || el.getAttribute('data-act') || el.getAttribute('data-mode'));
-    var text = (el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim();
     if (action) bits.push('[' + action + ']');
     if (name) bits.push('"' + name + '"');
-    else if (text) bits.push('"' + text.slice(0, 80) + '"');
+    else {
+      // innerText can force layout across the page (for example while a
+      // modal closes). Named controls already have their complete log label.
+      var text = (el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim();
+      if (text) bits.push('"' + text.slice(0, 80) + '"');
+    }
     return _limit(bits.join(' '), MAX_FIELD_LEN) || tag || 'element';
   }
 

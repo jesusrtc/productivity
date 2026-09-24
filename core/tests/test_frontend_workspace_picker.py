@@ -1,4 +1,6 @@
 """The new-tab picker routes workspaces and creation to their owning vault."""
+import pytest
+
 from .test_frontend_terminal_ui import _js_between, _run_node
 
 
@@ -57,7 +59,8 @@ console.log(JSON.stringify({passed:true}));
     assert result['passed']
 
 
-def test_creation_keeps_the_vault_selected_when_the_form_opened():
+@pytest.mark.parametrize('already_listed', [False, True])
+def test_creation_keeps_the_vault_selected_when_the_form_opened(already_listed):
     result = _run_node(r'''
 const assert = require('assert/strict');
 let _vaultCurrent = {id:'a', name:'Local'};
@@ -69,24 +72,75 @@ const control = id => controls[id] ||= {
 const usages = [];
 const document = {getElementById:control}, window = {labFeatureUsage: name => usages.push(name)};
 const setTimeout = fn => fn();
-let payload, opened, workspacesList, request;
-const _vaultCatalogInFlight = null;
+let payload, opened, workspacesList, request, finishOldCatalog;
+const oldTab={vault:'a',name:'new',path:'/a/new',tab_open:true};
+const newTab={vault:'b',name:'new',path:'/b/new',is_workspace:true};
+const workspaceTabsAll=[oldTab];
+const _vaultCatalogInFlight = new Promise(resolve=>finishOldCatalog=resolve);
 const fetch = async (url, opts) => {request={url,method:opts.method};payload=JSON.parse(opts.body); return {ok:true,json:async()=>({id:'new'})};};
-const fetchVaultCatalog = async () => ({vaults:[{id:'b',workspace_rows:[{vault:'b',name:'new',path:'/b/new'}]}]});
-const goToWorkspace = path => opened=path;
+const fetchVaultCatalog = async () => ({vaults:[{id:'b',workspace_rows:[newTab]}]});
+const goToWorkspace = path => {
+  assert(workspaceTabsAll.some(row=>row.path===path),'New tab must be renderable before navigation');
+  opened=path;
+};
 const vaultRenderWorkspacesCard = () => {};
+''' + ('workspaceTabsAll.push({...newTab,tab_open:true});' if already_listed else '') + r'''
+const initialTabs=workspaceTabsAll.slice();
 ''' + _js_between('  let _vaultWorkspaceCreateBusy = false;', '  // "Workspaces" card:') + r'''
 (async()=>{
 openVaultWorkspaceModal({id:'b',name:'SSD'}, '+ button');
 assert.equal(controls.vaultWorkspaceContext.textContent,'SSD');
 _vaultCurrent = {id:'c'};
-await submitVaultWorkspace();
+const creating=submitVaultWorkspace();
+await new Promise(resolve=>setImmediate(resolve));
+assert.equal(opened,undefined,'Do not navigate using a pre-create catalog');
+finishOldCatalog({vaults:[]});await creating;
 assert.deepEqual(request,{url:'/api/workspaces',method:'POST'});
 assert.equal(payload.vault,'b');
 assert.deepEqual(usages,['Create workspace (+ button)']);
 assert.deepEqual(payload,{name:'New workspace',vault:'b'});
 assert.equal(opened,'/b/new');
+assert.equal(workspaceTabsAll.length,2,'Do not duplicate a row discovered by polling');
+assert.equal(workspaceTabsAll[0],oldTab,'Do not replace other tabs or change discovery order');
+assert.equal(oldTab.tab_open,true);
+assert.equal(workspaceTabsAll[1].path,'/b/new');
+initialTabs.forEach((row,i)=>assert.equal(workspaceTabsAll[i],row,'Preserve existing tab identity and pending state'));
 assert.equal(_vaultCurrent.id,'c');
+console.log(JSON.stringify({passed:true}));
+})();
+''')
+    assert result['passed']
+
+
+@pytest.mark.parametrize('failure', [True, False])
+def test_creation_does_not_remember_an_unconfirmed_workspace(failure):
+    result = _run_node(r'''
+const assert=require('assert/strict');
+let _vaultWorkspaceCreateBusy=false, _vaultWorkspaceCreateVault='b', _vaultWorkspaceRenameTarget=null;
+const _vaultWorkspaceCreateMethod='+ button', _vaultCatalogInFlight=null;
+let _vaultCurrent={id:'b'},workspacesList=[],closed=0,fallback=0;
+const existing={path:'/a/keep',name:'keep',tab_open:true},workspaceTabsAll=[existing];
+const controls={};
+const document={getElementById:id=>controls[id]||=(
+  {classList:{add(){},remove(){}},elements:{namedItem:()=>({value:'New'})}}
+)};
+const window={};
+const fetch=async()=>({ok:SUCCESS,json:async()=>SUCCESS?{id:'new'}:{detail:'Creation failed'}});
+const fetchVaultCatalog=async()=>({vaults:[{id:'b',workspace_rows:[]}]});
+const closeVaultWorkspaceModal=()=>closed++;
+const vaultRenderWorkspacesCard=()=>fallback++;
+const goToWorkspace=()=>assert.fail('Unconfirmed workspace must not open');
+'''.replace('SUCCESS', 'false' if failure else 'true') + _js_between('  async function submitVaultWorkspace(', '  window.submitVaultWorkspace =') + r'''
+(async()=>{
+await submitVaultWorkspace();
+assert.deepEqual(workspaceTabsAll,[existing]);
+assert.equal(workspaceTabsAll[0],existing);
+assert.equal(_vaultWorkspaceCreateBusy,false);
+assert.equal(controls.vaultWorkspaceSubmit.disabled,false);
+assert.equal(controls.vaultWorkspaceSubmit.textContent,'Create workspace');
+if(controls.vaultWorkspaceError.textContent){
+  assert.equal(controls.vaultWorkspaceError.textContent,'Creation failed');assert.equal(closed,0);assert.equal(fallback,0);
+}else{assert.equal(closed,1);assert.equal(fallback,1);}
 console.log(JSON.stringify({passed:true}));
 })();
 ''')

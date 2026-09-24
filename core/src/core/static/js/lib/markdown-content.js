@@ -9,9 +9,17 @@
     });
   }
 
-  let parser;
+  let parser, plainParser;
   function render(markdown, options) {
-    if (!parser) parser = new window.marked.Marked({extensions: [{
+    // Marked calls extension.start on the remaining source for each paragraph.
+    // Without disclosures that repeatedly scans the whole document suffix.
+    // Keep the extension for any possible tag (including code/HTML examples),
+    // and use the identical base parser when it cannot consume anything.
+    // Custom preprocessing/tokenizing may introduce tags after this check.
+    const hasDisclosure = options?.hooks || options?.tokenizer || options?.extensions
+      || typeof markdown !== 'string' || /<\/?(?:details|summary)\b/i.test(markdown);
+    if (!hasDisclosure && !plainParser) plainParser = new window.marked.Marked();
+    if (hasDisclosure && !parser) parser = new window.marked.Marked({extensions: [{
       name: 'disclosure',
       level: 'block',
       start(source) { return source.match(/^ {0,3}<\/?(?:details|summary)\b/im)?.index; },
@@ -25,7 +33,7 @@
       renderer(token) { return token.raw; },
     }]});
     const host = document.createElement('div');
-    host.innerHTML = sanitize(parser.parse(markdown, options));
+    host.innerHTML = sanitize((hasDisclosure ? parser : plainParser).parse(markdown, options));
     host.querySelectorAll('pre > code').forEach(code => {
       // Highlight explicit, supported fences on every Markdown surface,
       // including closed disclosures. Leave diagrams and plain text alone.

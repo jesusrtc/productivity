@@ -156,9 +156,9 @@ def validate_title(title) -> None:
         raise ValueError("title must not be empty")
 
 
-def iter_series(root: Path, workspaces=None):
+def iter_series(root: Path, workspaces=None, *, record_rows=None):
     if records.enabled(root):
-        yield from records.note_rows(root, 'series')
+        yield from records.note_rows(root, 'series', record_rows=record_rows)
         return
     for item in workspaces if workspaces is not None else db.iter_workspaces(root):
         for source in sorted((db.workspace_dir(root, item["id"]) / "meeting-series").glob("*.md")):
@@ -270,9 +270,9 @@ def iter_contents(root: Path, meeting: Path):
                    "title": str(metadata.get("title") or source.stem), "kind": metadata["kind"]}
 
 
-def iter_meetings(root: Path, workspaces=None):
+def iter_meetings(root: Path, workspaces=None, *, record_rows=None):
     if records.enabled(root):
-        yield from records.note_rows(root, 'meeting')
+        yield from records.note_rows(root, 'meeting', record_rows=record_rows)
         return
     workspaces = list(workspaces if workspaces is not None else db.iter_workspaces(root))
     series = {(s["workspace"], s["id"]): s for s in iter_series(root, workspaces)}
@@ -306,9 +306,9 @@ def iter_meetings(root: Path, workspaces=None):
                    "action_items_done": sum(a["status"] == "done" for a in followups)}
 
 
-def list_rows(root: Path, workspaces=None):
+def list_rows(root: Path, workspaces=None, *, record_rows=None):
     return sorted([{k: v for k, v in row.items() if k != "body"}
-                   for row in iter_meetings(root, workspaces)], key=sort_key)
+                   for row in iter_meetings(root, workspaces, record_rows=record_rows)], key=sort_key)
 
 
 def create_meeting(root: Path, title: str, *, workspace_id: str, date=None, undated=False,

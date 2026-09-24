@@ -72,7 +72,7 @@ const fetch = async () => {
 
 def test_sql_and_scala_files_use_language_specific_icons() -> None:
     icon_helpers = _between(
-        'const _FT_FONT =',
+        'function fileIconHtml(',
         'function buildSidebarTree(entries)',
     )
     result = _run_node(
@@ -87,10 +87,11 @@ process.stdout.write(JSON.stringify({sql, uppercase, scala, plain}));
     )
 
     assert 'class="ft-icon ft-sql"' in result["sql"]
-    assert '<ellipse' in result["sql"]
+    css = (ROOT / 'core/src/core/static/css/lab-shell.css').read_text()
+    assert '.ft-icon.ft-sql' in css and '%3Cellipse' in css
     assert 'class="ft-icon ft-sql"' in result["uppercase"]
     assert 'class="ft-icon ft-scala"' in result["scala"]
-    assert '#DE3423' in result["scala"]
+    assert '.ft-icon.ft-scala' in css and '%23DE3423' in css
     assert 'class="ft-icon ft-generic"' in result["plain"]
 
 
@@ -554,7 +555,7 @@ process.stdout.write(JSON.stringify({
   pickerHasSelected: picker.includes('value="/worktrees/feature-b" selected'),
   pickerColor: picker.includes('value="#123abc"'),
   pickerHasHistory: picker.includes('sidebarOpenRepositoryHistory(this)'),
-  pickerHasGithub: picker.includes('<svg viewBox="0 0 16 16"'),
+  pickerHasGithub: picker.includes('class="sidebar-github-icon"'),
   mainHasHistory: mainPicker.includes('sidebarOpenRepositoryHistory(this)'),
   mainHasLabel: mainPicker.includes('<option value="">main</option>'),
   scopeColor: scope.includes('--sidebar-worktree-color:#123abc'),

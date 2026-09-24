@@ -49,6 +49,7 @@ import os
 import threading
 import pty
 import re
+import select
 import shutil
 import signal
 import sqlite3
@@ -1090,7 +1091,10 @@ def _codex_session_metadata_by_tty(
         return {}
     try:
         proc = subprocess.run(
-            ["ps", "-axo", "pid=,tty="], capture_output=True, text=True,
+            # Query only the displayed panes. On macOS an all-process scan
+            # can take hundreds of milliseconds on a busy workstation.
+            ["ps", "-t", ",".join(sorted(wanted)), "-o", "pid=,tty="],
+            capture_output=True, text=True,
             timeout=1.0,
         )
         if proc.returncode != 0:
@@ -1174,17 +1178,50 @@ def _codex_session_metadata_by_tty(
             with closing(sqlite3.connect(
                 f"file:{logs_path}?mode=ro", uri=True, timeout=0.2,
             )) as conn:
+                # A snapshot in a named thread is already represented by
+                # that process/thread's MAX(ts) above, so it cannot advance
+                # best[tty]. Only unprojected or untitled threads can do so.
+                # Use the provider's thread/time index to reject named-thread
+                # rows and old timestamps before reading large log records.
+                # Older databases without the index retain the original query.
+                index_columns = [row[2] for row in conn.execute(
+                    "PRAGMA index_info('idx_logs_thread_id_ts')",
+                ).fetchall()]
+                time_columns = [row[2] for row in conn.execute(
+                    "PRAGMA index_info('idx_logs_ts')",
+                ).fetchall()]
+                indexed = (index_columns == ["thread_id", "ts", "ts_nanos", "id"]
+                           and time_columns == ["ts", "ts_nanos", "id"])
+                # A small recent window is cheaper to read in time order than
+                # walking the entire thread index. This covering probe visits
+                # at most 1,025 entries and never loads a log body.
+                if indexed:
+                    indexed = conn.execute(
+                        "SELECT 1 FROM logs INDEXED BY idx_logs_ts WHERE ts > ? "
+                        "LIMIT 1 OFFSET 1024", (earliest_known,),
+                    ).fetchone() is not None
+                named_threads = [key for key, thread in threads.items()
+                                 if _clean_optional_text(thread[2] or thread[1], max_len=100)]
+                index_hint = " INDEXED BY idx_logs_thread_id_ts" if indexed else ""
+                exclude_named = (
+                    f" AND thread_id NOT IN ({','.join('?' for _ in named_threads)})"
+                    if indexed and named_threads else ""
+                )
+                # Match the timestamp index's tie order as well: using only
+                # seconds lets a different scan order choose an older /new.
+                snapshot_order = "ts DESC, ts_nanos DESC, id DESC" if indexed else "ts DESC"
                 starts = conn.execute(
                     f"""
                     SELECT process_uuid, thread_id, ts AS started_at
-                    FROM logs
-                    WHERE ts > ?
+                    FROM logs{index_hint}
+                    WHERE thread_id IS NOT NULL{exclude_named}
+                      AND ts > ?
                       AND target = 'codex_core::shell_snapshot'
-                      AND thread_id IS NOT NULL
                       AND process_uuid IN ({process_placeholders})
-                    ORDER BY ts DESC
+                    ORDER BY {snapshot_order}
                     """,
-                    [earliest_known, *sorted(live_process_uuids)],
+                    [*(named_threads if indexed else []), earliest_known,
+                     *sorted(live_process_uuids)],
                 ).fetchall()
             for process_uuid, thread_id, started_at in starts:
                 match = _CODEX_PROCESS_UUID_RE.match(str(process_uuid))
@@ -1595,9 +1632,16 @@ def _sync_meta_locked(root: Path, live: list[dict] | None) -> dict:
     # only sessions already owned by this registry or whose deterministic
     # hash/name parses for this root; otherwise each vault scan would
     # adopt every other vault's sessions into its own sessions.json.
+    from lab.workspace_identity import session_owners
+    uuid_names = {str(row.get("name") or "") for row in live
+                  if row.get("name") not in meta
+                  and re.fullmatch(r"neurona-[0-9a-f]{32}", str(row.get("name") or ""))}
+    owners = session_owners(root, uuid_names)
     live = [
         row for row in live
-        if row.get("name") in meta or _parse_tmux_name(root, str(row.get("name") or "")) is not None
+        if row.get("name") in meta or row.get("name") in owners
+        or (row.get("name") not in uuid_names
+            and _parse_tmux_name(root, str(row.get("name") or "")) is not None)
     ]
     live_by_name = {s["name"]: s for s in live}
     changed = False
@@ -1898,54 +1942,35 @@ def _configure_tmux_wheel_scrolling(
     if not _tmux_available():
         return
     env = _tmux_child_env()
-    # Per-session mouse intercept.
-    subprocess.run(
-        _tmux_command(socket_name, "set-option", "-t", session_name, "mouse", "on"),
+    commands = [
+        # Per-session mouse intercept.
+        ["set-option", "-t", session_name, "mouse", "on"],
+        # Keep pager output in the main buffer after the app exits.
+        ["set-option", "-t", session_name, "alternate-screen", "off"],
+        ["bind-key", "-T", "root", "WheelUpPane", "if-shell", "-F",
+         "#{||:#{pane_in_mode},#{mouse_any_flag}}", "send-keys -M", "copy-mode -e"],
+        # Reset any previous root-table override; copy-mode keeps its own keys.
+        ["unbind-key", "-T", "root", "WheelDownPane"],
+    ]
+    # One client connection avoids four process launches on every creation.
+    # A tmux command sequence stops at its first error. On failure, retry the
+    # idempotent commands individually so later settings retain their previous
+    # best-effort behavior (for example if the new session exited immediately).
+    batch = []
+    for command in commands:
+        if batch:
+            batch.append(";")
+        batch.extend(command)
+    result = subprocess.run(
+        _tmux_command(socket_name, *batch),
         capture_output=True, text=True, env=env,
     )
-    # Keep altscreen-app output (git log's pager, less, man, etc.) in the
-    # main buffer so it lands in scrollback after the app exits. Default
-    # `alternate-screen on` wipes the pane back to pre-command state on
-    # exit, which reads as "the terminal cleared my output."
-    subprocess.run(
-        _tmux_command(
-            socket_name,
-            "set-option",
-            "-t",
-            session_name,
-            "alternate-screen",
-            "off",
-        ),
-        capture_output=True, text=True, env=env,
-    )
-    subprocess.run(
-        _tmux_command(
-            socket_name,
-            "bind-key",
-            "-T",
-            "root",
-            "WheelUpPane",
-            "if-shell",
-            "-F",
-            "#{||:#{pane_in_mode},#{mouse_any_flag}}",
-            "send-keys -M",
-            "copy-mode -e",
-        ),
-        capture_output=True, text=True, env=env,
-    )
-    # Wheel-down: let tmux's built-in copy-mode-vi/emacs table handle it.
-    # Reset any prior root-table override so we don't inherit garbage from
-    # an earlier run of this process.
-    subprocess.run(
-        _tmux_command(
-            socket_name,
-            "unbind-key",
-            "-T",
-            "root",
-            "WheelDownPane",
-        ),
-        capture_output=True, text=True, env=env,
-    )
+    if result.returncode:
+        for command in commands:
+            subprocess.run(
+                _tmux_command(socket_name, *command),
+                capture_output=True, text=True, env=env,
+            )
 
 
 # ─── naming ─────────────────────────────────────────────────────────────────
@@ -3579,6 +3604,44 @@ def _clamp_dim(raw: str | None, default: int, lo: int, hi: int) -> int:
     return max(lo, min(hi, v))
 
 
+def _term_stop_pty(pid: int, fd: int) -> None:
+    """Release one attach client, draining its final tty output before close.
+
+    Closing the master immediately can leave tmux's tty close waiting on
+    output, pausing other clients on that server. Run this bounded cleanup on
+    a worker after both pumps stop; it never sends input or ends the session.
+    """
+    try:
+        try:
+            os.kill(pid, signal.SIGHUP)
+        except ProcessLookupError:
+            pass
+        try:
+            os.set_blocking(fd, False)
+            deadline = time.monotonic() + 0.1
+            while time.monotonic() < deadline:
+                try:
+                    if not os.read(fd, 65536):
+                        break
+                except BlockingIOError:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0 or not select.select([fd], [], [], remaining)[0]:
+                        break
+                except OSError:
+                    break
+        except (OSError, ValueError):
+            pass
+    finally:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        try:
+            os.waitpid(pid, os.WNOHANG)
+        except (ChildProcessError, OSError):
+            pass
+
+
 def _term_ws_context(websocket: WebSocket, name: str) -> tuple[list[str], str | None] | None:
     """Resolve and authorize a connection off the shared event loop."""
     if auth.user_from_connection(websocket) is None:
@@ -3875,18 +3938,7 @@ async def term_ws(websocket: WebSocket, name: str) -> None:
                 await task
             except (asyncio.CancelledError, Exception):
                 pass
-        try:
-            os.kill(pid, signal.SIGHUP)
-        except ProcessLookupError:
-            pass
-        try:
-            os.close(fd)
-        except OSError:
-            pass
-        try:
-            os.waitpid(pid, os.WNOHANG)
-        except (ChildProcessError, OSError):
-            pass
+        await asyncio.to_thread(_term_stop_pty, pid, fd)
         await _ws_send_text_safe(websocket, json.dumps({"type": "exit"}))
         await _ws_close_safe(websocket)
         # One timestamp on leaving the view, never subprocess I/O per key.

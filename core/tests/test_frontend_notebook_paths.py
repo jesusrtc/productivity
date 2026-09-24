@@ -183,7 +183,7 @@ process.stdout.write(JSON.stringify({_nbHashWorkspace, historyCalls, lastDocs}))
 def test_cold_workspace_hydration_does_not_stomp_a_remembered_notebook() -> None:
     source = LAB_APP.read_text(encoding="utf-8")
     select_repo = _js_between(
-        "async function selectRepo(workspaceKey)",
+        "async function selectRepo(workspaceKey,",
         "async function loadDiff()",
     )
 

@@ -24,6 +24,7 @@ import copy
 import json
 import logging
 import os
+import stat
 import tempfile
 import threading
 import time
@@ -147,6 +148,25 @@ def _mark_done(target: Path) -> None:
 
 def is_path_pending(target: Path) -> bool:
     with _pending_guard:
+        # The sidebar checks every notebook on each fresh file scan. With no
+        # active runs there is no identity to match, so avoid resolving thousands
+        # of paths (and their symlink ancestors) merely to look up an empty dict.
+        if not _pending_paths:
+            return False
+        # Resolving each notebook's ancestors dominates large sidebar scans
+        # while even one run is active. On POSIX, a regular entry cannot resolve
+        # to a different final filename; only a symlink can. Bound this name
+        # filter so many active runs do not introduce an unbounded linear
+        # search on every lookup. Matching names, links, unusual paths and
+        # failed metadata reads retain the original full resolution.
+        name = target.name
+        if (os.name == "posix" and name not in {"", ".."} and len(_pending_paths) <= 16
+                and not any(key.rsplit(os.sep, 1)[-1] == name for key in _pending_paths)):
+            try:
+                if stat.S_ISREG(target.lstat().st_mode):
+                    return False
+            except OSError:
+                pass
         return _pending_paths.get(str(target.resolve()), 0) > 0
 
 
@@ -726,7 +746,7 @@ def session_for(path: str, request: Request) -> dict:
     """Return the provider/session pinned to this notebook path."""
     root = auth.request_root(request)
     _safe_resolve(root, path)  # validate only
-    from core.notebook_kernel import session_name
+    from core.notebook_identity import session_name
 
     return {
         "path": path,

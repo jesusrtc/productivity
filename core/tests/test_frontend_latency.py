@@ -77,3 +77,106 @@ console.log(JSON.stringify({stable, renamed, paints, active: el.markup.includes(
     assert result['stable'] == dict(paints=1, sameNode=True)
     assert result['renamed'] and result['active']
     assert result['paints'] == 3
+
+
+def test_workspace_click_during_startup_does_not_wait_for_page_quiet():
+    """A user can act as soon as tabs appear, before startup's quiet window."""
+    scheduling = _js_between('  function afterPageQuiet(', '  const _assetPromises')
+    selection = _js_between('  function _settleWorkspaceHistory(', '  async function loadDiff()')
+    result = _run_node(r'''
+const calls = [], timers = [];
+const performance = {now: () => 500};
+const setTimeout = callback => timers.push(callback);
+const location = {search: ''};
+window.location = 'http://localhost/?view=productivity';
+let historyReplacements=0;
+const history = {replaceState: () => {historyReplacements++;}};
+const document = {
+  readyState: 'complete', title: '',
+  body: {classList: {add: () => {}, remove: () => {}}},
+  getElementById: () => ({style: {}}),
+};
+let currentWorkspace, _workspaceDeleteTarget = null, _contextSubView;
+let currentRepo, currentRepoInWorkspace, _workspaceDocPath;
+const workspacesList = [{name: 'alpha', path: '/alpha', is_workspace: true},
+                        {name: 'beta', path: '/beta', is_workspace: true}];
+const _sidebarActivateFileConfig = () => {};
+const _workspaceMarkUsed = () => {};
+const workspaceTabsSetOpen = () => {};
+const _workspaceDisplayName = w => w.name;
+const renderRepoTabs = () => {};
+const refreshAttrsBar = () => calls.push('attrs:' + currentWorkspace.name);
+const showWorkspaceInfo = () => calls.push('dashboard:' + currentWorkspace.name);
+const getLastWorkspaceDoc = path => path === '/beta' ? 'docs/review.md' : null;
+const paintWorkspaceShell = () => calls.push('shell:' + currentWorkspace.name);
+const openWorkspaceDoc = path => calls.push('doc:' + path);
+const _termIsScopeActive = id => currentWorkspace.name === id;
+const termOpenForWorkspace = id => calls.push('terminal:' + id);
+const workspaceTabsRender = () => {};
+''' + scheduling + selection + r'''
+(async () => {
+  await selectRepo('/alpha');
+  const firstClick = {calls: [...calls], timers: timers.length};
+  calls.length = 0;
+  await selectRepo('/beta');
+  const remembered = {calls: [...calls], doc: _workspaceDocPath, timers: timers.length};
+  calls.length = 0;
+  await selectRepo('/alpha', {initialLoad: true});
+  const initial = {calls: [...calls], timers: timers.length};
+  calls.length = 0;
+  await selectRepo('/beta', {historySettled: true});
+  calls.length = 0;
+  for (const timer of timers.splice(0)) timer();
+  console.log(JSON.stringify({firstClick, remembered, initial, late: calls, historyReplacements}));
+})();
+''')
+    assert result['firstClick'] == {
+        'calls': ['shell:alpha', 'attrs:alpha', 'dashboard:alpha', 'terminal:alpha'],
+        'timers': 0,
+    }
+    assert result['historyReplacements'] == 3
+    assert result['remembered'] == {
+        'calls': ['attrs:beta', 'dashboard:beta', 'doc:docs/review.md', 'terminal:beta'],
+        'doc': 'docs/review.md', 'timers': 0,
+    }
+    assert result['initial'] == {'calls': ['shell:alpha'], 'timers': 2}
+    assert 'terminal:alpha' not in result['late']
+
+
+def test_open_workspace_tabs_do_not_rewrite_metadata_but_reconcile_external_close():
+    helper = _js_between('  async function workspaceTabsSetOpen(', '  // Knowledge-view state.')
+    result = _run_node(r'''
+let stored = {id: 'alpha', tab_open: true, references: [{title: 'Keep me'}]};
+const writes = [], reads = [];
+const workspaceTabsAll = [{path: '/alpha', tab_open: true}];
+const fetch = async (url, options) => {
+  if (options?.method === 'PUT') {
+    const body = JSON.parse(options.body);
+    writes.push(body);
+    stored = body.data;
+    return {ok: true};
+  }
+  reads.push(url);
+  return {ok: true, json: async () => structuredClone(stored)};
+};
+''' + helper + r'''
+(async () => {
+  for (let i = 0; i < 10; i++) await workspaceTabsSetOpen('/alpha', true);
+  const repeated = {reads: reads.length, writes: writes.length};
+  stored.tab_open = false; // another client closed it after our catalog refresh
+  await workspaceTabsSetOpen('/alpha', true);
+  const reopened = {stored: structuredClone(stored), cache: workspaceTabsAll[0].tab_open};
+  await workspaceTabsSetOpen('/alpha', false);
+  await workspaceTabsSetOpen('/alpha', false);
+  const closed = {stored: structuredClone(stored), cache: workspaceTabsAll[0].tab_open};
+  console.log(JSON.stringify({repeated, reopened, closed, writes}));
+})();
+''')
+    assert result['repeated'] == {'reads': 10, 'writes': 0}
+    assert result['reopened']['stored']['tab_open'] is True
+    assert result['reopened']['cache'] is True
+    assert result['closed']['stored']['tab_open'] is False
+    assert result['closed']['cache'] is False
+    assert len(result['writes']) == 2
+    assert all(w['path'] == '/alpha' and w['data']['references'] == [{'title': 'Keep me'}]
+               for w in result['writes'])

@@ -7,6 +7,7 @@ import logging
 import os
 import resource
 import sys
+import time
 from pathlib import Path
 from typing import Callable, Iterator
 
@@ -92,7 +93,17 @@ class MaterializedClient:
 
     def get(self, *args, **kwargs):
         self._rebuild()
-        return self._inner.get(*args, **kwargs)
+        response = self._inner.get(*args, **kwargs)
+        # Snapshot reads deliberately return the prior complete listing while
+        # refreshing. Materialized fixtures need the new complete scan, just
+        # as they already wait for the rebuilt index. Production-cache tests
+        # use _inner directly and retain their 202/nonblocking assertions.
+        deadline = time.monotonic() + 5
+        while response.headers.get('x-lab-scan-state') in {'scanning', 'queued', 'refreshing'}:
+            assert time.monotonic() < deadline, 'Materialized file snapshot did not finish'
+            time.sleep(.005)
+            response = self._inner.get(*args, **kwargs)
+        return response
 
     def post(self, *args, **kwargs):
         self._rebuild()

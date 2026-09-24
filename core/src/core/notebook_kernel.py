@@ -9,7 +9,6 @@ sockets are not moved between FastAPI worker threads.
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import logging
 import secrets
 import threading
@@ -21,6 +20,10 @@ from typing import Any, Awaitable, Callable
 
 from jupyter_client import KernelManager
 
+from core.notebook_identity import (
+    notebook_identity as _notebook_identity,
+    session_name as _session_id,
+)
 from core.notebook_runtime import RuntimeHandle
 
 
@@ -36,20 +39,6 @@ class KernelExecutionError(RuntimeError):
         super().__init__(detail)
         self.detail = detail
         self.status_code = status_code
-
-
-def _session_id(root: Path, rel_path: str) -> str:
-    key = f"{root.resolve()}\0{_notebook_identity(root, rel_path)}".encode("utf-8")
-    return "local-" + hashlib.sha1(key).hexdigest()[:12]
-
-
-def _notebook_identity(root: Path, rel_path: str) -> str:
-    from lab import naming
-    from lab.workspace_identity import id_at
-    parts = Path(rel_path).parts
-    if len(parts) >= 3 and parts[0] == naming.workspaces_dir(root).name:
-        return str(Path(parts[0], id_at(root / parts[0] / parts[1]), *parts[2:]))
-    return rel_path
 
 
 def _msg_type(message: dict[str, Any]) -> str:

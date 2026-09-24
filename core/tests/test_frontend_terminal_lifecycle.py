@@ -50,12 +50,6 @@ function initSelf() {
 
 
 def test_disposed_xterm_ignores_queued_viewport_frames(tmp_path):
-    chrome = (os.environ.get('CHROME_BIN') or shutil.which('chromium')
-              or shutil.which('google-chrome')
-              or '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome')
-    node = shutil.which('node')
-    if not Path(chrome).is_file() or not node:
-        pytest.skip('Chrome and Node are required')
     source = APP.read_text()
     start = source.find('  function _termGuardViewportDisposal(')
     helper = source[start:source.index('  function termEnsureXterm()', start)] if start >= 0 else ''
@@ -84,14 +78,24 @@ window.addEventListener('error', e => errors.push(e.message));
   document.getElementById('result').textContent = errors.length ? 'FAIL: ' + errors.join('; ') : 'PASS';
 })().catch(e => document.getElementById('result').textContent = 'FAIL: ' + e.stack);
 '''
+    _check_terminal_page(tmp_path, scripts, helper + checks)
+
+
+def _check_terminal_page(tmp_path, scripts, checks, *, gpu=False):
+    chrome = (os.environ.get('CHROME_BIN') or shutil.which('chromium')
+              or shutil.which('google-chrome')
+              or '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome')
+    node = shutil.which('node')
+    if not Path(chrome).is_file() or not node:
+        pytest.skip('Chrome and Node are required')
     page = tmp_path / 'terminal-lifecycle.html'
     page.write_text('<!doctype html><meta charset="utf-8"><style>'
                     + (STATIC / 'vendor/xterm@5.3.0/xterm.min.css').read_text()
                     + '</style><body><pre id="result">PENDING</pre>' + scripts
-                    + '<script>' + helper + checks + '</script>')
+                    + '<script>' + checks + '</script>')
     profile = tmp_path / 'chrome-profile'
     process = subprocess.Popen([
-        chrome, '--headless', '--disable-gpu', '--no-sandbox', '--no-first-run',
+        chrome, '--headless', *([] if gpu else ['--disable-gpu']), '--no-sandbox', '--no-first-run',
         '--no-default-browser-check', '--allow-file-access-from-files',
         '--user-data-dir=' + str(profile), '--remote-debugging-port=0', 'about:blank',
     ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
@@ -115,3 +119,81 @@ window.addEventListener('error', e => errors.push(e.message));
         process.wait(timeout=5)
     result = re.search(r'<pre id="result">(.*?)</pre>', rendered, re.S)
     assert result and result[1] == 'PASS', result[1] if result else rendered[-1000:]
+
+
+@pytest.mark.parametrize('renderer', ['dom', 'webgl', 'webgl-failure'])
+def test_fresh_terminal_has_fitted_geometry_before_connection(tmp_path, renderer):
+    gpu = renderer != 'dom'
+    source = APP.read_text()
+
+    def section(start, end):
+        offset = source.index(start)
+        return source[offset:source.index(end, offset)]
+
+    helpers = section('  function _termMakeContainer()', '  function _termClipboardImageFile')
+    helpers += section('  function _termSetPaneActive(', '  // ─── Workspace tabs')
+    helpers += section('  function _termGuardViewportDisposal(', '  function termEnsureXterm()')
+    if gpu:
+        helpers += section('  let _termWebglFailed =', '  function termShowEmpty()')
+    else:
+        helpers += 'function _termEnableWebgl() {}\nfunction _termDisableWebgl() {}\n'
+    helpers += 'const USE_GPU=' + str(gpu).lower() + ';\n'
+    helpers += 'const RENDERER_MODE=' + repr(renderer) + ';\n'
+    fresh = section('    const myContainer = _termMakeContainer();', '\n  function termSetStatus')
+    # The extracted block ends with termAttach's closing brace.
+    fresh = fresh.rsplit('  }', 1)[0]
+    scripts = ''.join('<script>' + (STATIC / path).read_text() + '</script>' for path in (
+        'vendor/xterm@5.3.0/xterm.min.js',
+        'vendor/xterm-addon-fit@0.8.0/xterm-addon-fit.min.js',
+        'vendor/xterm-addon-webgl@0.16.0/xterm-addon-webgl.min.js',
+    ))
+    checks = r'''
+const errors=[];window.addEventListener('error',e=>errors.push(e.message));
+const assert=(ok,label)=>{if(!ok)throw Error(label);};
+const frame=()=>new Promise(resolve=>requestAnimationFrame(resolve));
+if(RENDERER_MODE==='webgl-failure') {
+  const getContext=HTMLCanvasElement.prototype.getContext;
+  HTMLCanvasElement.prototype.getContext=function(kind,...args) {
+    return kind.includes('webgl')?null:getContext.call(this,kind,...args);
+  };
+}
+let termXterm,termFitAddon,termContainer,termWS=null;
+const termCurrentSession='owned',termCurrentWorkspaceId='alpha';
+let connections=0,connectionGrid;
+function termSendResize() {}
+function _openWS() {
+  const dims=termFitAddon.proposeDimensions();
+  assert(dims&&dims.cols>2&&dims.rows>2,'connection must not wait for a font measurement frame');
+  termFitAddon.fit();
+  assert(termXterm.cols===dims.cols&&termXterm.rows===dims.rows,'initial grid must match fitted geometry');
+  connectionGrid={cols:termXterm.cols,rows:termXterm.rows};
+  connections++;
+}
+function freshPane(name,workspaceId) {
+''' + fresh + r'''
+}
+(async()=>{
+  const body=document.createElement('div');body.id='termBody';document.body.appendChild(body);
+  for(const [width,height] of [[800,400],[420,250],[1000,600]]) {
+    body.style.cssText=`position:relative;width:${width}px;height:${height}px`;
+    termXterm=new Terminal({fontSize:13,fontFamily:'ui-monospace, SFMono-Regular, Menlo, Monaco, monospace'});
+    _termGuardViewportDisposal(termXterm);
+    termFitAddon=new FitAddon.FitAddon();termXterm.loadAddon(termFitAddon);
+    freshPane('owned','alpha');
+    const gpuExpected=USE_GPU&&RENDERER_MODE!=='webgl-failure';
+    assert(!!termXterm._webglAddon===gpuExpected,'active renderer must match requested/fallback mode');
+    if(RENDERER_MODE==='webgl-failure')assert(_termWebglFailed,'GPU failure must latch the DOM fallback');
+    const renderedGrid=termFitAddon.proposeDimensions();
+    assert(connectionGrid.cols===renderedGrid.cols&&connectionGrid.rows===renderedGrid.rows,'connection geometry must match active renderer: '+JSON.stringify({connectionGrid,renderedGrid}));
+    await new Promise(resolve=>termXterm.write('ready 中 e\u0301',resolve));
+    await frame();await frame();
+    assert(termXterm.buffer.active.getLine(0).translateToString(true)==='ready 中 e\u0301','first output changed');
+    assert(document.activeElement===termXterm.textarea,'active terminal did not receive focus');
+    _termDisableWebgl(termXterm);termXterm.dispose();termContainer.remove();
+    await frame();await frame();
+  }
+  assert(connections===3,'initial connection count changed');assert(!errors.length,errors.join('; '));
+  document.getElementById('result').textContent='PASS';
+})().catch(e=>document.getElementById('result').textContent='FAIL: '+e.stack);
+'''
+    _check_terminal_page(tmp_path, scripts, helpers + checks, gpu=gpu)

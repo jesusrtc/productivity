@@ -320,7 +320,14 @@
     } catch (err) {}
   }
 
-  async function selectRepo(workspaceKey) {
+  function _settleWorkspaceHistory(path) {
+    const url = new URL(window.location);
+    url.searchParams.set('workspace', path);
+    url.searchParams.delete('repo');
+    history.replaceState(null, '', url);
+  }
+
+  async function selectRepo(workspaceKey, {initialLoad = false, historySettled = false} = {}) {
     if (!workspaceKey) return;
     currentWorkspace = workspacesList.find(p => p.path === workspaceKey)
       || workspacesList.find(p => p.name === workspaceKey);
@@ -341,10 +348,7 @@
     // pushState here would create a duplicate history entry, breaking
     // the back button. replaceState normalizes (e.g., ?repo= → ?workspace=)
     // without adding to history.
-    const url = new URL(window.location);
-    url.searchParams.set('workspace', currentWorkspace.path);
-    url.searchParams.delete('repo');
-    history.replaceState(null, '', url);
+    if (!historySettled) _settleWorkspaceHistory(currentWorkspace.path);
 
     renderRepoTabs();
 
@@ -368,8 +372,8 @@
       };
       // Decide synchronously whether a doc or the dashboard will paint
       // the content area. On cold full-page loads, keep the server-rendered
-      // shell isolated from sidebar/dashboard fetches; warm in-app switches
-      // hydrate immediately.
+      // shell isolated from sidebar/dashboard fetches. Explicit navigation
+      // hydrates immediately, including clicks during the first two seconds.
       // Set `_workspaceDocPath` up-front so showWorkspaceInfo's dashboard-paint
       // race guard knows a doc is on its way and doesn't stomp the doc
       // render. If no remembered doc, _workspaceDocPath is null and
@@ -377,16 +381,19 @@
       const remembered = getLastWorkspaceDoc(currentWorkspace.path);
       _workspaceDocPath = remembered || null;
       if (!remembered) paintWorkspaceShell();
-      afterColdPageQuiet(hydrateWorkspaceChrome);
+      if (initialLoad) afterColdPageQuiet(hydrateWorkspaceChrome);
+      else hydrateWorkspaceChrome();
       if (remembered) openWorkspaceDoc(remembered);
       // Workspace-scoped terminal panel: auto-open + attach latest session (if any).
       // Skip under ?ui_check=1 so headless validator reaches network idle.
       if (!(new URLSearchParams(location.search).get('ui_check') === '1')) {
         const terminalWorkspaceId = currentWorkspace.name;
-        afterPageQuiet(() => {
+        const restoreTerminal = () => {
           if (typeof _termIsScopeActive === 'function' && !_termIsScopeActive(terminalWorkspaceId)) return;
           termOpenForWorkspace(terminalWorkspaceId);
-        });
+        };
+        if (initialLoad) afterPageQuiet(restoreTerminal);
+        else restoreTerminal();
       }
       // Re-render workspace tabs so the active highlight tracks the selection.
       if (typeof workspaceTabsRender === 'function') workspaceTabsRender();
@@ -1007,7 +1014,9 @@
   // Escape for use inside an HTML attribute value (double-quoted). Used by
   // sidebar trees that put folder paths into data-* attributes.
   function escAttr(s) {
-    return String(s == null ? '' : s)
+    const value = String(s == null ? '' : s);
+    if (!/[&<>"']/.test(value)) return value;
+    return value
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
@@ -1037,64 +1046,47 @@
 
   // ─── File-type icons (VS Code Explorer-style) ───────────────────────────
   // One shared extension → icon mapping for every sidebar/tree file row.
-  // Inline SVGs styled after the familiar logos (Python snakes, Jupyter
+  // Shared SVGs styled after familiar logos (Python snakes, Jupyter
   // moons, JS/TS squares, markdown mark…) so types read at a glance — no
   // external assets. The markup is a fixed-size span so rows align
   // regardless of icon shape. Symlinked entries get a small corner-arrow
   // overlay (`ft-ln`), mirroring VS Code's symlink icon decoration.
-  const _FT_FONT = "-apple-system,'Segoe UI',Roboto,sans-serif";
-  const _ftDoc = (stroke) => `<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="${stroke}" stroke-width="1.2"><path d="M4 1.5h5.5L13 5v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V2.5a1 1 0 0 1 1-1z"/><path d="M9.5 1.5V5H13"/></svg>`;
-  const _ftBadge = (bg, label, fg) => `<svg viewBox="0 0 16 16" width="14" height="14"><rect width="16" height="16" rx="3" fill="${bg}"/><text x="8" y="11.8" text-anchor="middle" font-size="8.5" font-weight="700" font-family="${_FT_FONT}" fill="${fg}">${label}</text></svg>`;
-  const _ftText = (label, color, size) => `<svg viewBox="0 0 16 16" width="14" height="14"><text x="8" y="12" text-anchor="middle" font-size="${size || 10}" font-weight="700" font-family="${_FT_FONT}" fill="${color}">${label}</text></svg>`;
-  const _FT_SVGS = {
-    // Python: the two interlocked snakes (blue over yellow, white eyes).
-    py: '<svg viewBox="0 0 24 24" width="14" height="14"><path fill="#3776AB" d="M11.9 2c-5 0-4.6 2.2-4.6 2.2v2.3h4.7v.7H5.3S2 6.8 2 11.9c0 5 2.9 4.9 2.9 4.9h1.7v-2.4s-.1-2.9 2.8-2.9h4.7s2.7.1 2.7-2.6V4.7S17.2 2 11.9 2zM9.3 3.4a.9.9 0 1 1 0 1.8.9.9 0 0 1 0-1.8z"/><path fill="#FFD43B" d="M12.1 22c5 0 4.6-2.2 4.6-2.2v-2.3H12v-.7h6.7s3.3.4 3.3-4.7c0-5-2.9-4.9-2.9-4.9h-1.7v2.4s.1 2.9-2.8 2.9h-4.7s-2.7-.1-2.7 2.6v4.2S6.8 22 12.1 22zm2.6-1.4a.9.9 0 1 1 0-1.8.9.9 0 0 1 0 1.8z"/></svg>',
-    // Jupyter: orange top/bottom crescents plus the two grey moons.
-    ipynb: '<svg viewBox="0 0 16 16" width="14" height="14"><path fill="#F37726" d="M8 12.1c-2.1 0-3.9-.9-5-2.2a5.4 5.4 0 0 0 10 0c-1.1 1.3-2.9 2.2-5 2.2zM8 3.9c2.1 0 3.9.9 5 2.2a5.4 5.4 0 0 0-10 0c1.1-1.3 2.9-2.2 5-2.2z"/><circle cx="13" cy="13.2" r="1" fill="#989798"/><circle cx="2.8" cy="2.6" r=".8" fill="#6f7070"/></svg>',
-    // Markdown: rounded box with the M-and-arrow mark.
-    md: '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="#519ABA" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3.2" width="14" height="9.6" rx="1.5"/><path d="M3.4 10.3V5.7l1.9 2.2 1.9-2.2v4.6"/><path d="M11.6 5.9v3M10.2 7.6l1.4 1.7 1.4-1.7"/></svg>',
-    sh: '<svg viewBox="0 0 16 16" width="14" height="14" fill="none"><rect x="1" y="2.2" width="14" height="11.6" rx="1.8" stroke="#4EAA25" stroke-width="1.1"/><path d="M3.8 6l2.1 2-2.1 2M8.4 10.4h3.4" stroke="#4EAA25" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-    csv: '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="#8BC34A" stroke-width="1.1"><rect x="1.5" y="2.5" width="13" height="11" rx="1"/><path d="M1.5 6h13M1.5 9.5h13M6 2.5v11M10.5 2.5v11"/></svg>',
-    // SQL: a compact database cylinder, the common visual shorthand for SQL.
-    sql: '<svg viewBox="0 0 16 16" width="14" height="14" fill="none"><path d="M2 4v8c0 1.1 2.7 2 6 2s6-.9 6-2V4" fill="#4479A1"/><ellipse cx="8" cy="4" rx="6" ry="2.3" fill="#69A7D0"/><path d="M2 8c0 1.1 2.7 2 6 2s6-.9 6-2M2 11c0 1.1 2.7 2 6 2s6-.9 6-2" stroke="#C7E9FF" stroke-width=".9"/></svg>',
-    // Scala: the language's three stacked red ribbon forms.
-    scala: '<svg viewBox="0 0 16 16" width="14" height="14"><path fill="#DE3423" d="M3 1.5c3.4 1 6.5-.1 10-1v4.1c-3.3.9-6.6 2-10 1V1.5zm0 5.1c3.4 1 6.5-.1 10-1v4.1c-3.3.9-6.6 2-10 1V6.6zm0 5.1c3.4 1 6.5-.1 10-1v4.1c-3.3.9-6.6 2-10 1v-4.1z"/></svg>',
-    git: '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="#F05033" stroke-width="1.2"><circle cx="4.5" cy="3.8" r="1.5"/><circle cx="4.5" cy="12.2" r="1.5"/><circle cx="11.5" cy="8" r="1.5"/><path d="M4.5 5.3v5.4M6 8h4" stroke-linecap="round"/></svg>',
-    vid: '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="#A074C4" stroke-width="1.2"><rect x="1.5" y="3" width="13" height="10" rx="1.5"/><path d="M6.5 6l3.5 2-3.5 2z" fill="#A074C4" stroke="none"/></svg>',
-    conf: '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="#A074C4" stroke-width="1.2" stroke-linecap="round"><path d="M2.5 5.2h11M2.5 10.8h11"/><circle cx="6.2" cy="5.2" r="1.5" fill="var(--bg-primary,#111)"/><circle cx="10" cy="10.8" r="1.5" fill="var(--bg-primary,#111)"/></svg>',
-    img: '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="2" y="3" width="12" height="10" rx="1"/><circle cx="5.5" cy="6.5" r="1" fill="currentColor" stroke="none"/><path d="M2.5 11.5l3-2.8 2.8 2.3 2.7-2.5 2.5 2.5"/></svg>',
-  };
   function fileIconHtml(name, node) {
     const base = String(name || '').split('/').pop();
     const lower = base.toLowerCase();
     const ext = lower.includes('.') ? lower.slice(lower.lastIndexOf('.') + 1) : '';
-    let cls, glyph;
-    if ((node && node.type === 'image') || ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'ico', 'bmp'].includes(ext)) { cls = 'ft-img'; glyph = _FT_SVGS.img; }
-    else if (['mp4', 'webm', 'mov', 'm4v'].includes(ext)) { cls = 'ft-vid'; glyph = _FT_SVGS.vid; }
-    else if (ext === 'ipynb') { cls = 'ft-nb'; glyph = _FT_SVGS.ipynb; }
-    else if (ext === 'md' || ext === 'markdown' || ext === 'rst') { cls = 'ft-md'; glyph = _FT_SVGS.md; }
-    else if (ext === 'py') { cls = 'ft-py'; glyph = _FT_SVGS.py; }
-    else if (['js', 'mjs', 'cjs', 'jsx'].includes(ext)) { cls = 'ft-js'; glyph = _ftBadge('#F7DF1E', 'JS', '#222'); }
-    else if (ext === 'ts' || ext === 'tsx') { cls = 'ft-ts'; glyph = _ftBadge('#3178C6', 'TS', '#fff'); }
-    else if (ext === 'json' || ext === 'lock') { cls = 'ft-json'; glyph = _ftText('{}', '#CBCB41'); }
-    else if (['toml', 'yaml', 'yml', 'ini', 'cfg'].includes(ext)) { cls = 'ft-json'; glyph = _FT_SVGS.conf; }
-    else if (['html', 'htm', 'xml'].includes(ext)) { cls = 'ft-html'; glyph = _ftText('&lt;&gt;', '#E44D26', 9); }
-    else if (['css', 'scss', 'less'].includes(ext)) { cls = 'ft-css'; glyph = _ftText('#', '#2965F1', 11); }
-    else if (['sh', 'bash', 'zsh', 'fish'].includes(ext) || lower === 'makefile' || lower === 'dockerfile') { cls = 'ft-sh'; glyph = _FT_SVGS.sh; }
-    else if (ext === 'pdf') { cls = 'ft-pdf'; glyph = _ftDoc('#E5252A'); }
-    else if (ext === 'sql') { cls = 'ft-sql'; glyph = _FT_SVGS.sql; }
-    else if (ext === 'scala') { cls = 'ft-scala'; glyph = _FT_SVGS.scala; }
-    else if (['csv', 'tsv', 'parquet'].includes(ext)) { cls = 'ft-csv'; glyph = _FT_SVGS.csv; }
-    else if (lower.startsWith('.git')) { cls = 'ft-git'; glyph = _FT_SVGS.git; }
-    else { cls = 'ft-generic'; glyph = _ftDoc('currentColor'); }
+    let cls;
+    if ((node && node.type === 'image') || ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'ico', 'bmp'].includes(ext)) { cls = 'ft-img'; }
+    else if (['mp4', 'webm', 'mov', 'm4v'].includes(ext)) { cls = 'ft-vid'; }
+    else if (ext === 'ipynb') { cls = 'ft-nb'; }
+    else if (ext === 'md' || ext === 'markdown' || ext === 'rst') { cls = 'ft-md'; }
+    else if (ext === 'py') { cls = 'ft-py'; }
+    else if (['js', 'mjs', 'cjs', 'jsx'].includes(ext)) { cls = 'ft-js'; }
+    else if (ext === 'ts' || ext === 'tsx') { cls = 'ft-ts'; }
+    else if (ext === 'json' || ext === 'lock') { cls = 'ft-json ft-braces'; }
+    else if (['toml', 'yaml', 'yml', 'ini', 'cfg'].includes(ext)) { cls = 'ft-json ft-conf'; }
+    else if (['html', 'htm', 'xml'].includes(ext)) { cls = 'ft-html'; }
+    else if (['css', 'scss', 'less'].includes(ext)) { cls = 'ft-css'; }
+    else if (['sh', 'bash', 'zsh', 'fish'].includes(ext) || lower === 'makefile' || lower === 'dockerfile') { cls = 'ft-sh'; }
+    else if (ext === 'pdf') { cls = 'ft-pdf'; }
+    else if (ext === 'sql') { cls = 'ft-sql'; }
+    else if (ext === 'scala') { cls = 'ft-scala'; }
+    else if (['csv', 'tsv', 'parquet'].includes(ext)) { cls = 'ft-csv'; }
+    else if (lower.startsWith('.git')) { cls = 'ft-git'; }
+    else { cls = 'ft-generic'; }
     const ln = node && node.is_symlink ? ' ft-ln' : '';
-    return `<span class="ft-icon ${cls}${ln}" aria-hidden="true">${glyph}</span>`;
+    return `<span class="ft-icon ${cls}${ln}" aria-hidden="true"></span>`;
   }
 
   function buildSidebarTree(entries) {
     const tree = {};
+    // A fresh lookup belongs to this build only. Files in the same folder
+    // can share its node without splitting and walking the parent again.
+    const directories = new Map([['', tree]]);
     const ensureDir = (path, meta = null) => {
-      const parts = String(path || '').split('/').filter(Boolean);
+      path = String(path || '');
+      if (!meta && directories.has(path)) return directories.get(path);
+      const parts = path.split('/').filter(Boolean);
       let node = tree;
       let fullPath = '';
       parts.forEach((part, idx) => {
@@ -1105,14 +1097,16 @@
         }
         node = node[part];
       });
+      // Complete all directory metadata before retaining file-parent lookups.
+      if (!meta) directories.set(path, node);
       return node;
     };
     (entries || []).filter(e => e && e.type === 'dir').forEach(d => ensureDir(d.path || d.name, d));
     (entries || []).filter(e => e && e.type !== 'dir').forEach(f => {
-      const path = String(f.path || f.name || '');
-      const parts = path.split('/').filter(Boolean);
-      if (!parts.length) return;
-      const parent = ensureDir(parts.slice(0, -1).join('/'));
+      const path = String(f.path || f.name || '').replace(/\/+$/, '');
+      if (!path) return;
+      const slash = path.lastIndexOf('/');
+      const parent = ensureDir(slash < 0 ? '' : path.slice(0, slash));
       parent.__files__ = parent.__files__ || [];
       parent.__files__.push(f);
     });
@@ -1120,23 +1114,23 @@
   }
 
   function _sidebarEntryName(entry) {
-    return String(entry && (entry.path || entry.name) || '').split('/').pop();
+    const path = String(entry && (entry.path || entry.name) || '');
+    return path.slice(path.lastIndexOf('/') + 1);
   }
 
+  const _sidebarNameCollator = new Intl.Collator(undefined, {numeric: true, sensitivity: 'base'});
   function _sidebarCompareNames(a, b) {
-    return String(a || '').localeCompare(String(b || ''), undefined, {
-      numeric: true,
-      sensitivity: 'base',
-    });
+    return _sidebarNameCollator.compare(String(a || ''), String(b || ''));
   }
 
   function _sidebarCompareFiles(a, b, mode = 'name') {
-    const nameA = _sidebarEntryName(a);
-    const nameB = _sidebarEntryName(b);
     if (mode === 'updated') {
       const updated = Number(b && b.mtime || 0) - Number(a && a.mtime || 0);
       if (updated) return updated;
-    } else if (mode === 'type') {
+    }
+    const nameA = _sidebarEntryName(a);
+    const nameB = _sidebarEntryName(b);
+    if (mode === 'type') {
       const type = _sidebarCompareNames(_sidebarFileExtension(nameA), _sidebarFileExtension(nameB));
       if (type) return type;
     }
@@ -1174,8 +1168,8 @@
 
   // ─── Explorer secondary-click menu ────────────────────────────────────
   // One delegated menu serves the workspace, vault, framework, and repo
-  // trees. Rows opt in with data-entry-kind/path; virtual rows (servers,
-  // external links, Overview) deliberately do not expose filesystem actions.
+  // trees. Rows opt in with data-entry-kind/path or data-open-file/filepath.
+  // Virtual rows (servers, external links, Overview) expose no file actions.
   let _explorerContext = null;
   let _explorerEntryState = null;
   let _explorerDeleteState = null;
@@ -1235,8 +1229,11 @@
 
   function _explorerContextFromRow(row) {
     if (!row) return null;
-    const kind = row.getAttribute('data-entry-kind');
-    const path = row.getAttribute('data-entry-path');
+    // Ordinary sidebar rows already carry their file identity for opening.
+    // Reuse it for context/drag actions instead of duplicating two attributes
+    // across every normal and Recently updated row.
+    const kind = row.getAttribute('data-entry-kind') || (row.hasAttribute('data-open-file') ? 'file' : null);
+    const path = row.getAttribute('data-entry-path') ?? row.getAttribute('data-filepath');
     if (!kind || !path) return null;
     const isRepoTree = row.classList.contains('tree-file') || row.classList.contains('tree-dir');
     const root = row.getAttribute('data-entry-root')
@@ -1913,7 +1910,7 @@
   window.closeExplorerHistory = closeExplorerHistory;
 
   document.addEventListener('contextmenu', (event) => {
-    const row = event.target.closest('[data-entry-kind][data-entry-path]');
+    const row = event.target.closest('[data-entry-kind][data-entry-path], [data-open-file][data-filepath]');
     if (row) openExplorerContextMenu(event, row);
   });
   document.addEventListener('click', (event) => {
@@ -2011,6 +2008,8 @@
     const arrow = btn.querySelector('.folder-arrow');
     if (arrow) arrow.classList.toggle('open', isOpen);
     if (scope && path) _treeSetOpen(scope, path, isOpen);
+    const sidebar = isOpen ? children.closest('#sidebar') : null;
+    if (sidebar) _primeSidebarLayout(sidebar);
   }
 
   function applyIframeDarkMode(iframe) {
@@ -3205,7 +3204,9 @@
         // folders with no files and exactly one child is one visual row.
         // Stop at a real branch so siblings such as core/src and core/tests
         // remain immediately recognizable.
-        while (treeFiles(child).length === 0) {
+        // Compaction only needs emptiness; sorting a large leaf here repeats
+        // the full sort that compactNode performs immediately afterward.
+        while (!(child.__files__ && child.__files__.length)) {
           const childFolders = treeFolderNames(child, sortMode);
           if (childFolders.length !== 1) break;
           const next = childFolders[0];
@@ -3226,7 +3227,8 @@
     return compactNode(buildSidebarTree(files), '');
   }
 
-  const _SIDEBAR_GITHUB_ICON = '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 .2a8 8 0 0 0-2.53 15.59c.4.07.55-.18.55-.39 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82A7.5 7.5 0 0 1 8 4.03c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.47.55.39A8 8 0 0 0 8 .2Z"/></svg>';
+  // The same silhouette is decoded once by CSS rather than reparsed in every row.
+  const _SIDEBAR_GITHUB_ICON = '<span class="sidebar-github-icon" aria-hidden="true"></span>';
 
   function sidebarOpenRepositoryHistory(button) {
     const baseRoot = button && button.getAttribute('data-base-root');
@@ -3241,9 +3243,11 @@
   window.sidebarOpenRepositoryHistory = sidebarOpenRepositoryHistory;
 
   function _sidebarGitHistoryButtonHtml(path, root = '') {
-    const safePath = String(path || '').replace(/'/g, "\\'");
-    const safeRoot = String(root || '').replace(/'/g, "\\'");
-    return `<span class="sidebar-actions"><button class="sidebar-git-history" type="button" onclick="event.preventDefault();event.stopPropagation();openSidebarFileHistory('${safePath}','${safeRoot}')" ondblclick="event.preventDefault();event.stopPropagation()" title="View Git history, including uncommitted changes" aria-label="View Git history for ${escAttr(path)}">${_SIDEBAR_GITHUB_ICON}</button></span>`;
+    return `<button class="sidebar-actions sidebar-git-history" type="button" title="View Git history, including uncommitted changes" aria-label="View Git history for ${escAttr(path)}"></button>`;
+  }
+
+  function _sidebarPinButtonHtml(name, pinned) {
+    return `<button class="sidebar-actions sidebar-pin" type="button" data-pin-name="${escAttr(name)}" title="${pinned ? 'Unpin' : 'Pin to top'}">${pinned ? '&#x2716;' : '&#x1F4CC;'}</button>`;
   }
 
   function openSidebarFileHistory(path, root = '') {
@@ -3258,7 +3262,7 @@
   }
   window.openSidebarFileHistory = openSidebarFileHistory;
 
-  function _sidebarRecentSectionHtml(files, activePath, root = '', {resolved = false} = {}) {
+  function _sidebarRecentSectionHtml(files, activePath, root = '', {resolved = false, parts = null, offset = 0} = {}) {
     const recent = resolved ? (files || []) : _sidebarRecentFiles(files);
     if (!recent.length) return '';
     let html = `<div class="sidebar-title sidebar-title-with-action"><span>Recently updated <span class="sidebar-title-count">${recent.length}</span></span><span class="sidebar-title-actions">${_sidebarSortSelectHtml('recent')}</span></div>`;
@@ -3268,24 +3272,45 @@
 
     const renderNode = node => {
       let nodeHtml = '';
+      const nodeParts = [];
+      let rows = node.files.length;
       node.folders.forEach(folder => {
-        const fid = 'recent-folder-' + Math.random().toString(36).slice(2, 8);
+        const fid = 'recent-folder-' + encodeURIComponent(JSON.stringify([scope, folder.path]));
         const open = _treeIsOpen(scope, folder.path, true);
+        const children = renderNode(folder.children);
+        rows += 1 + (open ? children.rows : 0);
         nodeHtml += `<div class="sidebar-folder sidebar-recent-folder" data-tree-scope="${escAttr(scope)}" data-tree-path="${escAttr(folder.path)}" data-tree-target="${fid}" data-entry-root="${escAttr(scopeRoot)}" onclick="_treeToggleFolder(this,event)" title="${escAttr(folder.path)} · Cmd-click to browse files"><span class="folder-arrow${open ? ' open' : ''}">&#9654;</span>${esc(folder.label)}/</div>`;
-        nodeHtml += `<div class="sidebar-folder-children${open ? ' open' : ''}" id="${fid}">${renderNode(folder.children)}</div>`;
+        const start = nodeHtml.length;
+        nodeHtml += `<div class="sidebar-folder-children sidebar-recent-children${open ? ' open' : ''}" id="${fid}" style="contain-intrinsic-block-size:auto ${children.rows * 22}px">`;
+        if (parts) {
+          const childOffset = nodeHtml.length;
+          children.parts.forEach(part => nodeParts.push({id: part.id, start: childOffset + part.start, end: childOffset + part.end}));
+        }
+        nodeHtml += children.html + '</div>';
+        if (parts) nodeParts.push({id: fid, start, end: nodeHtml.length});
       });
-      node.files.forEach(file => {
+      // Flat folders also need bounded offscreen groups. These plain blocks
+      // retain every row and add no indentation or visible hierarchy.
+      const groupFiles = node.files.length > 200;
+      node.files.forEach((file, index) => {
+        if (groupFiles && index % 100 === 0) {
+          nodeHtml += `<div class="sidebar-recent-children" style="contain-intrinsic-block-size:auto ${Math.min(100, node.files.length - index) * 22}px">`;
+        }
         const path = String(file.path || file.name || '');
-        const safePath = path.replace(/'/g, "\\'");
         const base = path.split('/').pop();
         const activeCls = activePath === path ? ' active' : '';
-        const safeRoot = String(scopeRoot).replace(/'/g, "\\'");
-        nodeHtml += `<a class="sidebar-file sidebar-file-recent${activeCls}${symlinkClass(file)}" data-filepath="${esc(path)}" draggable="true" data-entry-kind="file" data-entry-path="${escAttr(path)}" data-entry-root="${escAttr(scopeRoot)}"${symlinkTitle(file)} onclick="openWorkspaceDocFromFileClick('${safePath}',{root:'${safeRoot}'})" ondblclick="event.stopPropagation();openWorkspaceDocModal('${safePath}',{root:'${safeRoot}'})" title="Recently updated · ${escAttr(path)}"><span class="sidebar-fname">${symlinkMarker(file)}${fileIconHtml(base, file)}${esc(base)}</span>${_sidebarGitHistoryButtonHtml(path, scopeRoot)}</a>`;
+        nodeHtml += `<a class="sidebar-file sidebar-file-recent${activeCls}${symlinkClass(file)}" data-filepath="${escAttr(path)}" draggable="true" data-entry-root="${escAttr(scopeRoot)}"${symlinkTitle(file)} data-open-file title="Recently updated · ${escAttr(path)}"><span class="sidebar-fname">${symlinkMarker(file)}${fileIconHtml(base, file)}${esc(base)}</span>${_sidebarGitHistoryButtonHtml(path, scopeRoot)}</a>`;
+        if (groupFiles && (index % 100 === 99 || index === node.files.length - 1)) nodeHtml += '</div>';
       });
-      return nodeHtml;
+      return {html: nodeHtml, rows, parts: nodeParts};
     };
 
-    html += renderNode(tree);
+    const rendered = renderNode(tree);
+    if (parts) {
+      const childOffset = offset + html.length;
+      rendered.parts.forEach(part => parts.push({id: part.id, start: childOffset + part.start, end: childOffset + part.end}));
+    }
+    html += rendered.html;
     return html;
   }
 
@@ -8000,8 +8025,41 @@
   }
   window.openWorkspaceDocFromFileClick = openWorkspaceDocFromFileClick;
 
+  // Reuse the path/root already carried for drag and context-menu actions.
+  // Thousands of duplicate inline handlers make large file trees costly to parse.
+  function _sidebarHandleFileAction(event) {
+    const row = event.target.closest('.sidebar-file[data-open-file]');
+    if (!row || !event.currentTarget.contains(row)) return;
+    const path = row.getAttribute('data-filepath');
+    const root = row.getAttribute('data-entry-root');
+    if (!path) return;
+    const pin = event.target.closest('.sidebar-pin');
+    if (pin && event.type === 'click') {
+      event.stopPropagation();
+      togglePin(pin.getAttribute('data-pin-name'));
+      return;
+    }
+    if (event.target.closest('.sidebar-git-history')) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.type === 'click') openSidebarFileHistory(path, root);
+      return;
+    }
+    if (event.type === 'dblclick') {
+      event.stopPropagation();
+      openWorkspaceDocModal(path, {root});
+    } else {
+      openWorkspaceDocFromFileClick(path, {root});
+    }
+  }
+  document.getElementById('sidebar')?.addEventListener('click', _sidebarHandleFileAction);
+  document.getElementById('sidebar')?.addEventListener('dblclick', _sidebarHandleFileAction);
+
   async function openWorkspaceDoc(filepath, {preserveScroll = false, root = null} = {}) {
     if (!currentWorkspace) return;
+    // A poll or index event may arrive after the editor opens. Refreshes must
+    // not reset its state or replace the draft; explicit navigation still can.
+    if (preserveScroll && _workspaceDocEditing) return;
     if (!preserveScroll) window.AssistantView?.closeInlineDocument();
     _clearNbNavigation();
     // Pseudo-paths starting with `__proxy__/` are not real files — they
@@ -8058,7 +8116,8 @@
       // of stomping the new view.
       const _navWorkspacePath = currentWorkspace.path;
       const _stillActiveNav = () => (
-        _workspaceDocPath === filepath && currentWorkspace && currentWorkspace.path === _navWorkspacePath
+        !_workspaceDocEditing
+        && _workspaceDocPath === filepath && currentWorkspace && currentWorkspace.path === _navWorkspacePath
         && _workspaceDocRoot === docRoot
       );
       // Notebooks, images, video, and HTML iframes have no meaningful _workspaceDocContent
@@ -8761,14 +8820,33 @@
     const editCtr = _workspaceDocEditContainer;
     const ta = editCtr ? editCtr.querySelector('#workspaceDocEditor') : document.getElementById('workspaceDocEditor');
     if (!ta || !currentWorkspace) return;
+    const workspacePath = currentWorkspace.path;
+    const docRoot = _workspaceDocRoot || workspacePath;
+    const savedContent = ta.value;
+    const cacheKey = _workspaceDocCacheKey(docRoot, filepath);
+    const cached = _workspaceDocCache.get(cacheKey);
     try {
       const res = await fetch('/api/workspace-file', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: _workspaceDocRoot || currentWorkspace.path, file: filepath, content: ta.value }),
+        body: JSON.stringify({ path: docRoot, file: filepath, content: savedContent }),
       });
       if (!res.ok) { const e = await res.json(); alert(e.detail || 'Error saving'); return; }
-      _workspaceDocContent = ta.value;
+      // Publish only the confirmed content, preserving comments/artifact data
+      // and any newer cache entry. The inline refresh below still reads fresh
+      // data, but its warm paint must not restore the pre-save document first.
+      if (cached && _workspaceDocCache.get(cacheKey) === cached) {
+        _workspaceDocCache.set(cacheKey, {...cached, content: savedContent});
+      }
+      // A delayed save owns its original editor, not a newly opened document,
+      // workspace, or draft typed while the write was pending.
+      if (currentWorkspace?.path !== workspacePath
+          || (_workspaceDocRoot || currentWorkspace.path) !== docRoot
+          || _workspaceDocPath !== filepath
+          || _workspaceDocEditContainer !== editCtr
+          || (editCtr ? editCtr.querySelector('#workspaceDocEditor') : document.getElementById('workspaceDocEditor')) !== ta
+          || ta.value !== savedContent) return;
+      _workspaceDocContent = savedContent;
       _workspaceDocEditing = false;
       _workspaceDocEditContainer = null;
       // Re-render modal in read mode with saved content, then refresh inline pane.
@@ -8921,8 +8999,10 @@
 
   async function togglePin(filename) {
     if (!currentWorkspace) return;
+    const workspacePath = currentWorkspace.path;
     try {
-      const infoRes = await fetch(`/api/workspace-info?path=${encodeURIComponent(currentWorkspace.path)}`);
+      const infoRes = await fetch(`/api/workspace-info?path=${encodeURIComponent(workspacePath)}`);
+      if (!infoRes.ok) return;
       const info = await infoRes.json();
       let pinned = Array.isArray(info.pinned) ? [...info.pinned] : [];
       const idx = pinned.indexOf(filename);
@@ -8932,12 +9012,17 @@
         pinned.push(filename);
       }
       info.pinned = pinned;
-      await fetch(`/api/workspace-info`, {
+      const saved = await fetch(`/api/workspace-info`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: currentWorkspace.path, data: info }),
+        body: JSON.stringify({ path: workspacePath, data: info }),
       });
-      showWorkspaceInfo();
+      if (!saved.ok) return;
+      // The write is confirmed. Warm paint can use the new pins immediately;
+      // the usual refresh still reads fresh files and workspace metadata.
+      const cached = _workspaceSidebarCache.get(workspacePath);
+      if (cached) _workspaceSidebarCache.set(workspacePath, {...cached, pinned});
+      if (currentWorkspace?.path === workspacePath) showWorkspaceInfo();
     } catch(e) {}
   }
 
@@ -9033,8 +9118,10 @@
   }
 
   function _gitSetRowClass(row, cls) {
-    _GIT_ROW_CLASSES.forEach(c => { if (c !== cls) row.classList.remove(c); });
-    if (cls) row.classList.add(cls);
+    _GIT_ROW_CLASSES.forEach(c => {
+      if (c !== cls && row.classList.contains(c)) row.classList.remove(c);
+    });
+    if (cls && !row.classList.contains(cls)) row.classList.add(cls);
   }
 
   function _sidebarPlaceGitBadge(row, badge) {
@@ -9042,8 +9129,62 @@
     // the variable-width Git status immediately before it so every GitHub
     // icon lands in the same final column.
     const actions = row.querySelector('.sidebar-actions');
-    if (actions) row.insertBefore(badge, actions);
-    else row.appendChild(badge);
+    if (actions) {
+      if (badge.parentNode !== row || badge.nextSibling !== actions) row.insertBefore(badge, actions);
+    } else if (badge.parentNode !== row || badge !== row.lastChild) row.appendChild(badge);
+  }
+
+  function _sidebarGitStatusIndex(files, ignored) {
+    // Git can report an added/untracked directory as one entry. Index its
+    // inheritance and folder rollups once instead of scanning every Git key
+    // for each file and its Recently updated shortcut.
+    const keys = Object.keys(files), inherited = new Map(), folders = new Map();
+    keys.forEach((path, order) => {
+      const status = files[path];
+      if (status === 'U' || status === 'A') inherited.set(path, {status, order});
+      const folderStatus = status === 'M' || status === 'D' || status === 'R' ? 'M' : 'U';
+      for (let slash = path.indexOf('/'); slash >= 0; slash = path.indexOf('/', slash + 1)) {
+        const parent = path.slice(0, slash);
+        if (folders.get(parent) !== 'M') folders.set(parent, folderStatus);
+      }
+    });
+    const ignoredPaths = new Set(ignored.map(path => path.replace(/\/+$/, '')).filter(Boolean));
+    return {
+      empty: !keys.length && !ignoredPaths.size,
+      statusFor(path) {
+        if (files[path]) return files[path];
+        let match = null;
+        for (let slash = path.indexOf('/'); slash >= 0; slash = path.indexOf('/', slash + 1)) {
+          const ancestor = inherited.get(path.slice(0, slash));
+          // Preserve the original key-order precedence for overlapping added
+          // or untracked directories; an exact file status still wins above.
+          if (ancestor && (!match || ancestor.order < match.order)) match = ancestor;
+        }
+        return match ? match.status : '';
+      },
+      isIgnored(path) {
+        if (ignoredPaths.has(path)) return true;
+        for (let slash = path.indexOf('/'); slash >= 0; slash = path.indexOf('/', slash + 1)) {
+          if (ignoredPaths.has(path.slice(0, slash))) return true;
+        }
+        return false;
+      },
+      folderStatus: path => folders.get(path) || '',
+    };
+  }
+
+  function _sidebarGitRows(sidebar, selector, badgeClass, onlyDecorated) {
+    if (!onlyDecorated) return sidebar.querySelectorAll(selector);
+    // A clean result only needs to clear old decorations. Avoid JS work for
+    // every pristine row, including the duplicate Recently updated shortcuts.
+    const selectors = _GIT_ROW_CLASSES.map(cls => selector + '.' + cls);
+    selectors.push(selector + ' ' + badgeClass);
+    const rows = new Set();
+    sidebar.querySelectorAll(selectors.join(',')).forEach(node => {
+      const row = node.closest(selector);
+      if (row) rows.add(row);
+    });
+    return rows;
   }
 
   function _sidebarApplyGitStatus(entry) {
@@ -9051,28 +9192,16 @@
     if (!sidebar) return;
     const files = (entry && entry.files) || {};
     const ignored = (entry && entry.ignored) || [];
-    const keys = Object.keys(files);
-    const isIgnored = p => ignored.some(pre => {
-      const base = pre.replace(/\/+$/, '');
-      return base && (p === base || p.startsWith(base + '/'));
-    });
-    // Untracked directories come back as ONE entry ("newdir": "U") with no
-    // per-file children — decorations inherit down to everything under it.
-    const statusFor = p => {
-      if (files[p]) return files[p];
-      for (const k of keys) {
-        if ((files[k] === 'U' || files[k] === 'A') && p.startsWith(k + '/')) return files[k];
-      }
-      return '';
-    };
+    const index = _sidebarGitStatusIndex(files, ignored);
+    const fileRoot = _sidebarScopedRoot(currentWorkspace.path);
 
-    sidebar.querySelectorAll('.sidebar-file[data-filepath]').forEach(row => {
+    _sidebarGitRows(sidebar, '.sidebar-file[data-filepath]', '.git-badge', index.empty).forEach(row => {
       // Workspace instructions can remain visible beside another checkout.
-      if (row.dataset.entryRoot && row.dataset.entryRoot !== _sidebarScopedRoot(currentWorkspace.path)) return;
+      if (row.dataset.entryRoot && row.dataset.entryRoot !== fileRoot) return;
       const p = row.getAttribute('data-filepath');
       if (!p || p.startsWith('__proxy__/')) return;
-      const st = statusFor(p);
-      const cls = st ? _gitRowClass(st) : (isIgnored(p) ? 'git-ignored' : '');
+      const st = index.statusFor(p);
+      const cls = st ? _gitRowClass(st) : (index.isIgnored(p) ? 'git-ignored' : '');
       _gitSetRowClass(row, cls);
       const want = st && cls && cls !== 'git-ignored' ? st : '';
       let badge = row.querySelector('.git-badge');
@@ -9083,7 +9212,8 @@
         }
         _sidebarPlaceGitBadge(row, badge);
         if (badge.textContent !== want) badge.textContent = want;
-        badge.title = _GIT_BADGE_TITLES[want] || want;
+        const title = _GIT_BADGE_TITLES[want] || want;
+        if (badge.title !== title) badge.title = title;
       } else if (badge) {
         badge.remove();
       }
@@ -9094,23 +9224,16 @@
     // gitignored — plus a right-edge dot badge. Workspace-scoped folders only
     // (the shared `.claude/`, `.agents/`, `code/` meta trees live outside
     // the workspace and keep their plain styling).
-    sidebar.querySelectorAll('.sidebar-folder[data-tree-scope^="workspace:"]').forEach(row => {
+    _sidebarGitRows(sidebar, '.sidebar-folder[data-tree-scope^="workspace:"]', '.git-dot', index.empty).forEach(row => {
       const p = row.getAttribute('data-tree-path') || '';
       let cls = '';
-      if (p && statusFor(p)) {
-        cls = _gitRowClass(statusFor(p));
-      } else if (p && isIgnored(p)) {
+      const status = p && index.statusFor(p);
+      if (status) {
+        cls = _gitRowClass(status);
+      } else if (p && index.isIgnored(p)) {
         cls = 'git-ignored';
       } else if (p) {
-        let worst = '';
-        for (const k of keys) {
-          if (k.startsWith(p + '/')) {
-            const s = files[k];
-            if (s === 'M' || s === 'D' || s === 'R') { worst = 'M'; break; }
-            worst = 'U';
-          }
-        }
-        cls = worst === 'M' ? 'git-m' : worst === 'U' ? 'git-u' : '';
+        cls = _gitRowClass(index.folderStatus(p));
       }
       _gitSetRowClass(row, cls);
       const wantDot = !!cls && cls !== 'git-ignored';
@@ -9126,14 +9249,14 @@
     });
   }
 
-  // Repaints synchronously from cache (a sidebar rebuild wipes the DOM
-  // classes), then refreshes from the server unless the cache is fresh.
-  async function _sidebarGitStatusRefresh() {
+  // Rebuilt rows need cached decorations; retained rows already have them.
+  // Both paths still fetch and apply current status once the cache is stale.
+  async function _sidebarGitStatusRefresh({repaint = true} = {}) {
     if (!currentWorkspace || !currentWorkspace.is_workspace || !currentWorkspace.path) return;
     const basePath = currentWorkspace.path;
     const path = _sidebarScopedRoot(basePath);
     const cached = _gitStatusByPath.get(path);
-    if (cached) _sidebarApplyGitStatus(cached);
+    if (cached && repaint) _sidebarApplyGitStatus(cached);
     if (cached && (Date.now() - cached.ts) < _GIT_STATUS_MIN_MS) return;
     if (_gitStatusInFlight) return;
     _gitStatusInFlight = true;
@@ -9153,44 +9276,299 @@
     }
   }
 
+  // Parsing thousands of file rows on every workspace switch is expensive.
+  // Keep pristine, detached templates, never live nodes: cloning cannot revive
+  // stale selection, Git badges, control state, or event listeners from a visit.
+  // Exact markup equality covers file/scope/configuration changes. Both entry
+  // count and retained element count are bounded across all workspaces.
+  const _sidebarMarkupCache = new Map();
+  const _sidebarMountedMarkup = new WeakMap();
+  let _sidebarMarkupCacheElements = 0;
+  const _SIDEBAR_MARKUP_CACHE_ENTRIES = 4;
+  const _SIDEBAR_MARKUP_CACHE_ELEMENTS = 60000;
+  function _buildSidebarMarkupTemplate(markup, parts, previous, equalSources, beforeTransfer = null) {
+    // Parts are balanced folder elements with offsets supplied by the renderer.
+    // Prefer the largest equal subtree; when a folder changed, its unchanged
+    // descendants remain candidates. Compare exact source HTML, not live DOM.
+    const ordered = [...parts].sort((a, b) => a.start - b.start || b.end - a.end);
+    const reused = [], chunks = [];
+    let cursor = 0;
+    if (previous?.parts && !/data-sidebar-part/i.test(markup)) for (const part of ordered) {
+      if (part.start < cursor) continue;
+      const old = previous.parts.get(part.id);
+      if (!old || part.end - part.start !== old.end - old.start
+          || markup.slice(part.start, part.end) !== previous.markup.slice(old.start, old.end)) continue;
+      chunks.push(markup.slice(cursor, part.start), `<template data-sidebar-part="${reused.length}"></template>`);
+      reused.push(old.node);
+      cursor = part.end;
+    }
+    chunks.push(markup.slice(cursor));
+    const template = document.createElement('template');
+    template.innerHTML = chunks.join('');
+    let elements = template.content.querySelectorAll('*').length;
+    if (reused.length) template.content.querySelectorAll('template[data-sidebar-part]').forEach(marker => {
+      const source = reused[Number(marker.dataset.sidebarPart)];
+      equalSources.set(marker, source);
+      // The marker and source each contribute one root element.
+      elements += source.querySelectorAll('*').length;
+    });
+    // Reconcile while the old template is still intact. Unchanged folders are
+    // represented by markers referencing their pristine source. Afterward the
+    // retired template can donate those nodes without cloning thousands of
+    // descendants. Only detached templates participate, never live rows.
+    if (beforeTransfer && elements <= _SIDEBAR_MARKUP_CACHE_ELEMENTS) beforeTransfer(template.content);
+    for (const [marker, source] of equalSources) marker.replaceWith(source);
+    // Retain offsets and references into this one pristine template, not a
+    // second set of subtree copies or overlapping fragment strings.
+    const indexed = new Map();
+    const nodesById = new Map(Array.from(template.content.querySelectorAll('[id]'), node => [node.id, node]));
+    for (const part of ordered) {
+      const node = nodesById.get(part.id);
+      if (node) indexed.set(part.id, {...part, node});
+    }
+    return {markup, template, parts: indexed, elements};
+  }
+
+  function _sidebarMarkupNodeKey(node) {
+    if (node.nodeType !== 1) return node.nodeType + ':' + node.nodeValue;
+    if (node.id) return node.nodeName + ':id:' + node.id;
+    const path = node.getAttribute('data-filepath');
+    if (path !== null) return node.nodeName + ':file:' + (node.classList.contains('sidebar-file-recent') ? 'recent:' : '')
+      + (node.getAttribute('data-entry-root') || '') + '\0' + path;
+    const treePath = node.getAttribute('data-tree-path');
+    if (treePath !== null) return node.nodeName + ':folder:' + (node.getAttribute('data-tree-scope') || '') + '\0' + treePath;
+    return node.nodeName + ':class:' + (node.getAttribute('class') || '');
+  }
+
+  function _cloneSidebarMarkupNode(node, equalSources) {
+    const source = equalSources.get(node);
+    if (source) return source.cloneNode(true);
+    const clone = node.cloneNode(true);
+    // A changed/new parent or a mismatched live container may contain reused
+    // descendants. Expand their markers in the live clone without consuming the
+    // sources that reconciliation still needs in the old detached template.
+    if (equalSources.size && node.querySelectorAll) {
+      const markers = node.querySelectorAll('template[data-sidebar-part]');
+      const copies = clone.querySelectorAll('template[data-sidebar-part]');
+      markers.forEach((marker, index) => {
+        const original = equalSources.get(marker);
+        if (original) copies[index].replaceWith(original.cloneNode(true));
+      });
+    }
+    return clone;
+  }
+
+  // Compare pristine templates, not decorated live rows. Retain equal sections
+  // and reconcile known tree containers so a change in one folder does not
+  // discard thousands of unchanged file rows elsewhere. No template is moved
+  // into the live DOM or decorated, and explicit navigation still uses clones.
+  function _reconcileSidebarChildren(parent, previous, next, changes) {
+    const oldNodes = [...previous.childNodes], liveNodes = [...parent.childNodes];
+    if (oldNodes.length !== liveNodes.length) return false;
+    const buckets = new Map();
+    for (let i = 0; i < oldNodes.length; i++) {
+      const key = _sidebarMarkupNodeKey(oldNodes[i]);
+      if (_sidebarMarkupNodeKey(liveNodes[i]) !== key) return false;
+      if (!buckets.has(key)) buckets.set(key, {nodes: [], used: 0});
+      buckets.get(key).nodes.push({source: oldNodes[i], live: liveNodes[i]});
+    }
+    let cursor = parent.firstChild;
+    for (const node of next.childNodes) {
+      const source = changes.equalSources.get(node) || node;
+      const bucket = buckets.get(_sidebarMarkupNodeKey(source));
+      const match = bucket && bucket.nodes[bucket.used++];
+      let desired;
+      if (match && (source === match.source || match.source.isEqualNode(source))) desired = match.live;
+      else if (match && node.nodeType === 1
+          && node.matches('.sidebar-folder-children,.sidebar-recent-children,.sidebar-worktree-scope')
+          && match.source.matches('.sidebar-folder-children,.sidebar-recent-children,.sidebar-worktree-scope')
+          && _reconcileSidebarChildren(match.live, match.source, node, changes)) {
+        // Counts, expanded state, and scope colors can change without making
+        // the unchanged children disposable. Apply only template differences.
+        for (const attr of match.source.attributes) {
+          if (!node.hasAttribute(attr.name)) match.live.removeAttribute(attr.name);
+        }
+        for (const attr of node.attributes) {
+          if (match.source.getAttribute(attr.name) !== attr.value) match.live.setAttribute(attr.name, attr.value);
+        }
+        desired = match.live;
+      }
+      if (!desired) {
+        desired = _cloneSidebarMarkupNode(node, changes.equalSources);
+        changes.cloned = true;
+      }
+      if (desired === cursor) cursor = cursor.nextSibling;
+      else if (desired.isConnected && typeof parent.moveBefore === 'function') parent.moveBefore(desired, cursor);
+      else parent.insertBefore(desired, cursor);
+    }
+    while (cursor) {
+      const removed = cursor; cursor = cursor.nextSibling; removed.remove();
+    }
+    return true;
+  }
+
+  function _replaceWorkspaceSidebarMarkup(sidebar, markup, scope, preserveLive = false, parts = []) {
+    // Background refreshes still build current markup (including selection,
+    // folders, settings, and notebook activity). If it is unchanged, retain
+    // the live rows and their focus/hover/Git state instead of cloning and
+    // laying out the whole tree again. A view replacement invalidates this
+    // identity even when a later workspace produces the same HTML.
+    const mounted = _sidebarMountedMarkup.get(sidebar);
+    const mountedIsCurrent = mounted && mounted.scope === scope
+        && mounted.first === sidebar.firstChild && mounted.last === sidebar.lastChild
+        && mounted.count === sidebar.childNodes.length;
+    if (preserveLive && mountedIsCurrent && mounted.markup === markup) return false;
+    const remember = () => {
+      _sidebarMountedMarkup.set(sidebar, {
+        scope, markup, first: sidebar.firstChild, last: sidebar.lastChild, count: sidebar.childNodes.length,
+      });
+      _primeSidebarLayout(sidebar);
+    };
+    let cached = _sidebarMarkupCache.get(scope);
+    // This identity proof lives only during this synchronous replacement;
+    // retaining it in the cache would keep older template subtrees alive.
+    const changes = {cloned: false, equalSources: new Map()};
+    const previous = preserveLive && mountedIsCurrent && cached?.markup === mounted.markup ? cached : null;
+    const focused = sidebar.contains(document.activeElement) ? document.activeElement : null;
+    let reconciled = false;
+    if (cached) {
+      _sidebarMarkupCache.delete(scope);
+      _sidebarMarkupCacheElements -= cached.elements;
+    }
+    if (!cached || cached.markup !== markup) {
+      cached = _buildSidebarMarkupTemplate(markup, parts, cached, changes.equalSources, previous ? next => {
+        reconciled = _reconcileSidebarChildren(sidebar, previous.template.content, next, changes);
+      } : null);
+    }
+    if (cached.elements > _SIDEBAR_MARKUP_CACHE_ELEMENTS) {
+      sidebar.replaceChildren(cached.template.content);
+      remember();
+      return true;
+    }
+    while (_sidebarMarkupCache.size >= _SIDEBAR_MARKUP_CACHE_ENTRIES
+        || _sidebarMarkupCacheElements + cached.elements > _SIDEBAR_MARKUP_CACHE_ELEMENTS) {
+      const oldest = _sidebarMarkupCache.keys().next().value;
+      _sidebarMarkupCacheElements -= _sidebarMarkupCache.get(oldest).elements;
+      _sidebarMarkupCache.delete(oldest);
+    }
+    _sidebarMarkupCache.set(scope, cached);
+    _sidebarMarkupCacheElements += cached.elements;
+    if (!reconciled) {
+      sidebar.replaceChildren(cached.template.content.cloneNode(true));
+      changes.cloned = true;
+    }
+    // Browsers without moveBefore may blur a retained control when its folder
+    // changes position. Restore only that same surviving element, never a clone.
+    if (focused && focused.isConnected && document.activeElement !== focused) focused.focus({preventScroll: true});
+    remember();
+    // Pure moves/deletions retain existing Git classes and badges. Reapply
+    // cached decorations only when a pristine node was actually mounted.
+    return changes.cloned;
+  }
+
+  const _sidebarLayoutJobs = new WeakMap();
+  function _cancelSidebarLayout(sidebar) {
+    if (!sidebar) return;
+    const previous = _sidebarLayoutJobs.get(sidebar);
+    if (previous) {
+      if (typeof cancelIdleCallback === 'function') cancelIdleCallback(previous.handle);
+      previous.groups.length = 0;
+      previous.first = previous.last = null;
+    }
+    _sidebarLayoutJobs.delete(sidebar);
+  }
+  function _resetSidebarLayout(sidebar) {
+    if (!sidebar) return;
+    _cancelSidebarLayout(sidebar);
+    sidebar.querySelectorAll('[data-sidebar-layout-ready]').forEach(group => group.removeAttribute('data-sidebar-layout-ready'));
+  }
+  function _primeSidebarLayout(sidebar) {
+    if (!sidebar) return;
+    _cancelSidebarLayout(sidebar);
+    if (!sidebar.isConnected || document.hidden || document.body.classList.contains('sidebar-resizing')
+        || typeof requestIdleCallback !== 'function') return;
+    const groups = Array.from(sidebar.querySelectorAll('.sidebar-recent-children:not([data-sidebar-layout-ready])'));
+    if (!groups.length) return;
+    // Prime one existing group per idle callback. Otherwise native find or
+    // browser content extraction can force every skipped group to lay out in
+    // one long task. Rows and their adaptive sizing stay unchanged; only live
+    // groups are decorated, never the pristine cached templates.
+    const job = {groups, index: 0, handle: null, first: sidebar.firstChild,
+      last: sidebar.lastChild, count: sidebar.childNodes.length};
+    _sidebarLayoutJobs.set(sidebar, job);
+    const finish = () => {
+      if (_sidebarLayoutJobs.get(sidebar) === job) _sidebarLayoutJobs.delete(sidebar);
+      job.groups.length = 0;
+      job.first = job.last = null;
+    };
+    const advance = () => {
+      if (_sidebarLayoutJobs.get(sidebar) !== job || !sidebar.isConnected || document.hidden
+          || sidebar.firstChild !== job.first || sidebar.lastChild !== job.last
+          || sidebar.childNodes.length !== job.count) { finish(); return; }
+      const group = job.groups[job.index++];
+      // Recent files are already grouped into at most 200 direct rows. Very
+      // wide folder containers can exceed that; leave those to normal layout.
+      if (sidebar.contains(group) && group.children.length <= 200
+          && !group.closest('.sidebar-folder-children:not(.open)')) {
+        group.setAttribute('data-sidebar-layout-ready', '');
+        group.getBoundingClientRect();
+      }
+      if (job.index < job.groups.length) job.handle = requestIdleCallback(advance, {timeout: 100});
+      else finish();
+    };
+    job.handle = requestIdleCallback(advance, {timeout: 100});
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) _primeSidebarLayout(document.getElementById('sidebar'));
+  });
+
   // Re-renders just the workspace file sidebar from scratch. Pulled out
   // of showWorkspaceInfo so the mtime poller can call it independently
   // when a doc is open (otherwise newly added files don't appear in the
   // sidebar until the user navigates away and back).
-  async function _refreshWorkspaceSidebar({preserveScroll = false, _data = null, _warmPainted = false} = {}) {
+  let _workspaceSidebarRefreshSequence = 0;
+  async function _refreshWorkspaceSidebar({preserveScroll = false, backgroundRefresh = false, _data = null, _sequence = null, _beforeRender = null, _warmPainted = false} = {}) {
     if (!currentWorkspace || !currentWorkspace.is_workspace) return;
     const sidebar = document.getElementById('sidebar');
     if (!sidebar) return;
     const prevSidebarScroll = preserveScroll ? sidebar.scrollTop : 0;
     const workspacePath = currentWorkspace.path;
     const dotFiles = showWorkspaceDotFiles;
+    const sequence = _sequence ?? ++_workspaceSidebarRefreshSequence;
+    const current = () => sequence === _workspaceSidebarRefreshSequence
+      && currentWorkspace?.path === workspacePath && currentWorkspace.is_workspace
+      && showWorkspaceDotFiles === dotFiles;
     const isAssistant = document.body.classList.contains('assistant-active');
     if (!_data) await _sidebarEnsureWorktrees(workspacePath);
+    if (!current()) return;
     const fileRoot = _sidebarScopedRoot(workspacePath);
+    const ownsSidebar = () => current() && _sidebarScopedRoot(workspacePath) === fileRoot;
     if (_data && _data.fileRoot !== fileRoot) _data = null;
 
-    // Warm switch: when no `_data` override is passed but the cache has
-    // a payload for this workspace, paint instantly from the cache and
-    // then reconcile against the server in the background. The
-    // recursive call with `_data` set skips the fetches entirely so
-    // the second paint only re-runs the render body (no network).
+    // Warm navigation paints cached data immediately, then reconciles fresh
+    // data. Background updates keep the mounted sidebar until the fresh read.
+    // Recursive calls with `_data` only render the supplied payload.
     if (!_data) {
       const cachedPayload = _workspaceSidebarCache.get(workspacePath);
       if (cachedPayload && cachedPayload.fileRoot !== fileRoot) _workspaceSidebarCache.delete(workspacePath);
       if (cachedPayload && cachedPayload.fileRoot === fileRoot) {
-        // Synchronous warm paint — recursive call returns a Promise but
-        // because `_data` short-circuits both fetches, all the render
-        // work happens in the synchronous prefix.
+        // Reuse the mounted scope immediately; deferred fresh data still belongs
+        // to this same refresh generation, including A → B → A navigation.
         const mounted = sidebar._fileScope;
-        if (!_warmPainted && !(mounted?.key === _sidebarScopeCacheKey(workspacePath)
+        if (backgroundRefresh || _warmPainted || (mounted?.key === _sidebarScopeCacheKey(workspacePath)
             && mounted.view === sidebar.firstElementChild)) {
-          _refreshWorkspaceSidebar({preserveScroll, _data: cachedPayload});
+          if (_beforeRender) _beforeRender();
+        } else {
+          _refreshWorkspaceSidebar({preserveScroll, _data: cachedPayload, _sequence: sequence, _beforeRender});
         }
         // Background reconcile.
         Promise.resolve().then(async () => {
           try {
+            if (!ownsSidebar()) return;
             const files = await _sidebarFetchWorkspaceFiles(fileRoot);
+            if (!ownsSidebar()) return;
             const recentFiles = await _sidebarResolveRecentFiles(files, fileRoot);
+            if (!ownsSidebar()) return;
             let pinned = [], references = [], proxies = [];
             try {
               const infoRes = await fetch(`/api/workspace-info?path=${encodeURIComponent(workspacePath)}`);
@@ -9202,18 +9580,18 @@
               }
             } catch {}
             const fresh = {files, recentFiles, pinned, references, proxies, fileRoot};
-            if (!currentWorkspace || currentWorkspace.path !== workspacePath
-                || _sidebarScopedRoot(workspacePath) !== fileRoot || showWorkspaceDotFiles !== dotFiles) return;
+            if (!ownsSidebar()) return;
             const prev = _workspaceSidebarCache.get(workspacePath);
             _workspaceSidebarCache.set(workspacePath, fresh);
-            // Re-render only if (a) the data actually changed and (b)
-            // the user is still on this workspace.
-            if (prev && JSON.stringify(prev) === JSON.stringify(fresh)) {
+            if (!backgroundRefresh && prev && JSON.stringify(prev) === JSON.stringify(fresh)) {
               if (sidebar._fileScope?.fileRoot === fileRoot) sidebar._fileScope.revision = files._snapshotRevision;
               return;
             }
-            _refreshWorkspaceSidebar({preserveScroll: true, _data: fresh});
+            _refreshWorkspaceSidebar({preserveScroll: true, _data: fresh, _sequence: sequence});
           } catch (e) {
+            if (backgroundRefresh && ownsSidebar()) {
+              _refreshWorkspaceSidebar({preserveScroll, _data: cachedPayload, _sequence: sequence});
+            }
             if (!e || !e.sidebarReported) console.error('[_refreshWorkspaceSidebar] reconcile failed:', e && e.stack || e);
           }
         });
@@ -9234,10 +9612,17 @@
           : (_sidebarCurrentRecentMode() === 'mtime' ? _sidebarRecentFiles(files) : []);
       } else {
         // Cold path: fetch fresh + write to cache.
-        files = await _sidebarFetchWorkspaceFiles(fileRoot);
-        if (!currentWorkspace || currentWorkspace.path !== workspacePath
-            || _sidebarScopedRoot(workspacePath) !== fileRoot || showWorkspaceDotFiles !== dotFiles) return;
+        const filesRead = _sidebarFetchWorkspaceFiles(fileRoot);
+        // Dispatch files first, then overlap independent dashboard reads with
+        // discovery. Starting those requests before files can congest Chrome's
+        // connection pool; waiting for the complete scan needlessly serializes
+        // them. Observe the read even if the optional callback throws.
+        filesRead.catch(() => {});
+        if (_beforeRender) { _beforeRender(); _beforeRender = null; }
+        files = await filesRead;
+        if (!ownsSidebar()) return;
         recentFiles = await _sidebarResolveRecentFiles(files, fileRoot);
+        if (!ownsSidebar()) return;
         pinnedNames = [];
         references = [];
         proxies = [];
@@ -9250,10 +9635,11 @@
             if (Array.isArray(info.proxies)) proxies = info.proxies;
           }
         } catch(e) {}
+        if (!ownsSidebar()) return;
+        _workspaceSidebarCache.set(workspacePath, {files, recentFiles, pinned: pinnedNames, references, proxies, fileRoot});
       }
-      if (!currentWorkspace || currentWorkspace.path !== workspacePath
-          || _sidebarScopedRoot(workspacePath) !== fileRoot || showWorkspaceDotFiles !== dotFiles) return;
-      if (!_data) _workspaceSidebarCache.set(workspacePath, {files, recentFiles, pinned: pinnedNames, references, proxies, fileRoot});
+      if (!ownsSidebar()) return;
+      if (_beforeRender) _beforeRender();
       _rememberNotebookFolders(fileRoot, files);
       const fileEntries = (files || []).filter(f => f && f.type !== 'dir');
       const dirEntries = (files || []).filter(f => f && f.type === 'dir');
@@ -9285,6 +9671,7 @@
       const activePath = _workspaceDocRoot === fileRoot ? (_workspaceDocPath || null) : null;
       const dashActive = !activePath && (!isAssistant || (window.AssistantView && window.AssistantView.section() === 'tasks')) ? ' active' : '';
       const dashboardLabel = isAssistant ? 'Tasks' : 'Dashboard';
+      const sidebarParts = [];
       let sbHtml = `<div class="sidebar-overview-row"><a class="sidebar-file${dashActive}" data-dashboard="1" onclick="showWorkspaceDashboard()" style="font-weight:600;padding:8px 16px;font-size:13px"><span class="sidebar-fname">&#x1F4CB; ${dashboardLabel}</span></a>${_sidebarFileConfigCogHtml()}</div>`;
       sbHtml += _sidebarRecentSelectorsHtml();
       sbHtml += _sidebarFileScopeButtonsHtml(workspacePath);
@@ -9329,26 +9716,28 @@
       const _workspaceTreeScope = 'workspace:' + (currentWorkspace && currentWorkspace.name ? currentWorkspace.name : '') + ':' + fileRoot;
       sbHtml += '<section data-workspace-documents aria-label="Linked documents"></section>';
       sbHtml += _sidebarWorktreeScopeStartHtml(workspacePath);
-      sbHtml += _sidebarRecentSectionHtml(recentFiles, activePath, fileRoot, {resolved: true});
+      sbHtml += _sidebarRecentSectionHtml(recentFiles, activePath, fileRoot, {resolved: true, parts: sidebarParts, offset: sbHtml.length});
       sbHtml += _sidebarFilesTitle(fileRoot);
       if (mainFiles.length > 0 || dirEntries.length > 0) {
         const tree = buildSidebarTree([...dirEntries, ...mainFiles]);
-        function renderTree(node, depth, parentPath) {
+        function renderTree(node, depth, parentPath, offset) {
           let html = '';
           // Render folders first
           const folders = treeFolderNames(node, _sidebarCurrentSortMode('files'));
           folders.forEach(folder => {
-            const fid = 'folder-' + Math.random().toString(36).substr(2, 6);
             const fullPath = parentPath ? `${parentPath}/${folder}` : folder;
+            const fid = 'folder-' + encodeURIComponent(JSON.stringify([_workspaceTreeScope, fullPath]));
             const d = treeFolderEntry(node, folder, fullPath);
             const autoOpen = depth === 0 && AUTO_OPEN_FOLDERS.has(folder);
             const open = _treeIsOpen(_workspaceTreeScope, fullPath, autoOpen);
             const arrowCls = open ? ' open' : '';
             const childrenCls = open ? ' open' : '';
             html += `<div class="sidebar-folder${symlinkClass(d)}" data-tree-scope="${escAttr(_workspaceTreeScope)}" data-tree-path="${escAttr(fullPath)}" data-tree-target="${fid}" data-entry-kind="folder" data-entry-path="${escAttr(fullPath)}" data-entry-root="${escAttr(fileRoot)}"${symlinkTitle(d)} onclick="_treeToggleFolder(this,event)"><span class="folder-arrow${arrowCls}">\u25B6</span>${symlinkMarker(d)}${esc(folder)}/</div>`;
+            const start = offset + html.length;
             html += `<div class="sidebar-folder-children${childrenCls}" id="${fid}">`;
-            html += renderTree(node[folder], depth + 1, fullPath);
+            html += renderTree(node[folder], depth + 1, fullPath, offset + html.length);
             html += '</div>';
+            sidebarParts.push({id: fid, start, end: offset + html.length});
           });
           // Then files
           treeFiles(node, _sidebarCurrentSortMode('files')).forEach(f => {
@@ -9383,12 +9772,12 @@
             }
             const activeCls = activePath === f.path ? ' active' : '';
             const isPinned = pinnedSet.has(f.name);
-            const pinHtml = worktreeSelected ? '' : `<span class="sidebar-actions"><button onclick="event.stopPropagation();togglePin('${f.name.replace(/'/g, "\\'")}')" title="${isPinned ? 'Unpin' : 'Pin to top'}">${isPinned ? '&#x2716;' : '&#x1F4CC;'}</button></span>`;
-            html += `<a class="sidebar-file${activeCls}${symlinkClass(f)}" data-filepath="${esc(f.path)}" draggable="true" data-entry-kind="file" data-entry-path="${escAttr(f.path)}" data-entry-root="${escAttr(fileRoot)}"${symlinkTitle(f)} onclick="openWorkspaceDocFromFileClick('${safePath}',{root:'${safeRoot}'})" ondblclick="event.stopPropagation();openWorkspaceDocModal('${safePath}',{root:'${safeRoot}'})"><span class="sidebar-fname">${dotHtml}${icon}${fname}</span>${pinHtml}</a>`;
+            const pinHtml = worktreeSelected ? '' : _sidebarPinButtonHtml(f.name, isPinned);
+            html += `<a class="sidebar-file${activeCls}${symlinkClass(f)}" data-filepath="${escAttr(f.path)}" draggable="true" data-entry-root="${escAttr(fileRoot)}"${symlinkTitle(f)} data-open-file><span class="sidebar-fname">${dotHtml}${icon}${fname}</span>${pinHtml}</a>`;
           });
           return html;
         }
-        sbHtml += renderTree(tree, 0, '');
+        sbHtml += renderTree(tree, 0, '', sbHtml.length);
       }
       sbHtml += _sidebarWorktreeScopeEndHtml(workspacePath);
 
@@ -9397,7 +9786,7 @@
       // doc pane) since they're real external links. The folder is
       // auto-expanded like docs/ so curated reading lives in plain sight.
       if (references.length > 0) {
-        const extId = 'folder-ext-' + Math.random().toString(36).substr(2, 6);
+        const extId = 'folder-ext-' + encodeURIComponent(_workspaceTreeScope);
         const _extOpen = _treeIsOpen(_workspaceTreeScope, 'external-references', true);
         const _extArrow = _extOpen ? ' open' : '';
         const _extChildren = _extOpen ? ' open' : '';
@@ -9414,7 +9803,14 @@
 
       sbHtml += _agentContextMetaHtml(workspacePath, fileRoot,
         isAssistant ? 'Assistant instructions' : 'Workspace instructions');
-      sidebar.innerHTML = '<div class="sidebar-scope-view">' + sbHtml + '</div>';
+      // Keep main's cached scope container while reconciling its file rows.
+      let scopeView = sidebar.firstElementChild;
+      if (sidebar.children.length !== 1 || !scopeView?.classList.contains('sidebar-scope-view')) {
+        scopeView = document.createElement('div');
+        scopeView.className = 'sidebar-scope-view';
+        sidebar.replaceChildren(scopeView);
+      }
+      const needsGitRepaint = _replaceWorkspaceSidebarMarkup(scopeView, sbHtml, workspacePath, preserveScroll, sidebarParts);
       _sidebarMarkPainted(workspacePath, fileRoot, files);
       void window.LabWorkspaceDocuments?.mount({workspace_id:isAssistant ? '__assistant__' : currentWorkspace.name,vault:isAssistant ? '__assistant__' : _workspaceVaultId(currentWorkspace)}, sidebar);
       _populateAgentContextMeta(sidebar);
@@ -9423,9 +9819,9 @@
       // rendered above — re-sync so they appear/update as soon as the list
       // is known (cold load fetch or background reconcile).
       renderRepoTabs();
-      // Git decorations: the rebuild wiped the row classes — repaint from
-      // cache synchronously, then fetch fresh in the background if stale.
-      _sidebarGitStatusRefresh();
+      // Git decorations: repaint from cache after a rebuild (unchanged rows
+      // already retain their classes), then fetch in the background if stale.
+      _sidebarGitStatusRefresh({repaint: needsGitRepaint});
     } catch(e) {
       // Surface the underlying failure so it lands in the browser console
       // AND the server-side client-errors log (window.onerror -> /api/log).
@@ -9436,7 +9832,7 @@
       // previously-rendered file tree the user is still looking at, which
       // is strictly worse than leaving the old list visible while we log
       // the underlying error.
-      if (!sidebar.children.length) {
+      if (ownsSidebar() && !sidebar.children.length) {
         sidebar.innerHTML = '<div class="sidebar-title">Workspace</div>';
       }
     }
@@ -9584,30 +9980,75 @@
   }
   window.workspaceSaveDisplayName = workspaceSaveDisplayName;
 
-  async function showWorkspaceInfo({preserveScroll = false, keepShell = false} = {}) {
+  let _workspaceInfoSequence = 0;
+  let _workspaceInfoNavigation = null;
+  function showWorkspaceInfo(options = {}) {
+    if (!currentWorkspace || !currentWorkspace.is_workspace) return Promise.resolve();
+    const workspacePath = currentWorkspace.path;
+    const fileRoot = _sidebarScopedRoot(workspacePath);
+    const navigation = _workspaceInfoNavigation;
+    if (options.backgroundRefresh && navigation?.workspacePath === workspacePath
+        && navigation.fileRoot === fileRoot && navigation.sequence === _workspaceInfoSequence) {
+      // File/index events must not invalidate a click still loading its first
+      // sidebar/dashboard. Read again after it completes, coalescing intervening
+      // events without reusing the older response as the fresh result.
+      navigation.refreshOptions = {...options};
+      if (!navigation.refresh) navigation.refresh = navigation.done.catch(() => {}).then(() => {
+        if (navigation.sequence !== _workspaceInfoSequence
+            || currentWorkspace?.path !== workspacePath
+            || _sidebarScopedRoot(workspacePath) !== fileRoot) return;
+        return showWorkspaceInfo(navigation.refreshOptions);
+      });
+      return navigation.refresh;
+    }
+    const pending = _loadWorkspaceInfo(options);
+    if (options.backgroundRefresh) return pending;
+    const owner = {workspacePath, fileRoot, sequence: _workspaceInfoSequence};
+    _workspaceInfoNavigation = owner;
+    owner.done = pending.finally(() => {
+      if (_workspaceInfoNavigation === owner) _workspaceInfoNavigation = null;
+    });
+    return owner.done;
+  }
+
+  async function _loadWorkspaceInfo({preserveScroll = false, keepShell = false, backgroundRefresh = false} = {}) {
     if (!currentWorkspace || !currentWorkspace.is_workspace) return;
     if (!preserveScroll && !keepShell) window.AssistantView?.closeInlineDocument();
     const workspacePath = currentWorkspace.path;
+    const sequence = ++_workspaceInfoSequence;
+    const current = () => sequence === _workspaceInfoSequence && currentWorkspace?.path === workspacePath;
     const content = document.getElementById('content');
     const prevContentScroll = preserveScroll ? content.scrollTop : 0;
     if (!preserveScroll && !keepShell) content.innerHTML = '<div class="loading">Loading workspace dashboard...</div>';
-    await _refreshWorkspaceSidebar({preserveScroll});
-
-    try {
-      const [infoRes, actionsRes, onepagerRes, artifactsRes, alertsRes] = await Promise.all([
+    let dashboardReads;
+    const startDashboardReads = () => {
+      if (dashboardReads) return dashboardReads;
+      dashboardReads = Promise.all([
         fetch(`/api/workspace-info?path=${encodeURIComponent(workspacePath)}`),
         fetch(`/api/workspace-actions?path=${encodeURIComponent(workspacePath)}`),
         fetch(`/api/workspace-onepager?path=${encodeURIComponent(workspacePath)}`),
         fetch(`/api/workspace-artifacts?path=${encodeURIComponent(workspacePath)}`),
         fetch(`/api/workspace-alerts?path=${encodeURIComponent(workspacePath)}`),
       ]);
+      // Observe failures immediately even while sidebar rendering is pending.
+      // The await below still reports them in the owning dashboard.
+      dashboardReads.catch(() => {});
+      return dashboardReads;
+    };
+    // Dispatch the cold file request first, then overlap dashboard I/O with
+    // discovery and rendering. Warm paths share the same one-batch callback.
+    await _refreshWorkspaceSidebar({preserveScroll, backgroundRefresh, _beforeRender: startDashboardReads});
+    if (!current()) return;
+
+    try {
+      const [infoRes, actionsRes, onepagerRes, artifactsRes, alertsRes] = await startDashboardReads();
 
       const info = await infoRes.json();
       const actions = await actionsRes.json();
       const onepager = await onepagerRes.json();
       const artifacts = await artifactsRes.json();
       const alerts = await alertsRes.json();
-      if (!currentWorkspace || currentWorkspace.path !== workspacePath) return;
+      if (!current()) return;
 
       // workspace-info is the authoritative workspace.json read. Reconcile its
       // display name into every tab cache so a stale catalog response cannot
@@ -9787,7 +10228,7 @@
       if (preserveScroll) content.scrollTop = prevContentScroll;
 
     } catch (err) {
-      if (currentRepo) return;
+      if (!current() || currentRepo || _workspaceDocPath) return;
       content.innerHTML = `<div class="no-repo"><p>Error loading workspace dashboard: ${err.message}</p></div>`;
     }
   }
@@ -10357,12 +10798,17 @@
       const infoRes = await fetch('/api/workspace-info?path=' + encodeURIComponent(workspacePath));
       if (!infoRes.ok) throw new Error('workspace not found');
       const info = await infoRes.json();
-      info.tab_open = !!open;
-      await fetch('/api/workspace-info', {
-        method: 'PUT',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({path: workspacePath, data: info}),
-      });
+      // Selecting an already-open tab must not rewrite workspace.json: its
+      // mtime drives sidebar refreshes in every client. Read the current flag
+      // first so an external close still gets reopened by this navigation.
+      if (!!info.tab_open !== !!open) {
+        info.tab_open = !!open;
+        await fetch('/api/workspace-info', {
+          method: 'PUT',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({path: workspacePath, data: info}),
+        });
+      }
     } catch (e) { /* best-effort; next refresh will pick up the truth */ }
     const p = (workspaceTabsAll || []).find(x => x && x.path === workspacePath);
     if (p) p.tab_open = !!open;
@@ -10399,6 +10845,14 @@
   // await. The terminal state block at ~line 5780 still hosts the rest
   // of the related globals; this is the one that needs to win the TDZ.
   const _termSessionsCache = new Map(); // workspaceId -> sessions[]
+  // Ignore list reads that predate confirmed creation or a later close.
+  // Close intent also cancels a pending creation's missing-row fallback.
+  const _termSessionListVersions = new Map();
+  function _termInvalidateSessionReads(key) {
+    const version = (_termSessionListVersions.get(key) || 0) + 1;
+    _termSessionListVersions.set(key, version);
+    return version;
+  }
 
   // localStorage key prefix for per-view terminal-visibility. Same
   // hoisting rule as the consts above — the visibility helpers are
@@ -10746,6 +11200,9 @@
       // the new workspace's baseline or retry state.
       if (!currentWorkspace || currentWorkspace.path !== workspacePath
           || (typeof _sidebarScopedRoot === 'function' && _sidebarScopedRoot(workspacePath) !== fileRoot)) return;
+      // The editor may have opened while the scan was pending. Keep the old
+      // mtime so the next poll after editing still observes this change.
+      if (_workspaceDocEditing) return;
       _workspaceMtimeFailures = 0;
       _workspaceMtimeRetryAt = 0;
       if (scan && typeof _sidebarSetScanState === 'function') _sidebarSetScanState(fileRoot, scan.state);
@@ -10775,7 +11232,7 @@
           openWorkspaceDoc(_workspaceDocPath, {preserveScroll: true});
           if (isSelf) selfPopulateSidebar();
           else if (isVaultView) vaultPopulateSidebar();
-          else _refreshWorkspaceSidebar({preserveScroll: true});
+          else _refreshWorkspaceSidebar({preserveScroll: true, backgroundRefresh: true});
         } else if (isSelf) {
           // Self view, no doc open → just refresh the sidebar so new
           // files appear without a full page reload.
@@ -10783,10 +11240,10 @@
         } else if (isVaultView) {
           vaultPopulateSidebar();
         } else if (isAssistant) {
-          _refreshWorkspaceSidebar({preserveScroll: true});
-          if (window.AssistantView) window.AssistantView.refresh();
+          _refreshWorkspaceSidebar({preserveScroll: true, backgroundRefresh: true});
+          if (window.AssistantView) window.AssistantView.refresh({backgroundRefresh: true});
         } else {
-          showWorkspaceInfo({preserveScroll: true});
+          showWorkspaceInfo({preserveScroll: true, backgroundRefresh: true});
         }
       }
       _lastWorkspaceMtime = mtime;
@@ -10813,7 +11270,9 @@
     if (document.hidden) return;
     if (!currentWorkspace || !currentWorkspace.is_workspace) return;
     if (currentRepo) return;
-    _sidebarGitStatusRefresh();
+    // Mounted rows already have cached decorations. Fetch fresh status without
+    // traversing them once more just to reapply the previous result first.
+    _sidebarGitStatusRefresh({repaint: false});
   }, 6000);
 
   // ─── Terminal panel (tmux + PTY bridge) ───
@@ -11753,6 +12212,7 @@
         startSidebar = currentSidebarPct();
         startTerm = currentTermPct();
         document.body.classList.add(dragClass);
+        if (resizerId === 'sidebarResizer') _resetSidebarLayout(document.getElementById('sidebar'));
         resizer.classList.add('dragging');
         e.preventDefault();
       });
@@ -11767,6 +12227,7 @@
         document.body.classList.remove(dragClass);
         resizer.classList.remove('dragging');
         onDrop();
+        if (resizerId === 'sidebarResizer') _primeSidebarLayout(document.getElementById('sidebar'));
         refit();
         if (typeof termSendResize === 'function') termSendResize();
       });
@@ -11802,20 +12263,24 @@
     // but if the user shrinks past the pixel minimums we rebalance so no
     // column collapses below its readability threshold.
     window.addEventListener('resize', () => {
+      const sidebar = document.getElementById('sidebar');
+      _resetSidebarLayout(sidebar);
       const sbPx = currentSidebarPct() * vw() / 100;
       const trPx = currentTermPct() * vw() / 100;
       if (sbPx < MIN_SIDEBAR_PX) setSidebarPct(pxToPct(MIN_SIDEBAR_PX));
       if (trPx < MIN_TERM_PX) setTermPct(pxToPct(MIN_TERM_PX));
       refit();
       if (typeof termSendResize === 'function') termSendResize();
+      _primeSidebarLayout(sidebar);
     });
   })();
 
-  async function termRefreshSessions(workspaceId) {
+  async function termRefreshSessions(workspaceId, createdSession = null) {
     workspaceId = workspaceId || _termActiveWorkspaceId();
     if (!workspaceId) return;
     const vaultId = _termVaultId();
     const sessionCacheKey = _termSessionsKey(workspaceId, vaultId);
+    const listVersion = _termSessionListVersions.get(sessionCacheKey);
     let fresh = [];
     let ok = false;
     try {
@@ -11823,7 +12288,14 @@
       ok = r.ok;
       fresh = r.ok ? await r.json() : [];
     } catch { fresh = []; ok = false; }
-    if (ok) _termSessionsCache.set(sessionCacheKey, fresh);
+    if (listVersion !== _termSessionListVersions.get(sessionCacheKey)) return ok;
+    if (!ok) fresh = _termSessionsCache.get(sessionCacheKey) || [];
+    // Keep the creation fallback in the same publication as the fresh list:
+    // an asset-load continuation must never see the confirmed row disappear.
+    if (createdSession && !fresh.some(s => s && s.name === createdSession.name)) {
+      fresh = [{...createdSession, workspace_id: createdSession.workspace_id || workspaceId}, ...fresh];
+    }
+    if (ok || createdSession) _termSessionsCache.set(sessionCacheKey, fresh);
     // Stale-response guard. termOpenForWorkspace's warm-switch path fires
     // this refresh without awaiting, so by the time the response lands
     // the user may already be on a different tab. Cache the result but
@@ -11834,7 +12306,7 @@
     // last successful list for this workspace instead of wiping the pills —
     // the tmux sessions are almost certainly still alive, and the reconnect
     // loop needs their names to keep retrying.
-    termSessions = ok ? fresh : (_termSessionsCache.get(sessionCacheKey) || []);
+    termSessions = fresh;
     if (ok) {
       // Any name that's no longer in the live list is genuinely gone —
       // don't keep its dead/backoff bookkeeping around. If tmux later
@@ -12349,6 +12821,7 @@
       : names.length > 1 ? `${names.length} selected terminal tabs` : 'this terminal tab';
     if (!confirm(`Close ${label}? Running work will stop and closed tabs will stay closed after reload. External sessions will only be detached from Lab.`)) return false;
     const isActive = () => workspaceId === _termActiveWorkspaceId() && vaultId === _termVaultId();
+    _termInvalidateSessionReads(scope);
     _termCloseTabsPending.add(scope);
     const failures = [];
     try {
@@ -13384,9 +13857,9 @@
   function _termLinkDropContext(target) {
     const task = window.LabDocumentTerminal?.dropContext(target);
     if (task) return task;
-    const row = target?.closest?.('[data-entry-kind][data-entry-path], .sidebar-file-scope-button, .sidebar-worktree-picker');
+    const row = target?.closest?.('[data-entry-kind][data-entry-path], [data-open-file][data-filepath], .sidebar-file-scope-button, .sidebar-worktree-picker');
     if (!row) return null;
-    if (row.matches('[data-entry-kind]')) return _explorerContextFromRow(row);
+    if (row.matches('[data-entry-kind], [data-open-file][data-filepath]')) return _explorerContextFromRow(row);
     const baseRoot = row.getAttribute('data-base-root');
     if (row.classList.contains('sidebar-file-scope-button')) {
       const root = row.getAttribute('data-folder-path') || baseRoot;
@@ -13830,12 +14303,12 @@
 
   function _termPreferredLinkedSidebarRow(linked) {
     const rows = Array.from(document.querySelectorAll(
-      '[data-entry-kind="file"][data-entry-path][data-entry-root]',
+      '[data-entry-kind="file"][data-entry-path][data-entry-root], [data-open-file][data-filepath][data-entry-root]',
     ));
     const matches = rows.filter(row => _termLinkedFileMatches(
       linked,
       row.getAttribute('data-entry-root'),
-      row.getAttribute('data-entry-path'),
+      row.getAttribute('data-entry-path') ?? row.getAttribute('data-filepath'),
     ));
     return matches.find(row => row.classList.contains('sidebar-file-recent'))
       || matches.find(row => row.classList.contains('tree-file'))
@@ -14225,20 +14698,23 @@
       // tmux name (possible if the user just recycled the same logical
       // name after the previous session died).
       _termClearDead(created.name);
-      // Framework pseudo-workspaces use the workspace-id-aware helper.
-      if (workspaceId === CEREBRO_WORKSPACE_ID || workspaceId === SELF_WORKSPACE_ID || workspaceId === ASSISTANT_WORKSPACE_ID) {
-        await termRefreshSessionsByWorkspaceId(workspaceId);
-      } else {
-        await termRefreshSessions(workspaceId);
-      }
-      if (!_termIsScopeActive(workspaceId)) return;
+      const sessionCacheKey = _termSessionsKey(workspaceId, vaultId);
+      // POST has persisted this session and returned its metadata. Start
+      // attachment now; keep the live-list reconciliation for enrichment.
+      _termInvalidateSessionReads(sessionCacheKey);
       if (!termSessions.some(s => s && s.name === created.name)) {
         termSessions = [{...created, workspace_id: created.workspace_id || workspaceId}, ...termSessions];
-        _termSessionsCache.set(_termSessionsKey(workspaceId, vaultId), termSessions);
-        termRenderSessionList();
       }
-      if (homeSection && homeSection !== _termHomeSection()) return created;
+      _termSessionsCache.set(sessionCacheKey, termSessions);
       termAttach(created.name, workspaceId);
+      // Framework pseudo-workspaces use the workspace-id-aware helper.
+      if (workspaceId === CEREBRO_WORKSPACE_ID || workspaceId === SELF_WORKSPACE_ID || workspaceId === ASSISTANT_WORKSPACE_ID) {
+        await termRefreshSessionsByWorkspaceId(workspaceId, created);
+      } else {
+        await termRefreshSessions(workspaceId, created);
+      }
+      if (workspaceId !== _termActiveWorkspaceId() || vaultId !== _termVaultId()) return;
+      // A later user selection owns attachment; refresh must not steal it.
       return created;
     } catch (e) {
       alert('Failed to create session: ' + e.message);
@@ -14257,6 +14733,7 @@
       ? 'Detach ' + (session.logical_name || termCurrentSession) + ' from Lab? The original tmux session will keep running.'
       : 'Close terminal session ' + termCurrentSession + '? It will stay closed after reload.';
     if (!confirm(question)) return;
+    _termInvalidateSessionReads(_termSessionsKey(workspaceId, vaultId));
     const name = termCurrentSession;
     termDetach();  // full close (soft=false) — evicts cache entry
     try { await fetch('/api/term/sessions/' + encodeURIComponent(name) + '?purge=true', {method: 'DELETE'}); } catch {}
@@ -14305,6 +14782,7 @@
     if (!confirm(`Kill all terminal sessions for "${label}"? Running work will stop and sessions will stay closed after reload. Attached external sessions will only be detached from Lab.`)) return;
     const isActive = () => workspaceId === _termActiveWorkspaceId() && vaultId === _termVaultId();
     const names = new Set((termSessions || []).map(s => s.name));
+    _termInvalidateSessionReads(scopeKey);
     _termKillAllPending.add(scopeKey);
     const button = document.getElementById('termKillAllBtn');
     if (button) button.disabled = true;
@@ -14427,7 +14905,7 @@
   // Use explicit file identity, never the row's displayed label (which may
   // omit its parent folders or belong to a different vault/worktree).
   document.addEventListener('dragstart', event => {
-    const row = event.target.closest?.('[data-entry-kind="file"][data-entry-path]');
+    const row = event.target.closest?.('[data-entry-kind="file"][data-entry-path], [data-open-file][data-filepath]');
     const ctx = _explorerContextFromRow(row);
     if (!ctx || !event.dataTransfer) return;
     const path = ctx.path.startsWith('/') ? ctx.path
@@ -15340,6 +15818,9 @@
     const myContainer = _termMakeContainer();
     myContainer.classList.add('term-pane');
     termContainer = myContainer;
+    // xterm measures its font during open(). Give it a visible pane first;
+    // the fitted geometry below still precedes the WebSocket connection.
+    _termShowPane(myContainer);
     termXterm.open(myContainer);
     // Debounced ResizeObserver: only send resize when rows/cols actually change.
     let _resizeTimer = null;
@@ -15372,7 +15853,6 @@
         termWS.send(JSON.stringify({ type: 'input', data }));
       }
     });
-    _termShowPane(myContainer);
     _termFocusActiveSoon(myContainer, termXterm);
     // Fit BEFORE dialing the WebSocket so _openWS can pass the real
     // geometry in the URL and tmux attaches at the right size from byte
@@ -15468,6 +15948,10 @@
   // strips the mutually-exclusive body classes; the destination init will
   // assert its own.
   function _swapViewState({preserveHomeTerminal = false} = {}) {
+    // Save the outgoing notebook position while its layout is still intact.
+    // Reading cell geometry after shell/tab changes forces an intermediate
+    // layout of the page that navigation is about to replace.
+    _clearNbNavigation();
     _workspaceDeleteTarget = null;
     closeVaultWorkspaceMenu();
     window.AssistantView?.closeDocument(false);
@@ -15484,12 +15968,10 @@
   }
 
   // Navigate to a real workspace by absolute path. `replace` is true when
-  // called from popstate (browser already updated URL — replaceState would
-  // create a duplicate; do nothing).
+  // called from popstate: skip pushing an entry, then normalize the current
+  // entry just as ordinary workspace selection does.
   function goToWorkspace(path, opts = {}) {
     if (!path) return;
-    _swapViewState();
-    if (opts.deleteTarget?.path === path) _workspaceDeleteTarget = opts.deleteTarget;
     if (!opts.replace) {
       const url = new URL(window.location);
       url.searchParams.set('workspace', path);
@@ -15502,9 +15984,16 @@
       url.searchParams.delete('subview');
       history.pushState({nav: 'workspace', path}, '', url.pathname + url.search + url.hash);
     }
+    // History can synchronously update layout to save the outgoing view.
+    // Capture it before clearing that view's classes; otherwise Chrome may
+    // lay out a temporary shell that is immediately replaced below.
+    const knownWorkspace = (workspacesList || []).find(p => p.path === path);
+    if (knownWorkspace) _settleWorkspaceHistory(knownWorkspace.path);
+    _swapViewState();
+    if (opts.deleteTarget?.path === path) _workspaceDeleteTarget = opts.deleteTarget;
     const dispatch = () => {
       const workspace = (workspacesList || []).find(p => p.path === path);
-      if (workspace) selectRepo(workspace.path);
+      if (workspace) selectRepo(workspace.path, {historySettled: workspace === knownWorkspace});
     };
     if (workspacesList && workspacesList.length) {
       dispatch();
@@ -16975,7 +17464,7 @@
       } else if (hasUnseen) {
         dotHtml = `<span class="nb-unseen-dot" title="Click to jump to the first new cell" onclick="event.stopPropagation();openWorkspaceDocAndJumpToUnseen('${safePath}','${safeRoot}')"></span>`;
       }
-      html += `<a class="sidebar-file${activeCls}${symlinkClass(f)}" data-filepath="${esc(f.path)}" draggable="true" data-entry-kind="file" data-entry-path="${escAttr(f.path)}" data-entry-root="${escAttr(root || '')}"${symlinkTitle(f)} onclick="openWorkspaceDocFromFileClick('${safePath}',{root:'${safeRoot}'})" ondblclick="event.stopPropagation();openWorkspaceDocModal('${safePath}',{root:'${safeRoot}'})"><span class="sidebar-fname">${dotHtml}${symlinkMarker(f)}${icon}${fname}</span></a>`;
+      html += `<a class="sidebar-file${activeCls}${symlinkClass(f)}" data-filepath="${escAttr(f.path)}" draggable="true" data-entry-root="${escAttr(root || '')}"${symlinkTitle(f)} data-open-file><span class="sidebar-fname">${dotHtml}${symlinkMarker(f)}${icon}${fname}</span></a>`;
     });
     return html;
   }
@@ -18170,8 +18659,13 @@
 
       _vaultWorkspaceCreateBusy = false;
       closeVaultWorkspaceModal();
-      if (workspace && workspace.path) goToWorkspace(workspace.path);
-      else await vaultRenderWorkspacesCard();
+      if (workspace && workspace.path) {
+        // Navigation renders tabs from a separate catalog. Remember this
+        // confirmed row now instead of waiting for its five-second poll.
+        // Keep existing tab objects/order, including pending open/close state.
+        if (!workspaceTabsAll.some(row => row.path === workspace.path)) workspaceTabsAll.push(workspace);
+        goToWorkspace(workspace.path);
+      } else await vaultRenderWorkspacesCard();
     } catch (e) {
       if (error) {
         error.textContent = e.message || String(e);
@@ -18816,22 +19310,29 @@
     termStartPeriodicRefresh();
   }
 
-  async function termRefreshSessionsByWorkspaceId(pid) {
+  async function termRefreshSessionsByWorkspaceId(pid, createdSession = null) {
     // Fetches the live session list and re-renders the pill row.
     let fresh = [];
     let ok = false;
     const vaultId = _termVaultId();
     const sessionCacheKey = _termSessionsKey(pid, vaultId);
+    const listVersion = _termSessionListVersions.get(sessionCacheKey);
     try {
       const r = await fetch('/api/term/sessions?workspace_id=' + encodeURIComponent(pid) + _vaultQuery(vaultId));
       ok = r.ok;
       fresh = r.ok ? await r.json() : [];
     } catch { fresh = []; ok = false; }
-    if (ok) _termSessionsCache.set(sessionCacheKey, fresh);
+    if (listVersion !== _termSessionListVersions.get(sessionCacheKey)) return ok;
+    if (!ok) fresh = _termSessionsCache.get(sessionCacheKey) || [];
+    // Same atomic creation fallback as termRefreshSessions.
+    if (createdSession && !fresh.some(s => s && s.name === createdSession.name)) {
+      fresh = [{...createdSession, workspace_id: createdSession.workspace_id || pid}, ...fresh];
+    }
+    if (ok || createdSession) _termSessionsCache.set(sessionCacheKey, fresh);
     // Stale-response guard — see termRefreshSessions for why.
     if (pid !== _termActiveWorkspaceId() || vaultId !== _termVaultId()) return ok;
     // Failed fetch → keep the last-known list (see termRefreshSessions).
-    termSessions = ok ? fresh : (_termSessionsCache.get(sessionCacheKey) || []);
+    termSessions = fresh;
     if (ok) {
       // Forget dead/backoff bookkeeping for sessions tmux no longer has.
       const live = new Set(termSessions.map(s => s.name));
@@ -19011,9 +19512,9 @@
             if (_workspaceDocPath) {
               openWorkspaceDoc(_workspaceDocPath, {preserveScroll: true});
             } else if (window.AssistantView) {
-              window.AssistantView.refresh();
+              window.AssistantView.refresh({backgroundRefresh: true});
             }
-            if (ASSISTANT_ROOT) _refreshWorkspaceSidebar({preserveScroll: true});
+            if (ASSISTANT_ROOT) _refreshWorkspaceSidebar({preserveScroll: true, backgroundRefresh: true});
           } else if (currentWorkspace && currentWorkspace.is_workspace
                      && !currentRepo && !_workspaceDocEditing) {
             const liveNotebook = _currentOpenNotebookRelPath();
@@ -19023,7 +19524,7 @@
                 openWorkspaceDoc(_workspaceDocPath, {preserveScroll: true});
               }
             } else if (!document.body.classList.contains('self-active')) {
-              showWorkspaceInfo({preserveScroll: true});
+              showWorkspaceInfo({preserveScroll: true, backgroundRefresh: true});
             }
           }
         } catch {}
@@ -19097,7 +19598,7 @@
       workspacesList = workspaces;
       const workspace = workspaces.find(p => p.path === _effectiveWorkspace);
       if (workspace) {
-        selectRepo(workspace.path);
+        selectRepo(workspace.path, {initialLoad: true});
       }
     });
   } else if (urlRepo) {
@@ -19105,7 +19606,7 @@
       workspacesList = workspaces;
       const workspace = workspaces.find(p => p.repos.some(r => r.path === urlRepo));
       if (workspace) {
-        selectRepo(workspace.path);
+        selectRepo(workspace.path, {initialLoad: true});
         if (workspace.repos.length > 1) {
           const targetRepo = workspace.repos.find(r => r.path === urlRepo);
           if (targetRepo) selectWorkspaceRepo(targetRepo.path);

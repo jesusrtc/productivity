@@ -187,9 +187,9 @@ def iter_workspaces(root: Path) -> Iterator[dict[str, Any]]:
         }
 
 
-def iter_tasks(root: Path, workspaces: list[dict[str, Any]] | None = None) -> Iterator[dict[str, Any]]:
+def iter_tasks(root: Path, workspaces: list[dict[str, Any]] | None = None, *, record_rows=None) -> Iterator[dict[str, Any]]:
     if records.enabled(root):
-        yield from records.task_rows(root)
+        yield from records.task_rows(root, record_rows=record_rows)
         return
     workspace_rows = workspaces if workspaces is not None else list(iter_workspaces(root))
     by_id = {str(row["id"]): row for row in workspace_rows}

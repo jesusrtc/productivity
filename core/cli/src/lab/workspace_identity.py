@@ -13,6 +13,7 @@ import re
 import subprocess
 import unicodedata
 import uuid
+from collections.abc import Iterable
 from contextlib import contextmanager
 from datetime import date
 from pathlib import Path
@@ -150,19 +151,26 @@ def _session_metadata(root: Path, workspace_id: str) -> Path:
     return naming.workspace_metadata_file(folder_for(root, workspace_id))
 
 
-def session_owner(root: Path, tmux_name: str) -> tuple[str, str] | None:
+def session_owners(root: Path, tmux_names: Iterable[str]) -> dict[str, tuple[str, str]]:
+    """Resolve current ownership from one transfer/index snapshot per vault."""
+    names = set(tmux_names)
+    if not names:
+        return {}
     transfers = _read(_state(root) / "session-transfers.json")
-    if tmux_name in transfers:
-        row = transfers[tmux_name]
-        return (row['workspace_id'], row['logical_name']) if row else None
-    if not tmux_name.startswith("neurona-"):
-        return None
-    token = tmux_name.removeprefix("neurona-")
-    if not re.fullmatch(r"[0-9a-f]{32}", token):
-        return None
+    owners = {name: (transfers[name]['workspace_id'], transfers[name]['logical_name'])
+              for name in names if name in transfers and transfers[name]}
+    # A transfer alias wins over both the runtime index and durable metadata;
+    # source tombstones must never recover a session that moved to another vault.
+    wanted = {name.removeprefix("neurona-"): name for name in names
+              if name not in transfers and re.fullmatch(r"neurona-[0-9a-f]{32}", name)}
+    if not wanted:
+        return owners
     for row in _read(_state(root) / "session-index.json").values():
-        if str(row.get("session_id", "")).replace("-", "") == token:
-            return row["workspace_id"], row["logical_name"]
+        name = wanted.pop(str(row.get("session_id", "")).replace("-", ""), None)
+        if name:
+            owners[name] = (row["workspace_id"], row["logical_name"])
+    if not wanted:
+        return owners
     # A missing runtime index is recoverable from durable tab UUIDs.
     base = naming.workspaces_dir(root)
     candidates = [(scope, _session_metadata(root, scope)) for scope in
@@ -173,9 +181,18 @@ def session_owner(root: Path, tmux_name: str) -> tuple[str, str] | None:
     for fallback_id, metadata in candidates:
         data = _read(metadata)
         for row in data.get("sessions", []):
-            if isinstance(row, dict) and str(row.get("session_id", "")).replace("-", "") == token:
-                return data.get("id", fallback_id), row["name"]
-    return None
+            if not isinstance(row, dict):
+                continue
+            name = wanted.pop(str(row.get("session_id", "")).replace("-", ""), None)
+            if name:
+                owners[name] = (data.get("id", fallback_id), row["name"])
+        if not wanted:
+            break
+    return owners
+
+
+def session_owner(root: Path, tmux_name: str) -> tuple[str, str] | None:
+    return session_owners(root, [tmux_name]).get(tmux_name)
 
 
 def session_transferred_away(root: Path, name: str) -> bool:

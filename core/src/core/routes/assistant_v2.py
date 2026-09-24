@@ -17,16 +17,17 @@ def kind(row):
     return {'meeting':'meeting','series':'series','question':'note','document':'note'}.get(row.get('note_type'), 'note')
 
 
-def document_rows(root):
+def document_rows(root, *, record_rows=None):
     """A single library over existing stable files, independent of storage type."""
-    rows = list(records.records(root))
+    rows = list(records.records(root)) if record_rows is None else record_rows
     progress = records.progress_map(rows)
-    tasks = {row['path']:row for row in records.task_rows(root)}
-    meetings = {row['path']:row for row in records.note_rows(root, 'meeting')}
+    tasks = {row['path']:row for row in records.task_rows(root, record_rows=rows)}
+    meetings = {row['path']:row for row in records.note_rows(root, 'meeting', record_rows=rows)}
+    by_parent = records.children_index(rows)
     for row in rows:
         if row['type'] not in {'task','note'} or row.get('parent'):
             continue
-        children = records.descendants(rows, row)
+        children = records.descendants(rows, row, by_parent=by_parent)
         state = progress[records.key(row)]
         related = [item for item in rows if item.get('series') == row['id'] and not item.get('parent')]
         yield {**{k:v for k,v in row.items() if k not in {'body','legacy_metadata'}},
@@ -45,6 +46,21 @@ def document_rows(root):
                'latest_date':max((item.get('date') or '' for item in related),default='')}
 
 
+def plain_note_rows(root, *, record_rows=None):
+    # Reuse this listing's snapshot for descendant search text. A snapshot
+    # fingerprints every document even on a cache hit; rereading it per note
+    # makes the filesystem work quadratic. The next listing still reads fresh.
+    rows = list(records.records(root)) if record_rows is None else record_rows
+    by_parent = records.children_index(rows)
+    for row in rows:
+        if row['type'] != 'note' or row.get('embedded') or row.get('note_type') not in {'plain','thread','subtab'}:
+            continue
+        yield {**row, 'search_text':' '.join(
+            str(child.get(field) or '')
+            for child in [row, *records.descendants(rows, row, by_parent=by_parent)]
+            for field in ('title','tldr','owner'))}
+
+
 def tab_revision(row):
     # A physical file's mtime and root updated timestamp also change when a
     # sibling/child is edited. Hash only this tab's own content and metadata.
@@ -57,8 +73,19 @@ def tab_revision(row):
 
 def detail(root, reference, collection=None):
     try:
-        source, metadata, body = records.resolve(root, reference, collection)
-        rows = list(records.records(root))
+        if collection in {None, 'documents'}:
+            rows = []
+            def current_rows():
+                # Resolution validates the reference before consuming this
+                # iterable. Share exactly that request's complete record read.
+                for row in records.records(root):
+                    rows.append(row)
+                    yield row
+            source, metadata, body = records.resolve(root, reference, collection, record_rows=current_rows())
+        else:
+            # Legacy filtered collections keep their original validation order.
+            source, metadata, body = records.resolve(root, reference, collection)
+            rows = list(records.records(root))
         by_key = {records.key(row):row for row in rows}
         progress = records.progress_map(rows)
         current = by_key[records.key(metadata)]
@@ -80,7 +107,7 @@ def detail(root, reference, collection=None):
                 'kind':kind(row), 'task_summary':document_tasks.summary(own_tasks), 'tab_revision':tab_revision(row), 'description':row.get('tldr') or documents.summary(row.get('body','')),
                 'track_task':records.tracks_task(row),
                 'progress':progress[records.key(row)], 'children':[node(child) for child in children]}
-        task_data = document_tasks.view(root, ancestor['id']) if ancestor.get('task_format') == document_tasks.FORMAT else None
+        task_data = document_tasks.view(root, ancestor['id'], record_rows=rows) if ancestor.get('task_format') == document_tasks.FORMAT else None
         return {'path':source.relative_to(root).as_posix(), 'metadata':metadata, 'body':body, 'document_tasks':task_data,
                 'workspace':records.workspace(root,metadata.get('workspace')),
                 'progress':progress[records.key(metadata)], 'embedded':current.get('embedded',False),

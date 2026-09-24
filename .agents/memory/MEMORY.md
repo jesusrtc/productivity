@@ -1,5 +1,9 @@
 # Memory index
 
+- [Performance goal stopped at checkpoint](performance-goal-stopped-at-checkpoint.md) — finish the stable main checkpoint and push, then stop; remaining latency gaps are not claimed complete.
+- [Materialized tests wait for file snapshots](materialized-tests-wait-for-file-snapshots.md) — fixture reads wait for refreshed snapshots while production tests retain nonblocking caching behavior.
+- [History fixtures exclude live vault state](history-fixtures-exclude-live-vault-state.md) — isolate Git fixtures so backend log/index writes do not change the expected working-tree state.
+
 - [Document drags paste source paths](document-drags-paste-source-path.md) — sidebar documents paste their absolute Markdown path into terminals while retaining workspace-link drags.
 
 - [Host resources are limited to Lab](host-resources-limited-to-lab.md) — host CPU/memory, verified Lab processes, exact stop targets, and cooperative Files-scan pause.
@@ -9,6 +13,129 @@
 - [Terminal indicators persist until finish or review](terminal-indicators-persist-until-finish-or-review.md) — yellow survives uncertain status; unread green clears only after the viewing delay or a real double-click, including across new work.
 
 - [Terminal cleanup reviews inactivity](terminal-cleanup-reviewed-inactivity.md) — seven-day candidates across all scopes; exact reviewed identities, atomic tmux rechecks, and preserved conversations
+
+- [Document startup handoff milestones](document-startup-handoff-milestones.md) — distinguish Lab launch work, trace overhead and provider bootstrap; preserve the owned workload and cold failures.
+
+- [CLI commands load on demand](cli-commands-load-on-demand.md) — reduce fresh agent-launch imports while preserving full Click help, aliases, completion and launch context; cold UI misses remain.
+
+- [Assistant details share request records](assistant-detail-shares-request-records.md) — one fresh library scan per modern detail request, with fresh source reads, validation, and owned-terminal browser measurements.
+
+- [Assistant fingerprints share root resolution](assistant-fingerprint-shares-root-resolution.md) — retain fresh source/path checks and moved-root fallback while avoiding repeated root walks; native latency tails remain.
+
+- [Assistant navigation defers background refresh](assistant-navigation-defers-background-refresh.md) — finish the clicked view and deep link, then read fresh once; preserve newer actions, retries, normal polling and remaining latency misses.
+
+- [Assistant descendants use ordered child indexes](assistant-descendants-use-ordered-child-indexes.md) — reuse current parent groups while preserving traversal/errors; the 500-note HTTP budget passes, but native tails remain.
+- [Assistant progress recursion releases trees](assistant-progress-recursive-closure-retains-rows.md) — explicit recursion removes three closure cycles and reduces collection work; native latency misses remain, with production GC unchanged.
+
+- [Assistant index shares current records](assistant-index-shares-current-records.md) — one fresh record list serves every index projection; retain the empty-list/migration fallbacks and the larger-library latency failures.
+- [Core and CLI tests have separate namespaces](core-and-cli-tests-have-separate-namespaces.md) — run their pytest suites separately to avoid a duplicate `tests.conftest` collection failure.
+
+- [Assistant notes share a listing snapshot](assistant-notes-share-a-listing-snapshot.md) — avoid per-note filesystem scans while retaining fresh requests, complete descendant text and native Assistant latency tails.
+
+- [Search decodes after complete pipe capture](search-decodes-after-complete-pipe-capture.md) — reduce transient allocation and unnecessary newline scans while preserving encoding, both EOFs, strict errors and timeout behavior.
+- [Concurrent cProfile needs consistency checks](concurrent-cprofile-needs-consistency-checks.md) — overlapping sessions failed and guarded function costs were inconsistent; retain diagnostics and use coarse timers with unprofiled controls.
+
+- [Literal search workers need concurrent evidence](literal-search-workers-need-concurrent-evidence.md) — smaller macOS literal-query pools reduce latency, while regex/config guards and overlapping-client failures constrain the retained policy.
+
+- [Capped search keeps complete process output](capped-search-keeps-complete-process-output.md) — parse only consumed lines while preserving pipe EOF, strict decoding and timeout behavior; file-backed capture lost descendant output.
+
+- [Apple Git resolution keeps its launcher environment](apple-git-resolution-retains-launcher-environment.md) — resolve once per catalog request, preserve SDK/toolchain environment and custom Git selection, retain concurrent HTTP failures
+
+- [Repository summaries share bounded Git workers](repository-summaries-share-bounded-git-workers.md) — overlap independent fresh reads, retain order and fallbacks, and share the eight-worker bound across requests
+- [Reader controls preserve actual input cadence](terminal-reader-controls-need-matched-input-cadence.md) — sleep lateness confounded the first thread comparison; corrected controls did not establish a transport fix
+
+- [Normalize workspace history before teardown](workspace-history-normalization-precedes-teardown.md) — preserve history and notebook position without a second intermediate layout; repeated restoration falls below 200 ms
+- [Notebook typing checks its visible text and draft](notebook-typing-checks-visible-highlight-and-draft.md) — native keys verify the syntax overlay, cursor, localStorage and both restored drafts while preserving notebook files
+- [Direct shell launch needs a measured gain](direct-shell-launch-needs-measured-gain.md) — a terminal-only direct argv candidate did not establish a cold-start improvement and was removed
+
+- [Cold creation separates process and render milestones](terminal-cold-start-needs-process-and-render-milestones.md) — trace-only parse/render/readiness stages and cleanup-time process timestamps retain first-use startup costs
+- [Opening renderer hooks need a measured gain](terminal-opening-renderer-hook-needs-latency-gain.md) — skipping temporary DOM construction passed correctness but did not improve end-to-end latency; keep forced-GPU-failure coverage
+
+- [Confirmed terminals attach before refresh](terminal-creation-publishes-before-refresh.md) — retain fresh metadata with atomic fallback and creation/close read ownership; avoid duplicate repaint and selection theft
+
+- [Connect with the final renderer grid](terminal-connection-uses-final-renderer-geometry.md) — real WebGL and DOM can fit different columns; initial connections must follow final renderer setup
+- [Terminal asset hints need failure and latency checks](terminal-asset-hints-need-failure-and-latency-checks.md) — failed preloads can poison later loads; the tested prefetch/parallel candidate showed no end-to-end gain
+
+- [Batch terminal setup with failure recovery](terminal-wheel-setup-batches-idempotent-commands.md) — one tmux client on successful creation, individual retries retain later settings after an error
+
+- [Open terminals with visible font metrics](terminal-open-needs-visible-font-metrics.md) — avoid the initial 50 ms geometry retry while retaining fitted connections and fallback
+- [Terminal creation checks rendered output and identity](terminal-creation-probe-requires-render-and-identity.md) — native New/Terminal clicks, exact echoes, saved identity and owned-only exact-name cleanup
+
+- [Producer CPU separates terminal work from waiting](terminal-source-cpu-separates-write-waiting.md) — optional whole-write CPU diagnostics expose upstream stalls; private PTY controls do not replace native rendering checks
+
+- [Fewer terminal frames do not prove lower typing latency](terminal-frame-count-is-not-typing-latency.md) — preserve native timing failures and source/render proof; zero-yield and timed burst candidates were rejected
+
+- [Periodic Git polling skips the cached repaint](periodic-git-poll-skips-cached-repaint.md) — refresh existing decorations once from live data, while newly mounted rows retain their fast cached paint
+
+- [Terminal footer includes a full margin cell](terminal-footer-includes-full-margin-cell.md) — a visible terminator can occupy the cursor cell; verify the full row without waiting for the next key, preserving exact input and render checks
+
+- [Disposable fixtures use the default tmux generation](terminal-fixtures-use-default-tmux-generation.md) — owned sessions and HTTP/browser fixtures can still share the default tmux server; keep transport controls separate and never change user sessions
+
+- [Terminal output load has independent proof](terminal-output-load-has-independent-proof.md) — native typing during scrolling output verifies producer bytes, exact input continuity and actual rendered load, retaining every latency miss
+
+- [Polling snapshots reuse native entries](polling-snapshots-reuse-native-entries.md) — reduce snapshot bookkeeping while preserving fresh metadata, complete event detection and normal watcher policy
+- [Watcher diagnostics observe whole operations](watcher-diagnostics-observe-whole-operations.md) — bounded coarse timings distinguish concurrent watcher/worker CPU from waiting without tracing every file
+
+- [Notebook session metadata is lightweight](notebook-session-metadata-is-lightweight.md) — share stable session identity without importing Jupyter for metadata; retain real-kernel behavior and measure complete notebook controls
+
+- [Cold dashboard reads follow file dispatch](cold-dashboard-reads-follow-file-dispatch.md) — overlap independent I/O after dispatching files first; retain one batch, complete sidebar data, errors and navigation ownership
+- [Synchronous diagnostics separate thread CPU](synchronous-diagnostics-separate-thread-cpu.md) — distinguish waiting from computation on sync workers; omit misleading async thread totals and retain the unresolved cold scan spike
+
+- [Workspace history precedes view teardown](workspace-history-precedes-view-teardown.md) — avoid a synchronous intermediate style/layout flush while retaining history entries, exact document restoration and old terminal ownership
+
+- [Editor keys are separate from IME setup](editor-keys-are-separate-from-ime-setup.md) — native input has its own clock/value/cursor and Save/Cancel checks; keep IME and navigation failures
+- [Browser traces need time coverage checks](browser-traces-need-time-coverage-checks.md) — a saved verbose trace can stop before the failing sample and materially perturb click timings
+
+- [File scans release recursive closures](file-scans-release-recursive-closures.md) — avoid retaining complete file lists until cyclic GC while keeping live filesystem workers and traversal semantics intact
+
+- [Sidebar parent lookups belong to one build](sidebar-tree-lookups-belong-to-one-build.md) — reduce repeated path work while preserving fresh trees, file identity, metadata and path normalization
+
+- [Workspace navigation defers overlapping refreshes](workspace-navigation-defers-background-refresh.md) — finish the clicked workspace first, then read fresh data once; keep scope/generation ownership and immediate later clicks
+
+- [Background refresh respects the editor](document-refresh-respects-active-editor.md) — recheck editing after asynchronous mtime/document reads; retain the baseline so changes catch up after editing
+
+- [Markdown skips unused disclosure searches](markdown-skips-unused-disclosure-extension.md) — bypass repeated suffix scans only when no disclosure can be consumed; preserve custom parsing and the shared safety/copy pipeline
+
+- [Document saves publish confirmed cache content](document-saves-publish-confirmed-cache.md) — avoid stale inline paints while retaining fresh reconciliation, captured roots and newer drafts
+- [Multiline IME input is not paste latency](multiline-ime-input-is-not-paste-latency.md) — distinguish CDP text setup from clicks and clipboard input; retain slow replacements and failure diagnostics
+
+- [Document editing checks both views](document-edit-latency-checks-both-views.md) — measure saved/cancelled modal and inline content, exact files across workspaces, and restored document navigation
+
+- [Sidebar file identity is shared](sidebar-file-identity-is-shared.md) — one captured path/root serves open, context, drag and terminal links; legacy entry rows keep their metadata
+
+- [Native drag tests use a trusted transfer](native-drag-tests-use-trusted-transfer.md) — verify copy mode in native dragstart, cancel the owned test drag and reset pointer state before pixel comparisons
+
+- [Named action logs avoid text layout](named-action-logs-avoid-text-layout.md) — skip unused innerText reads for named controls while preserving log labels and unnamed fallbacks
+
+- [Terminal detach drains tty output](terminal-detach-drains-tty-output.md) — bounded worker cleanup avoids the measured tmux close stall while retaining sessions, input and pane-cache limits
+
+- [Pin writes publish confirmed cache state](pin-writes-publish-confirmed-cache-state.md) — show saved Pin/Unpin state on warm paint, retain fresh reconciliation, and keep delayed writes in their original workspace
+
+- [Sidebar Pin controls keep their own name](sidebar-pin-controls-keep-name-separate.md) — delegate clicks without confusing pin names and file paths; preserve native geometry and existing double-click behavior
+
+- [Terminal probes verify text after scrolling](terminal-echo-probe-verifies-scrolled-text.md) — exact varied input, independent parse/render continuity, and explicit coverage beyond the ready marker
+
+- [Input validation samples the current clock offset](input-validation-samples-current-clock-offset.md) — wall and monotonic clocks may drift; preserve raw measurements, queued input and strict validation limits
+
+- [Git decorations use path indexes](sidebar-git-decorations-use-path-indexes.md) — preserve prefix and scope semantics, avoid unchanged badge mutations, and verify real Git state in latency fixtures
+
+- [Settings latency includes the actual sidebar redraw](settings-latency-waits-for-sidebar-redraw.md) — verify inactive-workspace saves, stored preferences and restored rows; separate form setup from measured native clicks
+
+- [Creation publishes its workspace tab immediately](workspace-creation-publishes-tab-immediately.md) — remember the confirmed row before navigation without replacing existing tab state or waiting for polling
+
+- [Prepared sidebar groups retain containment](sidebar-preparation-retains-containment.md) — preserve auto's layout/style/paint boundaries after idle preparation, and check focused group-boundary pixels
+
+- [Prepare sidebar layout in idle callbacks](sidebar-idle-layout-prepares-live-groups.md) — keep live preparation out of template keys, cancel stale jobs, and invalidate it before width changes
+
+- [Empty pending state skips path resolution](notebook-empty-pending-tracker-skips-resolution.md) — avoid filesystem work when no notebook is running; preserve live identity checks when the registry is nonempty
+
+- [All file icons share graphics](sidebar-all-icons-share-graphics.md) — one span per icon, inherited-color masks, theme-aware config fills, and native-scale pixel regression checks
+
+- [Native Enter includes its character event](browser-native-enter-includes-character.md) — CDP button-activation checks need carriage-return text as well as keyDown/keyUp
+
+- [Reuse pristine sidebar folder fragments](sidebar-template-fragments-reuse-pristine-folders.md) — source-range reuse avoids reparsing unchanged folders; transient identity proofs must not retain older templates
+
+- [Separate browser and server latency](latency-probes-separate-server-and-browser-time.md) — optional isolated ASGI/handler/function timings correlate route, workspace scope, and start time without logging headers or bodies
 
 - [Codex launch options](codex-launch-explicit-autopilot-options.md) — use explicit workspace sandbox and on-request approvals; removed `--full-auto` made terminal tabs exit immediately
 
@@ -303,3 +430,41 @@
 
 - [Git history loads local and recent work first](git-history-loads-local-and-recent-first.md) — independent local status, 20 commits/60 days, lazy older pages, and rename-safe pagination.
 - [File scan capacity is queued](file-scan-capacity-is-queued.md) — bounded cold-first admission, quiet 202 retries, immediate cached listings, and existing FSEvents reconciliation.
+
+- [Terminal process discovery is TTY-scoped](terminal-process-scan-is-tty-scoped.md) — query only requested panes; a whole-machine ps scan can exceed the interaction budget by itself.
+
+- [Batch terminal ownership per vault](terminal-ownership-batched-per-vault.md) — resolve unknown UUIDs from one fresh metadata scan; retain durable recovery and legacy name handling.
+
+- [Codex snapshots preserve timestamp ties](codex-snapshot-index-preserves-tie-order.md) — skip redundant named-thread snapshots on large windows without losing empty/untitled conversations or changing same-second ordering.
+
+- [Workspace clicks bypass startup delay](workspace-clicks-bypass-startup-delay.md) — schedule initial URL hydration separately; early user clicks must not inherit the 750 ms quiet window.
+
+- [Open tabs avoid redundant writes](workspace-tab-open-avoids-noop-writes.md) — read current saved state, but only write a changed open/closed flag; no-op writes trigger file-tree rebuilds.
+- [Sidebar templates stay pristine and bounded](sidebar-template-cache-is-pristine-and-bounded.md) — exact markup, deterministic folder IDs, fresh clones, four scopes and 60,000 retained elements; cold rendering remains separate work.
+
+- [File scans reuse request-local entries](workspace-file-scan-reuses-directory-entries.md) — reduce repeated stat calls while preserving fresh edits, symlink targets, and worktree annotations.
+- [Sidebar refreshes keep the latest scope](sidebar-refresh-keeps-latest-scope.md) — captured paths plus generations guard delayed responses; cached paint and reconciliation share ownership.
+- [Shared sidebar icons preserve baselines](sidebar-shared-icons-preserve-baselines.md) — shared graphics reduce DOM without shifting text or symlink overlays; larger and mixed trees still need work.
+- [Large file lists use typed serialization](large-file-lists-use-typed-serialization.md) — generic response dictionaries retain all metadata while avoiding the Python JSON conversion walk; compare complete ASGI results.
+- [Offscreen sidebar groups keep complete rows](sidebar-offscreen-groups-keep-complete-rows.md) — native search/actions remain available; flat and nested groups preserve 22px row extents and bounded template retention.
+- [Sidebar actions share row metadata](sidebar-file-actions-share-row-metadata.md) — delegated file/history/modal handlers use escaped paths and roots while controls keep their separate actions.
+- [Dashboard reads overlap sidebar rendering](dashboard-reads-overlap-sidebar-render.md) — earlier scheduling checkpoint; retain one batch and generation guards, with cold reads now starting after file dispatch.
+- [File scans avoid unused full paths](file-scans-avoid-unused-full-paths.md) — relative prefixes and DirEntry stats remove repeated path work while preserving link, notebook, worktree, and freshness behavior.
+- [Unchanged background sidebars retain live rows](sidebar-background-refresh-retains-unchanged-rows.md) — compare freshly generated markup and mounted scope/identity; preserve focus without suppressing fresh data or changed rendering.
+- [Input latency includes browser queueing](input-latency-includes-browser-queueing.md) — send timestamped CDP input from outside the renderer with normal polling; keep all keys and verify their exact echoed text.
+- [Browser extraction can force offscreen layout](browser-content-extraction-forces-sidebar-layout.md) — Chrome AI page-content extraction was traced forcing all content-visibility groups to lay out during typing; include blink categories before blaming a Lab timer.
+- [Sidebar changes reuse equal sections](sidebar-changes-reuse-equal-sections.md) — compare pristine templates, reconcile only known tree containers, retain keyed live rows, and verify that a large fixture actually fits the bounded cache.
+
+- [Background sidebars render fresh data once](sidebar-background-refresh-renders-fresh-once.md) — explicit background mode avoids the duplicate cached render, retaining live markers, fallback, and navigation ownership
+
+- [Retired sidebar templates transfer unchanged folders](sidebar-retired-templates-transfer-unchanged-folders.md) — reconcile before transfer; expand placeholders on every fallback; retain complete bounded pristine caches
+
+- [Terminal transport includes negotiation replies](typing-transport-includes-terminal-negotiation.md) — retain owned socket metadata, but distinguish xterm replies from measured native keys
+
+- [Latency fixtures match production WebSocket settings](latency-fixture-matches-websocket-configuration.md) — explicitly disable compression by default, verify negotiation, and retain labeled legacy comparisons
+
+- [Trace terminal latency across the PTY boundary](terminal-latency-trace-crosses-pty.md) — correlate browser, ASGI, PTY and owned echo metadata while preserving byte semantics and safe cleanup
+
+- [tmux creation hooks preserve API errors](tmux-creation-hooks-must-preserve-api-errors.md) — session output markers can precede a failing hook; native API regression guards against masking creation errors during batching.
+
+- [Busy notebook lookups reject unrelated regular names](busy-notebook-lookups-reject-unrelated-regular-names.md) — bounded POSIX filename filtering reduces active-notebook scan work while retaining fresh symlink resolution, locking and fallback behavior.

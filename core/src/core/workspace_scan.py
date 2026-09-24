@@ -59,7 +59,7 @@ def walk(root: Path, *, include_dotfiles: bool = False,
     if not stat.S_ISDIR(root_stat.st_mode):
         return
 
-    def visit(entry: Entry, budget: int, ancestors: frozenset) -> Iterator[Entry]:
+    def visit(entry: Entry, budget: int, ancestors: frozenset, *, recurse) -> Iterator[Entry]:
         step(entry.path, "visit")
         if not entry.is_dir or entry.path.name in SKIP_DIRS and entry.depth > 0:
             yield entry
@@ -111,7 +111,7 @@ def walk(root: Path, *, include_dotfiles: bool = False,
                 info = None
             if cache and is_symlink and info is not None:
                 cache.link(Path(child.path), stat.S_ISDIR(info.st_mode), step)
-            yield from visit(Entry(Path(child.path), info, is_symlink,
-                                   entry.depth + 1, entry.git_root), budget + 1, ancestors)
+            yield from recurse(Entry(Path(child.path), info, is_symlink,
+                                     entry.depth + 1, entry.git_root), budget + 1, ancestors, recurse=recurse)
 
-    yield from visit(Entry(root, root_stat, root.is_symlink(), 0, git_root), 0, frozenset())
+    yield from visit(Entry(root, root_stat, root.is_symlink(), 0, git_root), 0, frozenset(), recurse=visit)

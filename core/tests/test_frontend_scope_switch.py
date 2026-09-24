@@ -51,6 +51,8 @@ let _sidebarWorktreeDiscoveryKey = 'large', _sidebarWorktreeFolderResolved = '/t
 let _sidebarWorktreeDiscoveryPromise = null, _sidebarWorktreeDiscoveryPromiseKey = '', _sidebarWorktreeDiscoveryGeneration = 0;
 const _workspaceSidebarCache = new Map(), _sidebarScanStates = new Map();
 const _termCancelPendingLinkedFileOpen = () => {}, _storeSidebarFileConfig = () => {};
+let _workspaceSidebarRefreshSequence = 0;
+const _sidebarDefaultWorktreeFolder = () => '';
 const _sidebarEnsureWorktrees = () => new Promise(() => {});
 const selfPopulateSidebar = _sidebarEnsureWorktrees, vaultPopulateSidebar = _sidebarEnsureWorktrees, loadWorkspaceView = _sidebarEnsureWorktrees;
 const _sidebarFileScopeButtonsHtml = () => '<button>Folders</button>';

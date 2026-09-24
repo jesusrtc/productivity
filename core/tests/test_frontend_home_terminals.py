@@ -22,6 +22,7 @@ def run(body, *extra):
         section('  function _termHomeViewActive()', '  // Which tab (if any)'),
         section('  function _termActiveWorkspaceId()', '  async function termAutoSpawnEnabled'),
         section('  function _termVisibilityKey()', '  function _termRememberVisibility'),
+        section('  const _termSessionListVersions =', '  // localStorage key prefix'),
     ])
     prelude = '''
 const window = {};
@@ -75,6 +76,7 @@ def test_home_section_switch_keeps_the_mounted_terminal():
     result = run('''
 let _workspaceDeleteTarget = null;
 const closeVaultWorkspaceMenu = () => {};
+const _clearNbNavigation = () => {};
 const calls = [];
 const termDetach = () => calls.push('detach');
 const _termIsScopeActive = id => id === _termActiveWorkspaceId();

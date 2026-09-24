@@ -99,7 +99,8 @@ def write_document(path, metadata, body):
         atomic_bytes(path, encode_document(metadata, body))
 
 
-def safe(root, source):
+def safe(root, source, *, resolved_root=None):
+    """Validate a fresh source, optionally reusing a batch's resolved root."""
     root = root.absolute()
     reference = Path(source)
     source = Path(str(source).split("#tab=", 1)[0])
@@ -116,8 +117,12 @@ def safe(root, source):
         current /= part
         if current.is_symlink():
             raise ValueError('Assistant record paths cannot contain symlinks')
-    if not source.resolve().is_relative_to(root.resolve()):
-        raise ValueError('Record path escapes Assistant')
+    resolved_source = source.resolve()
+    if not resolved_source.is_relative_to(root.resolve() if resolved_root is None else resolved_root):
+        # A root alias can move during a listing. Recheck its current boundary
+        # just as the standalone validator does, without trusting a stale hint.
+        if resolved_root is None or not resolved_source.is_relative_to(root.resolve()):
+            raise ValueError('Record path escapes Assistant')
     return Path(str(source) + "#tab=" + str(reference).split("#tab=", 1)[1]) if "#tab=" in str(reference) else source
 
 
@@ -166,7 +171,12 @@ def records(root, collection=None):
                    'mtime': source.stat().st_mtime}
 
 
-def resolve(root, reference, collection=None):
+def resolve(root, reference, collection=None, *, record_rows=None):
+    """Resolve against fresh records or a caller's current validated snapshot.
+
+    A supplied iterable is consumed only after reference validation. The selected
+    source still gets a fresh path check and file read.
+    """
     reference = str(reference)
     if Path(reference).is_absolute() or '..' in Path(reference).parts:
         raise ValueError('Invalid Assistant reference')
@@ -174,7 +184,17 @@ def resolve(root, reference, collection=None):
     canonical = storage.canonical(root, reference)
     collections = {'subtasks': 'tasks', 'meetings': 'notes', 'meeting-series': 'notes'}
     folder = None if collection in {'meetings', 'meeting-series', 'documents'} else collections.get(collection, collection)
-    matches = [row for row in records(root, folder) if reference in
+    if record_rows is None:
+        rows = records(root, folder)
+    else:
+        if folder is not None and folder not in {'tasks', 'notes', 'projects'}:
+            from lab import assistant_documents as documents
+            if not documents.enabled(root):
+                if folder:
+                    raise ValueError('Invalid record collection')
+                folder = None
+        rows = record_rows if folder is None else (row for row in record_rows if row['type'] + 's' == folder)
+    matches = [row for row in rows if reference in
                [row['id'], row['path'], *(row.get('aliases') or [])] or canonical == row['path']]
     if len(matches) != 1:
         raise ValueError('Assistant document not found or reference is ambiguous')
@@ -198,12 +218,25 @@ def key(row):
     return row['type'], row['id']
 
 
-def descendants(rows, record):
+def children_index(rows):
+    """Group children in source order for repeated walks over one record list."""
+    result = {}
+    try:
+        for row in rows:
+            result.setdefault(parent_key(row), []).append(row)
+    except (TypeError, AttributeError):
+        # Malformed parent keys must keep the original scan's validation/error
+        # behavior, including unrelated bad references that it never follows.
+        return None
+    return result
+
+
+def descendants(rows, record, *, by_parent=None):
     found, frontier, seen = [], [key(record)], {key(record)}
     while frontier:
         parent = frontier.pop()
-        for row in rows:
-            if parent_key(row) == parent:
+        for row in rows if by_parent is None else by_parent.get(parent, ()):
+            if by_parent is not None or parent_key(row) == parent:
                 identity = key(row)
                 if identity in seen:
                     raise ValueError('Document parent cycle')
@@ -217,11 +250,12 @@ def validate_graph(rows, refs):
     by_key = {key(row): row for row in rows}
     if len(by_key) != len(rows):
         raise ValueError('Duplicate Assistant IDs')
+    by_parent = children_index(rows)
     aliases = {}
     from lab import assistant_tasks as tasks
     for row in rows:
         if row.get('task_format') == tasks.FORMAT and not row.get('parent'):
-            tasks.validate(row.get('tasks', []), {row['id'], *(child['id'] for child in descendants(rows,row))})
+            tasks.validate(row.get('tasks', []), {row['id'], *(child['id'] for child in descendants(rows,row,by_parent=by_parent))})
         validate_external_url(row.get('external_url'))
         if 'attributes' in row:
             attributes.validate(row['attributes'])
@@ -276,14 +310,16 @@ def progress_map(rows):
     for row in rows:
         by_parent.setdefault(parent_key(row), []).append(row)
     result, visiting = {}, set()
-    def visit(row):
+    # Pass recursion explicitly so completed input/result trees are not held
+    # by a self-referencing closure until cyclic garbage collection.
+    def visit(recurse, row):
         identity = key(row)
         if identity in result:
             return result[identity]
         if identity in visiting:
             raise ValueError('Document parent cycle')
         visiting.add(identity)
-        children = [visit(child) for child in by_parent.get(identity, [])]
+        children = [recurse(recurse, child) for child in by_parent.get(identity, [])]
         children = [child for child in children if child['tracked']]
         tracked = tracks_task(row) or bool(children)
         raw = row.get('status') or 'not_started'
@@ -302,14 +338,14 @@ def progress_map(rows):
         visiting.remove(identity)
         return result[identity]
     for row in rows:
-        visit(row)
+        visit(visit, row)
     from lab import assistant_tasks as tasks
     for row in rows:
         if row.get('task_format') != tasks.FORMAT or row.get('parent'):
             continue
         items = tasks.normalize(row.get('tasks', []))
         result[key(row)] = tasks.summary(items)
-        for tab in descendants(rows,row):
+        for tab in descendants(rows,row,by_parent=by_parent):
             own = [item for item in items if tasks.linked_tab(items,item) == tab['id']]
             # Task parentage can cross content tabs; select all roots within scope.
             own_ids = {item['id'] for item in own}
@@ -318,12 +354,14 @@ def progress_map(rows):
     return result
 
 
-def task_rows(root, children_only=False):
+def task_rows(root, children_only=False, *, record_rows=None):
+    """Project tasks from a fresh read or a caller's materialized record list."""
     from lab import assistant as db
-    rows = list(records(root))
+    rows = list(records(root)) if record_rows is None else record_rows
     from lab import assistant_documents as documents
     embedded = documents.enabled(root)
     progress = progress_map(rows)
+    by_parent = children_index(rows)
     for row in rows:
         if embedded and not children_only and row.get('embedded'):
             continue
@@ -342,7 +380,7 @@ def task_rows(root, children_only=False):
                    'done':progress[key(row)]['status'] in {'done','skipped'}}
             continue
         children = []
-        for child in descendants(rows, row):
+        for child in descendants(rows, row, by_parent=by_parent):
             if embedded and not progress[key(child)]['tracked']:
                 continue
             if not embedded and child['type'] != 'task':
@@ -359,16 +397,18 @@ def task_rows(root, children_only=False):
                'workspace_path': reference.get('workspace_path'), 'document_backed': True,
                'status': progress[key(row)]['status'] if embedded else row.get('status') or 'inbox',
                'progress':progress[key(row)], 'stored_status':row.get('status'),
-               'search_text':' '.join(str(child.get(field) or '') for child in [row,*descendants(rows,row)] for field in ('title','tldr','owner')), 'priority': row.get('priority') or 'P2',
+               'search_text':' '.join(str(child.get(field) or '') for child in [row,*descendants(rows,row,by_parent=by_parent)] for field in ('title','tldr','owner')), 'priority': row.get('priority') or 'P2',
                'subtasks': all_children, 'first_class_subtasks': children, 'legacy_subtasks': legacy,
                'subtasks_done': sum(child.get('status') in {'done','skipped'} for child in all_children),
                'subtasks_total': len(all_children), 'done': progress[key(row)]['status'] in {'done','skipped'}}
 
 
-def note_rows(root, note_type):
+def note_rows(root, note_type, *, record_rows=None):
+    """Project meetings/series without changing a supplied record list."""
     from lab import assistant_meetings as meetings, assistant_documents as documents
     embedded = documents.enabled(root)
-    notes = [row for row in records(root) if row['type'] in {'task','note'}]
+    rows = records(root) if record_rows is None else record_rows
+    notes = [row for row in rows if row['type'] in {'task','note'}]
     for row in notes:
         if row.get('note_type') != note_type:
             continue

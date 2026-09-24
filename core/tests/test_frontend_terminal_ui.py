@@ -59,7 +59,8 @@ def test_framework_top_tab_is_labeled_home() -> None:
 
 @pytest.mark.parametrize("mode", ["success", "cancel", "failure", "settings_failure", "navigate"])
 def test_kill_all_preserves_workspace_scope_and_reports_failures(mode: str) -> None:
-    handler = _js_between("  const _termKillAllPending", "  async function termCopyAttachCmd")
+    handler = (_js_between('  const _termSessionListVersions =', '  // localStorage key prefix')
+               + _js_between("  const _termKillAllPending", "  async function termCopyAttachCmd"))
     result = _run_node(r"""
 const mode = MODE;
 const calls = [], alerts = [], statuses = [];
@@ -580,7 +581,7 @@ process.stdout.write(JSON.stringify({
 
 
 def test_terminal_request_block_keeps_history_in_a_three_item_viewport() -> None:
-    file_icons = _js_between("  const _FT_FONT", "  function buildSidebarTree(")
+    file_icons = _js_between("  function fileIconHtml(", "  function buildSidebarTree(")
     header_helpers = _js_between(
         "function _termSessionDisplay(s)",
         "function _termSessionPillHtml(s, index)",
@@ -1070,7 +1071,14 @@ def test_linked_terminal_sync_only_runs_from_explicit_file_or_terminal_clicks() 
     assert "_termSyncFromFileClick" not in repo_open
     assert "_termSyncFromFileClick" not in workspace_open
     assert source.count("_termSyncFromFileClick(") == 3
-    assert source.count("onclick=\"openWorkspaceDocFromFileClick(") == 3
+    sidebar_action = _js_between(
+        "function _sidebarHandleFileAction(event)",
+        "async function openWorkspaceDoc(filepath",
+    )
+    assert "openWorkspaceDocFromFileClick(path, {root});" in sidebar_action
+    assert "addEventListener('click', _sidebarHandleFileAction)" in sidebar_action
+    assert "const root = row.getAttribute('data-entry-root');" in sidebar_action
+    assert "onclick=\"openWorkspaceDocFromFileClick(" not in source
     assert source.count("onclick=\"openWorkspaceFileFromFileClick(") == 1
     assert "if (ctx.surface === 'repo') openWorkspaceFile(ctx.path);" in source
     assert "else openWorkspaceDoc(ctx.path, {root: ctx.root});" in source
@@ -1267,7 +1275,7 @@ def test_productivity_view_uses_directory_overview() -> None:
 
 
 def test_terminal_close_click_purges_saved_session_and_disables_autospawn() -> None:
-    term_kill_current = _js_between(
+    term_kill_current = _js_between('  const _termSessionListVersions =', '  // localStorage key prefix') + _js_between(
         "async function termKillCurrent()",
         "async function termCopyAttachCmd()",
     )
@@ -1290,6 +1298,7 @@ const SELF_WORKSPACE_ID = '__self__';
 const LOGS_WORKSPACE_ID = '__logs__';
 
 function _termActiveWorkspaceId() { return 'demo'; }
+function _termSessionsKey(workspaceId, vaultId) { return vaultId + '::' + workspaceId; }
 function _termIsScopeActive(workspaceId) { return workspaceId === 'demo'; }
 function confirm(msg) { confirmMessages.push(msg); return true; }
 function termDetach() { detached = true; termCurrentSession = null; }
@@ -2528,7 +2537,8 @@ console.log(JSON.stringify({initial, divider, grouped, other, ungrouped}));
 
 @pytest.mark.parametrize('mode', ['background', 'group', 'cancel', 'failure', 'settings_failure', 'navigate'])
 def test_context_close_targets_only_requested_tabs_and_keeps_scope(mode: str) -> None:
-    helpers = _js_between('  const _termCloseTabsPending', '  function _termSessionDisplay(s)')
+    helpers = (_js_between('  const _termSessionListVersions =', '  // localStorage key prefix')
+               + _js_between('  const _termCloseTabsPending', '  function _termSessionDisplay(s)'))
     result = _run_node(r'''
 const mode = MODE;
 let vault = 'one', termCurrentSession = 'active';
@@ -2662,6 +2672,10 @@ def test_terminal_scope_captures_project_and_optional_worktree_and_cascades_file
     result = _run_node(r'''
 let worktree = null;
 const _sidebarFileConfigScope = 'demo';
+const _sidebarDefaultWorktreeFolder = () => '/fixture/worktrees';
+const discoveries = [];
+const fetch = async url => { discoveries.push(url); return {ok:true,json:async()=>({folders:[]})}; };
+const _sidebarWorktreeRepositoryRoot = root => root;
 const _sidebarFileConfig = {folderScopes: [{path: '/base/forge', label: 'Forge', color: '#123abc'}]};
 const _sidebarWorktreeBaseRoot = () => '/base';
 const _sidebarSelectedWorktree = () => worktree;
@@ -2679,7 +2693,7 @@ const _termLinkedAbsolutePath = (root, path) => root + '/' + path;
   const feature = _termSelectedScope();
   const file = await _termScopeForFile({root: '/trees/feature', path: 'README.md'});
   const other = await _termScopeForFile({root: '/base/forge', path: 'README.md'});
-  process.stdout.write(JSON.stringify({main, feature, file, other}));
+  process.stdout.write(JSON.stringify({main, feature, file, other, discoveries}));
 })().catch(error => { console.error(error); process.exit(1); });
 ''')
     assert result['main']['root'] == '/base/forge'
@@ -2690,6 +2704,12 @@ const _termLinkedAbsolutePath = (root, path) => root + '/' + path;
     assert result['feature']['color'] == '#abcdef'
     assert result['file'] == result['feature']
     assert result['other'] == result['main']
+
+    from urllib.parse import parse_qs, urlsplit
+    assert [parse_qs(urlsplit(url).query) for url in result['discoveries']] == [
+        {'path': ['/fixture/worktrees'], 'repo': [root], 'scope': [root], 'optional': ['true']}
+        for root in ['/base', '/base/forge']
+    ]
 
 
 def test_terminal_scope_sync_is_opt_in_and_cancels_stale_choices() -> None:

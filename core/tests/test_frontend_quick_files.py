@@ -107,6 +107,7 @@ const files = [
   {path: 'broken-time-report.txt', mtime: 'not-a-number'},
   {path: 'report.csv', mtime: 90},
 ];
+files.forEach(file => file.git_tracked = true);
 const preferred = _quickFileMatches(files, '').map(file => file.path);
 const filtered = _quickFileMatches(files, 'report').map(file => file.path);
 _sidebarFileConfig.extensions = ['csv'];

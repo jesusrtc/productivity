@@ -22,6 +22,9 @@ def test_pty_eof_closes_websocket_without_waiting_for_keyboard(monkeypatch, outp
     monkeypatch.setattr(term, '_set_winsize', lambda *_: None)
     monkeypatch.setattr(term.os, 'kill', lambda *_: None)
     monkeypatch.setattr(term.os, 'waitpid', lambda *_: (0, 0))
+    from core.routes import terminal_cleanup
+    accesses = []
+    monkeypatch.setattr(terminal_cleanup, 'mark_access', lambda *args: accesses.append(args))
     frames, cancelled = [], []
     async def receive():
         try:
@@ -39,5 +42,6 @@ def test_pty_eof_closes_websocket_without_waiting_for_keyboard(monkeypatch, outp
     assert ''.join(frame.get('data','') for frame in frames)==output.decode()
     assert cancelled, 'The blocked keyboard reader must be cancelled'
     ws.close.assert_awaited_once()
+    assert accesses == [('lab-document-exit', 'isolated')]
     with pytest.raises(OSError):
         os.fstat(read_fd)
