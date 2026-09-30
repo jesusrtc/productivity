@@ -418,11 +418,42 @@ def update_content(body: AssistantContentBody, request: Request) -> dict:
         _, metadata, _ = records.resolve(root, body.path)
     except (OSError, ValueError) as exc:
         raise HTTPException(status_code=409 if 'changed elsewhere' in str(exc) else 400, detail=str(exc)) from exc
+    return _content_detail(root, body.path, metadata, request)
+
+
+def _content_detail(root, path, metadata, request):
     if metadata.get('note_type') == 'meeting':
-        return get_meeting(body.path, request)
+        return get_meeting(path, request)
     if metadata.get('note_type') == 'series':
-        return get_meeting_series(body.path, request)
-    return assistant_v2.detail(root, body.path)
+        return get_meeting_series(path, request)
+    return assistant_v2.detail(root, path)
+
+
+@router.get('/content/history')
+def content_history(path: str, request: Request):
+    from lab import assistant_content_history as history
+    root = _require_root(request)
+    try:
+        return {'versions':history.versions(root, path)}
+    except (OSError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+class AssistantContentRevert(BaseModel):
+    path: str
+    revision_id: str
+    expected: str
+
+
+@router.post('/content/revert')
+def revert_content(body: AssistantContentRevert, request: Request):
+    root = _require_root(request)
+    try:
+        records.update_body(root, body.path, None, expected=body.expected, revision_id=body.revision_id)
+        _, metadata, _ = records.resolve(root, body.path)
+    except (OSError, ValueError) as exc:
+        raise HTTPException(status_code=409 if 'changed elsewhere' in str(exc) else 400, detail=str(exc)) from exc
+    return _content_detail(root, body.path, metadata, request)
 
 
 class AssistantMetadataBody(BaseModel):

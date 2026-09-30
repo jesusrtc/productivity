@@ -2904,6 +2904,30 @@
 .assistant-note-marks > .note-line-deleted { border-radius:0; box-shadow:inset 0 2px color-mix(in srgb,#b28a46 55%,transparent); }
 .assistant-note-editor > textarea { position:absolute; inset:0; height:100%; resize:none; overflow:hidden; color:var(--text-primary); background:transparent; caret-color:var(--text-primary); }
 .assistant-note-editor > textarea:focus { outline:1px solid var(--border); outline-offset:3px; }
+.assistant-note-editor > .cm-editor { max-width:980px; margin:0 auto; font-size:var(--lab-document-font-size,15px); color:var(--text-primary); }
+.assistant-note-editor .cm-editor.cm-focused { outline:none; }
+.assistant-note-editor .cm-scroller { overflow:visible; font-family:inherit; line-height:1.65; }
+.assistant-note-editor .cm-content { min-height:320px; padding:4px 0 100px; caret-color:var(--text-primary); }
+.assistant-note-editor .cm-line { padding:0 4px; }
+.assistant-note-editor .cm-cursor { border-left-color:var(--text-primary); }
+.assistant-note-editor .cm-selectionBackground { background:color-mix(in srgb,var(--accent) 25%,transparent)!important; }
+.lab-live-markdown-block { cursor:text; }
+.lab-live-markdown-block > :first-child { margin-top:0; }
+.lab-live-markdown-block > :last-child { margin-bottom:0; }
+.lab-live-heading { font-weight:650; line-height:1.3; }
+.lab-live-heading-1 { font-size:2em; }
+.lab-live-heading-2 { font-size:1.6em; }
+.lab-live-heading-3 { font-size:1.3em; }
+.assistant-note-history { width:min(620px,90vw); max-height:80vh; box-sizing:border-box; overflow:auto; padding:24px; border:1px solid var(--border); border-radius:10px; color:var(--text-primary); background:var(--bg-primary); }
+.assistant-note-history::backdrop { background:#0007; }
+.assistant-note-history h2 { margin:0 0 8px; font-size:18px; }
+.assistant-note-history p { color:var(--text-secondary); font-size:13px; }
+.assistant-note-history section { display:flex; gap:16px; align-items:flex-start; padding:14px 0; border-bottom:1px solid var(--border); }
+.assistant-note-history section > div { flex:1; min-width:0; }
+.assistant-note-history strong { font-size:12px; }
+.assistant-note-history pre { max-height:100px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; font-size:12px; color:var(--text-secondary); }
+.assistant-note-history button { padding:8px 12px; border:1px solid var(--border); border-radius:6px; color:var(--text-primary); background:var(--bg-secondary); cursor:pointer; }
+.assistant-note-history footer { display:flex; justify-content:flex-end; margin-top:16px; }
 @media(max-width:760px) { .assistant-note-status { max-width:100%; flex-basis:100%; } }
 
 /* Generated document index: compact, neutral, and navigable as a tree. */

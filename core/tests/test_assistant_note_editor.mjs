@@ -10,6 +10,7 @@ function element() {
 const listeners = {};
 const window = {addEventListener:(name, fn) => listeners[name] = fn};
 const document = {addEventListener() {}, querySelectorAll:() => [], getElementById:id => {
+  if (id === 'assistantTabsRailItems') return null;
   if (!elements.has(id)) elements.set(id, element());
   return elements.get(id);
 }};
@@ -69,7 +70,7 @@ assert.equal(sent.path, detail.path);
 assert.equal(draft.body, 'Changed <script>bad()</script>');
 assert.equal(draft.base, 'Original');
 assert.equal(draft.saving, false);
-assert.equal(draft.input.readOnly, false);
+assert.notEqual(draft.input.readOnly, true);
 assert.ok(elements.get('assistantNoteStatus').textContent.includes('changed elsewhere'));
 assert.equal(elements.get('assistantSaveNote').disabled, false);
 
@@ -93,7 +94,7 @@ assert.equal(draft.base, draft.body);
 assert.ok(!draft.marks.innerHTML.includes('class="note-line-changed'));
 state.modalCurrent = detail; controls(detail, 'note');
 assert.equal(elements.get('assistantSaveNote').disabled, true);
-assert.equal(elements.get('assistantNoteStatus').textContent, 'Saved');
+assert.ok(elements.get('assistantNoteStatus').textContent.startsWith('Saved'));
 warned = false;
 listeners.beforeunload({preventDefault:() => warned = true});
 assert.equal(warned, false);

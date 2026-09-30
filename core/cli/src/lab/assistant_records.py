@@ -659,7 +659,7 @@ def update(root, reference, field, value, *, collection=None, expected=UNSET):
         return source
 
 
-def update_body(root, reference, body, *, expected):
+def update_body(root, reference, body, *, expected, revision_id=None):
     """Save one note's content without replacing concurrent sibling/property edits."""
     from lab import assistant as db, assistant_documents as documents
     with lock(root):
@@ -670,10 +670,14 @@ def update_body(root, reference, body, *, expected):
             raise ValueError('Only document content can be edited here')
         if current != expected:
             raise ValueError('This note changed elsewhere. Your draft is retained. Copy your changes before discarding the draft to load the latest version.')
+        from lab import assistant_content_history as history
+        if revision_id is not None:
+            body = history.body(root, metadata, revision_id)
         if body == current:
             return
         if re.search(r'^<!-- /?lab:subtab ', body, re.M):
             raise ValueError('Subtab body markers are reserved; edit the content of each tab separately')
+        history.remember(root, metadata, current)
         metadata['updated'] = db.now_iso()
         write_document(source, metadata, body)
         if documents.enabled(root):

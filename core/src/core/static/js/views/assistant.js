@@ -1348,6 +1348,8 @@
   }
 
   function closeDocumentModal(updateHistory = true) {
+    document.getElementById('assistantNoteHistory')?.close();
+    void flushNoteDraft();
     clearTimeout(state.documentClickTimer);
     state.documentClickTimer = null;
     state.inlinePending = false;
@@ -1402,6 +1404,8 @@
     const isCurrent = () => request === state.modalRequest && (!options.isCurrent || options.isCurrent());
     overlay.setAttribute('aria-busy', 'true');
     try {
+      await flushNoteDraft();
+      if (!isCurrent()) return;
       let detail = await fetchDocument(kind, path);
       if (!isCurrent()) return;
       let root = detail, rootKind = kind;
@@ -1415,7 +1419,7 @@
         rootKind = parent ? 'task' : 'subtask';
       }
       if (!isCurrent()) return;
-      let showIndex = !focusHeading && detail.path === root.path && Boolean(root.tree?.children?.length || root.document_tasks);
+      let showIndex = !focusHeading && detail.path === root.path && Boolean(root.document_tasks);
       let terminalTask = null;
       if (options.linkedTask?.task_id) {
         terminalTask = root.document_tasks?.tasks?.find(task => task.id === options.linkedTask.task_id);
@@ -1734,6 +1738,32 @@
 
   function dirtyDraft(draft) { return Boolean(draft && draft.body !== draft.base); }
 
+  function editableNote(detail, kind) {
+    return detail.metadata?.schema === 2 && ['task','note'].includes(detail.metadata.type) && kind !== 'content' && detail.format !== 'text';
+  }
+
+  function currentDraft(draft) {
+    return draft && noteDraft() === draft && !state.modalIndex
+      && document.getElementById('assistantDocumentModal')?.classList.contains('active');
+  }
+
+  function scheduleNoteSave(draft, kind) {
+    clearTimeout(draft.timer); draft.timer = null;
+    if (!dirtyDraft(draft) || draft.error || !currentDraft(draft)) return;
+    draft.timer = setTimeout(() => {
+      draft.timer = null;
+      if (currentDraft(draft)) void saveNoteContent(state.modalCurrent, kind);
+    }, Math.max(0, (draft.lastEditedAt || Date.now()) + 10000 - Date.now()));
+  }
+
+  async function flushNoteDraft() {
+    const detail = state.modalCurrent, draft = noteDraft(detail);
+    if (!draft || state.modalIndex) return;
+    clearTimeout(draft.timer); draft.timer = null;
+    if (draft.saving) await draft.pending;
+    if (noteDraft(detail) === draft && dirtyDraft(draft) && !draft.error) await saveNoteContent(detail, documentKind(detail.metadata));
+  }
+
   // Mark only added/replaced lines. Deletions get a small mark at their join.
   // Trim shared edges first and bound the LCS matrix for unusually large notes.
   function noteLineChanges(before, after) {
@@ -1765,7 +1795,7 @@
 
   function markNoteChanges(draft) {
     const diff = noteLineChanges(draft.base, draft.body);
-    draft.marks.innerHTML = diff.lines.map((line, i) => `<span class="${diff.changed.has(i) ? 'note-line-changed' : ''} ${diff.deleted.has(i) ? 'note-line-deleted' : ''}">${e(line) || '&#8203;'}</span>`).join('');
+    if (draft.marks) draft.marks.innerHTML = diff.lines.map((line, i) => `<span class="${diff.changed.has(i) ? 'note-line-changed' : ''} ${diff.deleted.has(i) ? 'note-line-deleted' : ''}">${e(line) || '&#8203;'}</span>`).join('');
     draft.summary = dirtyDraft(draft) ? 'Unsaved changes' + (diff.removed ? ` · ${diff.removed} removed line${diff.removed === 1 ? '' : 's'}` : '') : '';
   }
 
@@ -1788,7 +1818,7 @@
 
   function renderNoteControls(detail, kind) {
     hideNoteControls();
-    if (detail.metadata?.schema !== 2 || !['task','note'].includes(detail.metadata.type) || kind === 'content' || detail.format === 'text') return;
+    if (!editableNote(detail, kind)) return;
     const edit = document.getElementById('assistantEditNote');
     const save = document.getElementById('assistantSaveNote');
     const revert = document.getElementById('assistantRevertNote');
@@ -1800,9 +1830,13 @@
     edit.disabled = Boolean(draft?.saving);
     save.disabled = !dirty || Boolean(draft?.saving);
     save.textContent = draft?.saving ? 'Saving…' : 'Save';
-    revert.hidden = !dirty; revert.disabled = Boolean(draft?.saving);
-    status.hidden = !draft || !(dirty || draft.saved || draft.error);
-    status.textContent = draft?.error || (dirty ? draft.summary || 'Unsaved changes' : draft?.saved ? 'Saved' : '');
+    revert.hidden = false; revert.disabled = Boolean(draft?.saving);
+    revert.textContent = 'Revert'; revert.title = 'Discard edits or restore a previous saved version of this tab';
+    status.hidden = false;
+    const savedAt = draft?.lastSavedAt ? new Date(draft.lastSavedAt).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'}) : '';
+    status.textContent = draft?.error || (draft?.saving ? 'Saving…' : dirty ? 'Unsaved · saves after 10s idle'
+      : draft?.saved ? 'Saved' + (savedAt ? ' at ' + savedAt : '') : 'Autosaves after 10s idle');
+    status.title = 'Changes save after 10 seconds without typing. Moving to another tab saves immediately.';
     status.classList.toggle('is-dirty', dirty); status.classList.toggle('error', Boolean(draft?.error));
     edit.onclick = async () => {
       let current = noteDraft(detail);
@@ -1815,37 +1849,36 @@
       if (current.editing) current.input.focus({preventScroll:true});
     };
     save.onclick = () => saveNoteContent(detail, kind);
-    revert.onclick = async () => {
-      if (!window.confirm('Discard your unsaved changes to this note?')) return;
-      const request = state.modalRequest;
-      try {
-        const latest = await fetchDocument(kind, detail.path);
-        if (request !== state.modalRequest) return;
-        state.noteDrafts.delete(noteDraftKey(detail.path));
-        state.modalCurrent = latest;
-        if (state.modalRoot.path === latest.path) state.modalRoot = latest;
-        await renderModal();
-      } catch (error) { documentError(error.message); }
-    };
+    revert.onclick = () => revertNoteContent(detail, kind);
     markDraftTabs();
   }
 
   function mountNoteEditor(draft, detail, kind, host) {
     if (!draft.node) {
       draft.node = document.createElement('div'); draft.node.className = 'assistant-note-editor';
-      draft.node.innerHTML = '<pre class="assistant-note-marks" aria-hidden="true"></pre><textarea aria-label="Note content" spellcheck="true" wrap="soft"></textarea>';
-      draft.marks = draft.node.querySelector('pre'); draft.input = draft.node.querySelector('textarea');
-      draft.input.value = draft.body;
-      draft.input.addEventListener('input', () => {
-        draft.body = draft.input.value; draft.saved = false;
+      const changed = body => {
+        if (draft.syncing || !currentDraft(draft)) return;
+        draft.body = body; draft.saved = false; draft.lastEditedAt = Date.now();
         markNoteChanges(draft);
-        renderNoteControls(detail, kind);
-      });
-      draft.input.addEventListener('keydown', event => {
-        if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
-          event.preventDefault(); saveNoteContent(detail, kind);
-        }
-      });
+        renderNoteControls(state.modalCurrent, kind);
+        scheduleNoteSave(draft, kind);
+      };
+      if (window.LabMarkdownEditor) {
+        draft.input = window.LabMarkdownEditor.create(draft.node, {
+          body:draft.body, onChange:changed, onSave:() => saveNoteContent(state.modalCurrent, kind),
+          prepare:node => { rewriteImages(node, detail.path); bindHeadingCopyMenu(node); },
+        });
+      } else {
+        draft.node.innerHTML = '<pre class="assistant-note-marks" aria-hidden="true"></pre><textarea aria-label="Note content" spellcheck="true" wrap="soft"></textarea>';
+        draft.marks = draft.node.querySelector('pre'); draft.input = draft.node.querySelector('textarea');
+        draft.input.value = draft.body;
+        draft.input.addEventListener('input', () => changed(draft.input.value));
+        draft.input.addEventListener('keydown', event => {
+          if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
+            event.preventDefault(); saveNoteContent(detail, kind);
+          }
+        });
+      }
       markNoteChanges(draft);
     }
     if (state.currentPane && host.contains(state.currentPane.node)) state.currentPane.scrollTop = host.scrollTop;
@@ -1865,39 +1898,93 @@
     };
   }
 
-  async function saveNoteContent(detail, kind) {
+  function saveNoteContent(detail, kind) {
     const draft = noteDraft(detail);
-    if (!dirtyDraft(draft) || draft.saving) return;
+    if (draft?.saving) return draft.pending;
+    if (!dirtyDraft(draft)) return Promise.resolve();
     const request = state.modalRequest, body = draft.body, key = noteDraftKey(detail.path);
     const database = state.data?.root;
+    clearTimeout(draft.timer); draft.timer = null;
     draft.saving = true; draft.error = '';
-    if (draft.input) draft.input.readOnly = true;
     renderNoteControls(detail, kind);
-    try {
-      const response = await fetch('/api/assistant/content', {method:'PUT', headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({path:detail.path, body, expected:draft.base})});
-      const saved = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(saved.detail || 'Could not save. Your draft is still here.');
-      // Never reopen a closed document or replace another tab after a late save.
-      draft.base = body; draft.saved = true;
-      if (draft.marks) markNoteChanges(draft);
-      if (request === state.modalRequest && database === state.data?.root && state.modalCurrent?.path === saved.path) {
+    draft.pending = (async () => {
+      try {
+        const response = await fetch('/api/assistant/content', {method:'PUT', headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({path:detail.path, body, expected:draft.base})});
+        const saved = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(saved.detail || 'Could not save. Your draft is still here.');
+        // Never reopen a closed document or replace another tab after a late save.
+        draft.base = body; draft.saved = true; draft.lastSavedAt = Date.now();
+        markNoteChanges(draft);
+        if (request === state.modalRequest && database === state.data?.root && state.modalCurrent?.path === saved.path) {
+          state.modalCurrent = saved;
+          if (state.modalRoot.path === saved.path) state.modalRoot = saved;
+          else if (saved.tree) state.modalRoot.tree = saved.tree;
+          await renderModal();
+        }
+        if (database === state.data?.root) refresh();
+      } catch (error) {
+        draft.error = error.message || 'Could not save. Your draft is still here.';
+      } finally {
+        draft.saving = false;
+        if (state.noteDrafts.get(key) === draft && request === state.modalRequest && database === state.data?.root) {
+          renderNoteControls(state.modalCurrent, kind);
+        }
+        markDraftTabs();
+        scheduleNoteSave(draft, kind);
+      }
+    })();
+    return draft.pending;
+  }
+
+  async function revertNoteContent(detail, kind) {
+    if (document.getElementById('assistantNoteHistory')) return;
+    const request = state.modalRequest, draft = noteDraft(detail);
+    if (!draft) return;
+    clearTimeout(draft.timer); draft.timer = null;
+    const dialog = document.createElement('dialog');
+    dialog.id = 'assistantNoteHistory'; dialog.className = 'assistant-note-history';
+    dialog.innerHTML = `<h2>Revert · ${e(detail.metadata.title || 'Current tab')}</h2><p>Only this tab’s content changes.</p>
+      ${dirtyDraft(draft) ? '<button type="button" data-discard-note>Discard unsaved edits and load latest</button>' : ''}
+      <div data-note-versions>Loading saved versions…</div><p role="status"></p><footer><button type="button" data-close-history>Close</button></footer>`;
+    document.body.append(dialog);
+    dialog.addEventListener('close', () => { dialog.remove(); if (currentDraft(draft)) scheduleNoteSave(draft, kind); });
+    dialog.querySelector('[data-close-history]').onclick = () => dialog.close();
+    dialog.showModal();
+    const apply = async (revision = null) => {
+      if (request !== state.modalRequest || noteDraft() !== draft) { dialog.close(); return; }
+      const before = draft.body;
+      dialog.querySelectorAll('button').forEach(button => { button.disabled = true; });
+      try {
+        const response = revision ? await fetch('/api/assistant/content/revert', {method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({path:detail.path, revision_id:revision, expected:draft.base})}) : null;
+        const saved = response ? await response.json() : await fetchDocument(kind, detail.path);
+        if (response && !response.ok) throw new Error(saved.detail || 'Could not restore this version.');
+        if (request !== state.modalRequest || noteDraft() !== draft) { dialog.close(); return; }
+        draft.base = saved.body || '';
+        if (draft.body === before) {
+          draft.body = draft.base; draft.syncing = true; draft.input.value = draft.body; draft.syncing = false;
+        }
+        draft.error = ''; draft.saved = Boolean(revision); draft.lastSavedAt = revision ? Date.now() : null;
+        markNoteChanges(draft);
         state.modalCurrent = saved;
         if (state.modalRoot.path === saved.path) state.modalRoot = saved;
         else if (saved.tree) state.modalRoot.tree = saved.tree;
-        await renderModal();
-      }
-      refresh();
-    } catch (error) {
-      draft.error = error.message || 'Could not save. Your draft is still here.';
-    } finally {
-      draft.saving = false;
-      if (draft.input) draft.input.readOnly = false;
-      if (state.noteDrafts.get(key) === draft && request === state.modalRequest && database === state.data?.root) {
-        renderNoteControls(state.modalCurrent, kind);
-      }
-      markDraftTabs();
-    }
+        await renderModal(); dialog.close(); refresh();
+      } catch (error) { dialog.querySelector('[role="status"]').textContent = error.message; }
+      finally { dialog.querySelectorAll('button').forEach(button => { button.disabled = false; }); }
+    };
+    dialog.querySelector('[data-discard-note]')?.addEventListener('click', () => apply());
+    try {
+      const response = await fetch('/api/assistant/content/history?path=' + encodeURIComponent(detail.path));
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || 'Could not load saved versions.');
+      if (request !== state.modalRequest) { dialog.close(); return; }
+      dialog.querySelector('[data-note-versions]').innerHTML = data.versions.length ? data.versions.map(version =>
+        `<section><div><strong>Before save at ${e(new Date(version.saved_at).toLocaleString())}</strong><pre>${e(version.preview || '(Empty tab)')}</pre></div><button type="button" data-restore-note="${e(version.id)}">Restore</button></section>`).join('')
+        : '<p>No earlier saved versions for this tab yet.</p>';
+      dialog.querySelectorAll('[data-restore-note]').forEach(button => { button.onclick = () => apply(button.dataset.restoreNote); });
+    } catch (error) { dialog.querySelector('[data-note-versions]').textContent = error.message; }
   }
 
   function modalDocumentButton(detail, label, kind) {
@@ -1914,6 +2001,8 @@
     const overlay = document.getElementById('assistantDocumentModal');
     overlay.setAttribute('aria-busy', 'true');
     try {
+      await flushNoteDraft();
+      if (request !== state.modalRequest) return;
       const detail = await fetchDocument(kind, path);
       if (request !== state.modalRequest) return;
       state.modalCurrent = detail; state.modalIndex = false;
@@ -2228,8 +2317,12 @@
       replaceSeriesNavigation(nav, series?.html || html);
       nav.dataset.structure = structure; nav.scrollTop = scroll;
       nav.querySelector('[data-record-root-tab]')?.addEventListener('click', () => createRecord('subtab', root.tree, true));
-      nav.querySelector('[data-record-index]')?.addEventListener('click', () => {
-        ++state.modalRequest; state.modalIndex = true; state.modalCurrent = state.modalRoot;
+      nav.querySelector('[data-record-index]')?.addEventListener('click', async () => {
+        const request = ++state.modalRequest;
+        const draft = noteDraft();
+        if (dirtyDraft(draft) || draft?.saving) await flushNoteDraft();
+        if (request !== state.modalRequest) return;
+        state.modalIndex = true; state.modalCurrent = state.modalRoot;
         document.getElementById('assistantDocumentModal').removeAttribute('aria-busy');
         renderRecordTree();
       });
@@ -2361,11 +2454,16 @@
   async function renderDocumentPane(detail, kind, focusHeading = '') {
     const request = state.modalRequest;
     if (typeof window.ensureMarked === 'function') await window.ensureMarked().catch(() => {});
+    if (editableNote(detail, kind) && typeof window.ensureLiveMarkdownEditor === 'function') await window.ensureLiveMarkdownEditor().catch(() => {});
     if (request !== state.modalRequest) return;
-    const draft = noteDraft(detail);
+    let draft = noteDraft(detail);
+    if (!draft && editableNote(detail, kind) && (window.LabMarkdownEditor || window.ensureLiveMarkdownEditor)) {
+      draft = {path:detail.path, base:detail.body || '', body:detail.body || '', editing:true, scrollTop:0};
+      state.noteDrafts.set(noteDraftKey(detail.path), draft);
+    }
     if (draft && !dirtyDraft(draft) && !draft.saving && draft.base !== (detail.body || '')) {
       draft.base = draft.body = detail.body || ''; draft.saved = false;
-      if (draft.input) { draft.input.value = draft.body; markNoteChanges(draft); }
+      if (draft.input) { draft.syncing = true; draft.input.value = draft.body; draft.syncing = false; markNoteChanges(draft); }
     }
     const body = draft ? draft.body : detail.body || '';
     const host = document.getElementById('assistantModalDocument');
@@ -2375,6 +2473,7 @@
       mountNoteEditor(draft, detail, kind, host);
       mountDocumentTasks(host,detail.metadata.id);
       renderNoteControls(detail, kind);
+      scheduleNoteSave(draft, kind);
       return;
     }
     if (state.currentPane && host.contains(state.currentPane.node)) state.currentPane.scrollTop = host.scrollTop;
@@ -2587,7 +2686,7 @@
     if (!overlay?.classList.contains('active') || !root || overlay.hasAttribute('aria-busy')) return;
     // Preserve drafts and their selection across background refreshes.
     const draft = noteDraft();
-    if (draft && (draft.editing || dirtyDraft(draft) || draft.saving)) return;
+    if (draft && (dirtyDraft(draft) || draft.saving || draft.editing && (!draft.input?.view || draft.input.view.hasFocus))) return;
     // Do not interrupt a property being edited or saved.
     const bar = document.getElementById('assistantModalMetadata');
     if (bar.contains(document.activeElement) || bar.querySelector('[data-metadata-field]:disabled')) return;
@@ -2611,6 +2710,7 @@
       const nextRoot = await fetchDocument(state.modalKind, root.path);
       const nextCurrent = current.path === root.path ? nextRoot : await fetchDocument(current.metadata.type === 'task' ? 'task' : 'note',current.path);
       if (request !== state.modalRequest || bar.contains(document.activeElement) || bar.querySelector('[data-metadata-field]:disabled')) return;
+      if (dirtyDraft(noteDraft()) || noteDraft()?.saving || noteDraft()?.input?.view?.hasFocus) return;
       state.modalRoot = nextRoot; state.modalCurrent = nextCurrent;
       await renderModal();
     } catch (_) { /* Keep the last good pane while external edits are incomplete. */ }
@@ -2737,7 +2837,7 @@
   });
 
   document.addEventListener('keydown', event => {
-    if (document.getElementById('assistantAttributesEditor')?.open || document.getElementById('documentTerminalSettings')?.open) return;
+    if (document.getElementById('assistantAttributesEditor')?.open || document.getElementById('documentTerminalSettings')?.open || document.getElementById('assistantNoteHistory')?.open) return;
     if (event.target.closest?.('.assistant-terminal-screen')) return;
     const overlay = document.getElementById('assistantDocumentModal');
     if (event.key === 'Escape' && overlay && overlay.classList.contains('active')) {

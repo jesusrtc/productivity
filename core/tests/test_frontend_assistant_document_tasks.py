@@ -101,7 +101,7 @@ window.alert=message=>{throw new Error(message)};
  assert(document.querySelector(`[data-record-path="${peer}"]`).closest('li').querySelector(`[data-record-path="${deep}"]`),'new subtab remains nested under the selected parent');
  click('#assistantEditNote');
  const input=document.querySelector('textarea[aria-label="Note content"]');input.value='## Preserved editor\n\nNew nested notes.';input.dispatchEvent(new Event('input'));click('#assistantSaveNote');
- await until(()=>document.getElementById('assistantNoteStatus').textContent==='Saved');
+ await until(()=>document.getElementById('assistantNoteStatus').textContent.startsWith('Saved'));
  const edited=await fetch('/api/assistant/note?path='+encodeURIComponent(deep)).then(r=>r.json());
  assert(edited.body.includes('New nested notes.')&&edited.document_tasks.tasks.some(task=>task.title==='Renamed work'),'note save preserves tasks');
  click('#assistantModalMetadata [data-star-path]');await until(()=>document.querySelector('#assistantModalMetadata [data-star-path]').getAttribute('aria-pressed')==='false');

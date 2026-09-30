@@ -99,3 +99,52 @@ def test_note_save_requires_admin(client, note_data):
     client.cookies.clear()
     response = save(client, str(note.relative_to(root)), documents.read(note)[1], 'Unauthorized')
     assert response.status_code in {401, 403}
+
+
+def test_saved_versions_survive_reopen_and_restore_only_selected_tab(client, note_data):
+    root, note, child, sibling, _ = note_data
+    reference = str(child.relative_to(root))
+    original_main = documents.read(note)[1]
+    records.update(root, reference, 'owner', 'Preserved owner')
+    records.update_body(root, str(sibling.relative_to(root)), 'Untouched sibling', expected='')
+    assert save(client, reference, '', 'First edit').status_code == 200
+    assert save(client, reference, 'First edit', 'Second edit').status_code == 200
+    # History is read again from disk, independent of the editor or browser.
+    versions = client.get('/api/assistant/content/history', params={'path':reference}).json()['versions']
+    assert [row['preview'] for row in versions] == ['First edit', '']
+    response = client.post('/api/assistant/content/revert', json={'path':reference, 'expected':'Second edit', 'revision_id':versions[-1]['id']})
+    assert response.status_code == 200, response.text
+    assert response.json()['body'] == ''
+    assert response.json()['metadata']['owner'] == 'Preserved owner'
+    assert documents.read(note)[1] == original_main
+    assert documents.read(sibling)[1] == 'Untouched sibling'
+    assert client.get('/api/assistant/content/history', params={'path':reference}).json()['versions'][0]['preview'] == 'Second edit'
+    assert records.verify(root)['valid']
+
+
+def test_history_cannot_restore_another_tab_or_overwrite_external_edit(client, note_data):
+    root, note, child, sibling, _ = note_data
+    reference = str(child.relative_to(root))
+    assert save(client, reference, '', 'First edit').status_code == 200
+    version = client.get('/api/assistant/content/history', params={'path':reference}).json()['versions'][0]
+    records.update_body(root, reference, 'External edit', expected='First edit')
+    snapshot = note.read_bytes()
+    assert client.post('/api/assistant/content/revert', json={'path':reference, 'expected':'First edit', 'revision_id':version['id']}).status_code == 409
+    assert client.post('/api/assistant/content/revert', json={'path':str(sibling.relative_to(root)), 'expected':'', 'revision_id':version['id']}).status_code == 400
+    assert note.read_bytes() == snapshot
+    assert client.get('/api/assistant/content/history', params={'path':'../AGENTS.md'}).status_code == 400
+
+
+def test_content_history_is_bounded_and_skips_noop_saves(client, note_data):
+    from lab import assistant_content_history as history
+    root, _, child, _, _ = note_data
+    reference = str(child.relative_to(root))
+    for number in range(history.LIMIT + 3):
+        records.update_body(root, reference, str(number), expected='' if number == 0 else str(number - 1))
+    versions = history.versions(root, reference)
+    assert len(versions) == history.LIMIT
+    records.update_body(root, reference, str(history.LIMIT + 2), expected=str(history.LIMIT + 2))
+    assert history.versions(root, reference) == versions
+    client.cookies.clear()
+    assert client.get('/api/assistant/content/history', params={'path':reference}).status_code in {401, 403}
+    assert client.post('/api/assistant/content/revert', json={'path':reference, 'expected':'', 'revision_id':versions[0]['id']}).status_code in {401, 403}
