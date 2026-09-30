@@ -6,6 +6,8 @@ import re
 import subprocess
 from pathlib import Path
 
+from core import fsguard
+
 
 def _monorepo_root(root: str | Path | None = None) -> Path:
     """Best-effort monorepo root.
@@ -480,6 +482,7 @@ def _discover_monorepo_workspaces(root: str | Path | None = None) -> list[dict]:
     mono_root = _monorepo_root(root)
     out: list[dict] = []
     for workspace_dir in sorted(workspaces_dir.iterdir()):
+        fsguard.checkpoint()
         if not workspace_dir.is_dir():
             continue
         # Support both new (workspace.json) and legacy hidden (.workspace.json)
@@ -506,6 +509,7 @@ def _discover_monorepo_workspaces(root: str | Path | None = None) -> list[dict]:
         worktrees = data.get("worktrees") or []
 
         def _resolve_worktree(d: str) -> str | None:
+            fsguard.checkpoint()
             p = Path(d)
             if p.is_absolute():
                 return str(p) if p.is_dir() else None

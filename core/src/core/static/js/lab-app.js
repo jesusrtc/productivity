@@ -3676,7 +3676,10 @@
     }
     const generation = ++_sidebarProjectGeneration;
     let view = sidebar.querySelector('[data-project-sidebar]');
-    if (!view || view.dataset.projectSidebar !== fileRoot) {
+    if (!view || view.dataset.projectSidebar !== fileRoot
+        || !view.querySelector('[data-project-directory="."]')
+        || !view.querySelector('[data-project-recent]')
+        || !view.querySelector('.sidebar-recent-selectors')) {
       sidebar.innerHTML = '<div class="sidebar-scope-view" data-project-sidebar="' + escAttr(fileRoot) + '">' +
         '<div class="sidebar-title sidebar-title-with-action"><span>Project</span>' + _sidebarFileConfigCogHtml() + '</div>' +
         _sidebarRecentSelectorsHtml() + _sidebarFileScopeButtonsHtml(baseRoot) + _sidebarWorktreePickerHtml(baseRoot) +
@@ -3692,8 +3695,9 @@
   }
 
   function _sidebarProjectDirectory(host, view) {
+    if (!host || !view?._project || !view.contains(host)) return;
     const {baseRoot, fileRoot, generation} = view._project;
-    const current = () => host.isConnected && view._project.generation === generation
+    const current = () => host.isConnected && view.contains(host) && view._project.generation === generation
       && _sidebarProjectCurrent(baseRoot, fileRoot, generation);
     const url = `/api/sidebar-directory?path=${encodeURIComponent(fileRoot)}&directory=${encodeURIComponent(host.dataset.projectDirectory)}&include_dotfiles=${showWorkspaceDotFiles}`;
     ProjectSidebar.read(url, data => {
@@ -3759,12 +3763,14 @@
     const mode = _sidebarCurrentRecentMode(), minutes = _sidebarFileConfig.recentMinutes;
     const host = view.querySelector('[data-project-recent]');
     const selectors = view.querySelector('.sidebar-recent-selectors');
+    if (!host || !selectors) return;
     selectors.querySelectorAll('[data-recent-mode]').forEach(button => {
       const active = button.dataset.recentMode === _sidebarRecentSelectorValue();
       button.classList.toggle('active', active);
       button.setAttribute('aria-pressed', String(active));
     });
-    const current = () => view.isConnected && _sidebarProjectCurrent(baseRoot,fileRoot,generation)
+    const current = () => host.isConnected && view.contains(host) && view.isConnected
+      && _sidebarProjectCurrent(baseRoot,fileRoot,generation)
       && mode === _sidebarCurrentRecentMode() && minutes === _sidebarFileConfig.recentMinutes;
     if (host._mode !== mode + minutes) { host.innerHTML = ''; host._mode = mode + minutes; host._signature = ''; }
     if (mode === 'none') return;
@@ -9766,11 +9772,12 @@
     if (!sidebar) return;
     const prevSidebarScroll = preserveScroll ? sidebar.scrollTop : 0;
     const workspacePath = currentWorkspace.path;
+    const repository = currentRepo;
     const dotFiles = showWorkspaceDotFiles;
     const sequence = _sequence ?? ++_workspaceSidebarRefreshSequence;
     const current = () => sequence === _workspaceSidebarRefreshSequence
       && currentWorkspace?.path === workspacePath && currentWorkspace.is_workspace
-      && showWorkspaceDotFiles === dotFiles;
+      && showWorkspaceDotFiles === dotFiles && currentRepo === repository;
     const isAssistant = document.body.classList.contains('assistant-active');
     if (!_data) await _sidebarEnsureWorktrees(workspacePath);
     if (!current()) return;
@@ -10039,7 +10046,8 @@
         isAssistant ? 'Assistant instructions' : 'Workspace instructions');
       // Keep main's cached scope container while reconciling its file rows.
       let scopeView = sidebar.firstElementChild;
-      if (sidebar.children.length !== 1 || !scopeView?.classList.contains('sidebar-scope-view')) {
+      if (sidebar.children.length !== 1 || !scopeView?.classList.contains('sidebar-scope-view')
+          || scopeView.hasAttribute('data-project-sidebar')) {
         scopeView = document.createElement('div');
         scopeView.className = 'sidebar-scope-view';
         sidebar.replaceChildren(scopeView);
@@ -11082,6 +11090,22 @@
   // Ignore list reads that predate confirmed creation or a later close.
   // Close intent also cancels a pending creation's missing-row fallback.
   const _termSessionListVersions = new Map();
+  const _termSessionFetches = new Map();
+  function _termFetchSessions(workspaceId, vaultId) {
+    const key = _termSessionsKey(workspaceId, vaultId);
+    const version = _termSessionListVersions.get(key);
+    const pending = _termSessionFetches.get(key);
+    if (pending && pending.version === version) return pending.promise;
+    const entry = {version};
+    entry.promise = (async () => {
+      const response = await fetch('/api/term/sessions?workspace_id=' + encodeURIComponent(workspaceId) + _vaultQuery(vaultId));
+      return {ok: response.ok, rows: response.ok ? await response.json() : []};
+    })().finally(() => {
+      if (_termSessionFetches.get(key) === entry) _termSessionFetches.delete(key);
+    });
+    _termSessionFetches.set(key, entry);
+    return entry.promise;
+  }
   function _termInvalidateSessionReads(key) {
     const version = (_termSessionListVersions.get(key) || 0) + 1;
     _termSessionListVersions.set(key, version);
@@ -12226,6 +12250,7 @@
 
   function termStartPeriodicRefresh() {
     if (termRefreshTimer) return;
+    let pending = false, failures = 0, retryAt = 0;
     termRefreshTimer = setInterval(async () => {
       if (!document.body.classList.contains('term-open')) {
         termStopPeriodicRefresh();
@@ -12233,14 +12258,24 @@
       }
       // Skip a tick if a reorder is still writing — otherwise the GET can
       // beat the POST and stomp the user's fresh drop.
-      if (_termReorderPending) return;
+      if (_termReorderPending || pending || Date.now() < retryAt || document.hidden) return;
       // Framework views win over a stale currentWorkspace from the previous
       // tab. Otherwise, use the loaded workspace or vault id.
       const pid = _termActiveWorkspaceId();
       if (!pid) return;
       const prev = termCurrentSession;
       const prevPid = termCurrentWorkspaceId;
-      const ok = await _termRefreshSessionsForWorkspaceId(pid);
+      const vaultId = _termVaultId();
+      let ok = false;
+      pending = true;
+      try {
+        ok = await _termRefreshSessionsForWorkspaceId(pid);
+      } finally {
+        pending = false;
+        failures = ok ? 0 : failures + 1;
+        retryAt = ok ? 0 : Date.now() + Math.min(60000, 8000 * 2 ** Math.min(failures - 1, 3));
+      }
+      if (pid !== _termActiveWorkspaceId() || vaultId !== _termVaultId()) return;
       // Attached session disappeared from tmux (confirmed by a successful
       // fetch, not a blip) → restore it automatically.
       if (prev && ok && prevPid === pid && !termSessions.some(s => s.name === prev)) {
@@ -12521,9 +12556,9 @@
     let fresh = [];
     let ok = false;
     try {
-      const r = await fetch('/api/term/sessions?workspace_id=' + encodeURIComponent(workspaceId) + _vaultQuery(vaultId));
-      ok = r.ok;
-      fresh = r.ok ? await r.json() : [];
+      const result = await _termFetchSessions(workspaceId, vaultId);
+      ok = result.ok;
+      fresh = result.rows;
     } catch { fresh = []; ok = false; }
     if (listVersion !== _termSessionListVersions.get(sessionCacheKey)) return ok;
     if (!ok) fresh = _termSessionsCache.get(sessionCacheKey) || [];
@@ -19557,9 +19592,9 @@
     const sessionCacheKey = _termSessionsKey(pid, vaultId);
     const listVersion = _termSessionListVersions.get(sessionCacheKey);
     try {
-      const r = await fetch('/api/term/sessions?workspace_id=' + encodeURIComponent(pid) + _vaultQuery(vaultId));
-      ok = r.ok;
-      fresh = r.ok ? await r.json() : [];
+      const result = await _termFetchSessions(pid, vaultId);
+      ok = result.ok;
+      fresh = result.rows;
     } catch { fresh = []; ok = false; }
     if (listVersion !== _termSessionListVersions.get(sessionCacheKey)) return ok;
     if (!ok) fresh = _termSessionsCache.get(sessionCacheKey) || [];

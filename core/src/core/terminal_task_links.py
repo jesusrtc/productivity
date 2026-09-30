@@ -8,6 +8,7 @@ import os
 
 from fastapi import HTTPException
 from lab import assistant_records as records, assistant_documents as documents
+from core import fsguard
 
 
 def validate(request, link):
@@ -42,6 +43,7 @@ def list_terminals(request, document_id=None):
     owner = None
     if document_id:
         owner = validate(request, term.LinkedTask(document_id=document_id))
+    owner_identity = identity(owner) if owner else None
     active_root = term.auth.request_root(request)
     vaults = term._known_vaults(active_root)
     live = term._tmux_list(term._tmux_discovery_prefixes_all(vaults), prune_draining=False)
@@ -60,9 +62,11 @@ def list_terminals(request, document_id=None):
     if framework not in runtime_roots:
         runtime_roots.append(framework)
     for runtime_root in runtime_roots:
+        fsguard.checkpoint()
         if not runtime_root.is_dir():
             continue
         for name, row in term._load_meta(runtime_root).items():
+            fsguard.checkpoint()
             runtime_by_name[name] = row
             runtime_root_by_name[name] = runtime_root
             workspace = row.get('workspace_id')
@@ -74,8 +78,10 @@ def list_terminals(request, document_id=None):
                 runtime_by_tab[key] = name
     result, seen = [], set()
     for vault in vaults:
+        fsguard.checkpoint()
         vault_root = Path(vault['path'])
         for workspace_id in dict.fromkeys([term.ASSISTANT_WORKSPACE_ID, *term._known_workspace_ids(vault_root)]):
+            fsguard.checkpoint()
             metadata_path = term._workspace_json(vault_root, workspace_id)
             if metadata_path in seen:
                 continue
@@ -85,11 +91,14 @@ def list_terminals(request, document_id=None):
                 continue
             term._require_workspace_access(request, active_root, vault_root, workspace_id)
             for saved in data.get('sessions', []):
+                fsguard.checkpoint()
                 if not isinstance(saved, dict) or not saved.get('name'):
                     continue
                 link = saved.get('linked_task')
-                if owner and (not identity(link) or identity(link)[:2] != identity(owner)[:2]):
-                    continue
+                if owner_identity:
+                    linked_identity = identity(link)
+                    if not linked_identity or linked_identity[:2] != owner_identity[:2]:
+                        continue
                 name = runtime_by_tab.get((metadata_path, saved['name']))
                 if not name:
                     prefix = os.environ.get('LAB_TMUX_PREFIX')

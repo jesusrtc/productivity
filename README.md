@@ -49,3 +49,16 @@ Content structure and formatting belong entirely to the client. Read
 - `docs/productivity-framework-proposal.md` - vault/framework split proposal and migration plan.
 
 Generated runtime state belongs in the active vault under `.lab/state/`; client-wide configuration and migration audits live under `~/.lab/`.
+
+## Development runtime
+
+Browser regression tests and `scripts/chrome-dump-auth.mjs` require Node.js 22
+or newer for the built-in WebSocket client. With an existing nvm installation,
+run `nvm use` in this checkout to select the version in `.nvmrc` before running
+the test targets. Run `nvm install` only if that version is missing.
+
+After relocating a checkout, Python virtualenv console scripts can retain the
+old absolute interpreter path even when `python -m lab` still works. If a test
+launcher reports a missing interpreter, use the corresponding virtualenv's
+`python -m pytest` and regenerate the affected installed entry points before
+relying on the Makefile's pytest launchers.

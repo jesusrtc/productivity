@@ -304,3 +304,29 @@ def test_guarded_env_timeout_override(tmp_path: Path, monkeypatch: pytest.Monkey
 
     assert exc_info.value.status_code == 503
     assert elapsed < 0.25
+
+
+def test_timed_out_metadata_lock_wait_releases_worker_before_lock_owner(tmp_path):
+    lock = threading.RLock()
+    entered = threading.Event()
+    reached = []
+
+    def read():
+        entered.set()
+        with fsguard.cancellable_lock(lock):
+            reached.append(True)
+
+    with lock:
+        with pytest.raises(HTTPException) as error:
+            fsguard.guarded(tmp_path, read, timeout=.03, operation_key=("metadata",))
+        assert error.value.status_code == 503
+        assert entered.is_set()
+        deadline = time.monotonic() + 1
+        while fsguard._inflight and time.monotonic() < deadline:
+            time.sleep(.01)
+        assert fsguard._inflight == 0
+        assert fsguard._operations == {}
+        assert reached == []
+        assert fsguard.guarded(tmp_path, lambda: 42) == 42
+    assert fsguard.guarded(tmp_path, read) is None
+    assert reached == [True]

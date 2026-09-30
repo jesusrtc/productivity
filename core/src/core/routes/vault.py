@@ -393,10 +393,12 @@ def _scan_workspace_ids(root: Path) -> list[str]:
     if not workspaces_dir.is_dir():
         return []
     from lab.workspace_identity import id_at
-    return sorted(
-        id_at(p) for p in workspaces_dir.iterdir()
-        if p.is_dir() and not p.name.startswith(".")
-    )
+    ids = []
+    for p in workspaces_dir.iterdir():
+        fsguard.checkpoint()
+        if not p.name.startswith(".") and p.is_dir():
+            ids.append(id_at(p))
+    return sorted(ids)
 
 
 @router.get("/api/vaults/workspaces")
@@ -416,6 +418,7 @@ def list_vault_workspaces(request: Request) -> dict:
         try:
             overview = fsguard.guarded(
                 root, _vault_overview, root, entry["name"], entry["id"],
+                operation_key=("vault-overview", entry["name"], entry["id"]),
             )
             entry.update(overview)
             entry["unavailable"] = False

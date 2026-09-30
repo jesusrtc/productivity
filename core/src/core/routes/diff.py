@@ -964,6 +964,7 @@ def api_sidebar_worktrees(
 
         worktree_roots: list[Path] = []
         for line in proc.stdout.splitlines():
+            fsguard.checkpoint()
             if not line.startswith("worktree "):
                 continue
             try:
@@ -984,6 +985,7 @@ def api_sidebar_worktrees(
         suffix = Path(relative_workspace)
         rows: dict[str, dict[str, str]] = {}
         for worktree_root in worktree_roots:
+            fsguard.checkpoint()
             if worktree_root == primary_root:
                 continue
             try:
@@ -1010,7 +1012,12 @@ def api_sidebar_worktrees(
             rows.values(), key=lambda row: row["name"].casefold(),
         )
 
-    resolved_parent, folders = fsguard.guarded(vault_root, list_worktrees)
+    # Git has its own ten-second deadline. Let it report that failure before
+    # the filesystem guard expires, and share identical overlapping polls.
+    resolved_parent, folders = fsguard.guarded(
+        vault_root, list_worktrees, timeout=12,
+        operation_key=("sidebar-worktrees", str(git_root), str(parent), relative_workspace),
+    )
     return {"path": str(resolved_parent), "repo": str(base_root), "folders": folders}
 
 

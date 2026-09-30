@@ -22,6 +22,7 @@ import threading
 import tomllib
 from concurrent.futures import Future, ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeoutError
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Callable, TypeVar
 
@@ -66,6 +67,18 @@ def checkpoint() -> None:
     cancelled = getattr(_worker_state, "cancelled", None)
     if cancelled is not None and cancelled.is_set():
         raise _CancelledRead()
+
+
+@contextmanager
+def cancellable_lock(lock):
+    """Release timed-out workers waiting for a metadata lock, too."""
+    while not lock.acquire(timeout=.05):
+        checkpoint()
+    try:
+        checkpoint()
+        yield
+    finally:
+        lock.release()
 
 
 def _timeout_seconds() -> float:

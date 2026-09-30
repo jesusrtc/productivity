@@ -1,5 +1,8 @@
 # Memory index
 
+- [Project sidebar ownership includes children](project-sidebar-container-ownership.md) — replace project containers during normal rendering, repair incomplete mounts, and reject moved or detached callback targets.
+- [Guarded metadata lock waits cancel](guarded-metadata-lock-waits-cancel.md) — timed-out lock readers release worker capacity; shared terminal rows are copied before enrichment.
+
 - [Error banners keep controls usable](error-banners-keep-controls-usable.md) — compact details, click-through text, page-long dismissal, and preserved diagnostics.
 
 - [Folder drags paste their source paths](terminal-folder-drop-paths.md) — real folders across all file trees use the existing shell-safe terminal path drop.

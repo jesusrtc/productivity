@@ -1,5 +1,7 @@
 """Task links reuse durable sessions without changing work or process count."""
 from concurrent.futures import ThreadPoolExecutor
+import threading
+import time
 
 import pytest
 from fastapi import HTTPException
@@ -100,3 +102,22 @@ def test_document_and_task_links_are_distinct_and_simultaneous_assignment_has_on
         assert all(row['ok'] for row in pool.map(assign,['demo','other']))
     links=[s.get('linked_task') for w in ['demo','other'] for s in term._get_workspace_sessions(monorepo,w)]
     assert sum(bool(link) for link in links)==1
+
+
+def test_document_terminal_lock_timeout_does_not_exhaust_workers(client, terminals, owned_tasks, monkeypatch):
+    from core import fsguard
+    from core.routes import term
+
+    _, note, *_ = owned_tasks
+    lock = threading.RLock()
+    monkeypatch.setattr(term, '_SESSION_METADATA_LOCK', lock)
+    monkeypatch.setenv('LAB_FS_TIMEOUT_SECONDS', '.03')
+    with lock:
+        response = client.get('/api/term/task-terminals', params={'document_id':note.stem})
+        assert response.status_code == 503
+        deadline = time.monotonic() + 1
+        while fsguard._inflight and time.monotonic() < deadline:
+            time.sleep(.01)
+        assert fsguard._inflight == 0, 'the timed-out reader still holds a filesystem worker'
+    monkeypatch.setenv('LAB_FS_TIMEOUT_SECONDS', '10')
+    assert client.get('/api/term/task-terminals', params={'document_id':note.stem}).status_code == 200

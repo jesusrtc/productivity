@@ -202,3 +202,60 @@ blocked OS call can be interrupted.
 Regression coverage verifies queued/scanning/ready transitions without error
 logging, automatic queue draining, shared requests, cold-listing priority,
 immediate cached responses, capacity bounds, shutdown, and native edit events.
+
+## September 30: project container ownership and terminal polling
+
+The later report includes a new `dataset` exception every five seconds. The
+project sidebar used its container's `data-project-sidebar` attribute as proof
+that the root directory was still mounted. A normal workspace repaint could
+reuse that container and replace its children, leaving the attribute and project
+state behind. Both project refresh and subsequent mounts then dereferenced the
+missing directory element.
+
+Normal workspace rendering now replaces project containers. Project mounting
+also checks the required children and repairs incomplete views. Directory and
+recent-file reads tolerate missing elements and require both connection and
+containment before publishing. A real Chrome regression replaces the contents,
+remounts the project, verifies visible files, and rejects callbacks for detached
+or moved directory nodes.
+
+Terminal discovery had a remaining repeated-read path: reconciliation batched
+UUID ownership, but reconstruction independently looked up each recovered
+session again. Recovery now consumes the same ownership result; legacy names
+also share one workspace-id scan. Tests recover twelve sessions with one batch,
+retain saved labels, and verify one legacy workspace scan.
+
+Filesystem cancellation now applies while waiting for the terminal metadata
+lock and between metadata, workspace, server, and worktree scan steps. Scoped
+terminal discovery and saved-session reads use the bounded guard and share
+identical in-flight operations. Each request copies the session rows before
+adding agent details or sorting. Document-terminal inspection and borrowed
+terminal discovery are guarded too. A blocked metadata-lock test verifies that
+the timed-out reader releases its worker while the lock owner is still active,
+and a subsequent document-terminal request succeeds after release.
+
+Vault overview, server discovery, and worktree listing share identical in-flight
+reads. Git worktree discovery retains its ten-second subprocess deadline; the
+outer guard gives that subprocess time to return its own timeout instead of
+misreporting it as a filesystem timeout.
+
+The terminal panel shares pending HTTP reads by vault, workspace, and mutation
+generation. Creation or close starts a fresh read; an older completion cannot
+remove the newer request or publish obsolete rows. Periodic refresh waits for
+the previous poll, skips hidden pages, and backs off from eight to sixty seconds
+after failures. Last-known terminal rows survive failed reads, and delayed
+responses cannot trigger recovery in another vault.
+
+Validation: the final combined run passed 498 focused regressions, including
+Chrome sidebar replacement/navigation, concurrent session discovery and row
+isolation, blocked metadata locks, scan queuing and watcher behavior, vault/server
+and worktree routes, document links, and real Jupyter timeout/interrupt/process-exit
+recovery. JavaScript syntax and Git whitespace checks passed as well.
+
+These changes address reproducible code paths in the supplied logs. The older
+“File scans are busy” errors are handled by the existing queue described above.
+The notebook execution limit and dead-kernel recovery remain as documented;
+a cell exceeding its requested limit still returns 504. An actually blocked
+filesystem syscall or unavailable tmux server remains a real availability
+failure. Updating and restarting the affected client, then reloading its browser,
+is required before checking for new errors.

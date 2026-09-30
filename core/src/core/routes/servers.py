@@ -213,6 +213,7 @@ def _scan_server_workspaces(root: Path) -> list[dict]:
         return []
     found: list[dict] = []
     for pdir in sorted(workspaces_dir.iterdir()):
+        fsguard.checkpoint()
         if not pdir.is_dir() or pdir.name.startswith("."):
             continue
         makefile = pdir / "Makefile"
@@ -244,7 +245,8 @@ def _discover_server_workspaces(root: Path) -> list[dict]:
         cached = _discovery_cache.get(key)
         if cached and (now - cached[0]) < _DISCOVERY_CACHE_TTL_S:
             return [dict(r) for r in cached[1]]
-    rows = fsguard.guarded(root, _scan_server_workspaces, root)
+    rows = fsguard.guarded(root, _scan_server_workspaces, root,
+                           operation_key=("server-workspaces",))
     with _discovery_cache_lock:
         _discovery_cache[key] = (now, rows)
     return [dict(r) for r in rows]

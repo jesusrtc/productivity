@@ -208,6 +208,64 @@ assert.equal(termSessions.length, 3);
 ''')
 
 
+def test_overlapping_reads_share_http_work_and_mutations_start_a_fresh_read():
+    run(r'''
+const first = termRefreshSessions('demo');
+const second = termRefreshSessionsByWorkspaceId('demo');
+assert.equal(gets.length, 1);
+_termInvalidateSessionReads('ssd::demo');
+const later = termRefreshSessions('demo');
+assert.equal(gets.length, 2, 'a mutation must bypass the older request');
+gets[0].resolve(response([{name:'obsolete'}]));
+await Promise.all([first, second]);
+assert.deepEqual(termSessions, [old], 'old generation must not publish');
+assert.equal(_termSessionFetches.size, 1, 'old completion must retain the newer request');
+gets[1].resolve(response([{name:'fresh'}]));
+await later;
+assert.deepEqual(termSessions, [{name:'fresh'}]);
+assert.equal(_termSessionFetches.size, 0);
+const failing = termRefreshSessions('demo');
+gets[2].reject(Error('unavailable'));
+assert.equal(await failing, false);
+assert.deepEqual(termSessions, [{name:'fresh'}]);
+assert.equal(_termSessionFetches.size, 0);
+const recovered = termRefreshSessions('demo');
+gets[3].resolve(response([{name:'recovered'}]));
+assert.equal(await recovered, true);
+assert.deepEqual(termSessions, [{name:'recovered'}]);
+''')
+
+
+def test_periodic_session_poll_waits_backs_off_and_keeps_scope_ownership():
+    run(section('  function termStartPeriodicRefresh()', '  function termStopPeriodicRefresh()') + r'''
+let now = 0, timer, pendingRead, reads = 0, gone = 0;
+Date.now = () => now;
+const document = {hidden:false, body:{classList:{contains:()=>true}}};
+let termRefreshTimer = null, _termReorderPending = false;
+let termCurrentSession = 'old', termCurrentWorkspaceId = 'demo';
+const setInterval = callback => {timer=callback; return 1;};
+const termStopPeriodicRefresh = () => {};
+const _termSessionGone = () => gone++;
+const _termRefreshSessionsForWorkspaceId = () => {reads++; pendingRead=deferred(); return pendingRead.promise;};
+termStartPeriodicRefresh();
+const first = timer();
+await timer();
+assert.equal(reads,1,'a slow poll must not overlap');
+pendingRead.resolve(false); await first;
+now=7999; await timer(); assert.equal(reads,1);
+now=8000; const second=timer(); assert.equal(reads,2);
+pendingRead.resolve(false); await second;
+now=16000; await timer(); assert.equal(reads,2,'repeated failure doubles the delay');
+now=24000; const third=timer(); assert.equal(reads,3);
+pendingRead.resolve(true); await third;
+const fourth=timer(); assert.equal(reads,4,'success restores the normal cadence');
+termSessions=[]; active.vault='other';
+pendingRead.resolve(true); await fourth;
+assert.equal(gone,0,'an old vault response cannot trigger terminal recovery');
+document.hidden=true; await timer(); assert.equal(reads,4,'hidden pages do not poll');
+''')
+
+
 @pytest.mark.parametrize('close', ['current', 'tabs', 'all'])
 @pytest.mark.parametrize('stale_includes_created', [False, True])
 def test_closing_created_terminal_while_creation_refresh_waits_keeps_it_closed(close, stale_includes_created):

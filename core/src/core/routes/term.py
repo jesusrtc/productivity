@@ -541,6 +541,7 @@ def _workspace_cwd(root: Path, workspace_id: str) -> Path:
 # ─── runtime metadata (.sessions.json) ──────────────────────────────────────
 
 def _load_meta(root: Path) -> dict:
+    fsguard.checkpoint()
     p = _sessions_file(root)
     legacy = root / "content" / ".sessions.json"
     if not p.is_file() and legacy.is_file():
@@ -585,6 +586,7 @@ def _warn_root_unavailable_once(root: Path, action: str, exc: OSError) -> None:
 # ─── durable metadata (workspace.json.sessions) ───────────────────────────────
 
 def _load_workspace(root: Path, workspace_id: str) -> dict | None:
+    fsguard.checkpoint()
     p = _workspace_json(root, workspace_id)
     # Pre-rename migration: if the Cerebro file doesn't exist yet but the
     # old ``.knowledge-workspace.json`` does, rename it in place. One-shot.
@@ -1356,6 +1358,7 @@ def _enrich_agent_session_names(rows: list[dict]) -> None:
 # /api/term/workspaces-with-sessions and greys out every tab in the UI.
 
 def _known_workspace_ids(root: Path) -> list[str]:
+    fsguard.checkpoint()
     ids = [
         CEREBRO_WORKSPACE_ID,
         SELF_WORKSPACE_ID,
@@ -1366,10 +1369,16 @@ def _known_workspace_ids(root: Path) -> list[str]:
     workspaces = naming.workspaces_dir(root)
     if workspaces.is_dir():
         from lab.workspace_identity import id_at
-        ids += [id_at(p) for p in workspaces.iterdir() if p.is_dir()]
+        for p in workspaces.iterdir():
+            fsguard.checkpoint()
+            if p.is_dir():
+                ids.append(id_at(p))
     repos = root / "repositories"
     if repos.is_dir():
-        ids += [f"{_CS_PREFIX}{p.name}{_CS_SUFFIX}" for p in repos.iterdir() if p.is_dir()]
+        for p in repos.iterdir():
+            fsguard.checkpoint()
+            if p.is_dir():
+                ids.append(f"{_CS_PREFIX}{p.name}{_CS_SUFFIX}")
     return ids
 
 
@@ -1565,13 +1574,14 @@ def _reconstruct_meta_entry(
     name: str,
     created: int = 0,
     tmux_socket: str = tmux_sockets.DEFAULT_SOCKET,
+    *, parsed: tuple[str, str] | None = None,
 ) -> dict | None:
     """Best-effort runtime entry for a live session .sessions.json has no
     record of. The durable workspace.json entry wins where present; otherwise
     the logical name's leading word fills the gaps ("bash" → terminal,
     "codex" → codex agent, "server" → a managed dev-server tab spawned by
     ``core.routes.servers``, not a claude conversation)."""
-    parsed = _parse_tmux_name(root, name)
+    parsed = parsed or _parse_tmux_name(root, name)
     if not parsed:
         return None
     pid, logical = parsed
@@ -1608,7 +1618,7 @@ def _reconstruct_meta_entry(
 
 
 def _sync_meta(root: Path, live: list[dict] | None) -> dict:
-    with _SESSION_METADATA_LOCK:
+    with fsguard.cancellable_lock(_SESSION_METADATA_LOCK):
         return _sync_meta_locked(root, live)
 
 
@@ -1637,15 +1647,28 @@ def _sync_meta_locked(root: Path, live: list[dict] | None) -> dict:
                   if row.get("name") not in meta
                   and re.fullmatch(r"neurona-[0-9a-f]{32}", str(row.get("name") or ""))}
     owners = session_owners(root, uuid_names)
-    live = [
-        row for row in live
-        if row.get("name") in meta or row.get("name") in owners
-        or (row.get("name") not in uuid_names
-            and _parse_tmux_name(root, str(row.get("name") or "")) is not None)
-    ]
+    fsguard.checkpoint()
+    parsed_by_name = dict(owners)
+    workspace_ids = None
+    owned = []
+    for row in live:
+        fsguard.checkpoint()
+        name = str(row.get("name") or "")
+        if name not in meta and name not in owners:
+            if name in uuid_names:
+                continue
+            if workspace_ids is None:
+                workspace_ids = _known_workspace_ids(root)
+            parsed = _parse_tmux_name_with_workspace_ids(root, name, workspace_ids)
+            if parsed is None:
+                continue
+            parsed_by_name[name] = parsed
+        owned.append(row)
+    live = owned
     live_by_name = {s["name"]: s for s in live}
     changed = False
     for n in [n for n in meta if n not in live_by_name]:
+        fsguard.checkpoint()
         meta.pop(n)
         changed = True
         log.info(
@@ -1654,6 +1677,7 @@ def _sync_meta_locked(root: Path, live: list[dict] | None) -> dict:
             extra={"event_type": "term.registry.prune", "target": n},
         )
     for n, s in live_by_name.items():
+        fsguard.checkpoint()
         if n in meta:
             if not meta[n].get("session_id"):
                 from lab.workspace_identity import session_identity
@@ -1679,6 +1703,7 @@ def _sync_meta_locked(root: Path, live: list[dict] | None) -> dict:
             tmux_socket=str(
                 s.get("tmux_socket") or tmux_sockets.DEFAULT_SOCKET
             ),
+            parsed=parsed_by_name[n],
         )
         if entry:
             meta[n] = entry
@@ -1699,6 +1724,7 @@ def _sync_meta_locked(root: Path, live: list[dict] | None) -> dict:
         # is root-owned and mkdir raises PermissionError). The save simply
         # retries on a later cycle once the volume is back.
         try:
+            fsguard.checkpoint()
             _save_meta(root, meta)
             _UNAVAILABLE_WARNED_ROOTS.discard(str(root))
         except OSError as exc:
@@ -1765,6 +1791,7 @@ def _tmux_list(
     lab_rows_by_socket: dict[str, int] = {}
     generations = tmux_sockets.generations()
     for generation in generations:
+        fsguard.checkpoint()
         socket_name = str(generation["name"])
         try:
             proc = subprocess.run(
@@ -2167,6 +2194,7 @@ def _sessions_for_root(
     tmux-list + meta-sync + row-shaping logic."""
     prefixes = _tmux_discovery_prefixes(root)
     listing = _tmux_list(prefixes)
+    fsguard.checkpoint()
     return _session_rows_for_root(root, workspace_id, listing,
                                   include_agent_details=include_agent_details)
 
@@ -2184,6 +2212,7 @@ def _session_rows_for_root(
     rows: list[dict] = []
     saved_by_logical = _workspace_session_by_name(root, workspace_id) if workspace_id else {}
     for name, info in live.items():
+        fsguard.checkpoint()
         row = {**info, **meta.get(name, {}), "name": name}
         socket_name = str(
             row.get("tmux_socket") or tmux_sockets.DEFAULT_SOCKET
@@ -2284,15 +2313,25 @@ def list_sessions(
     if workspace_id:
         root = _vault_root_for(active_root, vault)
         _require_workspace_access(request, active_root, root, workspace_id)
-        rows = (_home_session_rows(Path(request.app.state.index_cache.root))
-                if workspace_id == SELF_WORKSPACE_ID
-                else _sessions_for_root(root, workspace_id))
+        if workspace_id == SELF_WORKSPACE_ID:
+            rows = _home_session_rows(Path(request.app.state.index_cache.root))
+        else:
+            native = fsguard.guarded(
+                root, _sessions_for_root, root, workspace_id,
+                include_agent_details=False,
+                operation_key=("terminal-sessions", workspace_id),
+            )
+            # Shared worker results are immutable to callers; agent details
+            # and sorting belong to this request's copies.
+            rows = [dict(row) for row in native]
+            _enrich_session_details(rows)
         # Order preference: if the workspace has a saved ``sessions[]`` array
         # (in workspace.json), use that order as the source of truth — this
         # is what powers the "drag pills to reorder" UX. Sessions with no
         # saved entry (edge case: spawned out-of-band) get appended in
         # tmux-creation order.
-        saved = _get_workspace_sessions(root, workspace_id)
+        saved = fsguard.guarded(root, _get_workspace_sessions, root, workspace_id,
+                               operation_key=("saved-terminal-sessions", workspace_id))
         order: dict[str, int] = {
             s["name"]: i for i, s in enumerate(saved)
             if isinstance(s, dict) and "name" in s
@@ -2796,8 +2835,11 @@ def _update_session_metadata(body: SessionMetadata, request: Request) -> dict:
 def task_terminals(request: Request, document_id: str | None = None) -> list[dict]:
     """Inspect existing sessions; never create or resume a process."""
     from core.terminal_task_links import list_terminals
-    with _SESSION_METADATA_LOCK:
-        rows = list_terminals(request, document_id)
+    def read():
+        with fsguard.cancellable_lock(_SESSION_METADATA_LOCK):
+            return list_terminals(request, document_id)
+
+    rows = fsguard.guarded(auth.request_root(request), read)
     if document_id:
         from core import agent_activity
         _enrich_agent_session_names(rows)

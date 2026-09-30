@@ -101,6 +101,7 @@ let currentWorkspace = {path:'/alpha', is_workspace:true};
 let root = '/alpha', _gitStatusInFlight = false;
 const _GIT_STATUS_MIN_MS = 5000, _gitStatusByPath = new Map();
 const _sidebarScopedRoot = () => root;
+const document = {querySelector:()=>null};
 const painted = [], requests = [];
 const _sidebarApplyGitStatus = entry => painted.push(entry.files);
 if(state !== 'missing') _gitStatusByPath.set(root, {

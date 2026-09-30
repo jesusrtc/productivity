@@ -4,7 +4,7 @@ from contextlib import ExitStack
 from fastapi import HTTPException
 from lab import paths, storage, workspace_identity
 
-from core import terminal_task_links
+from core import fsguard, terminal_task_links
 
 
 def _safe_scope(workspace_id):
@@ -94,7 +94,7 @@ def borrowed_terminals(request, root, workspace_id, native):
     names = {row['name'] for row in native}
     rows = []
     # Discover once for all linked documents, preserving the canonical owner.
-    for session in terminal_task_links.list_terminals(request):
+    for session in fsguard.guarded(root, terminal_task_links.list_terminals, request):
         key = terminal_task_links.identity(session.get('linked_task'))
         if not key or key[:2] not in wanted or session['name'] in names:
             continue

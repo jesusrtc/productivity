@@ -254,7 +254,7 @@ def test_user_terminal_access_is_vault_scoped_and_home_is_admin_only(
     assert _login(client, "miriam", "miriam").status_code == 200
 
     from core.routes import term
-    monkeypatch.setattr(term, "_sessions_for_root", lambda root, workspace_id: [])
+    monkeypatch.setattr(term, "_sessions_for_root", lambda root, workspace_id, **kwargs: [])
     monkeypatch.setattr(term, "_get_workspace_sessions", lambda root, workspace_id: [])
 
     allowed = client.get("/api/term/sessions", params={"workspace_id": "alpha", "vault": "main"})

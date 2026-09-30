@@ -13,7 +13,10 @@ import sqlite3
 import subprocess
 import sys
 import textwrap
+import threading
+import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -2247,6 +2250,106 @@ def test_copilot_explicit_auto_false_overrides_vault(client, seed_workspace, iso
 
 
 # ─── rolling tmux socket generations ───────────────────────────────────────
+
+
+def test_uuid_recovery_reuses_batched_owners(monorepo, seed_workspace, monkeypatch):
+    from core.routes import term
+    from lab import workspace_identity
+
+    seed_workspace("demo")
+    saved = []
+    live = []
+    for i in range(12):
+        logical = f"terminal-{i}"
+        session_id = workspace_identity.session_identity(monorepo, "demo", logical)["session_id"]
+        saved.append({"name": logical, "session_id": session_id, "label": f"Saved {i}"})
+        live.append({"name": "neurona-" + session_id.replace("-", ""), "created": i + 1})
+    term._save_workspace(monorepo, "demo", {"id": "demo", "sessions": saved})
+    monkeypatch.setattr(term, "_load_meta", lambda _: {})
+    monkeypatch.setattr(term, "_save_meta", lambda *_: None)
+    calls = []
+    original = workspace_identity.session_owners
+
+    def owners(root, names):
+        calls.append(set(names))
+        return original(root, names)
+
+    def repeated_lookup(*args, **kwargs):
+        pytest.fail("UUID recovery repeated an ownership or legacy-name scan")
+
+    monkeypatch.setattr(workspace_identity, "session_owners", owners)
+    monkeypatch.setattr(workspace_identity, "session_owner", repeated_lookup)
+    monkeypatch.setattr(term, "_parse_tmux_name", repeated_lookup)
+    monkeypatch.setattr(term, "_known_workspace_ids", repeated_lookup)
+    result = term._sync_meta(monorepo, live)
+    assert calls == [{row["name"] for row in live}]
+    assert set(result) == {row["name"] for row in live}
+    assert [row["label"] for row in result.values()] == [row["label"] for row in saved]
+
+
+def test_legacy_recovery_scans_workspace_ids_once(monorepo, seed_workspace, monkeypatch):
+    from core.routes import term
+
+    seed_workspace("demo")
+    monkeypatch.setattr(term, "_load_meta", lambda _: {})
+    monkeypatch.setattr(term, "_save_meta", lambda *_: None)
+    calls = []
+    original = term._known_workspace_ids
+
+    def ids(root):
+        calls.append(root)
+        return original(root)
+
+    monkeypatch.setattr(term, "_known_workspace_ids", ids)
+    live = [{"name": f"lab-demo-terminal-{i}"} for i in range(12)]
+    result = term._sync_meta(monorepo, live)
+    assert calls == [monorepo]
+    assert set(result) == {row["name"] for row in live}
+    assert all(row["workspace_id"] == "demo" for row in result.values())
+
+
+def test_concurrent_scoped_session_reads_share_discovery_but_copy_rows(monorepo, monkeypatch):
+    from core import workspace_documents
+    from core.routes import term
+
+    entered, release = threading.Event(), threading.Event()
+    callers = threading.Barrier(8)
+    enriching = threading.Barrier(8)
+    calls = []
+    native = [{"name":"current", "workspace_id":"demo", "created":1}]
+    monkeypatch.setattr(term.auth, 'request_root', lambda _:monorepo)
+    monkeypatch.setattr(term, '_vault_root_for', lambda *_:monorepo)
+    monkeypatch.setattr(term, '_require_workspace_access', lambda *_:None)
+    monkeypatch.setattr(term, '_get_workspace_sessions', lambda *_:[])
+    monkeypatch.setattr(workspace_documents, 'borrowed_terminals', lambda *_:[])
+
+    def discover(root, workspace_id, *, include_agent_details):
+        calls.append((root, workspace_id, include_agent_details))
+        entered.set()
+        assert release.wait(2)
+        return native
+
+    def enrich(rows):
+        rows[0]['summary'] = str(threading.get_ident())
+        enriching.wait(2)
+
+    def read():
+        callers.wait(2)
+        return term.list_sessions(None, workspace_id='demo')
+
+    monkeypatch.setattr(term, '_sessions_for_root', discover)
+    monkeypatch.setattr(term, '_enrich_session_details', enrich)
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        futures = [pool.submit(read) for _ in range(8)]
+        assert entered.wait(1)
+        try:
+            time.sleep(.05)
+        finally:
+            release.set()
+        results = [future.result(3) for future in futures]
+    assert calls == [(monorepo, 'demo', False)]
+    assert len({rows[0]['summary'] for rows in results}) == 8
+    assert native == [{"name":"current", "workspace_id":"demo", "created":1}]
 
 
 @pytest.mark.parametrize("failure", ["timeout", "descriptors"])
