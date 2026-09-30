@@ -1,5 +1,7 @@
 # Memory index
 
+- [Terminal drops match the visible document](terminal-drops-match-visible-documents.md) — series cards link the displayed series; captured roots/paths and busy-header guards prevent stale targets.
+
 - [Command-click opens Assistant documents in the modal](assistant-document-command-click.md) — document entries and inline rendered content, with drafts preserved and pending inline clicks cancelled.
 
 - [Recently opened documents belong above linked documents](recently-opened-documents-sidebar.md) — time-windowed, browser-local document history; successful root opens only, with existing open and drag behavior.

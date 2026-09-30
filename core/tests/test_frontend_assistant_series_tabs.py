@@ -55,8 +55,12 @@ const toggle=()=>nav().querySelector('[data-series-toggle]');
 const menuOpen=()=>menu()?.matches(':popover-open');
 const visible=element=>element.getClientRects().length>0;
 let gate=null;
+const patches=[];
+window.LabTaskTerminalBridge={patch:async(session,patch,context)=>{patches.push({session,patch,context});return {linked_task:{...patch.linked_task,title:'Weekly 1:1'}}}};
 window.fetch=async (url,options={})=>{
  const u=new URL(url,'https://lab.example');
+ if(u.pathname==='/api/term/task-terminals')return {ok:true,json:async()=>[]};
+ if(u.pathname==='/api/assistant/document-terminal')return {ok:true,json:async()=>({state:'absent'})};
  if(options.method==='PATCH'){
   const request=JSON.parse(options.body);
   assert(request.field==='series'&&request.value===null,'detach series');
@@ -73,6 +77,21 @@ window.fetch=async (url,options={})=>{
 (async()=>{
  AssistantView.init({section:'notes'});
  await until(()=>document.querySelector('[data-assistant-document][data-document-kind="meeting"]'));
+ const seriesCard=document.querySelector(`[data-assistant-document="${FIX.paths.latest}"]`).closest('[data-terminal-document]');
+ assert(seriesCard.querySelector('strong').textContent==='Weekly 1:1','card displays the series title');
+ const target=LabDocumentTerminal.dropContext(seriesCard.querySelector('strong'));
+ assert(target.documentId===FIX.details[FIX.paths.series].metadata.id,'terminal drop targets the visible series, not the differently named latest meeting');
+ assert(target.path===FIX.paths.series&&target.database===FIX.index.root,'drop keeps the displayed document path and database');
+ await LabDocumentTerminal.link(target,{logical_name:'one'},{workspaceId:'work',vaultId:'local'});
+ assert(patches[0].patch.linked_task.document_id===target.documentId,'patch preserves series identity');
+ assert(patches[0].patch.linked_task.assistant_root===FIX.index.root&&patches[0].patch.linked_task.path===FIX.paths.series,'patch validates the exact displayed document');
+ assert(seriesCard.querySelector('[data-assistant-document]').dataset.assistantDocument===FIX.paths.latest,'ordinary open still follows the latest meeting');
+ termWireSessionDnD(document.getElementById('test-terminal-rail'));
+ window.nativeDropReady=true;
+ await new Promise(resolve=>window.nativeDropResolve=resolve);
+ assert(patches.length===2&&patches[1].session.name==='dragged-process','native drop links the dragged terminal, not the active terminal');
+ assert(patches[1].patch.linked_task.document_id===target.documentId,'native terminal drag targets the displayed series');
+ assert(window.nativeDragTrusted&&window.nativeDropTrusted,'drag and drop use real browser input');
  await AssistantView.openDocument('note',FIX.paths.nested);
  assert(rows().length===2,'full series available from subtab deep link');
  assert(!menuOpen()&&rows().every(row=>!visible(row)),'dates hidden until requested');
@@ -120,6 +139,7 @@ window.fetch=async (url,options={})=>{
  let release;gate=new Promise(r=>release=r);
  rows()[1].click();
  assert(!menuOpen(),'selection closes menu immediately');
+ assert(!LabDocumentTerminal.dropContext(document.getElementById('assistantModalTitle')),'navigation blocks drops onto stale header identity');
  await new Promise(r=>setTimeout(r,25));
  assert(host().firstElementChild===pane,'cross-meeting navigation retains outgoing pane during fetch');
  gate=null;release();
@@ -152,16 +172,36 @@ window.fetch=async (url,options={})=>{
  toggle().click();
  AssistantView.closeDocument();
  assert(!document.querySelector('#assistantSeriesMenu:popover-open'),'closing the document removes top-layer menu');
+ assert(!LabDocumentTerminal.dropContext(document.getElementById('assistantModalTitle')),'closing clears the previous document drop identity');
  document.getElementById('result').textContent='PASS';
 })().catch(error=>document.getElementById('result').textContent='FAIL: '+error.stack);
 '''
     scripts = '\n'.join('<script>'+ (STATIC / path).read_text()+'</script>' for path in [
         'vendor/marked@12.0.1/marked.min.js','vendor/dompurify@3.4.15/purify.min.js',
-        'js/lib/markdown-content.js','js/views/assistant.js'])
+        'js/lib/markdown-content.js','js/views/assistant.js','js/lib/document-terminal.js'])
+    app=(STATIC/'js/lab-app.js').read_text()
+    def section(start,end):
+        return app[app.index(start):app.index(end,app.index(start))]
+    drag_setup=r'''
+let _termDragState=null,_termDragLogical=null;
+const termSessions=[{name:'dragged-process',logical_name:'one'},{name:'active-process',logical_name:'two'}];
+const _termGroupScopeKey=()=> 'local::work',_termReadGroupState=()=>({});
+const _termActiveWorkspaceId=()=> 'work',_termVaultId=()=> 'local';
+const _termLinkContext=()=>({workspaceId:'work',vaultId:'local'});
+const _termHideSessionTooltip=()=>{},termCloseGroupMenu=()=>{},termRenderSessionList=()=>{},_termPreviewDrop=()=>{};
+const termSessionOrientation='horizontal';
+const _termLinkDropContext=target=>LabDocumentTerminal.dropContext(target);
+document.addEventListener('dragstart',event=>{window.nativeDragTrusted=event.isTrusted});
+document.addEventListener('drop',event=>{window.nativeDropTrusted=event.isTrusted});
+'''
+    drag_setup+=section('  function _termClearDropPreview()', '  function _termPreviewDrop(')
+    drag_setup+=section('  function termWireSessionDnD(', '  async function termReorderItems(')
+    drag_setup+=section('  async function termLinkTarget(', '  async function termUnlinkTarget(')
+    drag_setup+=section('  let _termLinkDropElement = null;', "  document.addEventListener('contextmenu', event => {\n    const ctx = _termLinkDropContext")
     page=tmp_path/'meetings.html'
     page.write_text('<!doctype html><meta charset="utf-8"><style>'+ (STATIC/'css/lab-shell.css').read_text()+
-                    '</style><body class="assistant-active"><div id="repoTabs"></div><div id="content"></div><pre id="result">PENDING</pre>'+scripts+
-                    '<script>const FIX='+json.dumps(fixtures).replace('</','<\\/')+';\n'+checks+'</script>')
+                    '</style><body class="assistant-active"><div id="repoTabs"></div><div id="content"></div><div id="test-terminal-rail" style="position:fixed;right:20px;top:20px;z-index:10000"><span draggable="true" data-order-token="s:one" data-name="dragged-process">Drag this terminal</span></div><pre id="result">PENDING</pre>'+scripts+
+                    '<script>'+drag_setup+'\nconst FIX='+json.dumps(fixtures).replace('</','<\\/')+';\n'+checks+'</script>')
     profile=tmp_path/'chrome-profile'
     process=subprocess.Popen([chrome,'--headless','--disable-gpu','--no-sandbox','--no-first-run',
                               '--no-default-browser-check','--allow-file-access-from-files',
@@ -172,7 +212,39 @@ window.fetch=async (url,options={})=>{
         while not (profile/'DevToolsActivePort').exists():
             assert process.poll() is None and time.monotonic()<deadline, 'Chrome did not start'
             time.sleep(.05)
-        result=subprocess.run([node,str(ROOT/'scripts/chrome-dump-auth.mjs'),str(profile),page.as_uri(),str(tmp_path/'dom.html')],
+        driver=tmp_path/'native-drop.mjs'
+        native_drop=r'''
+async function evaluate(expression) {
+ const result=await send('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});
+ if(result.exceptionDetails)throw new Error(result.exceptionDetails.exception?.description||'Browser evaluation failed');
+ return result.result?.value;
+}
+for(let i=0;i<200&&!await evaluate('window.nativeDropReady');i++)await new Promise(r=>setTimeout(r,10));
+const points=await evaluate(`(() => {
+ const card=document.querySelector('[data-assistant-document="'+FIX.paths.latest+'"]').closest('[data-terminal-document]');
+ card.scrollIntoView({block:'center'});
+ const rect=element=>{const r=element.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}};
+ return {source:rect(document.querySelector('#test-terminal-rail span')),target:rect(card.querySelector('strong'))};
+})()`);
+await send('Input.setInterceptDrags',{enabled:true});
+const intercepted=new Promise((resolve,reject)=>{
+ const timer=setTimeout(()=>reject(new Error('Native drag did not start '+JSON.stringify(points))),3000);
+ const listener=event=>{const message=JSON.parse(String(event.data));if(message.method!=='Input.dragIntercepted')return;clearTimeout(timer);ws.removeEventListener('message',listener);resolve(message.params.data)};
+ ws.addEventListener('message',listener);
+});
+await send('Input.dispatchMouseEvent',{type:'mouseMoved',...points.source});
+await send('Input.dispatchMouseEvent',{type:'mousePressed',...points.source,button:'left',buttons:1,clickCount:1});
+await send('Input.dispatchMouseEvent',{type:'mouseMoved',x:points.source.x-40,y:points.source.y+10,button:'left',buttons:1});
+await send('Input.dispatchMouseEvent',{type:'mouseMoved',...points.target,button:'left',buttons:1});
+const data=await intercepted;
+if(!data.items.some(item=>item.mimeType==='application/x-lab-terminal'&&item.data==='one'))throw new Error('Wrong native terminal identity');
+for(const type of ['dragEnter','dragOver','drop'])await send('Input.dispatchDragEvent',{type,...points.target,data});
+await send('Input.dispatchMouseEvent',{type:'mouseReleased',...points.target,button:'left',buttons:0,clickCount:1});
+await evaluate('window.nativeDropResolve()');
+await new Promise(r=>setTimeout(r,2500));
+'''
+        driver.write_text((ROOT/'scripts/chrome-dump-auth.mjs').read_text().replace('await new Promise(resolve => setTimeout(resolve, 4500));',native_drop))
+        result=subprocess.run([node,str(driver),str(profile),page.as_uri(),str(tmp_path/'dom.html')],
                               capture_output=True,text=True,timeout=25,env={**os.environ,'LAB_UI_AUTH_COOKIE':''})
         assert result.returncode==0,result.stderr
         html=(tmp_path/'dom.html').read_text()

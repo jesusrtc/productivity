@@ -850,6 +850,8 @@
 
   function documentCard(row, scope = 'list') {
     const series = row.displaySeries;
+    // Opening follows the latest note; linking follows the document named on the card.
+    const target = series || row;
     const kind = documentKind(row);
     const work = (series ? [series,...row.seriesMembers] : [row]).flatMap(pendingWork);
     const priority = work.map(item => item.priority || 'P2').sort()[0] || row.priority || 'P2';
@@ -858,7 +860,7 @@
     const openNotes = series ? row.seriesMembers.filter(item => pendingWork(item).length).length : 0;
     const starredNotes = series ? row.seriesMembers.filter(item => item.starred).length : 0;
     const summary = series ? (row.path !== series.path ? `Latest: ${row.title}` : '') : row.tldr || row.summary;
-    return `<article class="assistant-list-item assistant-unified-item" data-assistant-entry-wrap="${e(row.path)}" data-document-key="${e(row.displayKey || row.path)}" data-terminal-document="${e(row.id)}" data-assistant-document-drag data-assistant-root="${e(state.data.root)}" data-document-path="${e(row.path)}" draggable="true">
+    return `<article class="assistant-list-item assistant-unified-item" data-assistant-entry-wrap="${e(row.path)}" data-document-key="${e(row.displayKey || row.path)}" data-terminal-document="${e(target.id)}" data-assistant-document-drag data-assistant-root="${e(state.data.root)}" data-document-path="${e(target.path)}" draggable="true">
       <button type="button" class="assistant-compact-row assistant-document-row" data-assistant-document="${e(row.path)}" data-document-kind="${e(kind)}">
         ${documentIcon(row)}<span class="assistant-row-content"><span class="assistant-row-title">${work.length || !series && row.tracked ? `<span class="assistant-priority ${e(priority.toLowerCase())}">${e(priority)}</span>` : ''}<strong>${e(series?.title || row.title)}</strong></span>${summary ? `<span class="assistant-row-tldr">${e(summary)}</span>` : ''}</span>
         <span class="assistant-row-meta">${series ? `<small>${row.seriesMembers.length} notes</small>${starredNotes ? `<small>${starredNotes} starred note${starredNotes === 1 ? '' : 's'}</small>` : ''}${openNotes ? `<small>Open tasks in ${openNotes} note${openNotes === 1 ? '' : 's'}</small>` : ''}` : ''}${row.workspace_name ? `<span class="assistant-task-workspace-label">${e(row.workspace_name)}</span>` : ''}${row.date ? `<time>${e(row.date)}</time>` : ''}${documentTaskBadges(taskSummary)}${!taskSummary && !series && row.tracked ? `<span class="assistant-status status-${e(row.status)}">${e(labelStatus(row.status))}</span>` : ''}${due ? `<span class="assistant-task-due">Due ${e(displayDate(due))}</span>` : ''}${row.source === 'demo' || (row.tags || []).includes('demo') ? '<span class="assistant-demo">Demo</span>' : ''}</span>

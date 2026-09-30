@@ -85,6 +85,39 @@ def test_invalid_or_unauthorized_task_transfer_writes_nothing(client, terminals,
     assert term._load_workspace(monorepo,'demo')==before
 
 
+def test_drop_requires_the_original_document_database_and_path(client, terminals, owned_tasks, monorepo):
+    from core.routes import term
+    root,note,*_=owned_tasks
+    before=term._load_workspace(monorepo,'demo')
+    link={'document_id':note.stem,'assistant_root':str(root),'path':note.relative_to(root).as_posix()}
+    for override in [{'assistant_root':str(root.parent/'other-assistant')}, {'path':'documents/different.md'}]:
+        response=client.patch('/api/term/sessions/metadata',json={
+            'workspace_id':'demo','name':'demo','linked_task':{**link,**override}})
+        assert response.status_code==409,response.text
+        assert term._load_workspace(monorepo,'demo')==before
+    response=client.patch('/api/term/sessions/metadata',json={
+        'workspace_id':'demo','name':'demo','linked_task':link})
+    assert response.status_code==200,response.text
+    saved=response.json()['session']
+    assert saved['linked_task']['document_id']==note.stem
+    assert saved['label']==before['sessions'][0]['label']
+
+
+def test_series_link_keeps_its_identity_and_title(client, terminals, owned_tasks):
+    from lab import assistant_records as records
+    root,*_=owned_tasks
+    series=records.create(root,'note','Weekly review',note_type='series')
+    latest=records.create(root,'note','Different meeting title',note_type='meeting',series=series.stem,date='2026-09-30')
+    before={path:path.read_bytes() for path in (series,latest)}
+    response=client.patch('/api/term/sessions/metadata',json={
+        'workspace_id':'demo','name':'demo','linked_task':{
+            'document_id':series.stem,'assistant_root':str(root),'path':series.relative_to(root).as_posix()}})
+    assert response.status_code==200,response.text
+    link=response.json()['session']['linked_task']
+    assert link['document_id']==series.stem and link['title']=='Weekly review'
+    assert all(path.read_bytes()==contents for path,contents in before.items())
+
+
 def test_document_and_task_links_are_distinct_and_simultaneous_assignment_has_one_owner(client, terminals, owned_tasks, monorepo, monkeypatch):
     from core.routes import term
     root,note,*_=owned_tasks

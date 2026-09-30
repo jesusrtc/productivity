@@ -14,10 +14,14 @@ from core import fsguard
 def validate(request, link):
     from core.routes.assistant import _require_root
     root = _require_root(request)
+    if link.assistant_root is not None and link.assistant_root != str(root.resolve()):
+        raise HTTPException(409, 'The Assistant location has changed. Refresh and try again.')
     try:
         source, _, _ = records.resolve(root, link.document_id, 'documents')
         source = documents.physical(source)
         owner, _, _ = documents.unpack(source.read_bytes())
+        if link.path is not None and link.path != source.relative_to(root).as_posix():
+            raise HTTPException(409, 'The document location has changed. Refresh and try again.')
         task = None
         if link.task_id:
             task = next((row for row in owner.get('tasks', []) if row['id'] == link.task_id), None)

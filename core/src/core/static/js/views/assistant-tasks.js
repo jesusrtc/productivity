@@ -43,7 +43,7 @@
     const collapsed = get(doc.id + ':collapsed', []), expanded = highlightedBranch(doc,task) || state.showAll && !collapsed.includes(task.id);
     const allChildren = children(doc, task.id);
     const label = task.title;
-    return `<li class="assistant-tasks-task${completed ? ' is-done' : ''}${state.highlightId === task.id ? ' is-terminal-target' : ''}" tabindex="-1" data-task="${esc(task.id)}" data-terminal-document="${esc(doc.id)}" data-terminal-task="${esc(task.id)}">
+    return `<li class="assistant-tasks-task${completed ? ' is-done' : ''}${state.highlightId === task.id ? ' is-terminal-target' : ''}" tabindex="-1" data-task="${esc(task.id)}" data-terminal-document="${esc(doc.id)}" data-terminal-task="${esc(task.id)}" data-assistant-root="${esc(state.options.database)}" data-document-path="${esc(state.options.root.path)}">
       <div class="assistant-tasks-task-row">
         ${nested.length && (state.showAll || highlightedBranch(doc,task)) ? `<button type="button" class="assistant-tasks-disclosure" data-collapse="${esc(task.id)}" aria-label="${expanded ? 'Hide' : 'Show'} subtasks for ${esc(label)}" aria-expanded="${expanded}">${expanded ? '▾' : '▸'}</button>` : '<span class="assistant-tasks-disclosure"></span>'}
         <input type="checkbox" data-check="${esc(task.id)}" aria-label="Complete ${esc(label)}"${completed ? ' checked' : ''}${state.busy ? ' disabled' : ''}>

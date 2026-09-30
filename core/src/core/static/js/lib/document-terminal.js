@@ -41,6 +41,10 @@
     const state = current; current = null;
     state.abort.abort(); clearInterval(state.poll); clearTimeout(state.activityTimer);
     releaseView(state); state.host.replaceChildren(); state.host.hidden = true;
+    for (const row of [state.host, document.querySelector('#assistantDocumentModal .assistant-modal-header'), document.getElementById('assistantModalTitle')]) {
+      if (!row) continue;
+      delete row.dataset.terminalDocument; delete row.dataset.assistantRoot; delete row.dataset.documentPath;
+    }
     if (!state.inline) window.LabTerminalCompletion?.stopViewing();
     requestAnimationFrame(() => { if (typeof termRenderSessionList === 'function') termRenderSessionList(); });
   }
@@ -237,20 +241,23 @@
   }
   function dropContext(target) {
     const row = target?.closest?.('[data-terminal-document]');
-    return row ? {kind:'task',row,documentId:row.dataset.terminalDocument,taskId:row.dataset.terminalTask || null} : null;
+    if (!row?.dataset.terminalDocument || row.closest('[aria-busy="true"]') || row.closest('.workspace-document')?.querySelector('button:disabled')) return null;
+    return {kind:'task',row,documentId:row.dataset.terminalDocument,taskId:row.dataset.terminalTask || null,
+      database:row.dataset.assistantRoot || undefined,path:row.dataset.documentPath || undefined};
   }
   async function link(ctx, session, context) {
     if (!session?.logical_name || !context?.workspaceId) return;
     try {
-      await window.LabTaskTerminalBridge.patch(session,{linked_task:{document_id:ctx.documentId,task_id:ctx.taskId}},context);
+      const saved = await window.LabTaskTerminalBridge.patch(session,{linked_task:{document_id:ctx.documentId,
+        task_id:ctx.taskId,assistant_root:ctx.database,path:ctx.path}},context);
       window.labFeatureUsage?.('Link terminal to task');
-      if (current?.documentId === ctx.documentId) {
+      if (current?.documentId === ctx.documentId && (!ctx.database || current.database === ctx.database)) {
         current.taskId = ctx.taskId; remembered(current,ctx.taskId);
         current.connectionEnded = false; current.result = null; releaseView(current);
         current.host.querySelector('[data-terminal-picker]').hidden = true;
         await refresh(current);
       }
-      if (typeof explorerToast === 'function') explorerToast('Terminal linked. Existing conversation kept.');
+      if (typeof explorerToast === 'function') explorerToast(`Terminal linked${saved?.linked_task?.title ? ' to ' + saved.linked_task.title : ''}. Existing conversation kept.`);
     } catch (error) {
       if (current) current.host.querySelector('[data-terminal-status]').textContent = error.message;
       if (typeof explorerToast === 'function') explorerToast(error.message,true);
@@ -271,7 +278,7 @@
         const button = document.createElement('button'); button.type = 'button'; button.draggable = true;
         button.textContent = sessionLabel(session) + ' · ' + session.workspace_name;
         const context = {workspaceId:session.workspace_id,vaultId:session.vault};
-        button.onclick = () => link({documentId:state.documentId,taskId:state.taskId},session,context);
+        button.onclick = () => link({documentId:state.documentId,taskId:state.taskId,database:state.database || undefined,path:state.root.path},session,context);
         button.ondragstart = event => { dragged={session,context}; event.dataTransfer.effectAllowed='link'; event.dataTransfer.setData('application/x-lab-task-terminal',session.name); };
         button.ondragend = () => { dragged=null; document.querySelectorAll('.term-link-drop-target').forEach(row=>row.classList.remove('term-link-drop-target')); };
         picker.append(button);
@@ -309,12 +316,13 @@
     if (!inline) window.LabTerminalCompletion?.stopViewing();
     state.taskId = remembered(state);
     if (state.taskId && !root.document_tasks?.tasks?.some(task=>task.id===state.taskId)) state.taskId=null;
-    host.hidden = false; host.dataset.terminalDocument=state.documentId;
+    host.hidden = false; host.dataset.terminalDocument=state.documentId; host.dataset.assistantRoot=database; host.dataset.documentPath=root.path;
     const header = document.querySelector('#assistantDocumentModal .assistant-modal-header');
     if (header) {
       header.dataset.terminalDocument=state.documentId;
+      header.dataset.assistantRoot=database; header.dataset.documentPath=root.path;
       const title=header.querySelector('h2');
-      if (title) { title.draggable=true; title.dataset.assistantDocumentDrag=''; title.dataset.terminalDocument=state.documentId; title.dataset.assistantRoot=database; }
+      if (title) { title.draggable=true; title.dataset.assistantDocumentDrag=''; title.dataset.terminalDocument=state.documentId; title.dataset.assistantRoot=database; title.dataset.documentPath=root.path; }
     }
     host.innerHTML = `<div class="assistant-terminal-toolbar"><strong>Terminal</strong><select data-terminal-placement aria-label="Terminal position"><option value="bottom">Bottom</option><option value="right">Right</option></select><select data-terminal-target aria-label="Terminal for task"></select><span data-terminal-agent></span><span role="status" data-terminal-status>Checking linked terminals…</span><button type="button" data-terminal-show hidden>Show terminal</button><button type="button" data-terminal-choose>Link terminal…</button><button type="button" data-terminal-unlink hidden>Unlink</button><button type="button" data-terminal-context>Copy context</button><button type="button" data-terminal-wake hidden>Reconnect</button><button type="button" data-terminal-sleep hidden>Sleep</button><button type="button" data-terminal-settings>Settings</button></div><div class="assistant-terminal-picker" data-terminal-picker hidden></div><div class="assistant-terminal-screen" aria-label="Linked task terminal"></div>`;
     const placementKey='labDocumentTerminalPlacement:' + JSON.stringify([database,state.documentId]);

@@ -2536,6 +2536,8 @@ class LinkedFile(BaseModel):
 class LinkedTask(BaseModel):
     document_id: str
     task_id: str | None = None
+    assistant_root: str | None = None
+    path: str | None = None
 
 
 class SessionMetadata(BaseModel):
