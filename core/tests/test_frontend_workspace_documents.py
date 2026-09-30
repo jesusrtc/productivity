@@ -170,6 +170,7 @@ window.LabTaskTerminalBridge={patch:async(session,patch,context)=>{
  await until(()=>document.querySelector('.assistant-note-editor textarea'));
  const draft=document.querySelector('.assistant-note-editor textarea');
  draft.value='Draft kept while expanding';draft.dispatchEvent(new Event('input',{bubbles:true}));
+ assert(document.querySelector('.assistant-tab-rail-item.active.assistant-note-dirty'),'rail shows unsaved changes on the active tab');
  document.getElementById('assistantExpandDocument').click();
  assert(document.querySelector('.assistant-note-editor textarea')===draft&&draft.value==='Draft kept while expanding','Expand preserves editor and unsaved draft');
  await until(()=>sockets===1);
@@ -313,6 +314,12 @@ async function evaluate(expression) {
 }
 if(await evaluate("document.getElementById('result').textContent") === 'PASS') {
  await evaluate(`assert(!document.querySelector('.tabs-open')&&document.getElementById('assistantTabsDrawer').inert,'tabs start hidden with no invisible focus targets')`);
+ await evaluate(`(() => {
+  const rail=document.querySelector('.assistant-tabs-rail');
+  assert(rail.getBoundingClientRect().width===52,'icon rail has enough room to discover tabs');
+  assert([...rail.querySelectorAll('[data-rail-tab]')].length===document.querySelectorAll('#assistantDocumentNav [data-record-path], #assistantDocumentNav [data-record-index]').length,'closed drawer exposes every tab as an icon');
+  assert(rail.querySelector('[aria-current="page"]')&&rail.querySelector('.assistant-note-dirty'),'active and unsaved states stay visible with the drawer closed');
+ })()`);
  async function revealTabs() {
   const point=await evaluate(`(() => {const r=document.querySelector('.assistant-tabs-edge').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+30}})()`);
   await send('Input.dispatchMouseEvent',{type:'mouseMoved',...point});
@@ -348,7 +355,7 @@ if(await evaluate("document.getElementById('result').textContent") === 'PASS') {
   const body=document.getElementById('assistantModalBody').getBoundingClientRect();
   const drawer=document.getElementById('assistantTabsDrawer').getBoundingClientRect();
   assert(body.right-drawer.right>=63,'wide drawer leaves content exposed for hover dismissal');
-  assert(document.getElementById('assistantDocumentNav').getBoundingClientRect().width===650,'overlay uses the available width in a narrow workspace');
+  assert(document.getElementById('assistantDocumentNav').getBoundingClientRect().width===616,'overlay accounts for the wider icon rail in a narrow workspace');
  })()`);
  await dragBy(-2000);
  if((await geometry()).width!==160)throw new Error('Minimum keeps tab controls usable');
@@ -371,6 +378,7 @@ if(await evaluate("document.getElementById('result').textContent") === 'PASS') {
  })()`);
  await send('Emulation.setDeviceMetricsOverride',{width:390,height:1000,deviceScaleFactor:1,mobile:false});
  await evaluate(`assert(getComputedStyle(document.querySelector('.assistant-tabs-resizer')).display==='none','mobile keeps horizontal tabs')`);
+ await evaluate(`assert(getComputedStyle(document.querySelector('.assistant-tabs-rail')).display==='none','mobile hides desktop icon rail')`);
  await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
  await evaluate(`new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))`);
  await dragBy(110);
@@ -389,6 +397,14 @@ if(await evaluate("document.getElementById('result').textContent") === 'PASS') {
  await evaluate(`assert(document.getElementById('assistantDocumentLocation').textContent.includes('Context'),'breadcrumb includes parent tab')`);
  await send('Input.dispatchMouseEvent',{type:'mouseMoved',...contentPoint});
  await evaluate(`assert(!document.querySelector('.tabs-open'),'selection followed by moving out dismisses drawer')`);
+ const railTarget=await evaluate(`(() => {const tab=document.querySelector('[data-rail-tab="index"]');const r=tab.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()`);
+ await send('Input.dispatchMouseEvent',{type:'mouseMoved',...railTarget});
+ await send('Input.dispatchMouseEvent',{type:'mousePressed',...railTarget,button:'left',clickCount:1});
+ await send('Input.dispatchMouseEvent',{type:'mouseReleased',...railTarget,button:'left',clickCount:1});
+ await evaluate(`until(()=>document.querySelector('[data-rail-tab="index"][aria-current="page"]'))`);
+ await evaluate(`assert(document.querySelector('#assistantDocumentNav [data-record-index][aria-current="page"]'),'clicking a rail icon opens its tab')`);
+ await evaluate(`document.querySelector('[data-rail-tab="${target.path}"]').click()`);
+ await evaluate(`until(()=>document.querySelector('[data-rail-tab="${target.path}"][aria-current="page"]'))`);
  await evaluate(`(() => {
   const host=document.getElementById('assistantModalDocument');
   host.innerHTML='<div class="assistant-markdown"><h2>Opening section</h2><div style="height:1400px"></div><h2>Later section</h2><div style="height:1400px"></div></div>';

@@ -420,6 +420,7 @@
 - [Document controls are grouped](assistant-document-header-groups.md) — readable titles, responsive actions, Copy menu and organized Properties in inline and modal views.
 - [Document tabs column resizes](document-tabs-column-resizes.md) — draggable divider, remembered width, keyboard adjustment and double-click reset in inline and modal views.
 - [Document tabs reveal on hover](document-tabs-hover-drawer.md) — slim edge strip, temporary navigation drawer and persistent document/tab/heading reference.
+- [Document tabs stay visible as icons](document-tabs-visible-icon-rail.md) — wider collapsed rail with clickable numbered icons, active state, activity dots and unsaved markers; full hover drawer and mobile navigation remain.
 
 - [Document-linked terminal icon](terminal-linked-document-icon.md) — use the sidebar document glyph in terminal tabs and headers, with provider identity and status preserved.
 

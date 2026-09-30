@@ -60,6 +60,8 @@ const nav=()=>document.getElementById('assistantDocumentNav');
 const tab=path=>[...nav().querySelectorAll('[data-record-path]')].find(row=>row.dataset.recordPath===path);
 const badge=path=>tab(path).querySelector('[data-tab-activity]');
 const label=path=>badge(path).hidden?'':badge(path).dataset.activityKind;
+const railTab=path=>[...document.querySelectorAll('[data-rail-tab]')].find(row=>row.dataset.railTab===path);
+const railLabel=path=>{const dot=railTab(path).querySelector('.assistant-tab-activity');return dot.hidden?'':dot.dataset.activityKind};
 const dismiss=path=>{
  const menu=tab(path).closest('.assistant-record-tab-row').querySelector('details');
  menu.open=true;
@@ -84,11 +86,15 @@ window.fetch=async (url,options={})=>{
   assert(badge(task.new).getAttribute('aria-label')==='New'&&badge(task.updated).title.startsWith('Updated'),'dots retain accessible descriptions');
   assert(badge(task.new).getBoundingClientRect().width===6&&badge(task.updated).getBoundingClientRect().width===6,'both markers are small dots');
   assert(getComputedStyle(badge(task.new)).backgroundColor!==getComputedStyle(badge(task.updated)).backgroundColor,'new and updated dots have distinct colors');
-  tab(task.new).click();
+  assert(railLabel(task.new)==='New'&&railLabel(task.updated)==='Updated','closed rail exposes new and updated tabs');
+  assert(railTab(task.new).title.includes('New research')&&railTab(task.updated).getAttribute('aria-label').includes('Updated'),'icon tooltips and accessible labels explain each tab');
+  railTab(task.new).click();
   await until(()=>tab(task.new).classList.contains('active'));
+  assert(railTab(task.new).getAttribute('aria-current')==='page','rail click selects and marks the matching tab');
   assert(label(task.new)==='New','opening a tab does not clear highlight');
   dismiss(task.new);
   assert(label(task.new)===''&&label(task.updated)==='Updated','dismiss only chosen tab');
+  assert(railLabel(task.new)===''&&railLabel(task.updated)==='Updated','dismissal immediately updates the rail');
   assert(tab(task.new).classList.contains('active'),'dismiss does not navigate');
   sessionStorage.setItem('activity-reloaded','yes');
   location.reload();return;
@@ -97,12 +103,15 @@ window.fetch=async (url,options={})=>{
  assert(label(task.updated)==='Updated','undismissed tab survives reload');
  assert(tab(task.new).classList.contains('active'),'last opened tab survives real reload');
  const original=nav().querySelector('.assistant-record-tree');
+ const originalRail=railTab(task.new);
  await AssistantView.refresh();
  assert(nav().querySelector('.assistant-record-tree')===original,'highlight polling keeps existing tabs');
+ assert(railTab(task.new)===originalRail,'polling preserves rail controls and focus');
  Object.assign(FIX.details,FIX.changed);
  // Reload just this document from the API, simulating a later external edit.
  await AssistantView.openDocument('task',task.root);
  assert(label(task.new)==='Updated','later revision highlights dismissed tab again');
+ assert(railLabel(task.new)==='Updated','later revision appears on the collapsed rail');
  assert(label(task.root)===''&&label(task.old)==='','child edit does not highlight parent or siblings');
  nav().querySelector('[data-record-index]').click();
  assert([...document.querySelectorAll('.assistant-index [data-tab-activity]')].some(row=>row.dataset.tabActivity===task.new&&row.dataset.activityKind==='Updated'&&!row.hidden),'Index mirrors tab markers');
@@ -129,6 +138,7 @@ window.fetch=async (url,options={})=>{
  now += 3*86400000;
  document.dispatchEvent(new Event('visibilitychange'));
  assert(label(note.new)===''&&label(note.updated)==='','markers expire after three days without navigation');
+ assert(railLabel(note.new)===''&&railLabel(note.updated)==='','expired dots clear from the rail too');
  assert(nav().querySelector('.assistant-record-tree')===noteTree,'expiry does not rebuild tabs or lose focus');
  await AssistantView.openDocument('task',task.root);
  assert(label(task.updated)==='','older update expires too');

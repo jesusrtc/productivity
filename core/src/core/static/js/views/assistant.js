@@ -1087,7 +1087,10 @@
         <div class="assistant-modal-metadata" id="assistantModalMetadata"></div>
       </header>
       <div class="assistant-modal-body" id="assistantModalBody">
-        <button type="button" class="assistant-tabs-edge" aria-label="Show document tabs" aria-expanded="false" aria-controls="assistantTabsDrawer" title="Show document tabs"><span>Tabs</span></button>
+        <nav class="assistant-tabs-rail" aria-label="Document tabs">
+          <button type="button" class="assistant-tabs-edge" aria-label="Show document tabs" aria-expanded="false" aria-controls="assistantTabsDrawer" title="Show document tabs"><span aria-hidden="true">☰</span></button>
+          <div class="assistant-tabs-rail-items" id="assistantTabsRailItems"></div>
+        </nav>
         <div class="assistant-tabs-drawer" id="assistantTabsDrawer"><aside class="assistant-document-nav" id="assistantDocumentNav"></aside><div class="assistant-tabs-resizer" role="separator" tabindex="0" aria-orientation="vertical" aria-label="Resize document tabs" aria-controls="assistantDocumentNav" title="Drag to resize tabs · Double-click to reset"></div></div>
         <div class="assistant-reading-area"><nav class="assistant-document-location" id="assistantDocumentLocation" aria-label="Current document location"></nav><main class="assistant-document-pane" id="assistantModalDocument"><div class="loading">Loading…</div></main></div>
       </div>
@@ -1130,11 +1133,12 @@
     const body = overlay.querySelector('#assistantModalBody');
     const drawer = body.querySelector('.assistant-tabs-drawer');
     const edge = body.querySelector('.assistant-tabs-edge');
+    const rail = body.querySelector('.assistant-tabs-rail');
     const reading = body.querySelector('.assistant-reading-area');
     const host = body.querySelector('#assistantModalDocument');
-    edge.addEventListener('pointerenter', () => setDocumentTabsOpen(true));
-    edge.addEventListener('pointermove', () => setDocumentTabsOpen(true), {passive:true});
-    edge.addEventListener('focus', () => setDocumentTabsOpen(true));
+    rail.addEventListener('pointerenter', () => setDocumentTabsOpen(true));
+    rail.addEventListener('pointermove', () => setDocumentTabsOpen(true), {passive:true});
+    rail.addEventListener('focusin', () => setDocumentTabsOpen(true));
     edge.addEventListener('click', () => setDocumentTabsOpen(true));
     drawer.addEventListener('focusin', () => setDocumentTabsOpen(true));
     drawer.addEventListener('click', () => setDocumentTabsOpen(true), true);
@@ -1147,10 +1151,10 @@
     reading.addEventListener('pointermove', () => { if (body.classList.contains('tabs-open')) close(); }, {passive:true});
     body.addEventListener('pointerleave', close);
     body.addEventListener('focusout', () => queueMicrotask(() => {
-      if (!drawer.contains(document.activeElement) && document.activeElement !== edge) setDocumentTabsOpen(false);
+      if (!drawer.contains(document.activeElement) && !rail.contains(document.activeElement)) setDocumentTabsOpen(false);
     }));
     body.addEventListener('tabsresizeend', () => {
-      if (!drawer.matches(':hover') && !edge.matches(':hover')) close();
+      if (!drawer.matches(':hover') && !rail.matches(':hover')) close();
     });
     window.matchMedia('(min-width:761px)').addEventListener('change', () => setDocumentTabsOpen(false));
     let frame;
@@ -1162,6 +1166,47 @@
     new MutationObserver(location).observe(host, {childList:true, subtree:true, characterData:true});
     new ResizeObserver(location).observe(host);
     setDocumentTabsOpen(false);
+  }
+
+  function renderTabsRail() {
+    const host = document.getElementById('assistantTabsRailItems');
+    const nav = document.getElementById('assistantDocumentNav');
+    if (!host || !nav) return;
+    const existing = new Map([...host.children].map(button => [button.dataset.railTab, button]));
+    let ordinal = 0;
+    nav.querySelectorAll('[data-record-index], [data-record-path], [data-assistant-modal-document], [data-meeting-part]').forEach((source, index) => {
+      const dashboard = source.hasAttribute('data-record-index');
+      const key = dashboard ? 'index' : source.dataset.recordPath || source.dataset.assistantModalDocument || source.dataset.meetingPart;
+      let button = existing.get(key);
+      existing.delete(key);
+      if (!button) {
+        button = document.createElement('button');
+        button.type = 'button'; button.className = 'assistant-tab-rail-item'; button.dataset.railTab = key;
+        button.innerHTML = '<span class="assistant-tab-rail-icon" aria-hidden="true"></span><span class="assistant-tab-rail-number" aria-hidden="true"></span><small class="assistant-tab-activity" aria-hidden="true" hidden></small>';
+        button.addEventListener('click', () => {
+          setDocumentTabsOpen(true);
+          button._tabSource.click();
+        });
+      }
+      button._tabSource = source;
+      const active = source.classList.contains('active');
+      const dirty = source.classList.contains('assistant-note-dirty');
+      const title = source.title || source.querySelector('.assistant-record-title')?.textContent
+        || (source.hasAttribute('data-meeting-part') ? source.querySelector('strong') : source.querySelector('small'))?.textContent || source.textContent.trim();
+      const activity = source.querySelector('[data-tab-activity]');
+      const updated = activity && !activity.hidden;
+      const label = [title, active && 'Active tab', dirty && 'Unsaved changes', updated && activity.title].filter(Boolean).join(' · ');
+      button.title = label; button.setAttribute('aria-label', label);
+      button.classList.toggle('active', active); button.classList.toggle('assistant-note-dirty', dirty);
+      if (active) button.setAttribute('aria-current', 'page'); else button.removeAttribute('aria-current');
+      const nested = source.closest('ul')?.matches('.assistant-record-tree ul');
+      button.querySelector('.assistant-tab-rail-icon').textContent = dashboard ? '☷' : nested ? '↳' : '▤';
+      button.querySelector('.assistant-tab-rail-number').textContent = dashboard ? '' : String(++ordinal);
+      const badge = button.querySelector('.assistant-tab-activity');
+      badge.hidden = !updated; badge.dataset.activityKind = updated ? activity.dataset.activityKind : '';
+      if (host.children[index] !== button) host.insertBefore(button, host.children[index] || null);
+    });
+    existing.forEach(button => button.remove());
   }
 
   function updateDocumentLocation() {
@@ -1196,8 +1241,8 @@
     const legacyKey = 'lab.assistant.tabs-width.v1';
     const min = 160;
     // The drawer overlays the document; leave a 64px strip for moving back
-    // into content, plus the 18px trigger and 8px resize handle.
-    const max = () => Math.max(min, Math.min(720, body.clientWidth - 90));
+    // into content, plus the icon rail and 8px resize handle.
+    const max = () => Math.max(min, Math.min(720, body.clientWidth - body.querySelector('.assistant-tabs-rail').getBoundingClientRect().width - 72));
     const width = () => Math.round(nav.getBoundingClientRect().width);
     let drag = null;
     try {
@@ -1407,6 +1452,7 @@
         presentDocument(overlay, inline);
         document.getElementById('assistantModalDocument').replaceChildren();
         document.getElementById('assistantDocumentNav').replaceChildren();
+        renderTabsRail();
         document.getElementById('assistantModalTitle').textContent = 'Document unavailable';
         resetCopy(); overlay.classList.add('active');
       }
@@ -1715,6 +1761,7 @@
       const label = button.querySelector('span:last-child')?.textContent || button.textContent;
       button.setAttribute('aria-label', label + (dirty ? ' · Unsaved changes' : ''));
     });
+    renderTabsRail();
   }
 
   function hideNoteControls() {
@@ -1888,6 +1935,7 @@
     nav.querySelectorAll('[data-assistant-modal-document]').forEach(button => {
       button.addEventListener('click', () => selectModalDocument(button.dataset.assistantModalKind, button.dataset.assistantModalDocument));
     });
+    renderTabsRail();
     const detailKind = state.modalKind === 'meeting' ? 'meeting'
       : state.modalKind === 'subtask' ? 'subtask' : (detail.path === root.path ? 'task' : 'subtask');
     await renderDocumentPane(detail, detailKind, focusHeading);
@@ -1985,6 +2033,7 @@
       const row = rows.get(button.dataset.dismissTabActivity);
       button.hidden = !row || !recentTabActivity(row, now);
     });
+    renderTabsRail();
     if (Number.isFinite(expires)) state.tabActivityTimer = setTimeout(markRecentTabs, Math.max(25, expires - now + 25));
   }
 
@@ -2438,6 +2487,7 @@
       }));
     }
     if (request !== state.modalRequest) return;
+    renderTabsRail();
     for (const surface of [nav, host]) {
       surface.querySelectorAll('[data-assistant-meeting]').forEach(button => bindRow(button, 'meeting'));
       if (!series || surface !== nav) bindSeries(surface);
