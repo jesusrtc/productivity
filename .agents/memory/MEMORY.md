@@ -1,5 +1,7 @@
 # Memory index
 
+- [Local-main collects current edits](sidebar-comparison-collects-current-edits.md) — a separate Uncommitted snapshot can miss newer changes; compare main with the complete working tree on refresh.
+
 - [Project sidebar ownership includes children](project-sidebar-container-ownership.md) — replace project containers during normal rendering, repair incomplete mounts, and reject moved or detached callback targets.
 - [Guarded metadata lock waits cancel](guarded-metadata-lock-waits-cancel.md) — timed-out lock readers release worker capacity; shared terminal rows are copied before enrichment.
 
@@ -157,7 +159,7 @@
 - [Worktree recent files ignore the initial checkout](worktree-recent-files-ignore-initial-checkout.md) — hide untouched checkout copies from time filters while retaining new, edited, and subsequently committed files
 
 - [Worktree discovery refreshes live](sidebar-worktree-discovery-refreshes-live.md) — refresh visible choices independently of file mtimes, preserving selection and open documents
-- [Recently updated compares with local main](sidebar-local-main-comparison.md) — separate local and remote main refs, with distinct labels and workspace-scoped persistence
+- [Recently updated compares with local main](sidebar-local-main-comparison.md) — total working-tree comparison, workspace-scoped persistence, and retired remote/history filter migration
 
 - [Command-click across file previews](file-previews-command-click.md) — shared word highlighting and file modal; cell outlines remain notebook-only
 - [File modal sort labels and type](file-modal-sort-labels-and-type.md) — Modified/Created time desc/asc, Name A–Z/Z–A, and Type (extension)

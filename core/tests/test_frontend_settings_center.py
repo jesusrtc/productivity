@@ -141,6 +141,9 @@ const fits=()=>{const d=document.getElementById('labSettingsCenter');const rect=
  assert(localStorage.getItem('labTermNewOptions-v1:b::same')==='["codex","terminal","attach"]','inactive terminal options scoped');
  assert(q('[data-stop]').disabled&&!appliedOptions,'inactive workspace cannot stop active sessions');
  await section('files');fits();field('showHidden',true);field('filesSort','type');
+ const recentChoices=[...form().elements.recentMode.options];
+ assert(recentChoices.map(row=>row.value).join(',')==='none,mtime,uncommitted,local-main','only supported recent filters');
+ assert(recentChoices.at(-1).textContent.includes('including uncommitted'),'local main explains total working-tree comparison');
  assert([...q('[data-folders]').querySelectorAll('[data-location-editor]')].every(el=>el.hidden&&el.getClientRects().length===0),'project paths start hidden');
  q('[data-add-folder]').click();await until(()=>q('[data-custom-project]'));q('[data-custom-project]').click();const card=q('[data-folder-card="folder"]');card.querySelector('[data-path]').value='notes';card.querySelector('[data-label]').value='Notes';
  assert(!card.querySelector('[data-location-editor="path"]').hidden,'adding a custom folder opens its location editor');

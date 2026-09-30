@@ -352,7 +352,7 @@ def api_git_status(repo: str, request: Request, cached: bool = False):
     return result
 
 
-_SIDEBAR_RECENT_GIT_MODES = {"uncommitted", "origin-main", "local-main", "last-2-commits"}
+_SIDEBAR_RECENT_GIT_MODES = {"uncommitted", "local-main"}
 
 
 def _sidebar_git_run(directory: str, *args: str) -> subprocess.CompletedProcess:
@@ -370,7 +370,7 @@ def _sidebar_git_paths(result: subprocess.CompletedProcess) -> list[str]:
     return [path.strip("\n") for path in decoded.split("\0") if path.strip("\n")]
 
 
-def _sidebar_git_recent_files(directory: str, mode: str, uncommitted: list[str] | None = None) -> dict:
+def _sidebar_git_recent_files(directory: str, mode: str) -> dict:
     try:
         inside = _sidebar_git_run(directory, "rev-parse", "--is-inside-work-tree")
     except (subprocess.TimeoutExpired, OSError) as exc:
@@ -397,38 +397,20 @@ def _sidebar_git_recent_files(directory: str, mode: str, uncommitted: list[str] 
                     directory, "diff", "--cached", "--name-only", "-z", "--relative", "--", ".",
                 )
             add(tracked)
-        elif mode in {"origin-main", "local-main"}:
-            base_name = "main" if mode == "local-main" else "origin/main"
-            base_ref = "refs/heads/main" if mode == "local-main" else "refs/remotes/origin/main"
+        elif mode == "local-main":
+            base_name = "main"
+            base_ref = "refs/heads/main"
             exists = _sidebar_git_run(directory, "rev-parse", "--verify", "--quiet", base_ref)
             if exists.returncode != 0:
                 return {
                     "files": [], "mode": mode, "available": False,
                     "base_ref": base_name,
                 }
-            candidates = None
-            if uncommitted is not None:
-                committed = _sidebar_git_run(directory, "diff", "--name-only", "-z", "--relative", base_ref, "HEAD", "--", ".")
-                if committed.returncode == 0:
-                    candidates = list(dict.fromkeys([*_sidebar_git_paths(committed), *uncommitted]))
-                    if len(candidates) > 128 or sum(map(len, candidates)) > 16000:
-                        candidates = None
-            if candidates is None or candidates:
-                # A fresh uncommitted projection plus the committed branch
-                # paths bounds the exact final diff. Git still checks against
-                # the base, so reverting a branch edit is correctly omitted.
-                add(_sidebar_git_run(directory, "diff", "--name-only", "-z", "--relative",
-                                     base_ref, "--", *(candidates if candidates is not None else ["."])))
-        else:  # last-2-commits
-            revisions = _sidebar_git_run(directory, "rev-list", "--max-count=2", "HEAD")
-            if revisions.returncode != 0:
-                return {"files": [], "mode": mode, "available": False}
-            for sha in revisions.stdout.decode("ascii", errors="ignore").splitlines():
-                if sha:
-                    add(_sidebar_git_run(
-                        directory, "show", "-m", "--first-parent", "--pretty=format:",
-                        "--name-only", "-z", "--relative", sha, "--", ".",
-                    ))
+            # Compare the base directly with the current working tree, including
+            # staged and unstaged edits. A separate Uncommitted snapshot can
+            # miss edits made since it was collected, even just seconds ago.
+            add(_sidebar_git_run(directory, "diff", "--name-only", "-z", "--relative",
+                                 base_ref, "--", "."))
     except (subprocess.TimeoutExpired, OSError) as exc:
         return {"files": [], "mode": mode, "available": False, "error": str(exc)}
 
@@ -437,7 +419,7 @@ def _sidebar_git_recent_files(directory: str, mode: str, uncommitted: list[str] 
     except (OSError, subprocess.SubprocessError) as exc:
         return {"files": [], "mode": mode, "available": False, "error": str(exc)}
     result = {"files": [path for path in paths if path in tracked], "mode": mode, "available": True}
-    if mode in {"origin-main", "local-main"}:
+    if mode == "local-main":
         result["base_ref"] = base_name
     return result
 
@@ -459,7 +441,7 @@ def api_sidebar_recent_files(repo: str, mode: str, request: Request, cached: boo
     if cached:
         return _sidebar_cached_response(request.app.state.sidebar_cache.read(
             root, ("recent", str(resolved), mode),
-            lambda: _sidebar_cached_git_collect(request.app.state.sidebar_cache, root, resolved, mode), group=str(resolved),
+            lambda: _sidebar_project_recent(resolved, mode), group=str(resolved),
             page=_sidebar_recent_page(offset, sort, include_dotfiles, extensions),
         ))
     return _sidebar_git_recent_files(str(resolved), mode)
@@ -493,16 +475,7 @@ def _sidebar_entry(root: Path, path: Path) -> dict | None:
         return None
 
 
-def _sidebar_cached_git_collect(store, vault, root, mode):
-    uncommitted = None
-    if mode in {"local-main", "origin-main"}:
-        previous = store.peek(vault, ("recent", str(root), "uncommitted"))
-        if previous.value is not None and time.time() - previous.updated < 5:
-            uncommitted = [row['path'] for row in previous.value.get('entries', [])]
-    return _sidebar_project_recent(root, mode, uncommitted=uncommitted)
-
-
-def _sidebar_project_recent(root: Path, mode: str, minutes: int = 60, uncommitted=None) -> dict:
+def _sidebar_project_recent(root: Path, mode: str, minutes: int = 60) -> dict:
     if mode == "mtime":
         cutoff = time.time() - minutes * 60
         entries = []
@@ -516,7 +489,7 @@ def _sidebar_project_recent(root: Path, mode: str, minutes: int = 60, uncommitte
             entries = [row for row in entries if not row.get("checkout_generated")]
         result = {"files": [row["path"] for row in entries], "mode": mode, "available": True}
     else:
-        result = _sidebar_git_recent_files(str(root), mode, uncommitted)
+        result = _sidebar_git_recent_files(str(root), mode)
         if result.get("error"):
             raise RuntimeError(result["error"])
         entries = [entry for rel in result["files"]
@@ -570,7 +543,7 @@ def api_sidebar_directory(path: str, request: Request, directory: str = ".",
                    lambda: _sidebar_project_recent(root, "uncommitted"), wait=0, group=str(root))
         store.read(vault, ("history", str(root)), lambda: _sidebar_project_history(root), wait=0, group=str(root))
         store.read(vault, ("recent", str(root), "local-main"),
-                   lambda: _sidebar_cached_git_collect(store, vault, root, "local-main"), wait=0, group=str(root))
+                   lambda: _sidebar_project_recent(root, "local-main"), wait=0, group=str(root))
     return _sidebar_cached_response(result)
 
 

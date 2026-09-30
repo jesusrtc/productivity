@@ -2415,7 +2415,7 @@
   const SIDEBAR_RECENT_MINUTE_OPTIONS = Object.freeze([15, 60, 120, 360, 1440]);
   const SIDEBAR_RECENT_MAX_MINUTES = 1440;
   const SIDEBAR_RECENT_GIT_MODES = Object.freeze([
-    'uncommitted', 'origin-main', 'local-main', 'last-2-commits',
+    'uncommitted', 'local-main',
   ]);
   const SIDEBAR_SORT_MODES = Object.freeze(['updated', 'name', 'type']);
   const SIDEBAR_WORKTREE_DEFAULT_COLOR = '#6e7681';
@@ -2560,7 +2560,9 @@
 
   function _sidebarNormalizeFileConfig(stored) {
     const recentMinutes = _sidebarNormalizeRecentMinutes(stored && stored.recentMinutes);
-    const storedMode = String(stored && stored.recentMode || '');
+    const requestedMode = String(stored && stored.recentMode || '');
+    const storedMode = requestedMode === 'origin-main' || requestedMode === 'last-2-commits'
+      ? 'local-main' : requestedMode;
     const recentMode = storedMode === 'none'
       || storedMode === 'mtime'
       || SIDEBAR_RECENT_GIT_MODES.includes(storedMode)
@@ -3218,9 +3220,7 @@
       ],
       [
         ['uncommitted', 'Uncomm', 'Uncommitted', 'Files with uncommitted changes'],
-        ['origin-main', 'vs remote', 'vs origin/main', 'Files changed compared with origin/main'],
-        ['local-main', 'vs local', 'vs local main', 'Files changed compared with the local main branch'],
-        ['last-2-commits', '2 cmts', 'Last 2 commits', 'Files changed by the last 2 commits'],
+        ['local-main', 'vs local', 'vs local main', 'Files changed compared with the local main branch, including uncommitted changes'],
       ],
     ];
     return `<div class="sidebar-recent-selectors" role="group" aria-label="Recently updated file scope" title="Select one file scope; click the active option again to hide Recently updated">${rows.map(row => `<div class="sidebar-recent-selector-row">${row.map(([value, shortLabel, longLabel, title]) => {

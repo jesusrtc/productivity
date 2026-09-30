@@ -2,6 +2,8 @@ import json
 import subprocess
 import time
 
+import pytest
+
 
 def test_registered_worktrees_expose_project_buttons_and_distinct_names(client, monorepo, seed_workspace):
     workspace_file = seed_workspace('large-projects') / 'workspace.json'
@@ -68,14 +70,11 @@ def test_project_directory_is_shallow_and_recent_includes_index_and_worktree(cli
     main = ready(client._inner, '/api/sidebar-recent-files', repo=str(root), mode='local-main', cached=True)
     assert set(main['files']) == {'src/committed.txt', 'src/staged.txt', 'src/unstaged.txt', 'new.txt'}
     assert {row['path'] for row in main['entries']} == set(main['files'])
-    # The narrowed comparison must be the final base-to-working-tree diff,
-    # not a union that falsely includes a branch edit reverted locally.
+    # The total diff omits a branch edit reverted locally to the base.
     from core.routes.diff import _sidebar_git_recent_files
     (root / 'src/committed.txt').write_text('base\n')
-    changed = _sidebar_git_recent_files(str(root), 'uncommitted')['files']
-    narrowed = _sidebar_git_recent_files(str(root), 'local-main', changed)
-    assert narrowed == _sidebar_git_recent_files(str(root), 'local-main')
-    assert 'src/committed.txt' not in narrowed['files']
+    total = _sidebar_git_recent_files(str(root), 'local-main')
+    assert set(total['files']) == {'src/staged.txt', 'src/unstaged.txt', 'new.txt'}
     nested = ready(client._inner, '/api/sidebar-directory', path=str(root), directory='src')
     assert len(nested['entries']) == 3
     history = ready(client._inner, '/api/workspace-entry/history', path=str(root), file='.',
@@ -87,3 +86,51 @@ def test_project_directory_is_shallow_and_recent_includes_index_and_worktree(cli
     (root / 'escape').symlink_to(outside, target_is_directory=True)
     assert client._inner.get('/api/sidebar-directory', params={'path':str(root), 'directory':'escape'}).status_code == 400
     assert client._inner.get('/api/sidebar-directory', params={'path':str(outside)}).status_code == 403
+
+
+@pytest.mark.parametrize('scope', ['main', 'project', 'linked-worktree', 'subfolder'])
+def test_local_main_includes_edits_after_the_uncommitted_snapshot(client, monorepo, scope):
+    source = monorepo / 'project'
+    source.mkdir()
+    git(source, 'init', '-b', 'main')
+    (source / 'src').mkdir()
+    for name in ('branch.txt', 'reverted.txt', 'staged.txt', 'unstaged.txt'):
+        (source / 'src' / name).write_text('base\n')
+    git(source, 'add', '.')
+    git(source, 'commit', '-m', 'Base')
+    root = source
+    if scope == 'linked-worktree':
+        root = monorepo / 'feature-tree'
+        git(source, 'worktree', 'add', '-b', 'feature', str(root))
+    elif scope != 'main':
+        git(source, 'checkout', '-b', 'feature')
+    if scope != 'main':
+        for name in ('branch.txt', 'reverted.txt'):
+            (root / 'src' / name).write_text('branch\n')
+        git(root, 'commit', '-am', 'Branch edits')
+    selected = root / 'src' if scope == 'subfolder' else root
+
+    # Prime the other filter before making new edits. It remains a valid,
+    # young snapshot, but must not restrict a new local-main collection.
+    previous = ready(client._inner, '/api/sidebar-recent-files',
+                     repo=str(selected), mode='uncommitted', cached=True)
+    assert previous['files'] == []
+    (root / 'src/staged.txt').write_text('index\n')
+    (root / 'src/new.txt').write_text('staged addition\n')
+    git(root, 'add', 'src/staged.txt', 'src/new.txt')
+    (root / 'src/unstaged.txt').write_text('worktree\n')
+    (root / 'src/reverted.txt').write_text('base\n')
+    (root / 'src/untracked.txt').write_text('untracked\n')
+
+    response = ready(client._inner, '/api/sidebar-recent-files',
+                     repo=str(selected), mode='local-main', cached=True)
+    prefix = '' if scope == 'subfolder' else 'src/'
+    expected = {prefix + name for name in ('staged.txt', 'unstaged.txt', 'new.txt')}
+    if scope != 'main':
+        expected.add(prefix + 'branch.txt')
+    assert set(response['files']) == expected
+    assert {row['path'] for row in response['entries']} == expected
+    assert response['base_ref'] == 'main'
+    direct = client.get('/api/sidebar-recent-files', params={'repo': str(selected), 'mode': 'local-main'})
+    assert direct.status_code == 200
+    assert set(direct.json()['files']) == expected

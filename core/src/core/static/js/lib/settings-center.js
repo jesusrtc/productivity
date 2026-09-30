@@ -241,7 +241,7 @@
   }
   function files(panel,scope,s) {
     const draft=bridge().sidebar(scope), root=scope.path;
-    const modes=[['none','Hidden'],['mtime','Recently modified'],['uncommitted','Uncommitted'],['origin-main','Compared with origin/main'],['local-main','Compared with local main'],['last-2-commits','Last two commits']];
+    const modes=[['none','Hidden'],['mtime','Recently modified'],['uncommitted','Uncommitted'],['local-main','Compared with local main (including uncommitted)']];
     const sort=[['name','Name'],['updated','Updated'],['type','File type']];
     const node=form(panel,`<p class="settings-intro">File sidebar preferences for <strong>${esc(scope.label)}</strong>, saved in this browser.</p>
       ${check('showHidden','Show hidden files and folders',draft.showHidden)}

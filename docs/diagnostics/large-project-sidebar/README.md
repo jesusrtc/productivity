@@ -75,11 +75,13 @@ expiry every five seconds without doing Git work until their snapshot is due.
 Background refresh stops when the document is hidden and resumes on return.
 
 Small diffs check Git tracking/ignore membership only for their candidate paths.
-A fresh Uncommitted snapshot can narrow the local-main comparison, but Git still
-compares the final working tree against the base. This includes staged and
-unstaged edits and correctly omits a branch edit reverted locally to the base.
-Large candidate sets use the full comparison. Untracked and ignored files keep
-the existing exclusion from Recently updated.
+As of September 30, each local-main refresh compares the complete working tree
+directly with local main. The earlier implementation reused a recent
+Uncommitted snapshot to narrow the comparison; edits made between those two
+collections could be missed. Staged and unstaged changes are included, and
+branch edits reverted locally to the base are omitted. Untracked and ignored
+files keep the existing exclusion from Recently updated. The measurements above
+describe the September 23 implementation.
 
 Recent file lists are sorted and filtered on the server, with 200 entries per
 page. SQLite JSONB is used where supported, with a JSON-text fallback for older

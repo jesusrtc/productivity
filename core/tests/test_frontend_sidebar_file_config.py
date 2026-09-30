@@ -525,7 +525,7 @@ const button = value => ({getAttribute(name) {
   const hourHtml = _sidebarRecentSelectorsHtml();
   await sidebarSelectRecentMode(button('mtime:60'));
   const noneHtml = _sidebarRecentSelectorsHtml();
-  await sidebarSelectRecentMode(button('origin-main'));
+  await sidebarSelectRecentMode(button('local-main'));
   const gitHtml = _sidebarRecentSelectorsHtml();
   process.stdout.write(JSON.stringify({
     hourMode: _sidebarFileConfig.recentMode,
@@ -534,7 +534,7 @@ const button = value => ({getAttribute(name) {
       && hourHtml.includes('sidebar-recent-selector active'),
     noneActiveCount: (noneHtml.match(/aria-pressed="true"/g) || []).length,
     gitActiveCount: (gitHtml.match(/aria-pressed="true"/g) || []).length,
-    gitIsActive: gitHtml.includes('data-recent-mode="origin-main"'),
+    gitIsActive: gitHtml.includes('data-recent-mode="local-main"'),
     storedMode: JSON.parse(stored[Object.keys(stored).find(key => key.startsWith('labSidebarFileConfig-v2:'))]).recentMode,
   }));
 })().catch(error => {
@@ -545,13 +545,13 @@ const button = value => ({getAttribute(name) {
     )
 
     assert result == {
-        "hourMode": "origin-main",
+        "hourMode": "local-main",
         "hourActiveCount": 1,
         "hourIsActive": True,
         "noneActiveCount": 0,
         "gitActiveCount": 1,
         "gitIsActive": True,
-        "storedMode": "origin-main",
+        "storedMode": "local-main",
     }
 
 
@@ -955,7 +955,7 @@ const fetch = async url => {
   process.stdout.write(JSON.stringify({
     restored: restored.recentMode,
     activeCount: (selected.match(/aria-pressed="true"/g) || []).length,
-    localActive: selected.includes('data-recent-mode="local-main" onclick="sidebarSelectRecentMode(this)" aria-label="Files changed compared with the local main branch" aria-pressed="true"'),
+    localActive: selected.includes('data-recent-mode="local-main" onclick="sidebarSelectRecentMode(this)" aria-label="Files changed compared with the local main branch, including uncommitted changes" aria-pressed="true"'),
     files: files.map(row => row.path), urls, cleared: _sidebarFileConfig.recentMode,
   }));
 })().catch(error => { console.error(error); process.exitCode = 1; });
@@ -965,6 +965,40 @@ const fetch = async url => {
         "restored": "local-main", "activeCount": 1, "localActive": True,
         "files": ["changed.txt"], "cleared": "none",
         "urls": ["/api/sidebar-recent-files?repo=%2Ftrees%2Ffeature&mode=local-main"],
+    }
+
+
+@pytest.mark.parametrize('retired', ['origin-main', 'last-2-commits'])
+def test_retired_git_filters_restore_as_local_main(retired) -> None:
+    helpers = _between('let showDotFiles = false;', 'function filterDotFiles(nodes)')
+    result = _run_node(
+        'const retired = ' + json.dumps(retired) + ';\n' + """
+const key = 'labSidebarFileConfig-v2:%2Fworkspace';
+const stored = {[key]: JSON.stringify({recentMode: retired, recentMinutes: 120})};
+const localStorage = {getItem: key => stored[key] ?? null, setItem: (key, value) => {stored[key] = value;}};
+const currentRepo = null, currentWorkspace = {path: '/workspace'};
+const document = {addEventListener() {}};
+const window = {}, esc = value => String(value), escAttr = esc;
+const urls = [];
+const fetch = async url => {urls.push(url); return {ok: true, json: async () => ({available: true, files: ['edit.txt']})};};
+""" + helpers + """
+(async () => {
+  const html = _sidebarRecentSelectorsHtml();
+  const files = await _sidebarResolveRecentFiles([{path:'edit.txt', type:'file', git_tracked:true}], '/project');
+  _storeSidebarFileConfig();
+  process.stdout.write(JSON.stringify({
+    mode: _sidebarCurrentRecentMode(), minutes: _sidebarFileConfig.recentMinutes,
+    storedMode: JSON.parse(stored[key]).recentMode,
+    retiredVisible: /data-recent-mode="(?:origin-main|last-2-commits)"/.test(html),
+    gitModes: SIDEBAR_RECENT_GIT_MODES, files: files.map(row => row.path), urls,
+  }));
+})().catch(error => {console.error(error); process.exitCode = 1;});
+"""
+    )
+    assert result == {
+        'mode': 'local-main', 'minutes': 120, 'storedMode': 'local-main',
+        'retiredVisible': False, 'gitModes': ['uncommitted', 'local-main'],
+        'files': ['edit.txt'], 'urls': ['/api/sidebar-recent-files?repo=%2Fproject&mode=local-main'],
     }
 
 
@@ -1182,9 +1216,9 @@ def test_sidebar_config_modal_and_all_sidebar_surfaces_are_wired() -> None:
     assert "['mtime:15', '15m', '15 min'" in source
     assert "['mtime:1440', '24h', '24 hours'" in source
     assert "['uncommitted', 'Uncomm', 'Uncommitted'" in source
-    assert "['origin-main', 'vs remote', 'vs origin/main'" in source
+    assert "['origin-main', 'vs remote', 'vs origin/main'" not in source
     assert "['local-main', 'vs local', 'vs local main'" in source
-    assert "['last-2-commits', '2 cmts', 'Last 2 commits'" in source
+    assert "['last-2-commits', '2 cmts', 'Last 2 commits'" not in source
     assert "Show hidden files</label>" not in source
     assert source.count("_sidebarRecentSectionHtml(") >= 4
     assert source.count("_sidebarWorktreePickerHtml(") >= 5

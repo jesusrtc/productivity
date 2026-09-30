@@ -259,3 +259,24 @@ a cell exceeding its requested limit still returns 504. An actually blocked
 filesystem syscall or unavailable tmux server remains a real availability
 failure. Updating and restarting the affected client, then reloading its browser,
 is required before checking for new errors.
+
+## September 30: total local-main file comparison
+
+The local-main recent-file filter now collects the complete base-to-working-tree
+diff directly. Reusing a separate Uncommitted snapshot, even one less than five
+seconds old, could exclude new staged or unstaged edits made between the two
+collections. Each local-main refresh now includes those edits, along with
+branch changes, while omitting changes reverted locally to main. The existing
+minute-long snapshot lifetime and bounded background workers remain in use.
+
+The user requested removal of the `vs origin/main` and `Last 2 commits` filters.
+Both are removed from the sidebar, settings, and recent-files API. Old browser
+preferences for either mode normalize to local-main. A missing local main still
+reports unavailable, without falling back to origin/main.
+
+Regression coverage primes the Uncommitted cache before making new edits, then
+verifies the total local-main comparison on main, feature branches, linked
+worktrees, and subfolders. Browser checks cover the settings choices and
+migration of old preferences. All 99 focused checks passed; the browser checks
+were run outside the sandbox's Chrome and localhost restrictions. JavaScript
+syntax and Git whitespace checks also passed.

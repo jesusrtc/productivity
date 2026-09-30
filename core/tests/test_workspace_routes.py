@@ -248,30 +248,17 @@ def test_sidebar_recent_git_modes_return_the_requested_file_sets(
     uncommitted = client.get("/api/sidebar-recent-files", params={
         "repo": str(pdir), "mode": "uncommitted",
     })
-    origin_main = client.get("/api/sidebar-recent-files", params={
-        "repo": str(pdir), "mode": "origin-main",
-    })
     local_main = client.get("/api/sidebar-recent-files", params={
         "repo": str(pdir), "mode": "local-main",
-    })
-    last_two = client.get("/api/sidebar-recent-files", params={
-        "repo": str(pdir), "mode": "last-2-commits",
     })
 
     assert uncommitted.status_code == 200
     assert set(uncommitted.json()["files"]) == {"commit-two.txt"}
-    assert origin_main.status_code == 200
-    assert origin_main.json()["base_ref"] == "origin/main"
-    assert set(origin_main.json()["files"]) == {
-        "commit-two.txt", "commit-three.txt", "local-main-only.txt",
-    }
     assert local_main.status_code == 200
     assert local_main.json()["base_ref"] == "main"
     assert set(local_main.json()["files"]) == {
         "commit-two.txt", "commit-three.txt",
     }
-    assert last_two.status_code == 200
-    assert set(last_two.json()["files"]) == {"commit-two.txt", "commit-three.txt", "local-main-only.txt"}
 
     subprocess.run(["git", "branch", "-D", "main"], cwd=pdir, check=True, capture_output=True)
     missing_local = client.get("/api/sidebar-recent-files", params={
@@ -281,10 +268,11 @@ def test_sidebar_recent_git_modes_return_the_requested_file_sets(
         "files": [], "mode": "local-main", "available": False, "base_ref": "main",
     }
 
-    invalid = client.get("/api/sidebar-recent-files", params={
-        "repo": str(pdir), "mode": "all-history",
-    })
-    assert invalid.status_code == 400
+    for mode in ("origin-main", "last-2-commits", "all-history"):
+        invalid = client.get("/api/sidebar-recent-files", params={
+            "repo": str(pdir), "mode": mode,
+        })
+        assert invalid.status_code == 400
 
 
 def test_sidebar_worktrees_lists_only_matching_repository_worktrees(client, monorepo) -> None:
