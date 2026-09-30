@@ -171,6 +171,17 @@ window.LabTaskTerminalBridge={patch:async(session,patch,context)=>{
  const draft=document.querySelector('.assistant-note-editor textarea');
  draft.value='Draft kept while expanding';draft.dispatchEvent(new Event('input',{bubbles:true}));
  assert(document.querySelector('.assistant-tab-rail-item.active.assistant-note-dirty'),'rail shows unsaved changes on the active tab');
+ const commandClick=target=>target.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true,detail:1,button:0,metaKey:true}));
+ commandClick(draft);
+ assert(AssistantView.isInlineDocument()&&document.querySelector('.assistant-note-editor textarea')===draft,'Command-click inside an editor keeps editing inline');
+ const bodyHost=document.getElementById('assistantModalDocument');
+ bodyHost.dispatchEvent(new MouseEvent('click',{bubbles:true,button:0}));
+ bodyHost.dispatchEvent(new MouseEvent('click',{bubbles:true,button:2,metaKey:true}));
+ assert(AssistantView.isInlineDocument(),'ordinary clicks and secondary Command-click do not expand');
+ let followed=0;const targetLink=document.createElement('a');targetLink.href='#command-click-target';targetLink.textContent='Open document';
+ targetLink.onclick=()=>followed++;bodyHost.append(targetLink);
+ assert(!commandClick(targetLink)&&!followed,'Command-click captures document links before their action');targetLink.remove();
+ assert(!AssistantView.isInlineDocument()&&document.querySelector('.assistant-note-editor textarea')===draft&&draft.value==='Draft kept while expanding','Command-click expands the same document and preserves its draft');
  document.getElementById('assistantExpandDocument').click();
  assert(document.querySelector('.assistant-note-editor textarea')===draft&&draft.value==='Draft kept while expanding','Expand preserves editor and unsaved draft');
  await until(()=>sockets===1);
@@ -260,6 +271,14 @@ window.LabTaskTerminalBridge={patch:async(session,patch,context)=>{
  await until(()=>document.querySelector('[data-assistant-document]'));
  const row=()=>[...document.querySelectorAll('[data-assistant-document]')].find(button=>button.dataset.assistantDocument===FIX.path);
  const singleClick=()=>row().dispatchEvent(new MouseEvent('click',{bubbles:true,detail:1}));
+ for(const target of [()=>row(),()=>document.querySelector('[data-workspace-documents] .workspace-document-open')]){
+  target().dispatchEvent(new MouseEvent('click',{bubbles:true,detail:1}));
+  commandClick(target());
+  await until(()=>document.querySelector('#assistantDocumentModal.active:not(.assistant-document-inline)'));
+  await new Promise(resolve=>setTimeout(resolve,350));
+  assert(!AssistantView.isInlineDocument(),'Command-click opens document entries in the modal and cancels pending inline clicks');
+  AssistantView.closeDocument();
+ }
  singleClick();
  await until(()=>AssistantView.isInlineDocument()&&!document.querySelector('#assistantDocumentModal[aria-busy]'));
  assert(document.querySelector('.assistant-document-modal').getAttribute('role')==='region','Assistant single click defaults to inline');
@@ -414,6 +433,22 @@ if(await evaluate("document.getElementById('result').textContent") === 'PASS') {
  await revealTabs();
  await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
  await evaluate(`assert(!document.querySelector('.tabs-open')&&AssistantView.isInlineDocument(),'Escape dismisses tabs without closing document')`);
+ const commandPoint=await evaluate(`(() => {
+  window.commandClickPane=document.getElementById('assistantModalDocument');
+  const heading=window.commandClickPane.querySelector('h2:last-of-type');
+  heading.scrollIntoView({block:'center'});
+  const rect=heading.getBoundingClientRect();
+  const point={x:rect.left+40,y:rect.top+rect.height/2};
+  assert(document.elementFromPoint(point.x,point.y).closest('#assistantModalDocument')===window.commandClickPane,'native Command-click targets document content');
+  window.commandClickPane.addEventListener('click',event=>{window.commandClickReceived={meta:event.metaKey,button:event.button}},{capture:true,once:true});
+  return point;
+ })()`);
+ await send('Input.dispatchMouseEvent',{type:'mouseMoved',...commandPoint});
+ await send('Input.dispatchMouseEvent',{type:'mousePressed',...commandPoint,button:'left',clickCount:1,modifiers:4});
+ await send('Input.dispatchMouseEvent',{type:'mouseReleased',...commandPoint,button:'left',clickCount:1,modifiers:4});
+ await evaluate(`assert(window.commandClickReceived?.meta&&window.commandClickReceived.button===0,'native Command-click delivers the modifier to the document')`);
+ await evaluate(`until(()=>!AssistantView.isInlineDocument()&&document.querySelector('#assistantDocumentModal.active'))`);
+ await evaluate(`assert(document.getElementById('assistantModalDocument')===window.commandClickPane,'native Command-click expands the existing document pane')`);
 }
 '''
         driver.write_text((ROOT/'scripts/chrome-dump-auth.mjs').read_text().replace(

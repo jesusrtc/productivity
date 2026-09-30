@@ -1022,6 +1022,13 @@
     button.addEventListener('click', event => {
       if (event.target.closest('[data-assistant-nudge]')) return;
       clearTimeout(state.documentClickTimer);
+      if (event.metaKey) {
+        event.preventDefault();
+        event.stopPropagation();
+        state.documentClickTimer = null;
+        open({inline:false});
+        return;
+      }
       if (event.detail > 1) return;
       if (!event.detail) openInline();
       else state.documentClickTimer = setTimeout(openInline, 300);
@@ -1106,10 +1113,18 @@
       }
     });
     overlay.querySelector('.assistant-modal-close').addEventListener('click', closeDocumentModal);
-    overlay.querySelector('#assistantExpandDocument').onclick = () => {
+    const expandDocument = () => {
       presentDocument(overlay, false);
       window.LabDocumentTerminal?.open(state.modalCurrent, state.modalRoot, state.data.root);
     };
+    overlay.querySelector('#assistantExpandDocument').onclick = expandDocument;
+    overlay.querySelector('#assistantModalDocument').addEventListener('click', event => {
+      if (!state.inlineHost || !overlay.classList.contains('active') || event.button !== 0 || !event.metaKey
+          || event.target.closest('textarea, input, [contenteditable="true"]')) return;
+      event.preventDefault();
+      event.stopPropagation();
+      expandDocument();
+    }, true);
     document.body.appendChild(overlay);
     bindTabsResizer(overlay);
     bindTabsDrawer(overlay);

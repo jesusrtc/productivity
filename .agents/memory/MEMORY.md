@@ -1,5 +1,7 @@
 # Memory index
 
+- [Command-click opens Assistant documents in the modal](assistant-document-command-click.md) — document entries and inline rendered content, with drafts preserved and pending inline clicks cancelled.
+
 - [Recently opened documents belong above linked documents](recently-opened-documents-sidebar.md) — time-windowed, browser-local document history; successful root opens only, with existing open and drag behavior.
 
 - [Local-main collects current edits](sidebar-comparison-collects-current-edits.md) — a separate Uncommitted snapshot can miss newer changes; compare main with the complete working tree on refresh.
