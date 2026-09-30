@@ -1120,7 +1120,7 @@
     overlay.querySelector('#assistantExpandDocument').onclick = expandDocument;
     overlay.querySelector('#assistantModalDocument').addEventListener('click', event => {
       if (!state.inlineHost || !overlay.classList.contains('active') || event.button !== 0 || !event.metaKey
-          || event.target.closest('textarea, input, [contenteditable="true"]')) return;
+          || event.target.closest('textarea, input')) return;
       event.preventDefault();
       event.stopPropagation();
       expandDocument();

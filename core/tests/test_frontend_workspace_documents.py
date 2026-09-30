@@ -178,7 +178,7 @@ window.LabTaskTerminalBridge={patch:async(session,patch,context)=>{
  bodyHost.dispatchEvent(new MouseEvent('click',{bubbles:true,button:0}));
  bodyHost.dispatchEvent(new MouseEvent('click',{bubbles:true,button:2,metaKey:true}));
  assert(AssistantView.isInlineDocument(),'ordinary clicks and secondary Command-click do not expand');
- let followed=0;const targetLink=document.createElement('a');targetLink.href='#command-click-target';targetLink.textContent='Open document';
+ let followed=0;const targetLink=document.createElement('a');targetLink.href='#command-click-target';targetLink.textContent='Open document';targetLink.contentEditable='true';
  targetLink.onclick=()=>followed++;bodyHost.append(targetLink);
  assert(!commandClick(targetLink)&&!followed,'Command-click captures document links before their action');targetLink.remove();
  assert(!AssistantView.isInlineDocument()&&document.querySelector('.assistant-note-editor textarea')===draft&&draft.value==='Draft kept while expanding','Command-click expands the same document and preserves its draft');
