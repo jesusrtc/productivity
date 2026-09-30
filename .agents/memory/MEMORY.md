@@ -1,5 +1,9 @@
 # Memory index
 
+- [Error banners keep controls usable](error-banners-keep-controls-usable.md) — compact details, click-through text, page-long dismissal, and preserved diagnostics.
+
+- [Folder drags paste their source paths](terminal-folder-drop-paths.md) — real folders across all file trees use the existing shell-safe terminal path drop.
+
 - [Registered projects seed each browser's sidebar](registered-projects-seed-sidebar.md) — ordinary workspace opens import registered project buttons once, preserving custom settings and deliberate removals.
 
 - [Project sidebars use disk snapshots](project-sidebar-disk-snapshots.md) — minute-old data is acceptable; shallow folders, bounded SQLite/Git work, exact uncommitted comparisons, and real six-repository evidence retain cold misses.

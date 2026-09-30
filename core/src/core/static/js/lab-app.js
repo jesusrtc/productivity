@@ -3343,7 +3343,7 @@
         const open = _treeIsOpen(scope, folder.path, true);
         const children = renderNode(folder.children);
         rows += 1 + (open ? children.rows : 0);
-        nodeHtml += `<div class="sidebar-folder sidebar-recent-folder" data-tree-scope="${escAttr(scope)}" data-tree-path="${escAttr(folder.path)}" data-tree-target="${fid}" data-entry-root="${escAttr(scopeRoot)}" onclick="_treeToggleFolder(this,event)" title="${escAttr(folder.path)} · Cmd-click to browse files"><span class="folder-arrow${open ? ' open' : ''}">&#9654;</span>${esc(folder.label)}/</div>`;
+        nodeHtml += `<div class="sidebar-folder sidebar-recent-folder" draggable="true" data-tree-scope="${escAttr(scope)}" data-tree-path="${escAttr(folder.path)}" data-tree-target="${fid}" data-entry-kind="folder" data-entry-path="${escAttr(folder.path)}" data-entry-root="${escAttr(scopeRoot)}" onclick="_treeToggleFolder(this,event)" title="${escAttr(folder.path)} · Cmd-click to browse files"><span class="folder-arrow${open ? ' open' : ''}">&#9654;</span>${esc(folder.label)}/</div>`;
         const start = nodeHtml.length;
         nodeHtml += `<div class="sidebar-folder-children sidebar-recent-children${open ? ' open' : ''}" id="${fid}" style="contain-intrinsic-block-size:auto ${children.rows * 22}px">`;
         if (parts) {
@@ -3721,7 +3721,7 @@
           const name = entry.path.split('/').pop();
           if (entry.type === 'dir') {
             const open = _treeIsOpen(scope, entry.path, false);
-            wrapper.innerHTML = `<div class="sidebar-folder${symlinkClass(entry)}" data-entry-root="${escAttr(fileRoot)}" data-entry-path="${escAttr(entry.path)}" data-entry-kind="folder" data-tree-path="${escAttr(entry.path)}"><span class="folder-arrow${open ? ' open' : ''}">▶</span>${symlinkMarker(entry)}${esc(name)}/</div><section class="sidebar-folder-children${open ? ' open' : ''}" data-project-directory="${escAttr(entry.path)}"></section>`;
+            wrapper.innerHTML = `<div class="sidebar-folder${symlinkClass(entry)}" draggable="true" data-entry-root="${escAttr(fileRoot)}" data-entry-path="${escAttr(entry.path)}" data-entry-kind="folder" data-tree-path="${escAttr(entry.path)}"><span class="folder-arrow${open ? ' open' : ''}">▶</span>${symlinkMarker(entry)}${esc(name)}/</div><section class="sidebar-folder-children${open ? ' open' : ''}" data-project-directory="${escAttr(entry.path)}"></section>`;
             wrapper.firstElementChild.onclick = event => {
               if (event.metaKey || event.ctrlKey) { openWorkspaceFolderModal(entry.path, {root:fileRoot}); return; }
               const children = wrapper.lastElementChild;
@@ -4197,7 +4197,7 @@
         const collapsed = hasChanged ? '' : ' collapsed';
         const arrow = hasChanged ? '' : ' collapsed';
         return `<li>
-          <div class="tree-dir${symlinkClass(node)}" data-entry-kind="folder" data-entry-path="${escAttr(node.path)}" data-entry-root="${escAttr(_activeRepoFileRoot() || '')}"${symlinkTitle(node)} onclick="toggleTreeDir(this)">
+          <div class="tree-dir${symlinkClass(node)}" draggable="true" data-entry-kind="folder" data-entry-path="${escAttr(node.path)}" data-entry-root="${escAttr(_activeRepoFileRoot() || '')}"${symlinkTitle(node)} onclick="toggleTreeDir(this)">
             <span class="arrow${arrow}">▾</span>${symlinkMarker(node)}${node.name}/
           </div>
           <ul class="tree-node tree-dir-children${collapsed}">${renderTreeNodes(node.children, changedFiles)}</ul>
@@ -9966,7 +9966,7 @@
             const open = _treeIsOpen(_workspaceTreeScope, fullPath, autoOpen);
             const arrowCls = open ? ' open' : '';
             const childrenCls = open ? ' open' : '';
-            html += `<div class="sidebar-folder${symlinkClass(d)}" data-tree-scope="${escAttr(_workspaceTreeScope)}" data-tree-path="${escAttr(fullPath)}" data-tree-target="${fid}" data-entry-kind="folder" data-entry-path="${escAttr(fullPath)}" data-entry-root="${escAttr(fileRoot)}"${symlinkTitle(d)} onclick="_treeToggleFolder(this,event)"><span class="folder-arrow${arrowCls}">\u25B6</span>${symlinkMarker(d)}${esc(folder)}/</div>`;
+            html += `<div class="sidebar-folder${symlinkClass(d)}" draggable="true" data-tree-scope="${escAttr(_workspaceTreeScope)}" data-tree-path="${escAttr(fullPath)}" data-tree-target="${fid}" data-entry-kind="folder" data-entry-path="${escAttr(fullPath)}" data-entry-root="${escAttr(fileRoot)}"${symlinkTitle(d)} onclick="_treeToggleFolder(this,event)"><span class="folder-arrow${arrowCls}">\u25B6</span>${symlinkMarker(d)}${esc(folder)}/</div>`;
             const start = offset + html.length;
             html += `<div class="sidebar-folder-children${childrenCls}" id="${fid}">`;
             html += renderTree(node[folder], depth + 1, fullPath, offset + html.length);
@@ -15139,10 +15139,10 @@
     return files.find(f => f && /^image\//i.test(f.type || '')) || null;
   }
 
-  // Use explicit file identity, never the row's displayed label (which may
+  // Use explicit file/folder identity, never the row's displayed label (which may
   // omit its parent folders or belong to a different vault/worktree).
   document.addEventListener('dragstart', event => {
-    const row = event.target.closest?.('[data-entry-kind="file"][data-entry-path], [data-open-file][data-filepath]');
+    const row = event.target.closest?.('[data-entry-kind="file"][data-entry-path], [data-entry-kind="folder"][data-entry-path], [data-open-file][data-filepath]');
     const ctx = _explorerContextFromRow(row);
     if (!ctx || !event.dataTransfer) return;
     const path = ctx.path.startsWith('/') ? ctx.path
@@ -15185,11 +15185,11 @@
     event.stopPropagation();
     const paths = _termDropPaths(event.dataTransfer);
     if (!paths.length) {
-      if (event.dataTransfer?.files?.length) explorerToast('The browser did not provide the original path. Drag the file from Lab’s sidebar, or copy its pathname in Finder and paste it here.', true);
+      if (event.dataTransfer?.files?.length) explorerToast('The browser did not provide the original path. Drag the file or folder from Lab’s sidebar, or copy its pathname in Finder and paste it here.', true);
       return;
     }
     if (!termXterm || !termWS || termWS.readyState !== WebSocket.OPEN) {
-      explorerToast('Connect a terminal before dropping a file.', true);
+      explorerToast('Connect a terminal before dropping a file or folder.', true);
       return;
     }
     termXterm.paste(paths.map(_termQuoteDropPath).join(' '));
@@ -17672,7 +17672,7 @@
       const open = _treeIsOpen(scope, fullPath, autoOpenHere);
       const arrowCls = open ? ' open' : '';
       const childrenCls = open ? ' open' : '';
-      html += `<div class="sidebar-folder${symlinkClass(d)}" data-tree-scope="${escAttr(scope)}" data-tree-path="${escAttr(fullPath)}" data-tree-target="${fid}" data-entry-kind="folder" data-entry-path="${escAttr(fullPath)}" data-entry-root="${escAttr(root || '')}"${symlinkTitle(d)} onclick="_treeToggleFolder(this,event)"><span class="folder-arrow${arrowCls}">▶</span>${symlinkMarker(d)}${esc(folder)}/</div>`;
+      html += `<div class="sidebar-folder${symlinkClass(d)}" draggable="true" data-tree-scope="${escAttr(scope)}" data-tree-path="${escAttr(fullPath)}" data-tree-target="${fid}" data-entry-kind="folder" data-entry-path="${escAttr(fullPath)}" data-entry-root="${escAttr(root || '')}"${symlinkTitle(d)} onclick="_treeToggleFolder(this,event)"><span class="folder-arrow${arrowCls}">▶</span>${symlinkMarker(d)}${esc(folder)}/</div>`;
       html += `<div class="sidebar-folder-children${childrenCls}" id="${fid}">`;
       html += renderSidebarFileTree(node[folder], depth + 1, fullPath, opts);
       html += '</div>';

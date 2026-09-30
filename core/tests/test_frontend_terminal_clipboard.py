@@ -1,4 +1,4 @@
-"""Terminal file identity, shell-safe drops, and clean selection copy."""
+"""Terminal file/folder identity, shell-safe drops, and clean selection copy."""
 import json
 import shutil
 import subprocess
@@ -31,7 +31,7 @@ const termXterm = {paste: text => pastes.push(text), focus() {}};
 const termWS = {readyState: 1}, WebSocket = {OPEN: 1};
 const _termDragState = null, workspaceTabsDragId = null;
 const explorerToast = text => notices.push(text);
-const paths = ['/vault one/tree/notes.md', "/repo/it's $(touch bad).txt"];
+const paths = ['/vault one/tree/notes.md', "/repo/it's $(touch bad).txt", '/other worktree/folder with spaces/'];
 const data = values => ({types: Object.keys(values), getData: key => values[key] || ''});
 const event = dataTransfer => ({dataTransfer, preventDefault() {}, stopPropagation() {}});
 _termHandleDrop(event(data({'application/x-lab-file-path': JSON.stringify(paths)})));
@@ -45,8 +45,8 @@ console.log(JSON.stringify({pastes, notices, paths: _termDropPaths(data({'applic
   relative: _termDropPaths(data({'text/plain':'notes.md'})),
   injection: _termDropPaths(data({'text/plain':'/repo/a\nwhoami'}))}));
 ''')
-    assert result['paths'] == ['/vault one/tree/notes.md', "/repo/it's $(touch bad).txt"]
-    assert result['pastes'] == ["'/vault one/tree/notes.md' '/repo/it'\\''s $(touch bad).txt'"]
+    assert result['paths'] == ['/vault one/tree/notes.md', "/repo/it's $(touch bad).txt", '/other worktree/folder with spaces/']
+    assert result['pastes'] == ["'/vault one/tree/notes.md' '/repo/it'\\''s $(touch bad).txt' '/other worktree/folder with spaces/'"]
     assert result['uri'] == ['/repo/hello world.md']
     assert result['remote'] == result['web'] == result['relative'] == result['injection'] == []
     assert len(result['notices']) == 2

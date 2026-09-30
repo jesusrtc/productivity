@@ -158,6 +158,9 @@ def test_sidebar_offscreen_rendering_and_actions(tmp_path, layout):
      document.body.style.zoom=1; await wait();
      for(const sidebar of [ref,candidate]){
       const folder=sidebar.querySelector(layout==='folders'?'[data-tree-path="notes/batch-024"]':'[data-tree-path="notes"]');
+      assert(folder.draggable,'Folder is not draggable');
+      const transfer=new DataTransfer();folder.querySelector('.folder-arrow').dispatchEvent(new DragEvent('dragstart',{bubbles:true,dataTransfer:transfer}));
+      assert(transfer.getData('text/plain')===folder.dataset.entryRoot+'/'+folder.dataset.treePath,'Folder drag lost its source path');
       folder.scrollIntoView({block:'center'});await wait();folder.click();await wait();
       assert(!document.getElementById(folder.dataset.treeTarget).classList.contains('open'),'Folder did not close');
       folder.click();await wait();assert(document.getElementById(folder.dataset.treeTarget).classList.contains('open'),'Folder did not reopen');
@@ -346,6 +349,13 @@ for(const light of [false,true])for(const zoom of [1,1.25])for(const width of [2
 }
 await writeFile(screenshotPath.replace('.png','-boundaries.json'),JSON.stringify(boundaryPixels,null,2));
 await evaluate("document.activeElement.blur();document.body.classList.remove('light-mode');document.body.style.zoom=1;for(const id of ['reference','sidebar']){const el=document.getElementById(id);el.style.width='340px';el.scrollTop=0;const row=el.querySelectorAll('.sidebar-file')[2];_gitSetRowClass(row,'');row.querySelector('.git-badge')?.remove();}");
+const folderPoint=await evaluate(`(()=>{const row=document.querySelector('#sidebar .sidebar-folder');row.scrollIntoView({block:'center'});window.__sidebarNativeDrag=null;const r=row.getBoundingClientRect();return {x:r.x+30,y:r.y+r.height/2,path:row.dataset.entryPath};})()`);
+await frame();
+await send('Input.dispatchMouseEvent',{type:'mousePressed',x:folderPoint.x,y:folderPoint.y,button:'left',clickCount:1});
+await send('Input.dispatchMouseEvent',{type:'mouseMoved',x:folderPoint.x+50,y:folderPoint.y,button:'left',buttons:1});
+await send('Input.dispatchMouseEvent',{type:'mouseReleased',x:folderPoint.x+50,y:folderPoint.y,button:'left',clickCount:1});
+const folderDrag=await evaluate('window.__sidebarNativeDrag');
+if(!folderDrag||folderDrag.effect!=='copy'||folderDrag.text!=='/candidate/'+folderPoint.path||folderDrag.internal!==JSON.stringify(['/candidate/'+folderPoint.path]))throw Error('Native folder drag lost its identity/copy mode '+JSON.stringify(folderDrag));
 await send('Input.dispatchMouseEvent',{type:'mouseMoved',x:0,y:0});await frame();
 // Compare actual painted pixels, including inherited colors and symlink overlays.
 // Decode Chrome's own PNG in a canvas so the check needs no imaging dependency.

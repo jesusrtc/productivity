@@ -93,17 +93,58 @@
 <body class="{{ INITIAL_BODY_CLASS }}">
 
 <!-- JS error banner + capture for headless UI checks.
-     Silent unless an error fires; then becomes a visible red toast. Errors
-     are also written inside the data-errors attribute so `make check-ui`
-     can detect them after a --dump-dom. -->
-<div id="__js_errors__" data-errors="" style="display:none;position:fixed;top:0;right:0;z-index:9999;background:#f85149;color:#fff;font:11px/1.4 ui-monospace,monospace;padding:6px 10px;max-width:520px;white-space:pre-wrap;border-bottom-left-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,0.4)"></div>
+     Diagnostics stay available to `make check-ui` after dismissal. -->
+<style>
+  #__js_errors__ { position:fixed;bottom:12px;right:12px;z-index:9999;width:360px;max-width:calc(100vw - 24px);box-sizing:border-box;padding:8px 10px;border-radius:8px;background:#802621;color:#fff;font:12px/1.4 system-ui,sans-serif;box-shadow:0 2px 8px #0006;pointer-events:none; }
+  #__js_errors__ .js-error-header { display:flex;align-items:center;gap:8px; }
+  #__js_errors__ .js-error-count { flex:1;min-width:0; }
+  #__js_errors__ button { flex-shrink:0;min-height:32px;border:1px solid #fff6;border-radius:4px;padding:4px 8px;background:transparent;color:inherit;font:inherit;cursor:pointer;pointer-events:auto; }
+  #__js_errors__ button:focus-visible { outline:2px solid #fff;outline-offset:2px; }
+  #__js_errors__ .js-error-preview { margin-top:4px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis; }
+  #__js_errors__ pre { max-height:min(144px,25vh);margin:8px 0 0;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font:11px/1.4 ui-monospace,monospace;pointer-events:auto; }
+</style>
+<div id="__js_errors__" data-errors="" style="display:none" role="region" aria-label="Lab errors">
+  <div class="js-error-header">
+    <span class="js-error-count" role="status" aria-live="polite"></span>
+    <button type="button" data-error-details aria-expanded="false" aria-controls="jsErrorDetails">Details</button>
+    <button type="button" data-error-dismiss aria-label="Dismiss errors for this page" title="Dismiss errors for this page (Esc)">✕</button>
+  </div>
+  <div class="js-error-preview"></div>
+  <pre id="jsErrorDetails" hidden tabindex="0"></pre>
+</div>
 <script>
   (function () {
     const box = document.getElementById('__js_errors__');
+    const summary = box.querySelector('.js-error-count');
+    const preview = box.querySelector('.js-error-preview');
+    const details = box.querySelector('pre');
+    const toggle = box.querySelector('[data-error-details]');
+    const errors = new Map();
+    let total = 0, dismissed = false;
+    function dismiss() {
+      dismissed = true;
+      box.style.display = 'none';
+    }
+    box.querySelector('[data-error-dismiss]').addEventListener('click', dismiss);
+    toggle.addEventListener('click', () => {
+      details.hidden = !details.hidden;
+      toggle.setAttribute('aria-expanded', String(!details.hidden));
+      toggle.textContent = details.hidden ? 'Details' : 'Hide details';
+    });
+    window.addEventListener('keydown', event => {
+      if (event.key === 'Escape' && box.style.display !== 'none') dismiss();
+    });
     function add(msg) {
-      const prior = box.getAttribute('data-errors') || '';
-      box.setAttribute('data-errors', prior + msg + '\n');
-      box.textContent = (prior + msg + '\n').trim();
+      msg = String(msg).slice(0, 2000);
+      total += 1;
+      errors.set(msg, (errors.get(msg) || 0) + 1);
+      if (errors.size > 20) errors.delete(errors.keys().next().value);
+      const text = Array.from(errors, ([message, count]) => message + (count > 1 ? ' (×' + count + ')' : '')).join('\n');
+      box.setAttribute('data-errors', text);
+      if (dismissed) return;
+      summary.textContent = total === 1 ? 'Lab encountered an error' : 'Lab encountered ' + total + ' errors';
+      preview.textContent = msg;
+      details.textContent = text;
       box.style.display = 'block';
     }
     window.addEventListener('error', (e) => {
