@@ -188,7 +188,7 @@ def _vault_overview(root: Path, fallback_name: str, vault_id: str) -> dict:
     workspace_rows: list[dict] = []
     for workspace in get_registered_repos(root):
         repos = [
-            {"path": repo, "name": Path(repo).name, "branch": ""}
+            {"path": repo, "name": workspace.get("repo_names", {}).get(repo, Path(repo).name), "branch": ""}
             for repo in (workspace.get("repos") or [])
         ]
         workspace_rows.append({

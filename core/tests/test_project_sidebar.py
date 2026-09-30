@@ -1,5 +1,28 @@
+import json
 import subprocess
 import time
+
+
+def test_registered_worktrees_expose_project_buttons_and_distinct_names(client, monorepo, seed_workspace):
+    workspace_file = seed_workspace('large-projects') / 'workspace.json'
+    metadata = json.loads(workspace_file.read_text())
+    metadata['worktrees'] = [
+        {'mp': name, 'repo': str(monorepo / 'repositories' / name),
+         'dir': str(monorepo / 'trees' / name / 'large-projects'), 'branch': 'feature'}
+        for name in ('linux', 'llvm-project')
+    ]
+    workspace_file.write_text(json.dumps(metadata))
+    for name in ('linux', 'llvm-project'):
+        (monorepo / 'trees' / name / 'large-projects').mkdir(parents=True)
+    response = client.get('/api/repos')
+    assert response.status_code == 200
+    workspace = next(row for row in response.json() if row['name'] == 'large-projects')
+    assert [row['name'] for row in workspace['repos']] == ['linux', 'llvm-project']
+    assert workspace['projects'] == [
+        {'path': str(monorepo / 'repositories' / name), 'label': name,
+         'worktreeFolder': str(monorepo / 'trees' / name)}
+        for name in ('linux', 'llvm-project')
+    ]
 
 
 def git(root, *args):

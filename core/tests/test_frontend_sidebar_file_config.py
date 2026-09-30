@@ -34,6 +34,63 @@ def _between(start_marker: str, end_marker: str) -> str:
     return source[start:end]
 
 
+def test_registered_projects_seed_each_browser_without_overwriting_preferences():
+    helpers = _between('let showDotFiles = false;', 'function filterDotFiles(nodes)')
+    result = _run_node('''
+const stored = {};
+const localStorage = {
+  getItem(key) { return stored[key] ?? null; },
+  setItem(key, value) { stored[key] = value; },
+};
+let currentWorkspace = {path:'/vault/large-projects', projects:[
+  {path:'/src/linux',label:'linux',worktreeFolder:'/trees/linux'},
+  {path:'/src/llvm',label:'llvm',worktreeFolder:'/trees/llvm'},
+]};
+const document = {addEventListener() {}};
+const window = {};
+const key = 'labSidebarFileConfig-v2:%2Fvault%2Flarge-projects';
+stored[key] = JSON.stringify({recentMode:'uncommitted',showHidden:true,folderScopes:[
+  {path:'/src/linux',label:'My Linux',color:'#123456',worktreeFolder:'/custom/trees'},
+  {path:'/notes',label:'Notes'},
+]});
+''' + helpers + '''
+const first = JSON.parse(JSON.stringify(_sidebarFileConfig));
+_sidebarFileConfig.folderScopes = _sidebarFileConfig.folderScopes.filter(row=>row.path!='/src/llvm');
+_storeSidebarFileConfig();
+const afterRemoval = _loadSidebarFileConfig();
+currentWorkspace.projects.push({path:'/src/git',label:'git'});
+const afterNewProject = _loadSidebarFileConfig();
+const otherScope = _loadSidebarFileConfig(encodeURIComponent('/vault/another'));
+currentWorkspace = {path:'/vault/another',projects:[]};
+const otherWorkspace = _loadSidebarFileConfig();
+// A different browser has no imported-project markers and needs all buttons.
+for (const key of Object.keys(stored)) delete stored[key];
+currentWorkspace = {path:'/vault/large-projects',projects:[{path:'/src/linux',label:'linux'}]};
+const fresh = _loadSidebarFileConfig();
+localStorage.getItem = () => {throw Error('Storage unavailable');};
+localStorage.setItem = () => {throw Error('Storage unavailable');};
+const withoutStorage = _loadSidebarFileConfig();
+process.stdout.write(JSON.stringify({
+  firstPaths:first.folderScopes.map(row=>row.path),
+  firstLinux:first.folderScopes[0],mode:first.recentMode,hidden:first.showHidden,
+  removedPaths:afterRemoval.folderScopes.map(row=>row.path),
+  addedPaths:afterNewProject.folderScopes.map(row=>row.path),
+  otherScope:otherScope.folderScopes,otherWorkspace:otherWorkspace.folderScopes,
+  freshPaths:fresh.folderScopes.map(row=>row.path),
+  withoutStoragePaths:withoutStorage.folderScopes.map(row=>row.path),
+}));
+''')
+    assert result['firstPaths'] == ['/src/linux', '/notes', '/src/llvm']
+    assert result['firstLinux'] == {'path':'/src/linux', 'label':'My Linux', 'color':'#123456',
+                                    'worktreeFolder':'/custom/trees'}
+    assert result['mode'] == 'uncommitted' and result['hidden'] is True
+    assert result['removedPaths'] == ['/src/linux', '/notes']
+    assert result['addedPaths'] == ['/src/linux', '/notes', '/src/git']
+    assert result['otherScope'] == result['otherWorkspace'] == []
+    assert result['freshPaths'] == ['/src/linux']
+    assert result['withoutStoragePaths'] == ['/src/linux']
+
+
 def test_sidebar_reads_share_requests_back_off_and_recover():
     helpers = _between("  const _sidebarFileRequests =", "  function _sidebarFileConfigCogHtml(")
     result = _run_node(helpers + """

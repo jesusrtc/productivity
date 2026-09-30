@@ -2610,6 +2610,36 @@
     return !!workspace && name !== '__self__' && name !== '__vault__';
   }
 
+  function _sidebarImportRegisteredProjects(config, scopeKey) {
+    if (scopeKey !== _sidebarFileConfigScopeKey()) return config;
+    const workspace = typeof currentWorkspace !== 'undefined' ? currentWorkspace : null;
+    const projects = _sidebarFolderScopeList(workspace?.projects);
+    if (!projects.length) return config;
+    const markerKey = 'labSidebarImportedProjects-v1:' + scopeKey;
+    let imported = [];
+    try {
+      const saved = JSON.parse(localStorage.getItem(markerKey) || '[]');
+      if (Array.isArray(saved)) imported = saved;
+    } catch (_) {}
+    const seen = new Set(imported);
+    const existing = new Set(config.folderScopes.map(row => row.path));
+    for (const project of projects) {
+      // Import each registration once so removing its button remains a choice.
+      if (!seen.has(project.path) && !existing.has(project.path)) {
+        config.folderScopes.push(project);
+        existing.add(project.path);
+      }
+      seen.add(project.path);
+    }
+    if (seen.size !== imported.length) {
+      try {
+        localStorage.setItem(_sidebarFileConfigStorageKey(scopeKey), JSON.stringify(config));
+        localStorage.setItem(markerKey, JSON.stringify([...seen]));
+      } catch (_) {}
+    }
+    return config;
+  }
+
   function _loadSidebarFileConfig(scopeKey = _sidebarFileConfigScopeKey()) {
     if (!scopeKey) return _sidebarDefaultFileConfig();
     try {
@@ -2627,9 +2657,9 @@
           localStorage.setItem(SIDEBAR_FILE_CONFIG_MIGRATION_KEY, scopeKey);
         }
       }
-      return _sidebarNormalizeFileConfig(JSON.parse(raw || '{}'));
+      return _sidebarImportRegisteredProjects(_sidebarNormalizeFileConfig(JSON.parse(raw || '{}')), scopeKey);
     } catch {
-      return _sidebarDefaultFileConfig();
+      return _sidebarImportRegisteredProjects(_sidebarDefaultFileConfig(), scopeKey);
     }
   }
 

@@ -636,13 +636,15 @@ def api_repos(request: Request):
                 branch = get_branch(repo_path)
             except Exception:
                 branch = "unknown"
-            repos.append({"path": repo_path, "name": Path(repo_path).name, "branch": branch})
+            name = workspace.get("repo_names", {}).get(repo_path, Path(repo_path).name)
+            repos.append({"path": repo_path, "name": name, "branch": branch})
         result.append({
             "name": workspace["name"],
             "display_name": workspace.get("display_name", workspace["name"]),
             "is_workspace": workspace["is_workspace"],
             "path": workspace["path"],
             "repos": repos,
+            "projects": workspace.get("projects", []),
             "tab_open": bool(workspace.get("tab_open", False)),
         })
     return result

@@ -1,5 +1,7 @@
 # Memory index
 
+- [Registered projects seed each browser's sidebar](registered-projects-seed-sidebar.md) — ordinary workspace opens import registered project buttons once, preserving custom settings and deliberate removals.
+
 - [Project sidebars use disk snapshots](project-sidebar-disk-snapshots.md) — minute-old data is acceptable; shallow folders, bounded SQLite/Git work, exact uncommitted comparisons, and real six-repository evidence retain cold misses.
 
 - [Performance goal stopped at checkpoint](performance-goal-stopped-at-checkpoint.md) — finish the stable main checkpoint and push, then stop; remaining latency gaps are not claimed complete.

@@ -501,6 +501,8 @@ def _discover_monorepo_workspaces(root: str | Path | None = None) -> list[dict]:
         # folder. We try that first, then fall back to monorepo-root for
         # older entries that stored a full "workspaces/…/…" path.
         repos: list[str] = []
+        repo_names: dict[str, str] = {}
+        projects: dict[str, dict] = {}
         worktrees = data.get("worktrees") or []
 
         def _resolve_worktree(d: str) -> str | None:
@@ -527,6 +529,17 @@ def _discover_monorepo_workspaces(root: str | Path | None = None) -> list[dict]:
                     resolved = _resolve_worktree(d)
                     if resolved:
                         repos.append(resolved)
+                        project = wt.get("repo")
+                        if isinstance(project, str) and project:
+                            project_path = Path(project).expanduser()
+                            if not project_path.is_absolute():
+                                project_path = mono_root / project_path
+                            label = wt.get("mp") or project_path.name
+                            repo_names[resolved] = str(label)
+                            projects.setdefault(str(project_path), {
+                                "path": str(project_path), "label": str(label),
+                                "worktreeFolder": str(Path(resolved).parent),
+                            })
                 elif isinstance(wt, str):
                     resolved = _resolve_worktree(wt)
                     if resolved:
@@ -550,6 +563,8 @@ def _discover_monorepo_workspaces(root: str | Path | None = None) -> list[dict]:
             "is_workspace": True,
             "path": str(workspace_dir),
             "repos": repos,
+            "repo_names": repo_names,
+            "projects": list(projects.values()),
             "tab_open": bool(data.get("tab_open", False)),
         })
 
