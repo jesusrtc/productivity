@@ -1393,7 +1393,8 @@
       if (isCurrent()) {
         overlay.classList.add('active');
         openDocumentTerminal(detail);
-        window.LabWorkspaceDocuments?.openDocument({assistant_root:state.data.root,document_id:root.tree?.id || root.metadata.id});
+        window.LabWorkspaceDocuments?.openDocument({assistant_root:state.data.root,
+          document_id:root.tree?.id || root.metadata.id, title:root.metadata.title, path:root.path});
         if (terminalTask) {
           window.AssistantTasks?.reveal(terminalTask.id);
           window.LabDocumentTerminal?.focusTask(terminalTask.id);
@@ -1428,6 +1429,7 @@
       const row = (data.documents || []).find(row => row.id === link.document_id);
       if (!row) throw new Error('The linked document is no longer available.');
       state.data = data;
+      window.LabWorkspaceDocuments?.updateDocuments(data);
       // Render over the current workspace without navigating its page or terminal.
       return openDocumentModal(documentKind(row),row.path,'',{
         linkedTask:link, inline:Boolean(options.inline), isCurrent:options.isCurrent,
@@ -2581,6 +2583,7 @@
       if (!response.ok) throw new Error(data.detail || response.statusText);
       if (request !== state.request || !document.body.classList.contains('assistant-active')) return;
       state.data = data;
+      window.LabWorkspaceDocuments?.updateDocuments(data);
       if (section === 'notes' && data.schema !== 2 && data.exists && data.root) {
         try {
           const filesResponse = await fetch('/api/workspace-files?path=' + encodeURIComponent(data.root));

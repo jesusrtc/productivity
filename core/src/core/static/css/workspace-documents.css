@@ -1,6 +1,6 @@
-[data-workspace-documents] { border-bottom:1px solid var(--border); padding-bottom:10px; margin-bottom:10px; }
-[data-workspace-documents] .sidebar-title { display:flex; gap:8px; }
-[data-workspace-documents] .sidebar-title-count { color:var(--text-dim); }
+[data-workspace-documents], [data-recent-documents] { border-bottom:1px solid var(--border); padding-bottom:10px; margin-bottom:10px; }
+[data-workspace-documents] .sidebar-title, [data-recent-documents] .sidebar-title { display:flex; gap:8px; }
+[data-workspace-documents] .sidebar-title-count, [data-recent-documents] .sidebar-title-count { color:var(--text-dim); }
 .workspace-document { display:flex; align-items:center; padding:2px 12px; gap:6px; }
 .workspace-document button { background:none; border:0; color:var(--text-secondary); cursor:pointer; font:inherit; }
 .workspace-document-open { display:flex; align-items:center; text-align:left; gap:8px; min-width:0; flex:1; padding:5px 0; }

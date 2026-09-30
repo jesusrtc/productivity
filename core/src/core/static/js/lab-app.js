@@ -3212,18 +3212,18 @@
     const selected = _sidebarRecentSelectorValue();
     const rows = [
       [
-        ['mtime:15', '15m', '15 min', 'Files updated in the last 15 minutes'],
-        ['mtime:60', '1h', '1 hour', 'Files updated in the last hour'],
-        ['mtime:120', '2h', '2 hours', 'Files updated in the last 2 hours'],
-        ['mtime:360', '6h', '6 hours', 'Files updated in the last 6 hours'],
-        ['mtime:1440', '24h', '24 hours', 'Files updated in the last 24 hours'],
+        ['mtime:15', '15m', '15 min', 'Documents opened or files updated in the last 15 minutes'],
+        ['mtime:60', '1h', '1 hour', 'Documents opened or files updated in the last hour'],
+        ['mtime:120', '2h', '2 hours', 'Documents opened or files updated in the last 2 hours'],
+        ['mtime:360', '6h', '6 hours', 'Documents opened or files updated in the last 6 hours'],
+        ['mtime:1440', '24h', '24 hours', 'Documents opened or files updated in the last 24 hours'],
       ],
       [
         ['uncommitted', 'Uncomm', 'Uncommitted', 'Files with uncommitted changes'],
         ['local-main', 'vs local', 'vs local main', 'Files changed compared with the local main branch, including uncommitted changes'],
       ],
     ];
-    return `<div class="sidebar-recent-selectors" role="group" aria-label="Recently updated file scope" title="Select one file scope; click the active option again to hide Recently updated">${rows.map(row => `<div class="sidebar-recent-selector-row">${row.map(([value, shortLabel, longLabel, title]) => {
+    return `<div class="sidebar-recent-selectors" role="group" aria-label="Recent document and file scope" title="Choose a time window for opened documents and updated files, or a Git scope for files; click the active option again to hide Recently updated">${rows.map(row => `<div class="sidebar-recent-selector-row">${row.map(([value, shortLabel, longLabel, title]) => {
       const active = value === selected;
       return `<button type="button" class="sidebar-recent-selector${active ? ' active' : ''}" data-recent-mode="${escAttr(value)}" onclick="sidebarSelectRecentMode(this)" aria-label="${escAttr(title)}" aria-pressed="${active ? 'true' : 'false'}" title="${escAttr(title)}${active ? ' · click again to hide' : ''}"><span class="sidebar-recent-label-short">${esc(shortLabel)}</span><span class="sidebar-recent-label-long">${esc(longLabel)}</span></button>`;
     }).join('')}</div>`).join('')}</div>`;
@@ -9955,6 +9955,7 @@
       // hit `ReferenceError: _workspaceTreeScope is not defined` and blow out
       // the whole sidebar via the catch handler.
       const _workspaceTreeScope = 'workspace:' + (currentWorkspace && currentWorkspace.name ? currentWorkspace.name : '') + ':' + fileRoot;
+      sbHtml += '<section data-recent-documents aria-label="Recently opened documents"></section>';
       sbHtml += '<section data-workspace-documents aria-label="Linked documents"></section>';
       sbHtml += _sidebarWorktreeScopeStartHtml(workspacePath);
       sbHtml += _sidebarRecentSectionHtml(recentFiles, activePath, fileRoot, {resolved: true, parts: sidebarParts, offset: sbHtml.length});
@@ -14061,6 +14062,7 @@
     return true;
   }};
   window.LabWorkspaceDocuments?.configure({
+    recentMinutes: () => _sidebarFileConfig.recentMinutes,
     context: () => document.body.classList.contains('assistant-active')
       ? {workspace_id:'__assistant__',vault:'__assistant__'}
       : document.body.classList.contains('workspace-active') && currentWorkspace?.is_workspace

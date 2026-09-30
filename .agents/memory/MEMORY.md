@@ -1,5 +1,7 @@
 # Memory index
 
+- [Recently opened documents belong above linked documents](recently-opened-documents-sidebar.md) — time-windowed, browser-local document history; successful root opens only, with existing open and drag behavior.
+
 - [Local-main collects current edits](sidebar-comparison-collects-current-edits.md) — a separate Uncommitted snapshot can miss newer changes; compare main with the complete working tree on refresh.
 
 - [Project sidebar ownership includes children](project-sidebar-container-ownership.md) — replace project containers during normal rendering, repair incomplete mounts, and reject moved or detached callback targets.

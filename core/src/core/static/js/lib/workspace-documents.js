@@ -5,10 +5,56 @@
   let selected = null, opened = null;
   const terminalLinks = new Map();
   const cache = new Map();
+  const recentPrefix = 'lab.documents.recent.v1:';
+  const recentLimit = 10;
+  const recentFallback = new Map();
+  let catalog = null;
   const escape = value => String(value || '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
   const scopeKey = scope => `${scope.vault || 'framework'}::${scope.workspace_id}`;
   const documentKey = doc => doc?.assistant_root && doc?.document_id ? JSON.stringify([doc.assistant_root, doc.document_id]) : '';
   const notify = (text, error = false) => typeof explorerToast === 'function' && explorerToast(text, error);
+  const hostScope = host => ({workspace_id:host.dataset.workspaceId, vault:host.dataset.vault});
+  function recentDocuments(scope) {
+    const key = recentPrefix + scopeKey(scope);
+    let rows = recentFallback.get(key);
+    if (!rows) {
+      try { rows = JSON.parse(localStorage.getItem(key) || '[]'); }
+      catch { rows = []; }
+    }
+    if (!Array.isArray(rows)) return [];
+    const seen = new Set();
+    return rows.filter(doc => {
+      const identity = documentKey(doc);
+      if (!identity || !doc.path || !Number.isFinite(doc.opened_at) || seen.has(identity)) return false;
+      seen.add(identity);
+      return !catalog || doc.assistant_root === catalog.root && catalog.documents.has(doc.document_id);
+    }).sort((a, b) => b.opened_at - a.opened_at).slice(0, recentLimit).map(doc => {
+      const current = catalog?.documents.get(doc.document_id);
+      return current ? {...doc, title:current.title, path:current.path} : doc;
+    });
+  }
+  function renderRecent() {
+    document.querySelectorAll('[data-recent-documents]').forEach(host => {
+      const scope = hostScope(host);
+      render(host, recentInWindow(scope), scope, true);
+    });
+  }
+  function recentInWindow(scope) {
+    const minutes = Number(bridge?.recentMinutes?.() || 1440);
+    const cutoff = Date.now() - (Number.isFinite(minutes) && minutes > 0 ? minutes : 1440) * 60000;
+    return recentDocuments(scope).filter(doc => doc.opened_at >= cutoff);
+  }
+  function rememberDocument(doc) {
+    if (!documentKey(doc) || !doc.path) return;
+    const scope = bridge?.context?.() || bridge?.workspace?.() || {workspace_id:'__assistant__',vault:'__assistant__'};
+    const key = recentPrefix + scopeKey(scope);
+    const rows = [{assistant_root:doc.assistant_root, document_id:doc.document_id,
+      title:doc.title, path:doc.path, opened_at:Date.now()},
+      ...recentDocuments(scope).filter(row => documentKey(row) !== documentKey(doc))].slice(0, recentLimit);
+    try { localStorage.setItem(key, JSON.stringify(rows)); recentFallback.delete(key); }
+    catch { recentFallback.set(key, rows); }
+    renderRecent();
+  }
   async function api(path = '', body, method = 'POST') {
     const response = await fetch('/api/workspace-documents' + path, body ? {
       method, headers:{'Content-Type':'application/json'}, body:JSON.stringify(body),
@@ -17,13 +63,14 @@
     if (!response.ok) throw new Error(result.detail || 'Could not update document link.');
     return result;
   }
-  function render(host, documents, scope) {
+  function render(host, documents, scope, recent = false) {
     const assistant = scope.workspace_id === '__assistant__';
-    const html = `<div class="sidebar-title">${assistant ? 'Linked documents' : 'Documents'} <span class="sidebar-title-count">${documents.length || ''}</span></div>` +
+    const title = recent ? 'Recently opened' : assistant ? 'Linked documents' : 'Documents';
+    const html = `<div class="sidebar-title">${title} <span class="sidebar-title-count">${documents.length || ''}</span></div>` +
       (documents.length ? documents.map(doc => `<div class="sidebar-file workspace-document" ${doc.missing ? '' : 'draggable="true" data-assistant-document-drag'} data-assistant-root="${escape(doc.assistant_root)}" data-document-path="${escape(doc.path)}" data-terminal-document="${escape(doc.document_id)}" data-document-identity="${escape(documentKey(doc))}">
         <button type="button" class="workspace-document-open" ${doc.missing ? 'disabled' : ''} title="${escape(doc.missing ? 'Document unavailable' : doc.path)}"><span aria-hidden="true">▤</span><span>${escape(doc.title || doc.document_id)}</span></button>
-        ${assistant ? '' : `<button type="button" class="workspace-document-remove" aria-label="Unlink ${escape(doc.title || 'document')}" title="Remove workspace link">×</button>`}</div>`).join('')
-        : `<p class="workspace-documents-empty">${assistant ? 'Documents linked to Assistant terminals appear here.' : 'Drag an Assistant document here or onto the workspace tab.'}</p>`);
+        ${assistant || recent ? '' : `<button type="button" class="workspace-document-remove" aria-label="Unlink ${escape(doc.title || 'document')}" title="Remove workspace link">×</button>`}</div>`).join('')
+        : `<p class="workspace-documents-empty">${recent ? 'No documents opened in this time window.' : assistant ? 'Documents linked to Assistant terminals appear here.' : 'Drag an Assistant document here or onto the workspace tab.'}</p>`);
     if (host._documentsHtml === html) { paintSelection(); return; }
     host._documentsHtml = html; host.innerHTML = html;
     host.querySelectorAll('.workspace-document').forEach((row, index) => {
@@ -42,8 +89,8 @@
     paintSelection();
   }
   function paintSelection() {
-    document.querySelectorAll('[data-workspace-documents]').forEach(host => {
-      const key = scopeKey({workspace_id:host.dataset.workspaceId,vault:host.dataset.vault});
+    document.querySelectorAll('[data-workspace-documents], [data-recent-documents]').forEach(host => {
+      const key = scopeKey(hostScope(host));
       host.querySelectorAll('[data-document-identity]').forEach(row => {
         const active = selected?.scope === key && selected.key === row.dataset.documentIdentity;
         const isOpen = opened?.key === row.dataset.documentIdentity;
@@ -60,6 +107,13 @@
     if (!host || !scope) return;
     const key = scopeKey(scope);
     host.dataset.workspaceId = scope.workspace_id; host.dataset.vault = scope.vault || '';
+    let recent = host.previousElementSibling;
+    if (!recent?.hasAttribute('data-recent-documents')) {
+      recent = document.createElement('section'); recent.setAttribute('data-recent-documents', '');
+      recent.setAttribute('aria-label', 'Recently opened documents'); host.before(recent);
+    }
+    recent.dataset.workspaceId = scope.workspace_id; recent.dataset.vault = scope.vault || '';
+    render(recent, recentInWindow(scope), scope, true);
     const saved = cache.get(key);
     render(host, saved?.documents || [], scope);
     if (!force && saved?.at > Date.now() - 10000) return;
@@ -170,11 +224,21 @@
     finally { polling = false; }
   }
   window.addEventListener('lab-terminal-completion-change', paintAttention);
+  window.addEventListener('storage', event => {
+    if (event.key && !event.key.startsWith(recentPrefix)) return;
+    if (event.key) recentFallback.delete(event.key); else recentFallback.clear();
+    renderRecent();
+  });
   document.addEventListener('visibilitychange', () => { if (!document.hidden) void poll(true); });
   window.LabWorkspaceDocuments = {mount, unlink, paintAttention, poll,
     configure(value) { bridge = value; },
     selectTerminal(session, scope) { selected = {scope:scopeKey(scope),key:documentKey(session?.linked_task)}; paintSelection(); },
-    openDocument(doc) { opened = doc ? {key:documentKey(doc)} : null; paintSelection(); },
+    openDocument(doc) { opened = doc ? {key:documentKey(doc)} : null; if (doc) rememberDocument(doc); paintSelection(); },
+    updateDocuments(data) {
+      if (!data?.root || !Array.isArray(data.documents)) return;
+      catalog = {root:data.root, documents:new Map(data.documents.map(doc => [doc.id,doc]))};
+      renderRecent();
+    },
     updateSessions(scope, sessions) {
       attention[scope] = sessions; paintAttention();
       const context = bridge?.context?.();
