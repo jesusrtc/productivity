@@ -470,3 +470,5 @@
 - [tmux creation hooks preserve API errors](tmux-creation-hooks-must-preserve-api-errors.md) — session output markers can precede a failing hook; native API regression guards against masking creation errors during batching.
 
 - [Busy notebook lookups reject unrelated regular names](busy-notebook-lookups-reject-unrelated-regular-names.md) — bounded POSIX filename filtering reduces active-notebook scan work while retaining fresh symlink resolution, locking and fallback behavior.
+
+- [Private connection material lives in Assistant](private-connection-material-lives-in-assistant.md) — this repo is public; keep personal scripts, keys, and machine details in the ignored Assistant secrets folder.

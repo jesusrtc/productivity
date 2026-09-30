@@ -20,6 +20,12 @@ workspaces/
 repositories/
 .lab/
 
+# Personal connection material belongs outside this public repository.
+/connect.md
+/connect.sh
+/install-ssh-key.sh
+/secrets/
+
 # Log files
 *.log
 

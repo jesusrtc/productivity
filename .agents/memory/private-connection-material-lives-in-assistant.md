@@ -1,0 +1,3 @@
+# Keep private connection material in Assistant
+
+Lab is a public repository. The user requires personal connection scripts, keys, machine-specific setup guides, and related sensitive notes to live under `secrets/` in the configured Assistant directory (resolve it with `lab assistant path`), outside this checkout. Keep that directory Git-ignored and restrict permissions. Do not copy its private contents into public docs, memory, commits, or tool output. Keep the general policy here; keep hostnames, addresses, fingerprints, and credentials in the private folder. Inspect staged content and Git history when auditing a possible exposure.
