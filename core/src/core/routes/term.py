@@ -2133,7 +2133,7 @@ def _pick_unique_logical_name(preferred: str, taken_logical_names: set[str]) -> 
 
 
 class LinkedScope(BaseModel):
-    # Sidebar identity is independent of the process cwd and optional file link.
+    # Launch folder identity is fixed for the saved terminal; file links are independent.
     base_root: str = Field(min_length=1, max_length=4096)
     project_root: str = Field(min_length=1, max_length=4096)
     root: str = Field(min_length=1, max_length=4096)
@@ -2659,6 +2659,23 @@ def _linked_file_identity(link: dict | None) -> str | None:
     return os.path.normpath(os.path.join(link["root"], link["path"]))
 
 
+def _session_launch_folder(root: Path, workspace_id: str, entry: dict) -> Path:
+    """Recover the launch folder for old sessions without a durable cwd."""
+    cwd = entry.get("cwd") or (entry.get("linked_scope") or {}).get("root")
+    if not cwd:
+        runtime = next((row for row in _load_meta(root).values()
+                        if row.get("workspace_id") == workspace_id
+                        and row.get("logical_name") == entry.get("name")), {})
+        cwd = runtime.get("cwd")
+    return Path(cwd or _workspace_cwd(root, workspace_id)).resolve()
+
+
+def _require_session_folder(folder: Path, requested: str | None) -> None:
+    if not requested or Path(requested).resolve() != folder:
+        raise HTTPException(status_code=409, detail=
+                            "This terminal’s folder is fixed. Open a new terminal to choose another folder.")
+
+
 @router.patch("/api/term/sessions/metadata")
 @_with_workspace_lease
 def update_session_metadata(body: SessionMetadata, request: Request) -> dict:
@@ -2687,6 +2704,10 @@ def _update_session_metadata(body: SessionMetadata, request: Request) -> dict:
     fields = getattr(body, "model_fields_set", None)
     if fields is None:
         fields = getattr(body, "__fields_set__", set())
+    # Reject folder changes before any labels, links, or transfers are written.
+    if "linked_scope" in fields:
+        _require_session_folder(_session_launch_folder(root, body.workspace_id, entry),
+                                body.linked_scope.root if body.linked_scope else None)
     if "label" in fields:
         label = _clean_optional_text(body.label, max_len=80)
         if label:
@@ -3163,16 +3184,22 @@ def create_session(body: NewSession, request: Request) -> dict:
                 )
             agent = supported[0]
 
-    # Restores reuse their saved scope; new terminals capture the sidebar scope.
-    saved_scope = None
+    # Restores keep the launch folder even if the browser sends a newer sidebar scope.
+    saved_session = {}
     if body.workspace_id and not body.start_fresh:
         saved_session = _workspace_session_by_name(root, body.workspace_id).get(
             _sanitize(body.name or agent or "bash"), {}
         )
-        saved_scope = saved_session.get("linked_scope")
+    saved_scope = saved_session.get("linked_scope")
     linked_scope = body.linked_scope.model_dump() if body.linked_scope else saved_scope
     # Resolve cwd.
-    if body.cwd:
+    if saved_session:
+        cwd = _session_launch_folder(root, body.workspace_id, saved_session)
+        if body.cwd:
+            _require_session_folder(cwd, body.cwd)
+        if body.linked_scope:
+            _require_session_folder(cwd, body.linked_scope.root)
+    elif body.cwd:
         cwd = Path(body.cwd).resolve()
     elif linked_scope:
         cwd = Path(linked_scope["root"]).resolve()
@@ -3180,6 +3207,8 @@ def create_session(body: NewSession, request: Request) -> dict:
         cwd = _workspace_cwd(root, body.workspace_id)
     else:
         cwd = root.resolve()
+    if linked_scope:
+        _require_session_folder(cwd, linked_scope["root"])
     if not cwd.is_dir():
         raise HTTPException(status_code=400, detail=f"cwd not a directory: {cwd}")
 
@@ -3246,14 +3275,13 @@ def create_session(body: NewSession, request: Request) -> dict:
         return row
 
     logical = preferred_sane
-    if existing_for_tab and body.start_fresh:
-        # The preferred tab IS live (that's `existing_for_tab`) but the
-        # caller explicitly asked for a fresh one — bump to the next free
-        # logical name. A name that's merely sanitized-equal to a DIFFERENT
-        # live tab never reaches this branch — see the loop above, which
-        # only sets `existing_for_tab` for an exact logical-name match — so
-        # this never renames a tab away from a name it's entitled to reuse.
-        logical = _pick_unique_logical_name(preferred_sane, live_logical_names)
+    if body.start_fresh:
+        # A fresh terminal cannot overwrite a stopped conversation's saved
+        # folder or UUID. Reserve saved names as well as currently live tabs.
+        saved_names = set(_workspace_session_by_name(root, body.workspace_id)) if body.workspace_id else set()
+        taken_names = live_logical_names | saved_names
+        if preferred_sane in taken_names:
+            logical = _pick_unique_logical_name(preferred_sane, taken_names)
     tmux_name = _tmux_name_for(body.workspace_id, logical, root)
 
     # Final authoritative guard: a tmux session with this exact computed
@@ -3428,7 +3456,7 @@ def create_session(body: NewSession, request: Request) -> dict:
     # Record durable provider identity (Claude resumes it; Copilot uses it for
     # display-name lookup even though reopening still starts a fresh session).
     if body.workspace_id:
-        entry: dict = {"name": logical, "kind": kind}
+        entry: dict = {"name": logical, "kind": kind, "cwd": str(cwd)}
         if linked_scope:
             entry["linked_scope"] = linked_scope
         if agent:

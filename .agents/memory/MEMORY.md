@@ -1,5 +1,7 @@
 # Memory index
 
+- [Workspace terminal folders stay fixed](workspace-terminal-folder-is-fixed.md) — every new launch asks for the workspace or a pinned checkout; cancellation starts nothing, and saved folders cannot be reassigned.
+
 - [Copilot resume clears retained yellow](copilot-resume-clears-retained-yellow.md) — native CLI 1.0.83 fixtures verify tools, final response and shutdown; idle resume explicitly clears abandoned work without green.
 
 - [Workspace working priority and green-dot review](workspace-working-priority-and-dot-review.md) — yellow wins across workspace terminals; direct green-dot activation reviews completed results without navigation.

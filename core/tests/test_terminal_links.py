@@ -42,7 +42,7 @@ def test_file_transfer_and_independent_scope_links(client, seed_workspace, isola
 
     # Moving the file across workspace tabs also clears its old owner.
     patch(1, label="Custom title")
-    moved = patch(2, linked_file=file, linked_scope=scope)
+    moved = patch(2, linked_file=file)
     assert moved["displaced"][0]["session"]["label"] == "Custom title"
     assert not moved["displaced"][0]["current_workspace"]
     rows = client.get("/api/term/sessions?workspace_id=demo").json()
@@ -50,8 +50,9 @@ def test_file_transfer_and_independent_scope_links(client, seed_workspace, isola
 
     changed = patch(2, linked_file={"root": root, "path": "other.md"})["session"]
     assert changed["linked_file"]["path"] == "other.md"
-    removed = patch(2, linked_scope=None)["session"]
-    assert "linked_scope" not in removed and removed["linked_file"]["path"] == "other.md"
+    rejected = client.patch("/api/term/sessions/metadata", json={
+        "workspace_id": "other", "name": sessions[2]["logical_name"], "linked_scope": None})
+    assert rejected.status_code == 409
     removed = patch(2, linked_file=None)["session"]
     assert "linked_file" not in removed
     assert len(client.get("/api/term/sessions?workspace_id=other").json()) == 1

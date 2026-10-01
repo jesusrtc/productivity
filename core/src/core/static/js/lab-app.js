@@ -1282,12 +1282,12 @@
       ? _explorerMenuButton('new-notebook', '◉', 'New notebook here', '')
       : '';
     const linkedSessions = _termSessionsLinkedToContext(ctx);
-    const linkTerminalAction =
+    const linkTerminalAction = ctx.kind === 'file' ?
       _explorerMenuButton('link-active-terminal', '⇄', 'Link to active terminal', '') +
-      (ctx.kind === 'file' ? _explorerMenuButton('link-terminal', '⇄', 'Link terminal…', '') : '') +
+      _explorerMenuButton('link-terminal', '⇄', 'Link terminal…', '') +
       linkedSessions.map(session => _explorerMenuButton(
         'unlink-terminal:' + encodeURIComponent(session.name), '×',
-        linkedSessions.length === 1 ? 'Unlink from terminal' : `Unlink from ${esc(_termSessionDisplay(session))}`, '')).join('');
+        linkedSessions.length === 1 ? 'Unlink from terminal' : `Unlink from ${esc(_termSessionDisplay(session))}`, '')).join('') : '';
     menu.innerHTML = `
       <div class="ecm-label" title="${escAttr(ctx.path)}">${esc(ctx.path)}</div>
       ${_explorerMenuButton('open', firstIcon, firstLabel, ctx.kind === 'file' ? 'Enter' : '')}
@@ -2926,7 +2926,7 @@
       const color = _sidebarValidColor(scope.color), label = _sidebarScopeDisplayLabel(scope);
       const kind = scope.kind === 'worktree' ? 'Worktree' : scope.kind === 'parent' ? 'Parent folder' : 'Main folder';
       const scopeAttrs = `data-base-root="${escAttr(baseRoot)}" data-folder-path="${escAttr(scope.path === baseRoot ? '' : scope.path)}"`;
-      return `<div class="sidebar-scope-chip${active ? ' active' : ''}${loading ? ' loading' : ''}" aria-busy="${loading}" data-scope-kind="${escAttr(scope.kind || 'folder')}" ${scopeAttrs} style="--sidebar-workspace-color:${escAttr(color)}"><button type="button" class="sidebar-scope-color" data-scope-path="${escAttr(scope.path)}" onclick="sidebarScopeColors(this)" aria-label="${kind} · Change color for ${escAttr(label)}" title="${kind} · Change color">${_sidebarScopeKindIcon(scope.kind)}</button><button type="button" class="sidebar-file-scope-button${active ? ' active' : ''}" ${scopeAttrs} onclick="sidebarActivateScope(this,event)" aria-pressed="${active ? 'true' : 'false'}" title="${escAttr(scope.path)} · Double-click to edit metadata" style="--sidebar-workspace-color:${escAttr(color)}"><span>${esc(label)}</span></button>${loading ? '<span class="sidebar-scope-spinner" role="status" aria-label="Loading folder"></span>' : ''}<span class="sidebar-scope-tag" title="${kind}">${scope.kind === 'worktree' ? 'Worktree' : scope.kind === 'parent' ? 'Parent' : 'Folder'}</span><button type="button" class="sidebar-repo-history" ${scopeAttrs} onclick="sidebarOpenRepositoryHistory(this)" ${active && !switching ? '' : 'disabled'} aria-label="Open Git history for ${escAttr(label)}" title="${active ? 'Open Git history' : 'Select this folder to open Git history'}">${_SIDEBAR_GITHUB_ICON}</button><button type="button" class="sidebar-link-terminal" ${scopeAttrs} onclick="termLinkCurrentScope(this)" ${active && !switching ? '' : 'disabled'} aria-label="Attach active terminal to ${escAttr(label)}" title="${active ? 'Attach active terminal' : 'Select this folder to attach a terminal'}">${attachIcon}</button><button type="button" class="sidebar-scope-pin${pinned ? ' pinned' : ''}" data-scope-path="${escAttr(scope.path)}" onclick="sidebarPinScope(this)" aria-label="${pinned ? 'Unpin' : 'Pin'} ${escAttr(label)}" aria-pressed="${pinned}" title="${pinned ? 'Unpin' : 'Pin'}">${_sidebarScopePinIcon()}</button></div>`;
+      return `<div class="sidebar-scope-chip${active ? ' active' : ''}${loading ? ' loading' : ''}" aria-busy="${loading}" data-scope-kind="${escAttr(scope.kind || 'folder')}" ${scopeAttrs} style="--sidebar-workspace-color:${escAttr(color)}"><button type="button" class="sidebar-scope-color" data-scope-path="${escAttr(scope.path)}" onclick="sidebarScopeColors(this)" aria-label="${kind} · Change color for ${escAttr(label)}" title="${kind} · Change color">${_sidebarScopeKindIcon(scope.kind)}</button><button type="button" class="sidebar-file-scope-button${active ? ' active' : ''}" ${scopeAttrs} onclick="sidebarActivateScope(this,event)" aria-pressed="${active ? 'true' : 'false'}" title="${escAttr(scope.path)} · Double-click to edit metadata" style="--sidebar-workspace-color:${escAttr(color)}"><span>${esc(label)}</span></button>${loading ? '<span class="sidebar-scope-spinner" role="status" aria-label="Loading folder"></span>' : ''}<span class="sidebar-scope-tag" title="${kind}">${scope.kind === 'worktree' ? 'Worktree' : scope.kind === 'parent' ? 'Parent' : 'Folder'}</span><button type="button" class="sidebar-repo-history" ${scopeAttrs} onclick="sidebarOpenRepositoryHistory(this)" ${active && !switching ? '' : 'disabled'} aria-label="Open Git history for ${escAttr(label)}" title="${active ? 'Open Git history' : 'Select this folder to open Git history'}">${_SIDEBAR_GITHUB_ICON}</button><button type="button" class="sidebar-link-terminal" ${scopeAttrs} onclick="termToggleNewPicker(event)" ${active && !switching ? '' : 'disabled'} aria-label="Open a new terminal" title="${active ? 'Open a new terminal…' : 'Select this folder to open the terminal menu'}">${attachIcon}</button><button type="button" class="sidebar-scope-pin${pinned ? ' pinned' : ''}" data-scope-path="${escAttr(scope.path)}" onclick="sidebarPinScope(this)" aria-label="${pinned ? 'Unpin' : 'Pin'} ${escAttr(label)}" aria-pressed="${pinned}" title="${pinned ? 'Unpin' : 'Pin'}">${_sidebarScopePinIcon()}</button></div>`;
     }).join('')}<button type="button" class="sidebar-scope-add" data-base-root="${escAttr(baseRoot)}" onclick="sidebarAddScope(this)" aria-label="Add project, worktree or folder" title="Add project, worktree or folder">+</button>${_sidebarScopeTransition?.baseRoot === baseRoot && _sidebarScopeTransition.error ? `<div class="sidebar-scope-load-error" role="alert"><span>${esc(_sidebarScopeTransition.error)}</span><button type="button" data-base-root="${escAttr(baseRoot)}" onclick="sidebarRetryScopeSwitch(this)">Retry</button></div>` : ''}</div>`;
   }
 
@@ -12596,8 +12596,8 @@
     termDetach();
     termShowEmpty();
     if (workspaceAutoSpawn) {
-      termSetStatus('idle', 'auto-spawning claude…');
-      await termSpawnSession('claude', { startFresh: false });
+      const created = await termSpawnSession('claude', { startFresh: false });
+      if (!created && _termIsScopeActive(workspaceId)) termSetStatus('idle', 'no session — click + New');
     } else {
       termSetStatus('idle', 'no session — click + New');
     }
@@ -13366,7 +13366,6 @@
           (_termHomeAssociation(session) === item.id ? '✓ ' : '') + item.name)).join('') + '<hr>' : '') +
       (session?.linked_task ? row('unlink-task', 'Unlink from task/document') : '') +
       (session?.linked_file ? row('unlink-file', 'Unlink from file') : '') +
-      (session?.linked_scope ? row('unlink-scope', 'Unlink from folder/worktree') : '') +
       row('new', 'Add to new group…') +
       state.tabGroups.filter(group => group.id !== membership).map(group => row(`group:${group.id}`, `Move to ${group.name}`)).join('') +
       (membership ? row('ungroup', 'Remove from group') : '') + '<hr>' +
@@ -13380,7 +13379,6 @@
         }
         else if (action === 'unlink-task') void window.LabWorkspaceDocuments.unlink(session, _termLinkContext()).then(() => window.LabDocumentTerminal?.refresh()).catch(error => explorerToast(error.message,true));
         else if (action === 'unlink-file') void termUnlinkTarget(sessionName, 'file');
-        else if (action === 'unlink-scope') void termUnlinkTarget(sessionName, 'scope');
         else if (action === 'new') termAssignTabGroup(sessionName, 'new');
         else if (action.startsWith('group:')) termAssignTabGroup(sessionName, action.slice(6));
         else if (action === 'ungroup') termAssignTabGroup(sessionName, null);
@@ -13400,7 +13398,6 @@
         _termHomeAssociationOptions().map(item => row('associate:' + item.id,
           (sessions.every(session => _termHomeAssociation(session) === item.id) ? '✓ ' : '') + item.name)).join('') + '<hr>' : '') +
       (sessions.some(session => session.linked_file) ? row('unlink-file', 'Unlink from files') : '') +
-      (sessions.some(session => session.linked_scope) ? row('unlink-scope', 'Unlink from folders/worktrees') : '') +
       row('new', 'Add to new group…') +
       state.tabGroups.filter(group => !sessions.every(session => state.tabMembership[session.logical_name] === group.id))
         .map(group => row(`group:${group.id}`, `Move to ${group.name}`)).join('') +
@@ -13414,19 +13411,19 @@
         else if (action.startsWith('group:')) termAssignTabGroup(names, action.slice(6));
         else if (action === 'ungroup') termAssignTabGroup(names, null);
         else if (action === 'unlink-file') void termUnlinkTabs(sessions, 'file');
-        else if (action === 'unlink-scope') void termUnlinkTabs(sessions, 'scope');
         else if (action === 'clear') _termSelectTab(null);
         else if (action === 'close') void termCloseTabs(names);
       });
   }
 
   async function termUnlinkTabs(sessions, kind) {
+    if (kind !== 'file') { explorerToast('Terminal folders stay fixed after opening.', true); return; }
     const context = _termLinkContext();
     const failures = [];
     for (const session of sessions) {
-      if (!(kind === 'file' ? session.linked_file : session.linked_scope)) continue;
-      const patch = kind === 'file' ? {linked_file: null} : {linked_scope: null};
-      if (kind === 'file' && session.label === _termLinkedFileName(session.linked_file?.path)) patch.label = null;
+      if (!session.linked_file) continue;
+      const patch = {linked_file: null};
+      if (session.label === _termLinkedFileName(session.linked_file?.path)) patch.label = null;
       try {
         await _termPatchLinks(session, patch, context);
         window.labFeatureUsage?.(`Unlink terminal ${kind === 'file' ? 'document' : 'folder'} (secondary click)`);
@@ -14423,6 +14420,12 @@
 
   async function _termPatchLinks(session, patch, context = _termLinkContext()) {
     if (!session?.logical_name || !context.workspaceId) throw new Error('Select a saved terminal to link.');
+    if (Object.prototype.hasOwnProperty.call(patch, 'linked_scope')) {
+      const fixedRoot = session.cwd || session.linked_scope?.root;
+      if (!patch.linked_scope || !fixedRoot
+          || _termNormalizeLinkedRoot(patch.linked_scope.root) !== _termNormalizeLinkedRoot(fixedRoot))
+        throw new Error('This terminal’s folder is fixed. Open a new terminal to choose another folder.');
+    }
     const source = session.document_source;
     const owner = source ? {workspaceId:source.workspace_id,vaultId:source.vault} : context;
     const response = await fetch('/api/term/sessions/metadata', {
@@ -14506,30 +14509,22 @@
     }
     const clipboard = ctx.kind === 'file' ? _copyToClipboard(_termLinkedAbsolutePath(ctx.root, ctx.path)) : null;
     try {
-      let scope = ctx.scope || await _termScopeForFile(ctx);
-      if (ctx.kind !== 'file' && !ctx.scope) {
-        const absolute = _termLinkedAbsolutePath(ctx.root, ctx.path);
-        if (_termNormalizeLinkedRoot(scope.root) !== _termNormalizeLinkedRoot(absolute)) {
-          scope = {...scope, root: absolute, project_root: absolute, worktree: null,
-            label: _termLinkedFileName(absolute)};
-        }
-      }
+      if (ctx.kind !== 'file') throw new Error('This terminal’s folder is fixed. Open a new terminal to choose another folder.');
       if (context.workspaceId !== _termActiveWorkspaceId() || context.vaultId !== _termVaultId()) return;
-      const patch = {linked_scope: scope};
-      if (ctx.kind === 'file') Object.assign(patch,
-        {linked_file: {root: ctx.root, path: ctx.path}, label: _termLinkedFileName(ctx.path)});
+      const patch = {linked_file: {root: ctx.root, path: ctx.path}, label: _termLinkedFileName(ctx.path)};
       await _termPatchLinks(session, patch, context);
-      window.labFeatureUsage?.(`Link terminal to ${ctx.kind === 'file' ? 'document' : scope.worktree ? 'worktree' : 'folder'} (${method})`);
+      window.labFeatureUsage?.(`Link terminal to document (${method})`);
       const copied = clipboard && await clipboard;
-      explorerToast(`Terminal linked to ${ctx.kind === 'file' ? _termLinkedFileName(ctx.path) : scope.label}${copied ? ' · Absolute path copied' : ''}`);
+      explorerToast(`Terminal linked to ${_termLinkedFileName(ctx.path)}${copied ? ' · Absolute path copied' : ''}`);
     } catch (error) { explorerToast(error.message || String(error), true); }
   }
 
   async function termUnlinkTarget(sessionName, kind) {
+    if (kind !== 'file') { explorerToast('Terminal folders stay fixed after opening.', true); return; }
     const session = (termSessions || []).find(row => row.name === sessionName);
     if (!session) return;
-    const patch = kind === 'file' ? {linked_file: null} : {linked_scope: null};
-    if (kind === 'file' && session.label === _termLinkedFileName(session.linked_file?.path)) patch.label = null;
+    const patch = {linked_file: null};
+    if (session.label === _termLinkedFileName(session.linked_file?.path)) patch.label = null;
     try {
       await _termPatchLinks(session, patch);
       window.labFeatureUsage?.(`Unlink terminal ${kind === 'file' ? 'document' : 'folder'} (secondary click)`);
@@ -14573,7 +14568,7 @@
     if (!_termDraggedLinkSession()) return;
     const ctx = _termLinkDropContext(event.target);
     _termClearLinkDropTarget();
-    if (!ctx) return;
+    if (!ctx || ctx.kind === 'folder') return;
     event.preventDefault();
     _termClearDropPreview();
     if (event.dataTransfer) event.dataTransfer.dropEffect = 'link';
@@ -14586,7 +14581,7 @@
   document.addEventListener('drop', event => {
     const session = _termDraggedLinkSession();
     const ctx = session && _termLinkDropContext(event.target);
-    if (!ctx) return;
+    if (!ctx || ctx.kind === 'folder') return;
     event.preventDefault();
     event.stopPropagation();
     _termFinishDrag(false);
@@ -14596,13 +14591,9 @@
     const ctx = _termLinkDropContext(event.target);
     if (!ctx?.scope) return; // File/folder tree rows use the explorer menu.
     event.preventDefault();
-    const linked = _termSessionsLinkedToContext(ctx);
-    const row = (action, label) => `<button role="menuitem" class="term-group-menu-row" data-action="${termSessEsc(action)}">${termSessEsc(label)}</button>`;
-    _termShowGroupMenu(ctx.row, row('link', 'Link to active terminal') + linked.map((session, i) =>
-      row(`unlink:${i}`, linked.length === 1 ? 'Unlink from terminal' : `Unlink from ${_termSessionDisplay(session)}`)).join(''), action => {
+    _termShowGroupMenu(ctx.row, '<button role="menuitem" class="term-group-menu-row" data-action="new">New terminal…</button>', () => {
       termCloseGroupMenu();
-      if (action === 'link') void termLinkTarget(ctx, termCurrentSession);
-      else void termUnlinkTarget(linked[Number(action.slice(7))]?.name, 'scope');
+      void termToggleNewPicker();
     });
   });
 
@@ -14872,8 +14863,7 @@
     const logical = session && session.logical_name;
     if (!state || !logical) throw new Error('This terminal has no saved session identity.');
     const label = linkedFile ? state.fileName : null;
-    return _termPatchLinks(session, {label, linked_file: linkedFile,
-      ...(linkedFile ? {linked_scope: state.linkedScope} : {})}, state);
+    return _termPatchLinks(session, {label, linked_file: linkedFile}, state);
   }
 
   async function termLinkExistingSession(sessionName) {
@@ -15354,13 +15344,26 @@
     termSpawnSession(kind, { startFresh: true, agent });
   }
 
+  async function _termChooseNewScope(fallback, current) {
+    if (!document.body.classList.contains('workspace-active') || !currentWorkspace?.is_workspace) return fallback || undefined;
+    const base = currentWorkspace.path, configScope = _sidebarFileConfigScope;
+    const rows = window.LabTerminalFolder.choices(base, _workspaceDisplayName(currentWorkspace),
+      _sidebarFileConfig, configScope);
+    return window.LabTerminalFolder.choose(rows, () => current()
+      && configScope === _sidebarFileConfigScope && base === currentWorkspace?.path
+      && document.body.classList.contains('workspace-active'));
+  }
+
   async function termSpawnSession(kind, { startFresh = false, agent = null, name = null, linkedScope = null } = {}) {
     const workspaceId = _termActiveWorkspaceId();
     if (!workspaceId) return;
     const vaultId = _termVaultId();
     const homeSection = _termHomeSection();
 
-    const scope = linkedScope || _termSelectedScope();
+    const current = () => workspaceId === _termActiveWorkspaceId() && vaultId === _termVaultId()
+      && homeSection === _termHomeSection();
+    const scope = await _termChooseNewScope(linkedScope || _termSelectedScope(), current);
+    if (!current() || scope === null) return null;
     termSetStatus('idle', kind === 'claude' ? `creating ${agent || 'claude'}…` : 'creating terminal…');
     try {
       const r = await fetch('/api/term/sessions', {

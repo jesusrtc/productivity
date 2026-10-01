@@ -246,6 +246,7 @@ def test_create_claude_session_for_workspace(client, seed_workspace, isolated_pr
     pjson = json.loads((monorepo / "workspaces" / "demo" / "workspace.json").read_text())
     assert pjson["sessions"] == [{
         "name": "claude", "kind": "claude", "agent": "claude",
+        "cwd": body["cwd"],
         "claude_session_id": body["claude_session_id"],
         "session_id": body["session_id"],
     }]
@@ -1039,16 +1040,26 @@ def test_reopen_same_name_resumes_saved_uuid(client, seed_workspace, isolated_pr
     assert "--session-id" not in resumed["cmd"]
 
 
-def test_start_fresh_overrides_saved_uuid(client, seed_workspace, isolated_prefix) -> None:
+def test_start_fresh_preserves_stopped_session_and_allocates_new_identity(client, seed_workspace, isolated_prefix,
+                                                                         monorepo: Path) -> None:
     seed_workspace("demo")
     first = client.post("/api/term/sessions", json={"workspace_id": "demo", "kind": "claude"}).json()
     client.delete(f"/api/term/sessions/{first['name']}")
+    folder = monorepo / "another-folder"
+    folder.mkdir()
     fresh = client.post("/api/term/sessions", json={
-        "workspace_id": "demo", "kind": "claude", "start_fresh": True,
+        "workspace_id": "demo", "kind": "claude", "start_fresh": True, "cwd": str(folder),
     }).json()
     assert fresh["claude_session_id"] != first["claude_session_id"]
     assert fresh["resumed_from"] is None
     assert "--session-id" in fresh["cmd"]
+    assert fresh["logical_name"] == "claude-2"
+    assert fresh["session_id"] != first["session_id"]
+    saved = client.get('/api/term/sessions/saved?workspace_id=demo').json()
+    assert len(saved) == 2
+    assert saved[0]["cwd"] == first["cwd"]
+    assert saved[0]["session_id"] == first["session_id"]
+    assert saved[1]["cwd"] == str(folder)
 
 
 def test_idempotent_when_already_live(client, seed_workspace, isolated_prefix) -> None:
@@ -1327,7 +1338,7 @@ def test_vault_pseudo_workspace_runs_at_root_and_persists_own_sessions(
     saved = json.loads(
         (monorepo / "content" / ".vault-workspace.json").read_text()
     )
-    assert saved["sessions"] == [{"name": "bash", "kind": "terminal", "session_id": body["session_id"]}]
+    assert saved["sessions"] == [{"name": "bash", "kind": "terminal", "cwd": body["cwd"], "session_id": body["session_id"]}]
 
 
 def test_create_session_enforces_vault_supported_agents(
@@ -2544,7 +2555,7 @@ def test_dead_active_named_socket_fails_without_reseeding_from_backend(
 
 @pytest.mark.parametrize("has_worktree", [False, True])
 def test_terminal_scope_survives_file_unlink_and_restore(
-    client, seed_workspace, isolated_prefix, monorepo: Path, has_worktree: bool,
+    client, seed_workspace, isolated_prefix, monorepo: Path, tmp_path: Path, has_worktree: bool,
 ) -> None:
     seed_workspace("demo")
     base = monorepo / "workspaces" / "demo"
@@ -2564,33 +2575,49 @@ def test_terminal_scope_survives_file_unlink_and_restore(
     created = response.json()
     assert created["cwd"] == scope["root"]
     assert created["linked_scope"] == scope
+    # Verify the actual launch command passed the chosen directory to tmux.
+    launched = json.loads((tmp_path / "fake-tmux-state.json").read_text())
+    assert launched["sessions"][created["name"]]["cwd"] == scope["root"]
 
-    # File association can cascade to a different project without moving a running shell.
+    # Reassignment and removal cannot retarget a started conversation.
     new_scope = {**scope, "project_root": str(base), "root": str(base), "worktree": None}
+    for replacement in [new_scope, None]:
+        rejected = client.patch("/api/term/sessions/metadata", json={
+            "workspace_id": "demo", "name": created["logical_name"],
+            "label": "Should not save", "linked_file": {"root": str(base), "path": "README.md"},
+            "linked_scope": replacement,
+        })
+        assert rejected.status_code == 409, rejected.text
+    saved = client.get("/api/term/sessions/saved?workspace_id=demo").json()[0]
+    assert saved["linked_scope"] == scope and saved["cwd"] == scope["root"]
+    assert not saved.get("linked_file") and not saved.get("label")
+
     linked = client.patch("/api/term/sessions/metadata", json={
         "workspace_id": "demo", "name": created["logical_name"],
-        "linked_file": {"root": str(base), "path": "README.md"}, "linked_scope": new_scope,
+        "linked_file": {"root": str(base), "path": "README.md"},
     })
     assert linked.status_code == 200, linked.text
     rows = client.get("/api/term/sessions?workspace_id=demo").json()
-    assert rows[0]["cwd"] == scope["root"]
-    assert rows[0]["linked_scope"] == new_scope
+    assert rows[0]["cwd"] == scope["root"] and rows[0]["linked_scope"] == scope
     removed = client.patch("/api/term/sessions/metadata", json={
         "workspace_id": "demo", "name": created["logical_name"], "linked_file": None,
     })
     assert removed.status_code == 200, removed.text
-    assert removed.json()["session"]["linked_scope"] == new_scope
+    assert removed.json()["session"]["linked_scope"] == scope
     assert "linked_file" not in removed.json()["session"]
-    saved = client.get("/api/term/sessions/saved?workspace_id=demo").json()
-    assert saved[0]["linked_scope"] == new_scope
 
     client.delete('/api/term/sessions/' + created["name"])
+    for overrides in [{"cwd": str(base)}, {"linked_scope": new_scope}]:
+        rejected = client.post("/api/term/sessions", json={
+            "workspace_id": "demo", "kind": "terminal", "name": created["logical_name"], **overrides,
+        })
+        assert rejected.status_code == 409, rejected.text
     restored = client.post("/api/term/sessions", json={
         "workspace_id": "demo", "kind": "terminal", "name": created["logical_name"],
     })
     assert restored.status_code == 200, restored.text
-    assert restored.json()["linked_scope"] == new_scope
-    assert restored.json()["cwd"] == new_scope["root"]
+    assert restored.json()["linked_scope"] == scope
+    assert restored.json()["cwd"] == scope["root"]
 
 
 @pytest.mark.parametrize('agent', ['claude', 'codex', 'copilot'])

@@ -615,7 +615,7 @@ process.stdout.write(JSON.stringify({
   pickerHasHistory: scopedButtons.includes('sidebarOpenRepositoryHistory(this)'),
   pickerHasGithub: scopedButtons.includes('class="sidebar-github-icon"'),
   mainHasHistory: _sidebarFileScopeButtonsHtml('/repo').includes('sidebarOpenRepositoryHistory(this)'),
-  mainHasLabel: _sidebarFileScopeButtonsHtml('/repo').includes('Attach active terminal'),
+  mainHasLabel: _sidebarFileScopeButtonsHtml('/repo').includes('Open a new terminal'),
   scopeColor: scope.includes('--sidebar-worktree-color:#123abc'),
   scopePath: scope.includes('data-worktree-path="/worktrees/feature-b"'),
   selectedHistoryRoot,

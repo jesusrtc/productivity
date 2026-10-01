@@ -47,11 +47,10 @@ const explorerToast = () => {};
   process.stdout.write(JSON.stringify(patches));
 })();
 """)
-    assert result == [{"linked_file": None, "label": None},
-                      {"linked_file": None}, {"linked_scope": None}]
+    assert result == [{"linked_file": None, "label": None}, {"linked_file": None}]
 
 
-def test_code_scope_link_uses_shared_terminal_owner_and_file_link_cascades():
+def test_folder_reassignment_is_rejected_and_file_link_keeps_shared_terminal_folder():
     helpers = _js_between("  function _termLinkContext()", "  function _termSessionsLinkedToContext(")
     helpers += _js_between("  async function termLinkTarget(", "  async function termUnlinkTarget(")
     result = _run_node(helpers + """
@@ -79,12 +78,11 @@ const fetch = async (url, options) => {
   process.stdout.write(JSON.stringify({requests, refreshes, session:termSessions[0]}));
 })();
 """)
-    folder, file = result['requests']
-    assert folder == {'workspace_id':'__assistant__', 'vault':'__assistant__', 'name':'codex',
-                      'linked_scope':file['linked_scope']}
+    file, = result['requests']
+    assert file['workspace_id'] == '__assistant__' and file['name'] == 'codex'
     assert file['linked_file'] == {'root':'/trees/feature', 'path':'src/example.py'}
-    assert file['linked_scope']['root'] == '/trees/feature'
+    assert 'linked_scope' not in file
     assert 'linked_task' not in file
     assert result['session']['label'] == 'My Assistant name'
     assert result['session']['linked_task']['document_id'] == 'document'
-    assert result['refreshes'] == 2
+    assert result['refreshes'] == 1

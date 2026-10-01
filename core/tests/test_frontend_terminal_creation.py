@@ -38,6 +38,8 @@ const _termHomeSection = () => active.home;
 const _termSessionsKey = (workspace, vault) => vault + '::' + workspace;
 const _vaultQuery = vault => '&vault=' + encodeURIComponent(vault);
 const _termSelectedScope = () => ({root: '/project', project_root: '/project'});
+let chooseScope = async scope => scope;
+const _termChooseNewScope = (...args) => chooseScope(...args);
 const associations = [], statuses = [], alerts = [], attachments = [], auto = [], gets = [], posts = [];
 const _termSaveHomeAssociation = (...args) => associations.push(args);
 const termSetStatus = (...args) => statuses.push(args);
@@ -182,6 +184,34 @@ assert.equal(_termSessionListVersions.size, 0);
 assert.deepEqual(termSessions, [old]);
 assert.deepEqual(alerts, ['Failed to create session: Cannot create']);
 ''')
+
+
+@pytest.mark.parametrize('result', ['choice', 'cancel', 'navigate'])
+@pytest.mark.parametrize('fresh', [True, False])
+def test_workspace_creation_waits_for_explicit_folder_and_cancellation_never_posts(result, fresh):
+    run(r'''
+const gate = deferred();
+let choices = 0;
+chooseScope = async () => {choices++; return gate.promise;};
+const pending = termSpawnSession('terminal', {startFresh:options.fresh,
+  linkedScope:{root:'/file-folder'}});
+await tick();
+assert.equal(choices,1);
+assert.deepEqual(posts,[]);
+assert.deepEqual(attachments,[]);
+if(options.result==='navigate') active.workspace='other';
+gate.resolve(options.result==='cancel' ? null : {root:'/pinned-worktree',worktree:'/pinned-worktree'});
+await tick();
+if(options.result==='choice') {
+  assert.equal(posts[0].cwd,'/pinned-worktree');
+  assert.equal(posts[0].linked_scope.root,'/pinned-worktree');
+  gets[0].resolve(response([created]));
+} else {
+  assert.deepEqual(posts,[]);
+  assert.deepEqual(auto,[]);
+}
+await pending;
+''', result=result, fresh=fresh)
 
 
 def test_second_creation_supersedes_older_read_without_affecting_other_scope():
