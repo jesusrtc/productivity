@@ -24,6 +24,9 @@
 .workspace-document-unlink div { display:flex; flex-wrap:wrap; gap:8px; }
 .workspace-document-unlink button { background:var(--bg-tertiary); color:var(--text-primary); border:1px solid var(--border); padding:8px 10px; border-radius:5px; cursor:pointer; }
 .workspace-attention-dot { flex:none; height:7px; width:7px; border-radius:50%; background:var(--green); animation:workspace-attention-blink 1.6s ease-in-out infinite; }
+.workspace-attention-dot[role="button"] { cursor:pointer; }
+.workspace-attention-dot:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+.workspace-attention-dot.workspace-attention-working { background:var(--yellow); animation:none; }
 @keyframes workspace-attention-blink { 0%,100% { opacity:1; } 50% { opacity:.2; } }
 @media (prefers-reduced-motion:reduce) { .workspace-attention-dot { animation:none; } }
 .assistant-document-modal[data-terminal-placement="right"]:has(.assistant-document-terminal:not([hidden])) { display:grid; grid-template-columns:minmax(0,1fr) minmax(320px,42%); grid-template-rows:auto minmax(0,1fr); }

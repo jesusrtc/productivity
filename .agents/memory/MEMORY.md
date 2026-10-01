@@ -1,5 +1,7 @@
 # Memory index
 
+- [Workspace working priority and green-dot review](workspace-working-priority-and-dot-review.md) — yellow wins across workspace terminals; direct green-dot activation reviews completed results without navigation.
+
 - [Terminal drops match the visible document](terminal-drops-match-visible-documents.md) — series cards link the displayed series; captured roots/paths and busy-header guards prevent stale targets.
 
 - [Command-click opens Assistant documents in the modal](assistant-document-command-click.md) — document entries and inline rendered content, with drafts preserved and pending inline clicks cancelled.

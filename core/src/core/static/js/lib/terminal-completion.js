@@ -152,7 +152,7 @@
       }, remaining);
     }
   }
-  function doubleClick(scope, session) {
+  function acknowledge(scope, session) {
     if (document.hidden || !document.hasFocus()) return false;
     const previous = record(scope, session);
     if (!previous?.completed || previous.at >= previous.completed.at) return false;
@@ -160,6 +160,9 @@
     stopViewing();
     refresh();
     return true;
+  }
+  function doubleClick(scope, session) {
+    return acknowledge(scope, session);
   }
   window.addEventListener('storage', event => {
     if (event.key === delayKey) {
@@ -180,5 +183,5 @@
   window.addEventListener('pagehide', stopViewing);
   window.addEventListener('focus', refresh);
   document.addEventListener('visibilitychange', () => document.hidden ? stopViewing() : refresh());
-  window.LabTerminalCompletion = {meta, isWorking, watch, stopViewing, doubleClick, getDelaySeconds, setDelaySeconds};
+  window.LabTerminalCompletion = {meta, isWorking, watch, stopViewing, acknowledge, doubleClick, getDelaySeconds, setDelaySeconds};
 })();

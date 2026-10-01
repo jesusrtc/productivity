@@ -203,13 +203,29 @@
     if (!completion) return;
     document.querySelectorAll('.workspace-tab[data-kind="workspace"]').forEach(tab => {
       const scope = scopeKey({workspace_id:tab.dataset.workspaceId, vault:tab.dataset.vault});
-      const ready = (attention[scope] || []).some(session => completion.meta(scope, session));
+      const sessions = attention[scope] || [];
+      const working = sessions.some(session => completion.isWorking(session));
+      const ready = !working && sessions.some(session => completion.meta(scope, session));
       let dot = tab.querySelector('.workspace-attention-dot');
-      if (ready && !dot) {
-        dot = document.createElement('span'); dot.className = 'workspace-attention-dot'; dot.setAttribute('role','img');
-        dot.setAttribute('aria-label','Terminal work ready to review'); dot.title = 'Terminal work ready to review';
+      if (!working && !ready) { dot?.remove(); return; }
+      if (!dot) {
+        dot = document.createElement('span'); dot.className = 'workspace-attention-dot';
         tab.querySelector('.x')?.before(dot);
-      } else if (!ready && dot) dot.remove();
+      }
+      dot.classList.toggle('workspace-attention-working', working);
+      const label = working ? 'Terminal working' : 'Terminal work ready to review · Click to mark as reviewed';
+      dot.setAttribute('role', working ? 'img' : 'button');
+      dot.setAttribute('aria-label', label); dot.title = label;
+      if (working) dot.removeAttribute('tabindex');
+      else dot.tabIndex = 0;
+      dot.onclick = working ? null : event => {
+        event.preventDefault(); event.stopPropagation();
+        for (const session of sessions) completion.acknowledge(scope, session);
+      };
+      dot.onkeydown = working ? null : event => {
+        if (event.key === 'Enter' || event.key === ' ') dot.onclick(event);
+      };
+      dot.ondblclick = working ? null : event => { event.preventDefault(); event.stopPropagation(); };
     });
   }
   async function poll(force = false) {

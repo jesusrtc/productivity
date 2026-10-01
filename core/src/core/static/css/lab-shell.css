@@ -2063,7 +2063,8 @@
   .term-sessions .sess .sess-activity { position: absolute; top: calc(50% - 3px); right: 3px; width: 6px; height: 6px; border-radius: 50%; pointer-events: none; }
   .term-sessions .sess .sess-working { background: var(--yellow); }
   .term-sessions .sess .sess-working:has(+ .sess-completion) { right: 12px; }
-  .term-sessions .sess .sess-completion { background: var(--green); animation: term-completion-blink 1.6s step-end infinite; box-shadow: 0 0 5px var(--green); }
+  .term-sessions .sess .sess-completion { background: var(--green); animation: term-completion-blink 1.6s step-end infinite; box-shadow: 0 0 5px var(--green); pointer-events: auto; cursor: pointer; }
+  .term-sessions .sess .sess-completion:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .term-sessions .sess .sess-label { display: none; }
   .term-divider-section { display: flex; flex-direction: column; gap: 3px; min-width: 0; width: 100%; }
   .term-divider-tabs { display: flex; flex-direction: column; gap: 4px; min-width: 0; }

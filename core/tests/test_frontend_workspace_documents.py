@@ -35,6 +35,7 @@ const assert=(ok,message)=>{if(!ok)throw new Error(message)};
 const until=async fn=>{for(let i=0;i<300;i++){if(fn())return;await new Promise(r=>setTimeout(r,5));}throw new Error('Timed out: '+fn)};
 const calls=[], notices=[], documents=[]; let taskLinks=[], activeView=null, pendingIndex=null, pendingDetail=null;
 const scope={workspace_id:'demo',vault:'client'};
+const _termRecentScopeKey=()=>scope.vault+'::'+scope.workspace_id;
 localStorage.setItem('lab.assistant.tabs-width.v1','210');
 let termSessions=[], termCurrentSession=null, termCurrentWorkspaceId=null;
 const termDeadSessions=new Set(), fileOpens=[];
@@ -89,6 +90,7 @@ window.LabTaskTerminalBridge={patch:async(session,patch,context)=>{
     setup += app[app.index('  function sidebarToggleCollapse()'):app.index('  function _sidebarApplyForView()')]
     setup += app[app.index('  function _termDropPaths('):app.index('  function _termReflowSelection(')]
     setup += "const pastedPaths=[]; const termXterm={paste:value=>pastedPaths.push(value),focus(){}}; const termWS={readyState:1}; const _termDragState=null, workspaceTabsDragId=null;"
+    setup += 'function wireCompletionDot(node) {' + app[app.index("      const completionDot = node.querySelector('.sess-completion');"):app.index("      node.addEventListener('pointerenter', () => _termShowSessionTooltip(node));")] + '}'
     checks = r'''
 (async()=>{
  const W=LabWorkspaceDocuments;
@@ -208,6 +210,51 @@ window.LabTaskTerminalBridge={patch:async(session,patch,context)=>{
  activeView=null;LabTerminalCompletion.stopViewing();
  source.agent_activity={state:'completed',completed_at:600,completion_id:'next'};
  await W.poll(true);assert(document.querySelectorAll('.workspace-attention-dot').length===2,'next response alerts again');
+ // Yellow wins over unread green in both active and inactive shared views.
+ const worker={...source,name:'working-process',agent_session_id:'working-conversation',agent_activity:{state:'working'}};
+ const dots=()=>[...document.querySelectorAll('.workspace-attention-dot')];
+ W.updateSessions('client::demo',[source,worker]);W.updateSessions('client::inactive',[source,worker]);
+ assert(dots().length===2&&dots().every(dot=>dot.classList.contains('workspace-attention-working')),'any working terminal takes precedence over completed siblings');
+ assert(dots().every(dot=>getComputedStyle(dot).backgroundColor==='rgb(210, 153, 34)'&&getComputedStyle(dot).animationName==='none'),'workspace working dot is steady yellow');
+ assert(dots().every(dot=>dot.getAttribute('role')==='img')&&LabTerminalCompletion.meta('client::demo',source),'yellow never acknowledges the unread green');
+ worker.agent_activity={state:'unknown'};delete worker.agent_session_id;
+ W.updateSessions('client::demo',[source,worker]);W.updateSessions('client::inactive',[source,worker]);
+ assert(dots().every(dot=>dot.classList.contains('workspace-attention-working')),'uncertain reads retain verified working status');
+ worker.agent_session_id='working-conversation';worker.agent_activity={state:'completed',completed_at:650,completion_id:'worker-done'};
+ W.updateSessions('client::demo',[source,worker]);W.updateSessions('client::inactive',[source,worker]);
+ assert(dots().length===2&&dots().every(dot=>!dot.classList.contains('workspace-attention-working')&&dot.getAttribute('role')==='button'),'green returns once all work has finished');
+ let workspaceActivations=0;
+ document.getElementById('workspaceTabs').addEventListener('click',()=>workspaceActivations++);
+ dots()[0].click();
+ assert(!dots().length&&!workspaceActivations,'clicking workspace green clears all its unread results without navigation');
+ assert(!LabTerminalCompletion.meta('client::inactive',source)&&!LabTerminalCompletion.meta('client::inactive',worker),'review propagates to the same terminals in every shared workspace');
+ assert(LabTerminalCompletion.meta('client::demo',background),'workspace review leaves unrelated terminals unread');
+ await W.poll(true);assert(!dots().length,'acknowledged results stay cleared on refresh');
+ source.agent_activity={state:'completed',completed_at:700,completion_id:'later'};
+ await W.poll(true);assert(dots().length===2,'a later response gets a fresh green dot');
+ dots()[0].dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true}));
+ assert(!dots().length,'workspace green can also be cleared with the keyboard');
+ // Clicking a terminal's green dot is independent of its tab activation.
+ source.agent_activity={state:'completed',completed_at:800,completion_id:'terminal-click'};
+ assert(LabTerminalCompletion.meta('client::demo',source),'terminal response starts unread');
+ source.agent_activity={state:'working'};
+ W.updateSessions('client::demo',[source]);
+ const savedSessions=termSessions;termSessions=[source];
+ const pill=document.createElement('span');pill.className='sess';pill.dataset.name=source.name;
+ pill.innerHTML='<span class="sess-label">Terminal</span><span class="sess-activity sess-completion" role="button" tabindex="0"></span>';
+ const rail=document.createElement('div');rail.className='term-sessions';rail.append(pill);document.body.append(rail);wireCompletionDot(pill);
+ assert(getComputedStyle(pill.querySelector('.sess-completion')).pointerEvents==='auto','the green dot receives pointer clicks');
+ let terminalActivations=0;pill.addEventListener('click',()=>terminalActivations++);
+ pill.querySelector('.sess-label').click();
+ assert(terminalActivations===1&&LabTerminalCompletion.meta('client::demo',source),'ordinary terminal clicks keep the green result unread');
+ pill.querySelector('.sess-completion').click();
+ assert(terminalActivations===1&&!LabTerminalCompletion.meta('client::demo',source),'clicking exactly the green terminal dot clears it without activation');
+ assert(LabTerminalCompletion.isWorking(source)&&dots().some(dot=>dot.classList.contains('workspace-attention-working')),'clearing green leaves ongoing yellow work intact');
+ source.agent_activity={state:'completed',completed_at:900,completion_id:'terminal-keyboard'};
+ assert(LabTerminalCompletion.meta('client::demo',source),'next terminal response starts unread');
+ pill.querySelector('.sess-completion').dispatchEvent(new KeyboardEvent('keydown',{key:' ',bubbles:true,cancelable:true}));
+ assert(!LabTerminalCompletion.meta('client::demo',source),'keyboard activation clears only the completed response');
+ rail.remove();termSessions=savedSessions;
  // Cancel is a no-op; both ownership choices send the captured source and target.
  let pending=W.unlink(taskLinks[0]);await until(()=>document.querySelector('dialog[open]'));
  document.querySelector('dialog button[value="cancel"]').click();assert(await pending===false,'cancel');

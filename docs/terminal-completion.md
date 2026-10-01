@@ -13,6 +13,12 @@ seconds with a slight glow. Reduced-motion preferences use a steady glowing dot.
 New work never hides or acknowledges an unread completion: yellow and green
 appear side by side when both apply. Hovering never acknowledges a response.
 
+Workspace tabs aggregate their visible terminals, including terminals shared
+through linked documents. If any terminal is working, the workspace shows a
+steady yellow dot. Otherwise, unread completed work shows a blinking green dot.
+Yellow takes precedence over green on the workspace tab without acknowledging
+any unread results.
+
 The left-edge vertical line indicates **recency only**. It stays steady and
 continues to use the recent-marker color and timing settings, independently of
 the activity dot.
@@ -24,16 +30,21 @@ leaving the Lab window, disconnecting, or reloading resets the viewing interval.
 A new response gets its own full interval, including when it finishes in an
 already open terminal. Hovering never acknowledges a response.
 
-To dismiss it sooner, **double-click the terminal tab**. Single clicks, including
-two separate clicks, never dismiss it. When there is no unread completion,
+To dismiss it sooner, **double-click the terminal tab**. Single clicks on the tab
+label, including two separate clicks, never dismiss it. When there is no unread completion,
 double-click retains Rename; Rename is also available from the context menu.
+Clicking **directly on the green dot** also marks the result as reviewed without
+activating the terminal or switching workspaces. A workspace green dot marks all
+its pending terminal results as reviewed across their shared views. Green dots
+also support Enter and Space when focused.
 An explicit double-click can acknowledge a previously verified response even
 while the connection or live identity is temporarily unavailable.
 
 Starting new work resets the viewing interval and prevents automatic
 acknowledgement until work has stopped. The unread green dot stays visible
-throughout. The only acknowledgement paths are the full viewing interval and
-an explicit double-click, shared across views of the same terminal.
+throughout. The acknowledgement paths are the full viewing interval, an explicit
+double-click on the terminal tab, or a direct green-dot activation, shared across
+views of the same terminal.
 
 Configure the delay under **Settings → Global → Terminal appearance → Stop
 blinking after viewing (seconds)**. It accepts 1–3600 seconds and is saved for

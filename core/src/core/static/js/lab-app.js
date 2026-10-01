@@ -13782,7 +13782,7 @@
       ${scope?.worktree && !linked ? '' : `<span class="sess-label${s.label ? ' custom' : ''}">${termSessEsc(display)}</span>`}
       ${_termSessionAssociationHtml(s)}
       ${working ? '<span class="sess-activity sess-working" aria-hidden="true"></span>' : ''}
-      ${ready ? '<span class="sess-activity sess-completion" aria-hidden="true"></span>' : ''}
+      ${ready ? '<span class="sess-activity sess-completion" role="button" tabindex="0" aria-label="Mark completed terminal work as reviewed" title="Click to mark completed work as reviewed"></span>' : ''}
       ${linked ? `<span class="sess-link" aria-hidden="true">&#x21C4;</span>` : ''}
     </span>`;
   }
@@ -13911,6 +13911,19 @@
       });
     });
     el.querySelectorAll('.sess').forEach(node => {
+      const completionDot = node.querySelector('.sess-completion');
+      if (completionDot) {
+        const acknowledge = event => {
+          event.preventDefault(); event.stopPropagation();
+          const session = termSessions.find(row => row.name === node.getAttribute('data-name'));
+          if (session) window.LabTerminalCompletion?.acknowledge(_termRecentScopeKey(), session);
+        };
+        completionDot.addEventListener('click', acknowledge);
+        completionDot.addEventListener('keydown', event => {
+          if (event.key === 'Enter' || event.key === ' ') acknowledge(event);
+        });
+        completionDot.addEventListener('dblclick', event => { event.preventDefault(); event.stopPropagation(); });
+      }
       node.addEventListener('pointerenter', () => _termShowSessionTooltip(node));
       node.addEventListener('pointerleave', _termScheduleSessionTooltipHide);
       node.addEventListener('focus', () => _termShowSessionTooltip(node));
