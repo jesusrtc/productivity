@@ -1241,9 +1241,12 @@
       : root.tree && find(root.tree) || [root.metadata.title, ...(current.path !== root.path ? [current.metadata?.title] : [])];
     const host = document.getElementById('assistantModalDocument');
     const top = host.getBoundingClientRect().top + 30;
-    const headings = [...host.querySelectorAll('.assistant-markdown :is(h1,h2,h3,h4,h5,h6)')].filter(heading => heading.getClientRects().length);
+    const headings = [...host.querySelectorAll('.assistant-markdown :is(h1,h2,h3,h4,h5,h6), .cm-content .lab-live-heading')].filter(heading => heading.getClientRects().length);
     const active = headings.filter(heading => heading.getBoundingClientRect().top <= top).at(-1) || headings[0];
-    if (!state.modalIndex && active?.textContent.trim() && active.textContent.trim() !== parts.at(-1)) parts.push(active.textContent.trim());
+    const label = active?.cloneNode(true);
+    label?.querySelectorAll('.lab-live-syntax').forEach(node => node.remove());
+    const title = label?.textContent.trim();
+    if (!state.modalIndex && title && title !== parts.at(-1)) parts.push(title);
     const labels = parts.filter(Boolean);
     const html = labels.map((title, index) => `${index ? '<span class="assistant-location-separator" aria-hidden="true">›</span>' : ''}<span${index === labels.length - 1 ? ' aria-current="location"' : ''}>${e(title)}</span>`).join('');
     if (location.innerHTML !== html) location.innerHTML = html;
@@ -1876,6 +1879,7 @@
         draft.input = window.LabMarkdownEditor.create(draft.node, {
           body:draft.body, onChange:changed, onSave:() => saveNoteContent(state.modalCurrent, kind),
           prepare:node => { rewriteImages(node, detail.path); bindHeadingCopyMenu(node); },
+          prepareHeadings:bindHeadingCopyMenu,
         });
       } else {
         draft.node.innerHTML = '<pre class="assistant-note-marks" aria-hidden="true"></pre><textarea aria-label="Note content" spellcheck="true" wrap="soft"></textarea>';
@@ -2643,8 +2647,18 @@
       const request = state.modalRequest;
       // Use the same rich clipboard payload as Copy for Google Docs. The helper
       // snapshots this exact section before any asynchronous image loading.
-      const result = window.LabMarkdown.copy(host, {
-        heading, includeHeading: heading.textContent.trim().toLowerCase() !== 'generate content',
+      let copyHost = host, copyHeading = heading;
+      if (heading.matches('.lab-live-heading')) {
+        const editor = noteDraft()?.input;
+        if (editor?.sectionAt) {
+          copyHost = document.createElement('div');
+          copyHost.innerHTML = window.LabMarkdown.render(editor.sectionAt(editor.view.posAtDOM(heading)));
+          rewriteImages(copyHost, state.modalCurrent.path);
+          copyHeading = copyHost.querySelector('h1, h2, h3, h4, h5, h6');
+        }
+      }
+      const result = window.LabMarkdown.copy(copyHost, {
+        heading:copyHeading, includeHeading: copyHeading?.textContent.trim().toLowerCase() !== 'generate content',
       });
       closeHeadingMenu(true);
       const message = document.querySelector('#assistantModalMetadata .assistant-metadata-message');
@@ -2678,7 +2692,9 @@
   }
 
   function bindHeadingCopyMenu(host) {
-    host.querySelectorAll('h1, h2, h3, h4, h5, h6').forEach(heading => {
+    host.querySelectorAll('h1, h2, h3, h4, h5, h6, .lab-live-heading').forEach(heading => {
+      if (heading.dataset.labHeadingMenu) return;
+      heading.dataset.labHeadingMenu = 'bound';
       heading.tabIndex = 0;
       heading.setAttribute('aria-haspopup', 'menu');
       heading.setAttribute('aria-keyshortcuts', 'Shift+F10');

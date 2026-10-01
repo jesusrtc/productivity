@@ -22,7 +22,7 @@ def test_live_markdown_autosaves_and_reverts_only_current_tab(client, note_data,
     if not Path(chrome).is_file() or not shutil.which('node'):
         pytest.skip('Chrome and Node required')
     root, note, child, sibling, _ = note_data
-    original = '# Opening\n\nFirst paragraph with **bold**.\n\n## Second section\n\nOther paragraph.\n'
+    original = '# Opening\n\nFirst paragraph with **bold**.\n\n[Local document](guide.md#tab=one).\n\n![Diagram](assets/diagram.png)\n\n## Second section\n\nOther paragraph.\n'
     records.update_body(root, str(note.relative_to(root)), original, expected=documents.read(note)[1])
     records.update_body(root, str(child.relative_to(root)), '# Child\n\nChild paragraph.', expected='')
     records.update_body(root, str(sibling.relative_to(root)), 'Untouched sibling', expected='')
@@ -48,9 +48,13 @@ window.read=path=>realFetch('/api/assistant/note?path='+encodeURIComponent(path)
  await AssistantView.refresh();
  await AssistantView.openDocument('note',FIX.note);
  assert(editor()&&document.querySelector('.cm-content[contenteditable="true"]'),'current tab is editable on open');
- assert(document.querySelector('.lab-live-markdown-block strong')?.textContent==='bold','inactive Markdown renders inline');
- assert(document.querySelector('.lab-live-markdown-block h1')?.textContent==='Opening','heading renders');
+ assert(document.querySelector('.cm-content strong')?.textContent==='bold','inactive Markdown renders inline');
+ assert(document.querySelector('.cm-content .lab-live-heading-1')?.textContent==='Opening','heading renders');
+ assert(document.querySelector('.cm-content .lab-live-heading-1').getAttribute('aria-haspopup')==='menu','editable headings keep section actions');
  assert(document.querySelectorAll('.cm-editor').length===1,'only current tab mounts an editor');
+ window.linkHref=document.querySelector('.cm-content a').getAttribute('href');window.imageSrc=document.querySelector('.cm-content img[src]').getAttribute('src');
+ assert(linkHref.startsWith('/api/assistant/link?')&&linkHref.endsWith(encodeURIComponent('guide.md#tab=one')),'inline document links keep scoped tab resolution');
+ assert(imageSrc.startsWith('/api/assistant/asset?')&&imageSrc.endsWith(encodeURIComponent('assets/diagram.png')),'live images use scoped asset resolution');
  document.getElementById('result').textContent='READY';
 })().catch(error=>document.getElementById('result').textContent='FAIL: '+error.stack);
 '''
@@ -87,15 +91,17 @@ async function clickAt(point) {
  await send('Input.dispatchMouseEvent',{type:'mouseReleased',...point,button:'left',clickCount:1});
 }
 async function typeInParagraph(text, label='First paragraph') {
- const point=await evaluate(`(() => {const block=[...document.querySelectorAll('.lab-live-markdown-block p')].find(node=>node.textContent.includes(${JSON.stringify(label)}));assert(block,'rendered paragraph available');const r=block.getBoundingClientRect();return {x:r.x+40,y:r.y+r.height/2}})()`);
+ const point=await evaluate(`(() => {const block=[...document.querySelectorAll('.cm-content .cm-line')].find(node=>node.textContent.includes(${JSON.stringify(label)}));assert(block,'rendered paragraph available');block.scrollIntoView({block:'center'});const r=editor().view.coordsAtPos(editor().value.indexOf(${JSON.stringify(label)}));return {x:r.left+1,y:(r.top+r.bottom)/2}})()`);
  await clickAt(point);
  await evaluate(`until(()=>editor().view.hasFocus)`);
  await send('Input.insertText',{text});
 }
 await evaluate(`until(()=>document.getElementById('result').textContent!=='PENDING')`);
 await evaluate(`assert(document.getElementById('result').textContent==='READY',document.getElementById('result').textContent)`);
+await evaluate(`(async()=>{const realCopy=LabMarkdown.copy;let copied;LabMarkdown.copy=async node=>{copied=node;return true};document.querySelector('.lab-live-heading-2').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true}));assert(document.querySelector('.assistant-heading-menu'),'editable heading opens section actions');document.querySelector('.assistant-heading-menu button').click();await until(()=>copied);LabMarkdown.copy=realCopy;assert(copied.querySelector('h2').textContent==='Second section'&&copied.textContent.includes('Other paragraph')&&!copied.textContent.includes('First paragraph'),'section copy renders exactly the selected Markdown section');assert(document.getElementById('assistantDocumentLocation').textContent.includes('Opening'),'live heading remains in document breadcrumbs')})()`);
 await typeInParagraph('**live** ');
 await evaluate(`assert(editor().value.includes('**live** '),'native typing changes the current Markdown source');window.lastInput=Date.now()`);
+await evaluate(`assert(document.querySelector('.cm-content a').getAttribute('href')===linkHref&&document.querySelector('.cm-content img[src]').getAttribute('src')===imageSrc,'editing never repeatedly wraps scoped links or image URLs')`);
 await send('Input.dispatchKeyEvent',{type:'keyDown',key:'z',code:'KeyZ',modifiers:4,windowsVirtualKeyCode:90});
 await send('Input.dispatchKeyEvent',{type:'keyUp',key:'z',code:'KeyZ',windowsVirtualKeyCode:90});
 await evaluate(`assert(editor().value===FIX.original,'native undo restores the exact Markdown')`);
@@ -103,7 +109,7 @@ await send('Input.insertText',{text:'**live** '});
 await evaluate(`window.lastInput=Date.now();window.firstSave=editor().value`);
 const title=await evaluate(`(() => {const r=document.getElementById('assistantModalTitle').getBoundingClientRect();return {x:r.x+20,y:r.y+r.height/2}})()`);
 await clickAt(title);
-await evaluate(`until(()=>[...document.querySelectorAll('.lab-live-markdown-block strong')].some(node=>node.textContent==='live'))`);
+await evaluate(`until(()=>[...document.querySelectorAll('.cm-content strong')].some(node=>node.textContent==='live'))`);
 await evaluate(`new Promise(resolve=>setTimeout(resolve,9000))`);
 await evaluate(`assert(writes.length===0,'autosave waits for the full idle interval')`);
 await evaluate(`until(()=>document.getElementById('assistantNoteStatus').textContent.startsWith('Saved at'))`);
