@@ -531,3 +531,9 @@
 - [Markdown editor builds use local lock entries](markdown-editor-builds-use-local-lock-entries.md) — reproducible npm ci from ordinary package records, without temporary build-directory links.
 
 - [Checkout documents use checkout terminals](checkout-documents-use-checkout-terminals.md) — exact folder/worktree links retain native checkout controllers without importing document terminals.
+
+- [Markdown formatting normalizes selected runs](markdown-formatting-normalizes-selected-runs.md) — full/mixed toggles, outside fragments, other styles, atomic undo, and readable toolbar themes.
+
+- [Markdown slash menu exposes foldable content](markdown-slash-menu-exposes-foldable-content.md) — searchable block actions with native folds, keyboard/click control, and preserved save/copy behavior.
+
+- [Markdown toolbars theme the tooltip itself](markdown-toolbars-theme-the-tooltip-itself.md) — CodeMirror places both classes on one element; theme contrast and interface type sizes need native checks.

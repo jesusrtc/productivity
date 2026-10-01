@@ -1,7 +1,7 @@
 /* Edit the Markdown source through document typography and local syntax reveals. */
-import {EditorSelection, EditorState, StateEffect, StateField} from '@codemirror/state';
+import {ChangeSet, EditorSelection, EditorState, StateEffect, StateField} from '@codemirror/state';
 import {Decoration, EditorView, WidgetType, keymap, showTooltip} from '@codemirror/view';
-import {defaultKeymap, history, historyKeymap} from '@codemirror/commands';
+import {defaultKeymap, history, historyKeymap, isolateHistory} from '@codemirror/commands';
 import {markdown} from '@codemirror/lang-markdown';
 import {syntaxTree} from '@codemirror/language';
 import {GFM} from '@lezer/markdown';
@@ -213,20 +213,76 @@ function previewDecorations(state, prepare, previous) {
   return {decorations:Decoration.set(decorations,true),atomic:Decoration.set(atomic,true),metadata:meta};
 }
 
-function formatSelection(view, marker) {
-  const {from,to}=view.state.selection.main;
-  let start=from,end=to;
-  if(start===end){const word=view.state.wordAt(start);if(word){start=word.from;end=word.to;}}
-  const type={'**':'StrongEmphasis','*':'Emphasis','~~':'Strikethrough','`':'InlineCode'}[marker];
-  let existing;
-  syntaxTree(view.state).iterate({from:start,to:end,enter:ref=>{
-    if(ref.name===type&&ref.from<=start&&ref.to>=end)existing=ref.node;
+const formatTypes={'**':'StrongEmphasis','*':'Emphasis','~~':'Strikethrough','`':'InlineCode'};
+function hasFormatText(state,from,to,ignored) {
+  let cursor=from;
+  for(const span of ignored){
+    if(span.to<=cursor)continue;
+    if(span.from>=to)break;
+    if(span.from>cursor&&/\S/.test(state.doc.sliceString(cursor,Math.min(to,span.from))))return true;
+    cursor=Math.max(cursor,span.to);if(cursor>=to)return false;
+  }
+  return cursor<to&&/\S/.test(state.doc.sliceString(cursor,to));
+}
+function selectionFormatting(state, marker) {
+  let {from:start,to:end}=state.selection.main;
+  if(start===end){const word=state.wordAt(start);if(word){start=word.from;end=word.to;}}
+  const runs=[],ignored=[],blocks=[];
+  syntaxTree(state).iterate({from:start,to:end,enter:ref=>{
+    const node=ref.node;
+    if(inlineFormats[ref.name])ignored.push(...children(node).filter(child=>/Mark$/.test(child.name)||['URL','LinkTitle','LinkLabel'].includes(child.name)));
+    if(ref.name===formatTypes[marker]){
+      const marks=children(node).filter(child=>/^(EmphasisMark|StrikethroughMark|CodeMark)$/.test(child.name));
+      if(marks.length===2&&node.from<end&&node.to>start)runs.push({from:marks[0].to,to:marks[1].from,marks});
+    }
+    if(/Mark$/.test(ref.name)||['URL','LinkTitle','LinkLabel'].includes(ref.name))ignored.push({from:ref.from,to:ref.to});
+    if(ref.name==='Paragraph'||/^ATXHeading[1-6]$|^SetextHeading[12]$|^TableCell$/.test(ref.name)){
+      const marks=children(node).filter(child=>child.name==='HeaderMark');
+      blocks.push({from:Math.max(start,marks[0]?.from===node.from?marks[0].to:node.from),to:Math.min(end,marks.at(-1)?.from>node.from?marks.at(-1).from:node.to)});
+    }
   }});
-  if(existing){
-    const marks=children(existing).filter(node=>/^(EmphasisMark|StrikethroughMark|CodeMark)$/.test(node.name));
-    const changes=view.state.changes(marks.map(node=>({from:node.from,to:node.to})));
-    view.dispatch({changes,selection:EditorSelection.range(changes.mapPos(start),changes.mapPos(end)),userEvent:'input'});
-  }else view.dispatch({changes:[{from:start,insert:marker},{from:end,insert:marker}],selection:EditorSelection.range(start+marker.length,end+marker.length),userEvent:'input'});
+  // Whitespace and hidden Markdown delimiters do not make an otherwise fully
+  // formatted selection mixed. Literal stars in code remain ordinary content.
+  let cursor=start,all=runs.length>0;
+  for(const span of [...runs,...ignored].sort((a,b)=>a.from-b.from)){
+    if(span.to<=cursor)continue;
+    if(span.from>cursor&&/\S/.test(state.doc.sliceString(cursor,Math.min(end,span.from)))){all=false;break;}
+    cursor=Math.max(cursor,span.to);if(cursor>=end)break;
+  }
+  if(cursor<end&&/\S/.test(state.doc.sliceString(cursor,end)))all=false;
+  return {start,end,runs,blocks,all,ignored:ignored.sort((a,b)=>a.from-b.from)};
+}
+function formatSelection(view, marker) {
+  const state=view.state,{start,end,runs,blocks,all,ignored}=selectionFormatting(state,marker);
+  const marks=new Map(runs.flatMap(run=>run.marks.map(mark=>[mark.from,mark])));
+  const remove=state.changes([...marks.values()].sort((a,b)=>a.from-b.from).map(mark=>({from:mark.from,to:mark.to})));
+  const doc=remove.apply(state.doc),from=remove.mapPos(start),to=remove.mapPos(end),insertions=new Map();
+  const insert=(position,text)=>insertions.set(position,(insertions.get(position)||'')+text);
+  const wrap=(start,end,delimiter)=>{
+    const text=doc.sliceString(start,end),leading=text.match(/^\s*/)[0].length,trailing=text.match(/\s*$/)[0].length;
+    if(leading===text.length)return;
+    insert(start+leading,delimiter);insert(end-trailing,delimiter);
+  };
+  // Split only intersected runs, retaining formatting outside the selection.
+  for(const run of runs){
+    const delimiter=marker==='`'?state.doc.sliceString(run.marks[0].from,run.marks[0].to):marker;
+    if(run.from<start&&hasFormatText(state,run.from,start,ignored))wrap(remove.mapPos(run.from),from,delimiter);
+    if(run.to>end&&hasFormatText(state,end,run.to,ignored))wrap(to,remove.mapPos(run.to),delimiter);
+  }
+  if(!all){
+    let delimiter=marker;
+    if(marker==='`')delimiter='`'.repeat(Math.max(0,...[...doc.sliceString(from,to).matchAll(/`+/g)].map(match=>match[0].length))+1);
+    const spans=blocks.length?blocks:[{from:start,to:end}];
+    for(const span of spans){
+      if(span.to<=span.from)continue;
+      wrap(remove.mapPos(span.from),remove.mapPos(span.to),delimiter);
+    }
+    if(from===to)insert(from,delimiter+delimiter);
+  }
+  const add=ChangeSet.of([...insertions].sort((a,b)=>a[0]-b[0]).map(([from,insert])=>({from,insert})),doc.length);
+  const changes=remove.compose(add);
+  const anchor=from===to?from+marker.length:add.mapPos(from,1),head=from===to?anchor:add.mapPos(to,-1);
+  view.dispatch({changes,selection:EditorSelection.range(Math.min(anchor,head),Math.max(anchor,head)),userEvent:'input',annotations:isolateHistory.of('full')});
   view.focus();return true;
 }
 function formattingTooltip(state) {
@@ -237,11 +293,87 @@ function formattingTooltip(state) {
       if(!view.hasFocus&&!dom.contains(document.activeElement))view.dispatch({effects:focused.of(false)});
     }));
     for(const [label,text,marker] of [['Bold','B','**'],['Italic','I','*'],['Strikethrough','S','~~'],['Inline code','‹›','`']]){
-      const button=document.createElement('button');button.type='button';button.textContent=text;button.title=label;button.setAttribute('aria-label',label);
+      const button=document.createElement('button');button.type='button';button.textContent=text;button.title=label;button.setAttribute('aria-label',label);button.setAttribute('aria-pressed',String(selectionFormatting(state,marker).all));
       button.addEventListener('mousedown',event=>event.preventDefault());button.onclick=()=>formatSelection(view,marker);dom.append(button);
     }
-    return {dom};
+    return {dom,update(update){for(const button of dom.querySelectorAll('button')){const marker={'Bold':'**','Italic':'*','Strikethrough':'~~','Inline code':'`'}[button.getAttribute('aria-label')];button.setAttribute('aria-pressed',String(selectionFormatting(update.state,marker).all));}}};
   }};
+}
+
+const slashActions=[
+  {id:'fold',label:'Foldable content',description:'Toggle a section open or closed',keywords:'toggle details collapse fold html',text:'<details>\n<summary>Toggle title</summary>\n\nContent\n\n</details>',select:'Toggle title'},
+  {id:'h1',label:'Heading 1',description:'Large section heading',keywords:'title heading',text:'# Heading',select:'Heading'},
+  {id:'h2',label:'Heading 2',description:'Medium section heading',keywords:'heading',text:'## Heading',select:'Heading'},
+  {id:'h3',label:'Heading 3',description:'Small section heading',keywords:'heading',text:'### Heading',select:'Heading'},
+  {id:'bullet',label:'Bullet list',description:'An unordered list',keywords:'list unordered',text:'- List item',select:'List item'},
+  {id:'number',label:'Numbered list',description:'An ordered list',keywords:'list ordered',text:'1. List item',select:'List item'},
+  {id:'task',label:'To-do list',description:'A list with checkboxes',keywords:'task checkbox checklist todo',text:'- [ ] To-do',select:'To-do'},
+  {id:'quote',label:'Quote',description:'A block quote',keywords:'blockquote',text:'> Quote',select:'Quote'},
+  {id:'code',label:'Code block',description:'A fenced block of code',keywords:'code fence',text:'```\nCode\n```',select:'Code'},
+  {id:'table',label:'Table',description:'A table with two columns',keywords:'table columns',text:'| Column 1 | Column 2 |\n| --- | --- |\n| Value | Value |',select:'Column 1'},
+  {id:'divider',label:'Divider',description:'A horizontal line',keywords:'rule separator',text:'---\n\n'},
+];
+const slashNavigation=StateEffect.define();
+function slashMatch(state) {
+  const range=state.selection.main;if(!range.empty||!state.field(focusState))return null;
+  const line=state.doc.lineAt(range.head),match=state.doc.sliceString(line.from,range.head).match(/^\s*\/([\w -]*)$/);
+  if(!match||state.doc.sliceString(range.head,line.to).trim())return null;
+  for(let node=syntaxTree(state).resolveInner(range.head,-1);node;node=node.parent){
+    if(['FencedCode','CodeBlock','InlineCode','Link','Image','HTMLBlock'].includes(node.name))return null;
+  }
+  const from=line.from+match[0].indexOf('/'),query=match[1].trim().toLowerCase();
+  return {from,to:range.head,query,actions:slashActions.filter(action=>(action.label+' '+action.keywords).toLowerCase().includes(query))};
+}
+const slashState=StateField.define({
+  create:()=>({match:null,index:0,dismissed:null}),
+  update(value,transaction){
+    const match=slashMatch(transaction.state),signature=match?match.from+':'+match.to+':'+match.query:null;
+    let dismissed=transaction.docChanged||transaction.selection?null:value.dismissed;
+    let index=match?.from===value.match?.from&&match?.query===value.match?.query?value.index:0;
+    for(const effect of transaction.effects)if(effect.is(slashNavigation)){
+      if(effect.value==='dismiss')dismissed=signature;
+      else if(match?.actions.length)index=(index+effect.value+match.actions.length)%match.actions.length;
+    }
+    return {match:signature!==dismissed?match:null,index,dismissed};
+  },
+});
+function applySlashAction(view,action) {
+  const {match}=view.state.field(slashState);if(!match)return false;
+  const offset=action.select?action.text.indexOf(action.select):action.text.length;
+  view.dispatch({changes:{from:match.from,to:match.to,insert:action.text},selection:EditorSelection.range(match.from+offset,match.from+offset+(action.select?.length||0)),userEvent:'input',annotations:isolateHistory.of('full')});
+  view.focus();return true;
+}
+function slashKey(view,action) {
+  const {match,index}=view.state.field(slashState);if(!match)return false;
+  if(action==='accept')return match.actions[index]?applySlashAction(view,match.actions[index]):false;
+  view.dispatch({effects:slashNavigation.of(action)});return true;
+}
+function slashTooltip(state) {
+  const {match}=state.field(slashState);if(!match)return null;
+  return {pos:match.from,above:false,create:createSlashTooltip};
+}
+function createSlashTooltip(view) {
+  const dom=document.createElement('div');dom.className='lab-live-slash-menu';dom.setAttribute('role','menu');dom.setAttribute('aria-label','Insert a block');
+  const title=document.createElement('div');title.className='lab-live-slash-title';title.textContent='Insert a block';dom.append(title);
+  let shown=null;
+  const render=()=>{
+    const current=view.state.field(slashState);if(!current.match)return;
+    const actions=current.match.actions;
+    if(!shown||shown.length!==actions.length||shown.some((action,index)=>action!==actions[index])){
+      dom.querySelectorAll('button, .lab-live-slash-empty').forEach(node=>node.remove());
+      for(const action of actions){
+        const button=document.createElement('button');button.type='button';button.setAttribute('role','menuitem');
+        const label=document.createElement('span');label.textContent=action.label;const description=document.createElement('small');description.textContent=action.description;button.append(label,description);
+        button.addEventListener('mousedown',event=>event.preventDefault());button.onclick=()=>applySlashAction(view,action);dom.append(button);
+      }
+      if(!actions.length){const empty=document.createElement('div');empty.className='lab-live-slash-empty';empty.textContent='No actions found';dom.append(empty);}
+      shown=actions;
+    }
+    dom.querySelectorAll('button').forEach((button,index)=>{button.classList.toggle('is-selected',index===current.index);button.setAttribute('aria-current',String(index===current.index));});
+  };
+  render();
+  dom.addEventListener('focusout',()=>queueMicrotask(()=>{if(!view.hasFocus&&!dom.contains(document.activeElement))view.dispatch({effects:focused.of(false)});}));
+  return {dom,update:render,positioned(){dom.querySelector('.is-selected')?.scrollIntoView({block:'nearest'});}};
 }
 
 window.LabMarkdownEditor = {
@@ -253,10 +385,12 @@ window.LabMarkdownEditor = {
       provide:field=>[EditorView.decorations.from(field,value=>value.decorations),EditorView.atomicRanges.of(view=>view.state.field(field).atomic)],
     });
     const view=new EditorView({parent,state:EditorState.create({doc:body,extensions:[
-      focusState,markdown({extensions:[GFM]}),preview,history(),EditorView.lineWrapping,
+      focusState,markdown({extensions:[GFM]}),preview,history(),EditorView.lineWrapping,slashState,
       EditorView.contentAttributes.of({'aria-label':'Current tab Markdown',spellcheck:'true'}),
-      showTooltip.compute(['selection',focusState],formattingTooltip),
-      keymap.of([{key:'Mod-s',run:()=>{onSave();return true;}},{key:'Mod-b',run:view=>formatSelection(view,'**')},
+      showTooltip.compute(['doc','selection',focusState],formattingTooltip),showTooltip.compute([slashState],slashTooltip),
+      keymap.of([{key:'ArrowDown',run:view=>slashKey(view,1)},{key:'ArrowUp',run:view=>slashKey(view,-1)},
+        {key:'Enter',run:view=>slashKey(view,'accept')},{key:'Escape',run:view=>slashKey(view,'dismiss')},
+        {key:'Mod-s',run:()=>{onSave();return true;}},{key:'Mod-b',run:view=>formatSelection(view,'**')},
         {key:'Mod-i',run:view=>formatSelection(view,'*')},{key:'Mod-e',run:view=>formatSelection(view,'`')},
         ...defaultKeymap,...historyKeymap]),
       EditorView.updateListener.of(update=>{
@@ -266,7 +400,7 @@ window.LabMarkdownEditor = {
       EditorView.domEventHandlers({
         focus:(_event,editor)=>{queueMicrotask(()=>{if(!editor.state.field(focusState))editor.dispatch({effects:focused.of(true)});});},
         blur:(_event,editor)=>{queueMicrotask(()=>{
-          if(!editor.hasFocus&&!editor.dom.querySelector('.lab-live-format-toolbar')?.contains(document.activeElement))editor.dispatch({effects:focused.of(false)});
+          if(!editor.hasFocus&&!(editor.dom.contains(document.activeElement)&&document.activeElement?.closest('.lab-live-format-toolbar, .lab-live-slash-menu')))editor.dispatch({effects:focused.of(false)});
         });},
         click:event=>{const link=event.target.closest('a.lab-live-link');if(!link)return false;event.preventDefault();if((event.metaKey||event.ctrlKey)&&link.hasAttribute('href'))window.LabExternalLinks?.open(link.href,{clientOnly:true});return false;},
       }),

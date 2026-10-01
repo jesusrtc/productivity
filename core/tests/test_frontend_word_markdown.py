@@ -74,7 +74,10 @@ document.getElementById('result').textContent='READY';
     driver = r'''
 async function evaluate(expression){const result=await send('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(result.exceptionDetails)throw Error(result.exceptionDetails.exception?.description||'Browser check failed');return result.result?.value;}
 async function click(point){await send('Input.dispatchMouseEvent',{type:'mouseMoved',...point});await send('Input.dispatchMouseEvent',{type:'mousePressed',...point,button:'left',clickCount:1});await send('Input.dispatchMouseEvent',{type:'mouseReleased',...point,button:'left',clickCount:1});}
-async function key(key,code,modifiers=0){const windowsVirtualKeyCode=({Enter:13,Tab:9,Escape:27})[key]||key.toUpperCase().charCodeAt(0);await send('Input.dispatchKeyEvent',{type:'keyDown',key,code,modifiers,windowsVirtualKeyCode,...(key==='Enter'?{text:'\r'}:{})});await send('Input.dispatchKeyEvent',{type:'keyUp',key,code,windowsVirtualKeyCode});}
+async function key(key,code,modifiers=0){const windowsVirtualKeyCode=({Enter:13,Tab:9,Escape:27,ArrowDown:40,ArrowUp:38})[key]||key.toUpperCase().charCodeAt(0);await send('Input.dispatchKeyEvent',{type:'keyDown',key,code,modifiers,windowsVirtualKeyCode,...(key==='Enter'?{text:'\r'}:{})});await send('Input.dispatchKeyEvent',{type:'keyUp',key,code,windowsVirtualKeyCode});}
+async function selectSource(source,from=0,to=source.length){await evaluate(`editor.value=${JSON.stringify(source)};editor.view.dispatch({selection:{anchor:${from},head:${to}},scrollIntoView:true});editor.focus();until(()=>editor.view.hasFocus)`);}
+async function toolbar(label){await evaluate(`new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))`);const point=await evaluate(`(() => {const node=document.querySelector('.lab-live-format-toolbar button[aria-label="'+${JSON.stringify(label)}+'"]');assert(node,'format button');const r=node.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()`);await click(point);}
+async function snapshot(name){const screenshot=await send('Page.captureScreenshot',{format:'png'});await writeFile(screenshotPath.replace('.png','-'+name+'.png'),Buffer.from(screenshot.data,'base64'));}
 async function word(text,offset=2){
  const point=await evaluate(`(() => {const node=[...editor.view.contentDOM.querySelectorAll('.cm-line')].find(line=>line.textContent.includes(${JSON.stringify(text)}));assert(node,'editable line for '+${JSON.stringify(text)});node.scrollIntoView({block:'center'});const from=editor.value.indexOf(${JSON.stringify(text)}),position=from+${offset};const r=editor.view.coordsAtPos(position);assert(r,'caret coordinates for clicked word');return {x:r.left+1,y:(r.top+r.bottom)/2,position}})()`);
  await click({x:point.x,y:point.y});await evaluate(`until(()=>editor.view.hasFocus)`);
@@ -129,7 +132,70 @@ const detailPoint=await evaluate(`(() => {const node=[...document.querySelectorA
 await click(detailPoint);
 await evaluate(`assert(editor.view.hasFocus&&cursor()>=BASE.indexOf('**detail**')+2&&cursor()<=BASE.indexOf('**detail**')+8,'clicking disclosed rich text enters that word: '+cursor()+' focus='+editor.view.hasFocus);assert(!visible().includes('<details>')&&!visible().includes('https://example.org/path'),'editing disclosure content exposes no whole HTML or paragraph source')`);
 await key('s','KeyS',4);
-await evaluate(`(async()=>{assert(saves.length===1&&saves[0]===BASE,'Save submits the exact original Markdown after navigation');document.getElementById('outside').focus();await until(()=>!document.querySelector('.lab-live-syntax'));assertReading();document.getElementById('result').textContent='PASS'})()`);
+await evaluate(`(async()=>{assert(saves.length===1&&saves[0]===BASE,'Save submits the exact original Markdown after navigation');document.getElementById('outside').focus();await until(()=>!document.querySelector('.lab-live-syntax'));assertReading()})()`);
+for(const [source,formatted,plain,label,shortcut] of [
+ ['plain **bold** words **again**','**plain bold words again**','plain bold words again','Bold','b'],
+ ['__alpha__ plain __beta__','**alpha plain beta**','alpha plain beta','Bold','b'],
+ ['plain **bold *italic*** [label](https://example.org)','**plain bold *italic* [label](https://example.org)**','plain bold *italic* [label](https://example.org)','Bold','b'],
+ ['*alpha* plain *beta*','*alpha plain beta*','alpha plain beta','Italic','i'],
+ ['~~alpha~~ plain ~~beta~~','~~alpha plain beta~~','alpha plain beta','Strikethrough',null],
+ ['`alpha` plain `beta`','`alpha plain beta`','alpha plain beta','Inline code','e'],
+ ['plain `**literal**` **bold**','**plain `**literal**` bold**','plain `**literal**` bold','Bold','b'],
+ ['# Header\n\n**One** and **two**\n\nLast','# **Header**\n\n**One and two**\n\n**Last**','# Header\n\nOne and two\n\nLast','Bold','b'],
+]){
+ await selectSource(source);if(shortcut)await key(shortcut,'Key'+shortcut.toUpperCase(),4);else await toolbar(label);
+ await evaluate(`assert(editor.value===${JSON.stringify(formatted)},'mixed selection becomes one format per block: '+JSON.stringify(editor.value));assert(document.querySelector('.lab-live-format-toolbar button[aria-label="'+${JSON.stringify(label)}+'"]').getAttribute('aria-pressed')==='true','fully formatted selection has an active button')`);
+ await toolbar(label);await evaluate(`assert(editor.value===${JSON.stringify(plain)},'second click removes that format: '+JSON.stringify(editor.value))`);
+ await key('z','KeyZ',4);await evaluate(`assert(editor.value===${JSON.stringify(formatted)},'each formatting command is one undo step')`);
+}
+await selectSource('**alpha** **beta**');await toolbar('Bold');
+await evaluate(`assert(editor.value==='alpha beta','separate fully bold runs toggle off together')`);
+await selectSource('**alpha beta gamma**',8,12);await toolbar('Bold');
+await evaluate(`assert(editor.value==='**alpha** beta **gamma**','partial unbold preserves text and formatting outside the selection');assert(editor.view.state.sliceDoc(editor.view.state.selection.main.from,editor.view.state.selection.main.to)==='beta','selection stays on its text')`);
+await selectSource('__alphabeta__',7,11);await toolbar('Bold');
+await evaluate(`assert(editor.value==='**alpha**beta'&&document.querySelector('.cm-content strong').textContent==='alpha','partial underscore formatting stays valid at word boundaries')`);
+await selectSource('**alpha beta** plain **gamma delta**',8,28);await toolbar('Bold');
+await evaluate(`assert(editor.value==='**alpha** **beta plain gamma** **delta**','mixed partial runs keep both outside fragments bold: '+editor.value)`);
+await selectSource('');await key('b','KeyB',4);await send('Input.insertText',{text:'New'});
+await evaluate(`assert(editor.value==='**New**','empty selection places caret inside new delimiters')`);
+await selectSource('A **bold** selection');await toolbar('Bold');
+for(const theme of ['dark','light']){
+ await evaluate(`document.body.classList.toggle('light-mode',${theme==='light'});new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))`);
+ await evaluate(`(() => {const toolbar=document.querySelector('.lab-live-format-toolbar'),tip=toolbar.closest('.cm-tooltip'),button=toolbar.querySelector('button');const style=getComputedStyle(tip),expected=getComputedStyle(document.body).getPropertyValue('--bg-secondary');const probe=document.createElement('span');probe.style.backgroundColor=expected;document.body.append(probe);assert(style.backgroundColor===getComputedStyle(probe).backgroundColor,'tooltip uses the current Lab theme instead of editor defaults');probe.remove();const luminance=color=>{const rgb=color.match(/[\\d.]+/g).slice(0,3).map(Number).map(value=>{value/=255;return value<=.04045?value/12.92:((value+.055)/1.055)**2.4});return .2126*rgb[0]+.7152*rgb[1]+.0722*rgb[2]};for(const control of toolbar.querySelectorAll('button')){const fg=luminance(getComputedStyle(control).color),bg=luminance(control.getAttribute('aria-pressed')==='true'?getComputedStyle(control).backgroundColor:style.backgroundColor);assert((Math.max(fg,bg)+.05)/(Math.min(fg,bg)+.05)>=4.5,'toolbar labels have readable contrast');assert(getComputedStyle(control).fontSize==='14px','toolbar typography does not grow with document headings')}const r=tip.getBoundingClientRect();assert(r.left>=0&&r.right<=innerWidth,'themed toolbar fits viewport')})()`);
+ await snapshot('toolbar-'+theme);
+}
+await evaluate(`document.body.classList.remove('light-mode')`);
+await selectSource('');await send('Input.insertText',{text:'/'});
+await evaluate(`until(()=>document.querySelector('.lab-live-slash-menu'))`);
+await evaluate(`(() => {const menu=document.querySelector('.lab-live-slash-menu');assert(menu.querySelectorAll('button').length===11,'slash exposes the block actions including foldable HTML');const r=menu.getBoundingClientRect();assert(r.left>=0&&r.right<=innerWidth&&r.bottom<=innerHeight,'slash menu fits viewport')})()`);
+await snapshot('slash');await key('ArrowUp','ArrowUp');
+await evaluate(`new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))`);
+await evaluate(`(() => {const menu=document.querySelector('.lab-live-slash-menu'),selected=menu.querySelector('.is-selected'),r=selected.getBoundingClientRect(),bounds=menu.getBoundingClientRect();assert(selected.textContent.includes('Divider')&&r.top>=bounds.top&&r.bottom<=bounds.bottom,'keyboard navigation scrolls the final action into view')})()`);
+await key('ArrowDown','ArrowDown');await send('Input.insertText',{text:'fold'});
+await evaluate(`assert(document.querySelectorAll('.lab-live-slash-menu button').length===1,'typing filters slash actions')`);
+await key('Enter','Enter');
+const folded='<details>\n<summary>Toggle title</summary>\n\nContent\n\n</details>';
+await evaluate(`assert(editor.value===${JSON.stringify(folded)},'fold action inserts native details with Markdown spacing');assert(editor.view.state.sliceDoc(editor.view.state.selection.main.from,editor.view.state.selection.main.to)==='Toggle title','fold title is selected for editing')`);
+await key('z','KeyZ',4);await evaluate(`assert(editor.value==='/fold','fold insertion is one undo step')`);
+await key('Enter','Enter');await send('Input.insertText',{text:'Context'});
+await evaluate(`document.getElementById('outside').focus();until(()=>document.querySelector('.lab-live-markdown-block details'))`);
+await evaluate(`assert(document.querySelector('.lab-live-markdown-block summary').textContent==='Context','inserted fold renders an editable title');assert(!document.querySelector('.lab-live-markdown-block details').open,'new fold starts closed');document.querySelector('.lab-live-markdown-block summary').click();assert(document.querySelector('.lab-live-markdown-block details').open,'inserted fold opens with its normal toggle')`);
+await selectSource('');await send('Input.insertText',{text:'/'});await key('ArrowDown','ArrowDown');await key('ArrowUp','ArrowUp');await key('ArrowDown','ArrowDown');await key('Enter','Enter');
+await evaluate(`assert(editor.value==='# Heading','arrow keys and Enter insert the selected action')`);
+await selectSource('');await send('Input.insertText',{text:'/table'});
+await evaluate(`until(()=>document.querySelector('.lab-live-slash-menu button'))`);
+await evaluate(`new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))`);
+const tablePoint=await evaluate(`(() => {const r=document.querySelector('.lab-live-slash-menu button').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()`);await click(tablePoint);
+await evaluate(`assert(editor.value.startsWith('| Column 1 | Column 2 |'),'native click inserts a slash action')`);
+await selectSource('');await send('Input.insertText',{text:'/quote'});await evaluate(`document.querySelector('.lab-live-slash-menu button').focus()`);await key('Enter','Enter');
+await evaluate(`assert(editor.value==='> Quote','slash actions retain the selection while their buttons have keyboard focus')`);
+await selectSource('');await send('Input.insertText',{text:'/toggle'});await key('Escape','Escape');
+await evaluate(`assert(editor.value==='/toggle'&&!document.querySelector('.lab-live-slash-menu'),'Escape closes the menu without modifying source')`);
+for(const source of ['https://example.org/path','A / fraction','```\n/\n```','`/`']){const at=source==='```\n/\n```'?5:source==='`/`'?2:source.length;await selectSource(source,at,at);await evaluate(`assert(!document.querySelector('.lab-live-slash-menu'),'ordinary slashes and code do not open commands')`);}
+await selectSource('');await send('Input.insertText',{text:'/unknown'});await key('Enter','Enter');
+await evaluate(`assert(editor.value==='/unknown\\n','unknown commands keep normal Enter behavior')`);
+await evaluate(`reset();editor.view.dispatch({selection:{anchor:0,head:0}});until(()=>!document.querySelector('.lab-live-syntax'))`);
+await evaluate(`assertReading();document.getElementById('result').textContent='PASS'`);
 '''
     profile = tmp_path/'profile'
     process = subprocess.Popen([chrome,'--headless','--disable-gpu','--no-sandbox','--no-first-run','--no-default-browser-check','--allow-file-access-from-files','--user-data-dir='+str(profile),'--remote-debugging-port=0','about:blank'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
