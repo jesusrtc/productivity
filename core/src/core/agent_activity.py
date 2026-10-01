@@ -127,10 +127,12 @@ def response_state(agent: str, events: list[dict], *, include_timestamp: bool = 
         elif agent == 'copilot':
             if kind == 'session.resume':
                 turn, final_message = None, False
-                # Opening a conversation is not a new request. Discard any
-                # in-flight state left by its previous process.
-                if state['state'] in {'working', 'waiting'}:
-                    set_state('unknown')
+                # The prior processing loop ended before this new process
+                # opened the conversation. Explicitly clear retained yellow
+                # in the browser, even if the old start left the bounded tail.
+                # A previously verified final response stays reviewable.
+                if state['state'] != 'completed':
+                    set_state('interrupted')
             elif kind == 'user.message':
                 turn, final_message = None, False
                 set_state('working')

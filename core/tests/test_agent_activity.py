@@ -87,8 +87,8 @@ def test_copilot_tool_turn_is_not_a_completed_response():
     ('copilot', [copilot('session.shutdown')], 'interrupted'),
     ('copilot', [copilot('assistant.turn_start'), copilot('session.shutdown')], 'interrupted'),
     ('copilot', [copilot('session.error')], 'error'),
-    ('copilot', [copilot('session.resume'), copilot('session.context_changed')], 'unknown'),
-    ('copilot', [copilot('assistant.turn_start'), copilot('session.resume')], 'unknown'),
+    ('copilot', [copilot('session.resume'), copilot('session.context_changed')], 'interrupted'),
+    ('copilot', [copilot('assistant.turn_start'), copilot('session.resume')], 'interrupted'),
     ('copilot', [copilot('assistant.turn_start'), copilot('session.context_changed')], 'working'),
 ])
 def test_non_completion_boundaries(agent, events, expected):
@@ -115,6 +115,56 @@ def test_idle_bookkeeping_preserves_a_confirmed_completion(agent, events):
 def write_events(path, events):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(''.join(json.dumps(e) + '\n' for e in events))
+
+
+def copilot_cli_events(name):
+    path = Path(__file__).parent / 'fixtures' / ('copilot-cli-1.0.83-' + name + '.jsonl')
+    return [json.loads(line) for line in path.read_text().splitlines()]
+
+
+def test_recorded_copilot_cli_tool_loop_finishes_only_on_final_response(tmp_path):
+    events = copilot_cli_events('tool-response')
+    assert events[0]['data']['copilotVersion'] == '1.0.83'
+    path = tmp_path / 'events.jsonl'
+    final_index = next(i for i, event in enumerate(events)
+                       if event['type'] == 'assistant.turn_end' and event['data']['turnId'] == '1')
+    for index, event in enumerate(events):
+        write_events(path, events[:index + 1])
+        state = activity.read_activity('copilot', path)
+        if event['type'] == 'assistant.turn_end' and event['data']['turnId'] == '0':
+            assert state['state'] == 'working'
+        elif 0 < index < final_index:
+            assert state['state'] == 'working'
+        elif index >= final_index:
+            assert state['state'] == 'completed'
+            assert state['completion_id'] == events[final_index]['id']
+    assert activity.response_state('copilot', events[:1]) == {'state': 'unknown'}
+
+
+def test_recorded_copilot_cli_resume_stops_abandoned_work_without_completion(tmp_path, monkeypatch):
+    events = copilot_cli_events('abrupt-resume')
+    resume_index = next(i for i, event in enumerate(events) if event['type'] == 'session.resume')
+    home = tmp_path / 'copilot'
+    path = home / 'session-state' / 'exact-session' / 'events.jsonl'
+    monkeypatch.setenv('COPILOT_HOME', str(home))
+    write_events(path, events[:resume_index])
+    row = {'agent': 'copilot', 'agent_session_id': 'exact-session'}
+    activity.enrich([row])
+    assert row['agent_activity']['state'] == 'working'
+    write_events(path, events[:resume_index + 1])
+    activity.enrich([row])
+    assert row['agent_activity'] == {'state': 'interrupted', 'updated_at': activity._stamp(events[resume_index])}
+    assert 'completed_at' not in row['agent_activity']
+
+
+def test_copilot_resume_clears_work_even_when_previous_start_left_the_tail(tmp_path, monkeypatch):
+    events = copilot_cli_events('abrupt-resume')
+    resume = next(event for event in events if event['type'] == 'session.resume')
+    path = tmp_path / 'events.jsonl'
+    write_events(path, [copilot('assistant.turn_start'), event('padding', content='x' * 2000), resume])
+    monkeypatch.setattr(activity, 'TAIL_BYTES', 300)
+    state = activity.read_activity('copilot', path)
+    assert state == {'state': 'interrupted', 'updated_at': activity._stamp(resume)}
 
 
 def test_reader_handles_partial_append_rotation_and_missing_files(tmp_path, monkeypatch):

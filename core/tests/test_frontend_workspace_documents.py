@@ -14,7 +14,8 @@ ROOT = Path(__file__).resolve().parents[2]
 STATIC = ROOT / 'core/src/core/static'
 
 
-def test_workspace_document_interactions_browser(client, owned_tasks, tmp_path):
+@pytest.mark.parametrize('agent', ['claude', 'copilot'])
+def test_workspace_document_interactions_browser(client, owned_tasks, tmp_path, agent):
     chrome = os.environ.get('CHROME_BIN') or shutil.which('chromium') or '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
     if not Path(chrome).is_file() or not shutil.which('node'):
         pytest.skip('Chrome and Node required')
@@ -27,7 +28,7 @@ def test_workspace_document_interactions_browser(client, owned_tasks, tmp_path):
         for child in row['children']:
             visit(child)
     visit(detail['tree'])
-    fixture = {'index':client.get('/api/assistant').json(), 'details':details, 'path':path,
+    fixture = {'index':client.get('/api/assistant').json(), 'details':details, 'path':path, 'agent':agent,
                'link':{'assistant_root':str(root),'document_id':note.stem,'task_id':None,
                        'title':'Task document','path':path}}
     setup = r'''
@@ -48,7 +49,7 @@ const _termSyncLinkedScope=async(scope,request,options)=>{scopeOpens.push({scope
 const _termOpenLinkedFile=async session=>{_termCancelPendingLinkedFileOpen();fileOpens.push(session.name);};
 const termAttach=async(name,workspace)=>{termCurrentSession=name;termCurrentWorkspaceId=workspace;};
 const _SIDEBAR_VIS_KEY_PREFIX='test-sidebar-', _sidebarViewSuffix=()=>scope.workspace_id;
-const source={name:'same-running-process',logical_name:'claude',workspace_id:'demo',vault:'client',label:'Claude conversation',kind:'claude',agent:'claude',agent_session_id:'conversation',created_at:123,
+const source={name:'same-running-process',logical_name:'claude',workspace_id:'demo',vault:'client',label:'Agent conversation',kind:'claude',agent:FIX.agent,agent_session_id:'conversation',created_at:123,
   agent_activity:{state:'completed',completed_at:500,completion_id:'turn'}};
 function explorerToast(message,error){notices.push([message,error])}
 const background={...source,name:'background-process',agent_session_id:'background-conversation'};

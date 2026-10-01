@@ -1,0 +1,7 @@
+{"type":"session.start","id":"ee062d37-5885-474b-8b59-4a50f7546a7b","timestamp":"2026-10-01T17:45:28.473Z","parentId":null,"data":{"copilotVersion":"1.0.83"}}
+{"type":"user.message","id":"85b80053-37da-4f2b-ac2d-776aa0a9712e","timestamp":"2026-10-01T17:45:28.551Z","parentId":"ee062d37-5885-474b-8b59-4a50f7546a7b","data":{"turnId":"0","content":"Local activity test"}}
+{"type":"system.message","id":"e0acd136-9581-4a24-8f31-27a7eb4568ef","timestamp":"2026-10-01T17:45:28.552Z","parentId":"85b80053-37da-4f2b-ac2d-776aa0a9712e","data":{"content":"Local test context."}}
+{"type":"assistant.turn_start","id":"71f0b50f-0524-4a17-9c4a-4c130fbaf43b","timestamp":"2026-10-01T17:45:28.553Z","parentId":"e0acd136-9581-4a24-8f31-27a7eb4568ef","data":{"turnId":"0"}}
+{"type":"session.resume","id":"148bd03b-6e00-4eb2-8d10-5712e7a1c8d7","timestamp":"2026-10-01T17:45:29.001Z","parentId":"71f0b50f-0524-4a17-9c4a-4c130fbaf43b","data":{}}
+{"type":"session.remote_steerable_changed","id":"50e4815d-17c8-4234-a19f-41a9cb1a2811","timestamp":"2026-10-01T17:45:29.003Z","parentId":"148bd03b-6e00-4eb2-8d10-5712e7a1c8d7","data":{}}
+{"type":"session.shutdown","id":"6e62bc13-2619-454c-a467-d1b9de5e68fd","timestamp":"2026-10-01T17:45:32.238Z","parentId":"50e4815d-17c8-4234-a19f-41a9cb1a2811","data":{}}

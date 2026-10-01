@@ -4,8 +4,10 @@ from pathlib import Path
 import pytest
 from fastapi import HTTPException
 from lab import assistant_records as records, workspace_identity, storage
+from core.routes.term import _enrich_session_details as enrich_session_details
 
 from .test_assistant_document_tasks import legacy_tasks, owned_tasks  # noqa: F401
+from .test_agent_activity import copilot_cli_events, write_events
 
 
 @pytest.fixture()
@@ -232,6 +234,40 @@ def test_attention_includes_inactive_and_shared_workspaces_without_summaries(cli
     assert data['client::demo'][0]['name'] == name
     assert data['__assistant__::__assistant__'][0]['agent_activity']['state'] == 'completed'
     assert 'cwd' not in data['client::demo'][0]
+
+
+@pytest.mark.parametrize('recording,boundary,expected', [
+    ('tool-response', 'user.message', 'working'),
+    ('tool-response', 'tool.execution_start', 'working'),
+    ('tool-response', 'assistant.turn_end', 'working'),
+    ('tool-response', 'session.shutdown', 'completed'),
+    ('abrupt-resume', 'session.resume', 'interrupted'),
+])
+def test_native_copilot_activity_reaches_terminal_and_shared_workspace_apis(
+        client, linked_workspace, tmp_path, monkeypatch, recording, boundary, expected):
+    from core.routes import term
+    # Linking fixtures normally omit all agent details. Restore the real
+    # activity path here, while keeping terminal capture out of this check.
+    monkeypatch.setattr(term, '_enrich_session_details', enrich_session_details)
+    monkeypatch.setattr(term, '_infer_session_summary', lambda *args: None)
+    root, note, _, session = linked_workspace
+    name = session(agent='copilot')
+    link_terminal(client, note)
+    for workspace in ('demo', 'other'):
+        link_document(client, root, note, workspace)
+    home = tmp_path / 'copilot'
+    monkeypatch.setenv('COPILOT_HOME', str(home))
+    events = copilot_cli_events(recording)
+    index = next(i for i, event in enumerate(events) if event['type'] == boundary)
+    write_events(home / 'session-state/kept-conversation/events.jsonl', events[:index + 1])
+    row = client.get('/api/term/sessions', params={'workspace_id':'demo','vault':'client'}).json()[0]
+    assert row['name'] == name and row['agent'] == 'copilot'
+    assert row['agent_session_id'] == 'kept-conversation'
+    assert row['agent_activity']['state'] == expected
+    attention = client.get('/api/workspace-documents/attention').json()
+    for scope in ('client::demo', 'client::other', '__assistant__::__assistant__'):
+        assert attention[scope][0]['name'] == name
+        assert attention[scope][0]['agent_activity'] == row['agent_activity']
 
 
 @pytest.mark.parametrize('agent', ['codex', 'claude', 'copilot'])

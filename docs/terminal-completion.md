@@ -80,7 +80,9 @@ do not scan transcripts.
   shutdown events do not create signals. A shutdown after a verified final
   response preserves that completion. Child-agent events are ignored.
   Resuming a session or changing its context does not start work; resume clears
-  unfinished state left by the previous process.
+  unfinished state left by the previous process with an explicit interruption
+  signal, including previously observed yellow in the browser. A new request
+  starts yellow again. Resume after a verified final response retains unread green.
 
 Working is based on recorded request/turn activity, not output silence. Updates
 arrive with the normal scoped refresh; a provider pause or abrupt termination
@@ -112,6 +114,12 @@ connection gaps, new work during unread completion, and double-click dismissal. 
 checks that working dots and labels remain consistent for all three agents,
 including waiting and unreachable terminals. Settings browser checks verify
 the default, saving, and reopening the delay field.
+
+Recorded, sanitized Copilot CLI 1.0.83 fixtures exercise a real tool loop,
+final response, shutdown, and an idle resume after abrupt process termination.
+The recordings were generated with a local deterministic provider and temporary
+CLI state, without accessing existing conversations. Browser workspace checks
+run for both Claude and Copilot, including yellow priority and direct green review.
 
 Browser verification uses synthetic terminal rows and a synthetic attachment
 only; it must not send input to or replace the user's live agent sessions.

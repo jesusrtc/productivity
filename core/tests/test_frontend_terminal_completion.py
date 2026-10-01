@@ -1,6 +1,11 @@
+import json
+
 import pytest
 
+from core import agent_activity
+
 from .test_frontend_terminal_ui import _run_node, _js_between, ROOT
+from .test_agent_activity import copilot_cli_events, write_events
 
 
 MODULE = (ROOT / 'core/src/core/static/js/lib/terminal-completion.js').read_text()
@@ -211,6 +216,45 @@ assert(render().includes('sess-completion'), 'green remains during viewing delay
 advance(1);
 assert(!render().includes('sess-activity'), 'green disappears after full viewing delay');
 assert(render().includes(' recent'), 'recency stays independent after acknowledgement');
+console.log(JSON.stringify({passed:true}));
+""")
+    assert result['passed']
+
+
+@pytest.mark.parametrize('recording', ['tool-response', 'abrupt-resume'])
+def test_recorded_copilot_cli_events_drive_terminal_dots(tmp_path, recording):
+    events = copilot_cli_events(recording)
+    path = tmp_path / 'events.jsonl'
+    states = []
+    for index in range(len(events)):
+        write_events(path, events[:index + 1])
+        states.append(agent_activity.read_activity('copilot', path))
+    helpers = _js_between('  function _termSessionDisplay(s)', '  function _termMarkVisibleCompletionSeen()')
+    result = _run_node(CLOCK + MODULE + r"""
+const termDeadSessions = new Set();
+const termCurrentSession = null, termCurrentWorkspaceId = 'demo';
+const _termActiveWorkspaceId = () => 'demo', _termRecentScopeKey = () => 'vault::demo';
+const _termSessionRecentMeta = () => null, _termRecentWindowLabel = () => '5m';
+const termSessEsc = value => String(value);
+""" + helpers + '\nconst states = ' + json.dumps(states) + r""";
+const s = {...session('copilot'), kind:'claude'};
+for (const state of states) {
+  s.agent_activity = state;
+  const html = _termSessionPillHtml(s, 0);
+  const yellow = html.includes('sess-working'), green = html.includes('sess-completion');
+  assert(yellow === ['working','waiting'].includes(state.state), 'native Copilot event sets the yellow terminal dot: '+JSON.stringify(state));
+  assert(green === (state.state === 'completed'), 'only native final completion creates green: '+JSON.stringify(state));
+}
+const C = window.LabTerminalCompletion;
+if (states.at(-1).state === 'completed') {
+  s.agent_activity = {state:'working',updated_at:states.at(-1).updated_at+1};
+  const html = _termSessionPillHtml(s, 0);
+  assert(html.includes('sess-working') && html.includes('sess-completion'), 'a new Copilot request preserves unread green alongside yellow');
+  assert(C.acknowledge('vault::demo',s), 'direct green review acknowledges the recorded final response');
+  assert(C.isWorking(s) && !C.meta('vault::demo',s), 'review keeps the new Copilot work yellow');
+} else {
+  assert(!C.isWorking(s) && !C.meta('vault::demo',s), 'native idle resume clears retained yellow without inventing green');
+}
 console.log(JSON.stringify({passed:true}));
 """)
     assert result['passed']
