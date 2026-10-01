@@ -90,6 +90,35 @@ def test_reference_deduplicates_resolves_titles_and_shared_sessions(client, link
     assert live[0]['name'] == name
 
 
+def test_checkout_document_references_keep_native_terminals_and_original_ownership(client, linked_workspace, monorepo):
+    from core.routes import term
+    root, note, live, session = linked_workspace
+    original = session()
+    link = link_terminal(client, note)
+    native = session(monorepo, 'demo', logical='checkout')
+    before = term._get_workspace_sessions(root, '__assistant__')
+    for path in (monorepo/'project', monorepo/'trees/topic'):
+        path.mkdir(parents=True)
+        response = client.patch('/api/term/sessions/metadata', json={'workspace_id':'demo','vault':'client',
+            'name':'checkout','linked_scope':{'base_root':str(monorepo/'workspaces/demo'),
+                'project_root':str(path),'root':str(path)}})
+        assert response.status_code == 200, response.text
+        data = client.get('/api/scope-links',params={'path':str(path)}).json()
+        response = client.put('/api/scope-links',json={'path':str(path),'expected':data['revision'],
+            'links':[{'type':'internal-docs','assistant_root':str(root),'document_id':note.stem}]})
+        assert response.status_code == 200, response.text
+        rows = client.get('/api/term/sessions?workspace_id=demo&vault=client').json()
+        assert [row['name'] for row in rows] == [native]
+        assert not rows[0].get('document_source') and not rows[0].get('linked_task')
+        assert rows[0]['linked_scope']['root'] == str(path)
+        assert rows[0]['agent_session_id'] == 'kept-conversation'
+        assert client.get('/api/workspace-documents?workspace_id=demo&vault=client').json() == []
+        assert term._get_workspace_sessions(root,'__assistant__') == before
+    original_link = next(row for row in client.get('/api/term/task-terminals?document_id='+note.stem).json() if row['name'] == original)
+    assert original_link['linked_task'] == link
+    assert [row['name'] for row in live] == [original,native]
+
+
 @pytest.mark.parametrize('label', [None, 'Planning conversation'])
 def test_shared_terminal_keeps_its_name_and_independent_code_scope(client, linked_workspace, monorepo, label):
     from core.routes import term

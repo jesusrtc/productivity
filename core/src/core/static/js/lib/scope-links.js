@@ -3,11 +3,14 @@
   'use strict';
   const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const cache = new Map();
+  const lastDocument = new Map();
+  const documentMime = 'application/x-lab-assistant-document';
+  const rootKey = path => String(path || '').replace(/\/+$/, '') || '/';
   let editor = null;
   async function api(url, options = {}) {
     const response = await fetch(url, options);
     const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Could not load links.');
+    if (!response.ok) throw Object.assign(new Error(typeof data.detail === 'string' ? data.detail : 'Could not load links.'),{status:response.status});
     return data;
   }
   function label(link) { return link.label || link.title || link.type_name || link.url || 'Document'; }
@@ -24,6 +27,71 @@
     cache.set(path, {...saved, pending});
     return pending;
   }
+  function matchesTerminal(session, scope) {
+    return !session.document_source && !!session.linked_scope?.root && rootKey(session.linked_scope.root) === rootKey(scope.root)
+      && (!session.workspace_id || session.workspace_id === scope.workspace_id)
+      && (!session.vault || session.vault === scope.vault);
+  }
+  async function terminals(scope, signal) {
+    if (!scope.workspace_id) return [];
+    const rows = await api('/api/term/sessions?' + new URLSearchParams({workspace_id:scope.workspace_id,
+      ...(scope.vault ? {vault:scope.vault} : {})}), {signal});
+    return rows.filter(session => matchesTerminal(session, scope));
+  }
+  async function openDocument(link, path, options = {}) {
+    const current = options.isCurrent || (() => true);
+    if (!current()) return false;
+    const context = window.LabTaskTerminalBridge?.context?.() || {};
+    const scope = options.terminalScope || {...context, root:path};
+    const opened = await window.AssistantView.openLinkedTask(link, {...options, terminalScope:scope,
+      wholeDocument:options.wholeDocument ?? !link.tab_id, isCurrent:current,
+      beforeOpen:async valid => {
+        if (options.selectTerminal === false) return;
+        const rows = await terminals(scope);
+        if (!valid()) return;
+        const terminal = rows.find(row => row.name === context.session_name && row.state === 'running')
+          || rows.find(row => row.state === 'running');
+        if (terminal) await window.LabTaskTerminalBridge?.show?.(terminal, {openDocument:false,isCurrent:valid,terminalScope:scope});
+      }});
+    if (opened === true && current()) lastDocument.set(rootKey(path), link.id);
+    return opened !== false;
+  }
+  async function openForTerminal(session, options = {}) {
+    if (session.document_source || !session.linked_scope?.root) return false;
+    const path = session.linked_scope.root;
+    const documentCurrent = window.AssistantView.navigationGuard?.() || (() => true);
+    let data;
+    try { data = await read(path); }
+    catch (error) { if ([403,404].includes(error.status)) return false;throw error; }
+    if (options.isCurrent && !options.isCurrent()) return false;
+    // A later document click or close owns navigation, including while this
+    // checkout's metadata is still loading. Do not fall back to another link.
+    if (!documentCurrent()) return true;
+    const links = data.links.filter(link => link.kind === 'internal' && !link.unavailable);
+    const explicit = links.find(link => link.document_id === session.linked_task?.document_id
+      && link.assistant_root === session.linked_task?.assistant_root);
+    const link = explicit || links.find(link => link.id === lastDocument.get(rootKey(path))) || links[0];
+    if (!link) return false;
+    const scope = {...window.LabTaskTerminalBridge?.context?.(), root:path, session_name:session.name};
+    return openDocument(explicit && session.linked_task?.task_id ? {...link,task_id:session.linked_task.task_id} : link,
+      path, {...options,terminalScope:scope,selectTerminal:false});
+  }
+  async function addDocument(path, doc, current = () => true) {
+    const data = await read(path, true), type = data.types.find(type => type.kind === 'internal');
+    if (!type) throw new Error('Add an internal document link type in Settings first.');
+    const same = data.links.some(link => link.kind === 'internal' && link.assistant_root === doc.assistant_root
+      && link.document_id === doc.document_id && (link.tab_id || null) === (doc.tab_id || null));
+    if (!same) {
+      const link = {id:crypto.randomUUID(),type:type.id,assistant_root:doc.assistant_root,
+        document_id:doc.document_id,tab_id:doc.tab_id || null};
+      const saved = await api('/api/scope-links', {method:'PUT',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({path,links:[...data.links,link],expected:data.revision})});
+      cache.set(path,{data:saved,at:Date.now()});
+    }
+    if (current()) document.querySelectorAll('[data-scope-links]').forEach(host => {
+      if (rootKey(host.dataset.scopeLinks) === rootKey(path)) void mount(host, host._scopeLinksCurrent || current);
+    });
+  }
   function render(host, data, current) {
     host.innerHTML = `<div class="sidebar-scope-links-head"><span>Links</span><button type="button" data-edit-links aria-label="Edit links for this folder" title="Edit links">+</button></div><div class="sidebar-scope-links-list">${data.links.map((link, index) => `<button type="button" data-scope-link="${index}" class="sidebar-scope-link" ${link.unavailable ? 'disabled' : ''} title="${esc(link.unavailable ? link.error : (link.type_name + ' · ' + (link.title || link.url)))}"><span aria-hidden="true">${link.kind === 'internal' ? '▤' : '↗'}</span><span>${esc(label(link))}</span></button>`).join('')}</div>`;
     host.querySelector('[data-edit-links]').onclick = () => edit(host.dataset.scopeLinks, host._scopeLinksCurrent, host._scopeLinksScope);
@@ -34,7 +102,7 @@
         // Folder links belong to the clicking client, including SSH-forwarded
         // loopback sessions where the server's browser is on another desktop.
         if (link.kind === 'external') await window.LabExternalLinks.open(link.url, {clientOnly:true});
-        else await window.AssistantView.openLinkedTask(link, {wholeDocument:!link.tab_id, isCurrent:current});
+        else await openDocument(link, host.dataset.scopeLinks, {isCurrent:current});
       } catch (error) { if (current()) window.alert(error.message); }
     });
   }
@@ -239,5 +307,28 @@
       if(node._targetError)showPicker(true);
     }catch(error){if(valid()&&error.name!=='AbortError'){node._targetError=error.message;node._targetLoading=false;host.textContent=error.message;}}
   }
-  window.LabScopeLinks={mount,edit,label,tabs,documentMatches};
+  function dropTarget(target) {
+    const row = target.closest?.('.sidebar-scope-chip, .sidebar-scope-links[data-scope-links]');
+    const path = row?.dataset.scopeLinks || row?.dataset.folderPath || row?.dataset.baseRoot;
+    return path ? {row,path} : null;
+  }
+  function clearDrop() { document.querySelectorAll('.scope-document-drop').forEach(row => row.classList.remove('scope-document-drop')); }
+  document.addEventListener('dragover', event => {
+    if (!event.dataTransfer?.types.includes(documentMime)) return;
+    clearDrop();const target = dropTarget(event.target);if (!target) return;
+    event.preventDefault();event.stopPropagation();event.dataTransfer.dropEffect='link';target.row.classList.add('scope-document-drop');
+  }, true);
+  document.addEventListener('drop', async event => {
+    if (!event.dataTransfer?.types.includes(documentMime)) return;
+    clearDrop();const target = dropTarget(event.target);if (!target) return;
+    event.preventDefault();event.stopPropagation();
+    document.querySelector('.drag-document-out')?.classList.remove('drag-document-out');
+    try {
+      await addDocument(target.path, JSON.parse(event.dataTransfer.getData(documentMime)),
+        () => target.row.isConnected);
+      if (typeof explorerToast === 'function') explorerToast('Document linked to folder/worktree. Uses its checkout terminal.');
+    } catch (error) { if (typeof explorerToast === 'function') explorerToast(error.message,true); }
+  }, true);
+  document.addEventListener('dragend', clearDrop);
+  window.LabScopeLinks={mount,edit,label,tabs,documentMatches,openDocument,openForTerminal,addDocument,terminals,matchesTerminal};
 })();

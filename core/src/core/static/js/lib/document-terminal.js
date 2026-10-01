@@ -11,7 +11,8 @@
     return result;
   }
   function remembered(state, value) {
-    const key = 'lab.task-terminal:' + state.database + ':' + state.documentId;
+    const key = 'lab.task-terminal:' + state.database + ':' + state.documentId + (state.scope
+      ? ':'+JSON.stringify([state.scope.workspace_id,state.scope.vault,state.scope.root]) : '');
     try {
       if (value !== undefined) localStorage.setItem(key, JSON.stringify(value));
       return JSON.parse(localStorage.getItem(key) || 'null');
@@ -68,6 +69,9 @@
     const waiting = result.reason === 'memory_check' ? 'Memory check unavailable — retry when ready' : 'Low memory — retry when ready';
     label.textContent = error || (result.state === 'waiting' ? waiting : '') || ({running:({busy:'Working',idle:'Ready',draft:'Unsent text kept open'}[result.work_state] || 'Running'),sleeping:'Sleeping — memory released',absent:'Drag a terminal onto a task or choose an existing terminal',stopped:'Linked terminal is stopped',disabled:'Previous document terminals are disabled'}[result.state] || 'Ready');
     label.classList.toggle('error',Boolean(error));
+    if (state.scope && !error) label.textContent = result.state === 'running' ? 'Uses this folder/worktree terminal'
+      : result.state === 'stopped' ? 'Checkout terminal is stopped. Resume it from the terminal bar.'
+      : 'Attach a terminal to this folder/worktree to work on the document.';
     state.host.querySelector('[data-terminal-agent]').textContent = result.linked ? sessionLabel(result) : result.label || result.agent || '';
     state.host.classList.toggle('has-terminal', !state.inline && result.state === 'running');
     state.host.querySelector('[data-terminal-show]').hidden = !state.inline || !result.linked || result.state !== 'running';
@@ -152,7 +156,8 @@
       if (row.dataset.terminalDocument !== current.documentId) continue;
       const slot = row.querySelector(':scope > .assistant-tasks-task-row > [data-linked-terminal]');
       if (!slot) continue;
-      const linked = current.links?.find(item => item.linked_task?.task_id === row.dataset.terminalTask);
+      const linked = current.scope ? current.result?.linked && current.result
+        : current.links?.find(item => item.linked_task?.task_id === row.dataset.terminalTask);
       slot.replaceChildren();
       if (linked) {
         const button = document.createElement('button');
@@ -168,13 +173,15 @@
     const state = current;
     state.taskId = taskId || null; remembered(state,state.taskId);
     state.connectionEnded = false; state.result = null; releaseView(state);
+    state.host.querySelector('[data-terminal-show]').hidden = true;
     void refresh(state).then(() => {
       if (reveal && state === current && state.inline && state.result?.linked) void showInPanel(state);
     });
   }
   async function showInPanel(state) {
     try {
-      const shown = await window.LabTaskTerminalBridge?.show?.(state.result);
+      const shown = await window.LabTaskTerminalBridge?.show?.(state.result, state.scope
+        ? {openDocument:false,isCurrent:() => state === current,terminalScope:state.scope} : {});
       if (!shown && state === current) state.host.querySelector('[data-terminal-status]').textContent='This terminal is not available in the current workspace. Open its workspace to view it.';
     } catch (error) { if (state === current) show(state,state.result || {},error.message); }
   }
@@ -183,15 +190,27 @@
     const tasks = state.root.document_tasks?.tasks || [];
     select.innerHTML = '<option value="">Document</option>' + tasks.map(task => `<option value="${esc(task.id)}">${esc(task.title)}</option>`).join('');
     select.value = state.taskId || '';
-    state.host.querySelector('[data-terminal-unlink]').hidden = !state.links.some(row => (row.linked_task.task_id || null) === state.taskId);
+    state.host.querySelector('[data-terminal-unlink]').hidden = Boolean(state.scope) || !state.links.some(row => (row.linked_task.task_id || null) === state.taskId);
+    state.host.querySelector('[data-terminal-choose]').hidden = Boolean(state.scope);
     decorate();
   }
   async function refresh(state) {
     if (state !== current || document.hidden || state.opening) return;
     if (state.checking) { state.refreshAgain = true; return; }
     state.refreshAgain = false; state.checking = true;
+    state.host.querySelector('[data-terminal-show]').disabled = true;
     const taskId = state.taskId;
     try {
+      if (state.scope) {
+        state.links = await window.LabScopeLinks.terminals(state.scope,state.abort.signal);
+        if (state !== current || state.taskId !== taskId) return;
+        const selected = window.LabTaskTerminalBridge?.context?.()?.session_name;
+        const linked = state.links.find(row => row.name === selected && row.state === 'running')
+          || state.links.find(row => row.name === state.scope.session_name && row.state === 'running')
+          || state.links.find(row => row.state === 'running') || state.links[0];
+        show(state, linked ? {...linked,linked:true} : {state:'absent'});
+        renderLinks(state);return;
+      }
       state.links = await api('/api/term/task-terminals?document_id=' + encodeURIComponent(state.documentId), {signal:state.abort.signal});
       if (state !== current || state.taskId !== taskId) return;
       renderLinks(state);
@@ -206,6 +225,7 @@
       if (state === current && error.name !== 'AbortError') show(state,state.result || {},error.message);
     } finally {
       state.checking = false;
+      if (state === current) state.host.querySelector('[data-terminal-show]').disabled = false;
       if (state === current && (state.taskId !== taskId || state.refreshAgain)) void refresh(state);
     }
   }
@@ -247,6 +267,15 @@
   }
   async function link(ctx, session, context) {
     if (!session?.logical_name || !context?.workspaceId) return;
+    if (current?.scope && ctx.documentId === current.documentId && (!ctx.database || ctx.database === current.database)) {
+      if (!window.LabScopeLinks.matchesTerminal(session,current.scope)) {
+        if (typeof explorerToast === 'function') explorerToast('Use a terminal attached to this folder/worktree.',true);
+        return;
+      }
+      const state=current;state.scope.session_name = session.name;state.taskId = ctx.taskId || null;
+      remembered(state,state.taskId);show(state,{...session,linked:true});renderLinks(state);
+      await showInPanel(state);if(state===current)await refresh(state);return;
+    }
     try {
       const saved = await window.LabTaskTerminalBridge.patch(session,{linked_task:{document_id:ctx.documentId,
         task_id:ctx.taskId,assistant_root:ctx.database,path:ctx.path}},context);
@@ -265,7 +294,7 @@
   }
   async function choose(taskId) {
     const state = current;
-    if (!state) return;
+    if (!state || state.scope) return;
     if (taskId !== undefined) { state.taskId=taskId || null; remembered(state,state.taskId); state.result=null; releaseView(state); void refresh(state); }
     const picker = state.host.querySelector('[data-terminal-picker]');
     picker.hidden = false; picker.textContent = 'Loading existing terminals…';
@@ -306,13 +335,14 @@
     if (current.taskId && !root.document_tasks?.tasks?.some(task=>task.id===current.taskId)) return selectTask(null);
     renderLinks(current);
   }
-  function open(detail, root = detail, database = '', {inline = false} = {}) {
+  function open(detail, root = detail, database = '', {inline = false,scope = null} = {}) {
     const host = document.getElementById('assistantDocumentTerminal');
     if (!host || detail?.metadata?.schema !== 2) return;
     const key = detail.root_path || detail.path;
-    if (current?.key === key && current.inline === inline) { current.path=detail.path; updateRoot(root); return; }
+    if (current?.key === key && current.inline === inline && JSON.stringify(current.scope) === JSON.stringify(scope)) { current.path=detail.path; updateRoot(root); return; }
     close();
-    const state = current = {key,inline,path:detail.path,root,documentId:root.tree?.id || root.metadata.id,database,links:[],host,abort:new AbortController()};
+    const state = current = {key,inline:inline || Boolean(scope),scope:scope && {...scope},path:detail.path,root,documentId:root.tree?.id || root.metadata.id,database,links:[],host,abort:new AbortController()};
+    inline = state.inline;
     if (!inline) window.LabTerminalCompletion?.stopViewing();
     state.taskId = remembered(state);
     if (state.taskId && !root.document_tasks?.tasks?.some(task=>task.id===state.taskId)) state.taskId=null;
@@ -333,7 +363,9 @@
     position.hidden=inline;
     position.onchange=() => { modal.dataset.terminalPlacement=position.value; try { localStorage.setItem(placementKey,position.value); } catch {} };
     host.querySelector('[data-terminal-target]').onchange = event => selectTask(event.target.value);
-    host.querySelector('[data-terminal-show]').onclick = () => void showInPanel(state);
+    host.querySelector('[data-terminal-show]').onclick = () => {
+      if (state.result?.linked && state.result.state === 'running') void showInPanel(state);
+    };
     host.querySelector('[data-terminal-choose]').onclick = () => void choose();
     host.querySelector('[data-terminal-wake]').onclick = () => void wake(state);
     host.querySelector('[data-terminal-settings]').onclick = () => void openSettings();

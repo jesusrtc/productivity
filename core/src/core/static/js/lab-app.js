@@ -11276,7 +11276,7 @@
 
   let _termTabActivationSeq = 0;
 
-  async function _termActivateTab(name) {
+  async function _termActivateTab(name, options = {}) {
     const request = ++_termTabActivationSeq;
     const workspaceId = _termActiveWorkspaceId();
     const session = (termSessions || []).find(row => row.name === name);
@@ -11298,7 +11298,10 @@
       if (section !== _termHomeSection()) return;
     }
     if (request !== _termTabActivationSeq || !_termIsScopeActive(workspaceId)) return;
-    if (session.linked_task?.document_id && session.linked_task?.assistant_root && window.AssistantView) {
+    const scopeDocument = !session.document_source && session.linked_scope?.root && window.LabScopeLinks;
+    if (options.openDocument === false) {
+      _termCancelPendingLinkedFileOpen();
+    } else if ((session.linked_task?.document_id && session.linked_task?.assistant_root || scopeDocument) && window.AssistantView) {
       // Only explicit activation opens documents; polling merely updates the
       // sidebar highlight. Documents and code scopes navigate independently;
       // the document takes precedence over an optional linked file.
@@ -11312,8 +11315,13 @@
       });
       // File discovery must not delay opening the document or start an older
       // document navigation after the user has opened something else.
-      void window.AssistantView.openLinkedTask(session.linked_task, {isCurrent}).catch(error => {
-      }).catch(error => {
+      void (async () => {
+        if (scopeDocument && await window.LabScopeLinks.openForTerminal(session, {isCurrent})) return;
+        if (!isCurrent()) return;
+        if (session.linked_task?.document_id && session.linked_task?.assistant_root)
+          await window.AssistantView.openLinkedTask(session.linked_task, {isCurrent});
+        else await _termOpenLinkedFile(session);
+      })().catch(error => {
         if (isCurrent()) explorerToast(error.message || 'Could not open the linked document.', true);
       });
     } else void _termOpenLinkedFile(session);
@@ -14445,17 +14453,25 @@
     return body.session;
   }
 
-  window.LabTaskTerminalBridge = {patch:_termPatchLinks, display:session => _termSessionDisplay(session), show:async session => {
+  window.LabTaskTerminalBridge = {patch:_termPatchLinks, display:session => _termSessionDisplay(session),
+    context:() => ({workspace_id:_termActiveWorkspaceId(),vault:_termVaultId(),
+      session_name:termCurrentWorkspaceId === _termActiveWorkspaceId() ? termCurrentSession : null}),
+    show:async (session, options = {}) => {
     const workspaceId = _termActiveWorkspaceId(), vaultId = _termVaultId();
     if (!workspaceId || !session?.name) return false;
     await _termRefreshSessionsForWorkspaceId(workspaceId);
-    if (workspaceId !== _termActiveWorkspaceId() || vaultId !== _termVaultId()
-        || !termSessions.some(row => row.name === session.name && row.state !== 'stopped')) return false;
-    await _termActivateTab(session.name);
+    if (options.isCurrent && !options.isCurrent() || workspaceId !== _termActiveWorkspaceId() || vaultId !== _termVaultId()
+        || !termSessions.some(row => row.name === session.name && row.state !== 'stopped'
+          && (!options.terminalScope || window.LabScopeLinks.matchesTerminal(row, options.terminalScope)))) return false;
+    await _termActivateTab(session.name, options);
     return true;
   }};
   window.LabWorkspaceDocuments?.configure({
     recentMinutes: () => _sidebarFileConfig.recentMinutes,
+    fileScope:() => {
+      const base = _sidebarWorktreeBaseRoot(), root = base && _sidebarScopedRoot(base);
+      return root && root !== base ? {root,workspace_id:_termActiveWorkspaceId(),vault:_termVaultId()} : null;
+    },
     context: () => document.body.classList.contains('assistant-active')
       ? {workspace_id:'__assistant__',vault:'__assistant__'}
       : document.body.classList.contains('workspace-active') && currentWorkspace?.is_workspace

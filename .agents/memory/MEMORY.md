@@ -529,3 +529,5 @@
 - [Document editing reveals inline Markdown](document-editing-reveals-inline-markdown.md) — formatted document editing with local syntax, native caret/undo, selection controls and preserved tab saving.
 
 - [Markdown editor builds use local lock entries](markdown-editor-builds-use-local-lock-entries.md) — reproducible npm ci from ordinary package records, without temporary build-directory links.
+
+- [Checkout documents use checkout terminals](checkout-documents-use-checkout-terminals.md) — exact folder/worktree links retain native checkout controllers without importing document terminals.

@@ -21,6 +21,7 @@
     modalRoot: null,
     modalCurrent: null,
     modalKind: '',
+    terminalScope: null,
     inlineHost: null,
     expandedHost: null,
     documentPending: false,
@@ -1349,7 +1350,7 @@
 
   function openDocumentTerminal(detail) {
     // Both document presentations share the active workspace's terminal panel.
-    window.LabDocumentTerminal?.open(detail, state.modalRoot, state.data.root, {inline:true});
+    window.LabDocumentTerminal?.open(detail, state.modalRoot, state.data.root, {inline:true,scope:state.terminalScope});
   }
 
   function closeDocumentModal(updateHistory = true) {
@@ -1360,6 +1361,7 @@
     state.documentPending = false;
     window.AssistantTasks?.reset();
     window.LabDocumentTerminal?.close();
+    state.terminalScope = null;
     closeHeadingMenu();
     closeSeriesMenu();
     clearTimeout(state.tabActivityTimer);
@@ -1461,6 +1463,7 @@
       }
       if (!isCurrent()) return;
       state.modalRoot = root; state.modalKind = rootKind;
+      state.terminalScope = options.terminalScope || null;
       state.modalCurrent = detail; state.modalMeetingPart = 'summary';
       state.modalIndex = showIndex;
       presentDocument(overlay, inline);
@@ -1496,20 +1499,23 @@
     if (!link?.document_id || !link?.assistant_root) throw new Error('This terminal has no linked task.');
     const request = ++state.modalRequest;
     state.documentPending = true;
+    const isCurrent = () => request === state.modalRequest && (!options.isCurrent || options.isCurrent());
     try {
       const response = await fetch('/api/assistant');
       const data = await response.json();
-      if (request !== state.modalRequest || options.isCurrent && !options.isCurrent()) return;
+      if (!isCurrent()) return;
       if (!response.ok) throw new Error(data.detail || 'Could not load the linked document.');
       if (data.root !== link.assistant_root) throw new Error('This terminal links to a different Assistant database.');
       const row = (data.documents || []).find(row => row.id === link.document_id);
       if (!row) throw new Error('The linked document is no longer available.');
+      await options.beforeOpen?.(isCurrent);
+      if (!isCurrent()) return;
       state.data = data;
       window.LabWorkspaceDocuments?.updateDocuments(data);
       // Render over the current workspace without navigating its page or terminal.
       return openDocumentModal(documentKind(row),row.path + (link.tab_id ? '#tab=' + encodeURIComponent(link.tab_id) : ''),'',{
         linkedTask:link, inline:Boolean(options.inline), isCurrent:options.isCurrent,
-        wholeDocument:Boolean(options.wholeDocument),
+        wholeDocument:Boolean(options.wholeDocument),terminalScope:options.terminalScope,
       });
     } finally {
       if (request === state.modalRequest) state.documentPending = false;
@@ -2893,6 +2899,7 @@
     openLinkedTask,
     closeDocument: closeDocumentModal,
     closeInlineDocument: () => { if (state.inlineHost || state.expandedHost || state.documentPending || state.documentClickTimer) closeDocumentModal(false); },
+    navigationGuard: () => { const request = state.modalRequest; return () => request === state.modalRequest; },
     isInlineDocument: () => Boolean(state.inlineHost),
   };
 })();

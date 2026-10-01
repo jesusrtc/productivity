@@ -167,6 +167,13 @@
     const scope = {workspace_id:target.dataset.workspaceId, vault:target.dataset.vault || null};
     try {
       const doc = JSON.parse(event.dataTransfer.getData(mime));
+      const folder = target.matches('[data-workspace-documents]') && bridge?.fileScope?.();
+      if (folder && scopeKey(folder) === scopeKey(scope)) {
+        await window.LabScopeLinks.addDocument(folder.root, doc,
+          () => scopeKey(bridge.fileScope?.() || {}) === scopeKey(folder) && bridge.fileScope?.()?.root === folder.root);
+        notify('Document linked to folder/worktree. Uses its checkout terminal.');
+        return;
+      }
       await api('', {...scope, document_id:doc.document_id, assistant_root:doc.assistant_root});
       cache.delete(scopeKey(scope));
       const current = bridge?.workspace();
