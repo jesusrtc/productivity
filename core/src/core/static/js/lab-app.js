@@ -2699,6 +2699,7 @@
   function _sidebarActivateFileConfig() {
     const scopeKey = _sidebarFileConfigScopeKey();
     if (scopeKey === _sidebarFileConfigScope) return false;
+    if (_sidebarScopeTransition) _sidebarEndScopeSwitch();
     _sidebarFileConfigScope = scopeKey;
     _sidebarFileConfig = _loadSidebarFileConfig(scopeKey);
     showDotFiles = _sidebarFileConfig.showHidden;
@@ -2919,12 +2920,14 @@
     const attachIcon = '<svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="2" y="3" width="16" height="14" rx="2"/><path d="m5 7 3 3-3 3m5 0h5"/></svg>';
     return `<div class="sidebar-file-scope-buttons" role="group" aria-label="Active and pinned folders">${scopes.map(scope => {
       const active = scope.path === activePath;
+      const switching = active && _sidebarScopeTransition?.baseRoot === baseRoot;
+      const loading = switching && !_sidebarScopeTransition.error;
       const pinned = (_sidebarFileConfig.pinnedScopes || []).includes(scope.path);
       const color = _sidebarValidColor(scope.color), label = _sidebarScopeDisplayLabel(scope);
       const kind = scope.kind === 'worktree' ? 'Worktree' : scope.kind === 'parent' ? 'Parent folder' : 'Main folder';
       const scopeAttrs = `data-base-root="${escAttr(baseRoot)}" data-folder-path="${escAttr(scope.path === baseRoot ? '' : scope.path)}"`;
-      return `<div class="sidebar-scope-chip${active ? ' active' : ''}" data-scope-kind="${escAttr(scope.kind || 'folder')}" ${scopeAttrs} style="--sidebar-workspace-color:${escAttr(color)}"><button type="button" class="sidebar-scope-color" data-scope-path="${escAttr(scope.path)}" onclick="sidebarScopeColors(this)" aria-label="${kind} · Change color for ${escAttr(label)}" title="${kind} · Change color">${_sidebarScopeKindIcon(scope.kind)}</button><button type="button" class="sidebar-file-scope-button${active ? ' active' : ''}" ${scopeAttrs} onclick="sidebarActivateScope(this,event)" aria-pressed="${active ? 'true' : 'false'}" title="${escAttr(scope.path)} · Double-click to edit metadata" style="--sidebar-workspace-color:${escAttr(color)}"><span>${esc(label)}</span></button><span class="sidebar-scope-tag" title="${kind}">${scope.kind === 'worktree' ? 'Worktree' : scope.kind === 'parent' ? 'Parent' : 'Folder'}</span><button type="button" class="sidebar-repo-history" ${scopeAttrs} onclick="sidebarOpenRepositoryHistory(this)" ${active ? '' : 'disabled'} aria-label="Open Git history for ${escAttr(label)}" title="${active ? 'Open Git history' : 'Select this folder to open Git history'}">${_SIDEBAR_GITHUB_ICON}</button><button type="button" class="sidebar-link-terminal" ${scopeAttrs} onclick="termLinkCurrentScope(this)" ${active ? '' : 'disabled'} aria-label="Attach active terminal to ${escAttr(label)}" title="${active ? 'Attach active terminal' : 'Select this folder to attach a terminal'}">${attachIcon}</button><button type="button" class="sidebar-scope-pin${pinned ? ' pinned' : ''}" data-scope-path="${escAttr(scope.path)}" onclick="sidebarPinScope(this)" aria-label="${pinned ? 'Unpin' : 'Pin'} ${escAttr(label)}" aria-pressed="${pinned}" title="${pinned ? 'Unpin' : 'Pin'}">${_sidebarScopePinIcon()}</button></div>`;
-    }).join('')}<button type="button" class="sidebar-scope-add" data-base-root="${escAttr(baseRoot)}" onclick="sidebarAddScope(this)" aria-label="Add project, worktree or folder" title="Add project, worktree or folder">+</button></div>`;
+      return `<div class="sidebar-scope-chip${active ? ' active' : ''}${loading ? ' loading' : ''}" aria-busy="${loading}" data-scope-kind="${escAttr(scope.kind || 'folder')}" ${scopeAttrs} style="--sidebar-workspace-color:${escAttr(color)}"><button type="button" class="sidebar-scope-color" data-scope-path="${escAttr(scope.path)}" onclick="sidebarScopeColors(this)" aria-label="${kind} · Change color for ${escAttr(label)}" title="${kind} · Change color">${_sidebarScopeKindIcon(scope.kind)}</button><button type="button" class="sidebar-file-scope-button${active ? ' active' : ''}" ${scopeAttrs} onclick="sidebarActivateScope(this,event)" aria-pressed="${active ? 'true' : 'false'}" title="${escAttr(scope.path)} · Double-click to edit metadata" style="--sidebar-workspace-color:${escAttr(color)}"><span>${esc(label)}</span></button>${loading ? '<span class="sidebar-scope-spinner" role="status" aria-label="Loading folder"></span>' : ''}<span class="sidebar-scope-tag" title="${kind}">${scope.kind === 'worktree' ? 'Worktree' : scope.kind === 'parent' ? 'Parent' : 'Folder'}</span><button type="button" class="sidebar-repo-history" ${scopeAttrs} onclick="sidebarOpenRepositoryHistory(this)" ${active && !switching ? '' : 'disabled'} aria-label="Open Git history for ${escAttr(label)}" title="${active ? 'Open Git history' : 'Select this folder to open Git history'}">${_SIDEBAR_GITHUB_ICON}</button><button type="button" class="sidebar-link-terminal" ${scopeAttrs} onclick="termLinkCurrentScope(this)" ${active && !switching ? '' : 'disabled'} aria-label="Attach active terminal to ${escAttr(label)}" title="${active ? 'Attach active terminal' : 'Select this folder to attach a terminal'}">${attachIcon}</button><button type="button" class="sidebar-scope-pin${pinned ? ' pinned' : ''}" data-scope-path="${escAttr(scope.path)}" onclick="sidebarPinScope(this)" aria-label="${pinned ? 'Unpin' : 'Pin'} ${escAttr(label)}" aria-pressed="${pinned}" title="${pinned ? 'Unpin' : 'Pin'}">${_sidebarScopePinIcon()}</button></div>`;
+    }).join('')}<button type="button" class="sidebar-scope-add" data-base-root="${escAttr(baseRoot)}" onclick="sidebarAddScope(this)" aria-label="Add project, worktree or folder" title="Add project, worktree or folder">+</button>${_sidebarScopeTransition?.baseRoot === baseRoot && _sidebarScopeTransition.error ? `<div class="sidebar-scope-load-error" role="alert"><span>${esc(_sidebarScopeTransition.error)}</span><button type="button" data-base-root="${escAttr(baseRoot)}" onclick="sidebarRetryScopeSwitch(this)">Retry</button></div>` : ''}</div>`;
   }
 
   function _sidebarScopePinIcon() {
@@ -3084,6 +3087,7 @@
     if (previous === path) {
       _storeSidebarFileConfig();
       _sidebarRenderScopeButtons();
+      if (_sidebarScopeTransition?.error) sidebarRetryScopeSwitch(button);
       return;
     }
     if (_sidebarWorkspaceRoot(baseRoot) === path) {
@@ -3875,6 +3879,12 @@
     if (fileRoot === baseRoot && !currentRepo) return false;
     const sidebar = document.getElementById('sidebar');
     if (!sidebar) return false;
+    if (_sidebarScopeTransition && !_sidebarScopeTransitionCurrent()) {
+      if (_sidebarScopeTransition.baseRoot === baseRoot && _sidebarScopeTransition.fileRoot === fileRoot) _sidebarBeginScopeSwitch(baseRoot);
+      else _sidebarEndScopeSwitch();
+    }
+    const transition = _sidebarScopeTransition;
+    if (transition?.error || transition?.view) return true;
     if (!_sidebarProjectTimer) {
       // Check expiry cheaply; ProjectSidebar performs network/Git work only
       // once the server snapshot is a minute old. A 60s timer plus a 60s TTL
@@ -3883,33 +3893,62 @@
       document.addEventListener('visibilitychange', () => { if (!document.hidden) _sidebarProjectRefresh(); });
     }
     const generation = ++_sidebarProjectGeneration;
-    let view = sidebar.querySelector('[data-project-sidebar]');
+    let view = transition ? null : sidebar.querySelector('[data-project-sidebar]');
     if (!view || view.dataset.projectSidebar !== fileRoot
         || !view.querySelector('[data-project-directory="."]')
         || !view.querySelector('[data-project-recent]')
         || !view.querySelector('.sidebar-recent-selectors')) {
-      sidebar.innerHTML = '<div class="sidebar-scope-view" data-project-sidebar="' + escAttr(fileRoot) + '">' +
+      const markup = '<div class="sidebar-scope-view" data-project-sidebar="' + escAttr(fileRoot) + '">' +
         '<div class="sidebar-title sidebar-title-with-action"><span>Project</span>' + _sidebarFileConfigCogHtml() + '</div>' +
         _sidebarRecentSelectorsHtml() + _sidebarFileScopeButtonsHtml(baseRoot) + _sidebarWorktreePickerHtml(baseRoot) +
         '<section data-project-recent></section>' + _sidebarFilesTitle(fileRoot, currentRepo ? 'repo' : 'workspace') +
         '<section data-project-directory="."><div class="sidebar-title">Loading files…</div></section></div>';
-      view = sidebar.querySelector('[data-project-sidebar]');
+      if (transition) {
+        // Build the new checkout offscreen. Both small projections must be
+        // ready before replacing the outgoing tree in a single DOM update.
+        const template = document.createElement('template');
+        template.innerHTML = markup;
+        view = template.content.firstElementChild;
+      } else {
+        sidebar.innerHTML = markup;
+        view = sidebar.querySelector('[data-project-sidebar]');
+      }
     }
     view._project = {baseRoot, fileRoot, generation};
-    _sidebarMarkPainted(baseRoot, fileRoot);
+    if (transition) transition.view = view;
+    else _sidebarMarkPainted(baseRoot, fileRoot);
     _sidebarProjectDirectory(view.querySelector('[data-project-directory="."]'), view);
-    _sidebarProjectRecent();
+    _sidebarProjectRecent(view);
     return true;
+  }
+
+  function _sidebarProjectOwnsView(view) {
+    const project = view?._project;
+    return project && _sidebarProjectCurrent(project.baseRoot, project.fileRoot, project.generation)
+      && (document.getElementById('sidebar')?.contains(view)
+        || (_sidebarScopeTransition?.view === view && _sidebarScopeTransitionCurrent()));
+  }
+
+  function _sidebarCommitProjectView(view) {
+    if (_sidebarScopeTransition?.view !== view || !_sidebarProjectOwnsView(view)
+        || !view._directoryReady || !view._recentReady) return;
+    const sidebar = document.getElementById('sidebar');
+    sidebar.replaceChildren(view);
+    _sidebarMarkPainted(view._project.baseRoot, view._project.fileRoot);
   }
 
   function _sidebarProjectDirectory(host, view) {
     if (!host || !view?._project || !view.contains(host)) return;
     const {baseRoot, fileRoot, generation} = view._project;
-    const current = () => host.isConnected && view.contains(host) && view._project.generation === generation
-      && _sidebarProjectCurrent(baseRoot, fileRoot, generation);
+    const current = () => view.contains(host) && view._project.generation === generation
+      && _sidebarProjectOwnsView(view);
     const url = `/api/sidebar-directory?path=${encodeURIComponent(fileRoot)}&directory=${encodeURIComponent(host.dataset.projectDirectory)}&include_dotfiles=${showWorkspaceDotFiles}`;
     ProjectSidebar.read(url, data => {
-      if (data.error) { host.title = data.error; return; }
+      if (data.error || (!data.entries && data.cache?.error)) {
+        host.title = data.error || data.cache.error;
+        if (_sidebarScopeTransition?.view === view) _sidebarScopeSwitchFailed(host.title);
+        return;
+      }
       if (!Array.isArray(data.entries)) return;
       const signature = JSON.stringify([data.entries, _sidebarCurrentSortMode('files')]);
       if (host._signature === signature) {
@@ -3957,17 +3996,20 @@
         const child = node.querySelector(':scope > [data-project-directory].open');
         if (child) _sidebarProjectDirectory(child, view);
       }
+      if (host.dataset.projectDirectory === '.') {
+        view._directoryReady = true;
+        _sidebarCommitProjectView(view);
+      }
     }, current);
   }
 
-  function _sidebarProjectRecent() {
-    const view = document.querySelector('#sidebar [data-project-sidebar]');
-    if (!view?._project) return;
+  function _sidebarProjectRecent(view = document.querySelector('#sidebar [data-project-sidebar]')) {
+    if (!_sidebarProjectOwnsView(view)) return;
     const {baseRoot, fileRoot, generation} = view._project;
     for (const [key, entry] of _sidebarScopeViews) {
       if (entry.view === view && key !== _sidebarScopeCacheKey(baseRoot)) _sidebarScopeViews.delete(key);
     }
-    _sidebarMarkPainted(baseRoot, fileRoot);
+    if (_sidebarScopeTransition?.view !== view) _sidebarMarkPainted(baseRoot, fileRoot);
     const mode = _sidebarCurrentRecentMode(), minutes = _sidebarFileConfig.recentMinutes;
     const host = view.querySelector('[data-project-recent]');
     const selectors = view.querySelector('.sidebar-recent-selectors');
@@ -3977,17 +4019,24 @@
       button.classList.toggle('active', active);
       button.setAttribute('aria-pressed', String(active));
     });
-    const current = () => host.isConnected && view.contains(host) && view.isConnected
-      && _sidebarProjectCurrent(baseRoot,fileRoot,generation)
+    const current = () => view.contains(host) && _sidebarProjectOwnsView(view)
       && mode === _sidebarCurrentRecentMode() && minutes === _sidebarFileConfig.recentMinutes;
     if (host._mode !== mode + minutes) { host.innerHTML = ''; host._mode = mode + minutes; host._signature = ''; }
-    if (mode === 'none') return;
+    if (mode === 'none') {
+      view._recentReady = true;
+      _sidebarCommitProjectView(view);
+      return;
+    }
     const baseUrl = mode === 'mtime' ? `/api/sidebar-mtime?path=${encodeURIComponent(fileRoot)}&minutes=${minutes}`
       : `/api/sidebar-recent-files?repo=${encodeURIComponent(fileRoot)}&mode=${mode}&cached=true`;
     const extensions = _sidebarFileConfig.trackMode === 'extensions' ? (_sidebarFileConfig.extensions || []).join(',') || '__no_matches__' : '';
     const url = baseUrl + `&sort=${_sidebarCurrentSortMode('recent')}&include_dotfiles=${showWorkspaceDotFiles}&extensions=${encodeURIComponent(extensions)}`;
     ProjectSidebar.read(url, data => {
       if (!Array.isArray(data.entries)) {
+        if (_sidebarScopeTransition?.view === view && (data.error || data.cache?.error)) {
+          _sidebarScopeSwitchFailed(data.error || data.cache.error);
+          return;
+        }
         if (!host._signature) host.innerHTML = `<div class="sidebar-title">${esc(data.error || 'Loading recent files…')}</div>`;
         return;
       }
@@ -4018,6 +4067,8 @@
         }
       };
       render();
+      view._recentReady = true;
+      _sidebarCommitProjectView(view);
     }, current);
   }
 
@@ -4033,6 +4084,87 @@
   // click still blocks the browser. Moving its existing nodes also preserves
   // expansion and scroll state. The bounded cache is shared by all surfaces.
   const _sidebarScopeViews = new Map();
+  let _sidebarScopeTransition = null;
+
+  function _sidebarScopeTransitionCurrent() {
+    const transition = _sidebarScopeTransition;
+    return transition && transition.configScope === _sidebarFileConfigScope
+      && transition.baseRoot === _sidebarWorktreeBaseRoot()
+      && transition.fileRoot === _sidebarScopedRoot(transition.baseRoot)
+      && transition.key === _sidebarScopeCacheKey(transition.baseRoot);
+  }
+
+  function _sidebarEndScopeSwitch({commit = false} = {}) {
+    const transition = _sidebarScopeTransition;
+    if (!transition) return;
+    _sidebarScopeTransition = null;
+    const sidebar = document.getElementById('sidebar');
+    sidebar?.classList.remove('sidebar-scope-switching');
+    sidebar?.removeAttribute('aria-busy');
+    if (transition.content) {
+      transition.content.inert = transition.contentWasInert;
+      transition.content.removeAttribute('aria-busy');
+    }
+    if (commit) {
+      // A terminal link may have opened a file from the incoming checkout
+      // while its sidebar was loading. Keep that newer navigation intact.
+      const keepDocument = _workspaceDocRoot === transition.fileRoot
+        || _workspaceDocRoot !== transition.documentRoot || _workspaceDocPath !== transition.documentPath;
+      if (!keepDocument) {
+        _workspaceDocPath = null;
+        _workspaceDocRoot = null;
+        workspaceOpenFile = null;
+      }
+      diffCache = {uncommitted: null, branch: null};
+      if (transition.content && !keepDocument)
+        transition.content.innerHTML = '<div class="file-viewer-empty">Select a file from the tree</div>';
+      if (!keepDocument) sidebar?.querySelectorAll('.sidebar-file.active').forEach(row => row.classList.remove('active'));
+    }
+    if (typeof _sidebarRenderScopeButtons === 'function') _sidebarRenderScopeButtons();
+  }
+
+  function _sidebarBeginScopeSwitch(baseRoot) {
+    _sidebarEndScopeSwitch();
+    ++_sidebarProjectGeneration;
+    const sidebar = document.getElementById('sidebar'), content = document.getElementById('content');
+    _sidebarScopeTransition = {baseRoot, fileRoot:_sidebarScopedRoot(baseRoot), key:_sidebarScopeCacheKey(baseRoot),
+      configScope:_sidebarFileConfigScope, content, documentRoot:_workspaceDocRoot, documentPath:_workspaceDocPath,
+      contentWasInert:content?.inert, view:null, error:null};
+    sidebar?.classList.add('sidebar-scope-switching');
+    sidebar?.setAttribute('aria-busy', 'true');
+    if (content) { content.inert = true; content.setAttribute('aria-busy', 'true'); }
+    if (typeof _sidebarRenderScopeButtons === 'function') _sidebarRenderScopeButtons();
+  }
+
+  function _sidebarScopeSwitchFailed(error) {
+    if (!_sidebarScopeTransitionCurrent()) return;
+    _sidebarScopeTransition.error = error || 'Could not load folder';
+    _sidebarScopeTransition.view = null;
+    ++_sidebarProjectGeneration;
+    document.getElementById('sidebar')?.setAttribute('aria-busy', 'false');
+    _sidebarScopeTransition.content?.setAttribute('aria-busy', 'false');
+    _sidebarRenderScopeButtons();
+  }
+
+  function sidebarRetryScopeSwitch(button) {
+    if (!_sidebarScopeTransitionCurrent() || button.getAttribute('data-base-root') !== _sidebarScopeTransition.baseRoot) return;
+    _sidebarScopeTransition.error = null;
+    document.getElementById('sidebar')?.setAttribute('aria-busy', 'true');
+    _sidebarScopeTransition.content?.setAttribute('aria-busy', 'true');
+    _sidebarRenderScopeButtons();
+    void _refreshSidebarAfterFileConfig();
+  }
+
+  // Outgoing file actions must not use the newly selected checkout while its
+  // rows are still visible. Scope selection and metadata remain available.
+  for (const type of ['click', 'dblclick', 'dragstart', 'contextmenu']) {
+    document.addEventListener(type, event => {
+      if (_sidebarScopeTransition && event.target.closest('#sidebar')
+          && !event.target.closest('.sidebar-file-scope-buttons')) {
+        event.preventDefault(); event.stopImmediatePropagation();
+      }
+    }, true);
+  }
   function _sidebarScopeCacheKey(baseRoot) {
     const {selectedFolders, selectedWorktrees, scopeUsage, pinnedScopes, terminalScopePins, ...settings} = _sidebarFileConfig;
     const folder = _sidebarWorkspaceRoot(baseRoot);
@@ -4046,6 +4178,8 @@
 
   function _sidebarMarkPainted(baseRoot, fileRoot, files) {
     const sidebar = document.getElementById('sidebar');
+    if (_sidebarScopeTransition) _sidebarEndScopeSwitch({commit:_sidebarScopeTransitionCurrent()
+      && _sidebarScopeTransition.baseRoot === baseRoot && _sidebarScopeTransition.fileRoot === fileRoot});
     if (sidebar) sidebar._fileScope = {baseRoot, fileRoot, key: _sidebarScopeCacheKey(baseRoot),
       view: sidebar.firstElementChild, revision: files?._snapshotRevision};
     if (typeof _sidebarMountScopeLinks === 'function') _sidebarMountScopeLinks(baseRoot, fileRoot);
@@ -4087,11 +4221,11 @@
     const key = _sidebarScopeCacheKey(baseRoot);
     const cached = _sidebarScopeViews.get(key);
     if (!cached) {
-      sidebar._fileScope = null;
-      sidebar.innerHTML = _sidebarFileScopeButtonsHtml(baseRoot) +
-        '<div class="sidebar-title">Loading files…</div>';
+      _sidebarBeginScopeSwitch(baseRoot);
       return false;
     }
+    if (!_sidebarScopeTransition) _sidebarBeginScopeSwitch(baseRoot);
+    _sidebarEndScopeSwitch({commit:true});
     _sidebarScopeViews.delete(key);
     _sidebarScopeViews.set(key, cached);
     _sidebarWorktreeFolders = cached.worktrees;
@@ -4138,14 +4272,8 @@
     else delete _sidebarFileConfig.selectedFolders[baseRoot];
     _sidebarClearWorktreeDiscovery();
     _storeSidebarFileConfig();
-    _workspaceDocPath = null;
-    _workspaceDocRoot = null;
-    workspaceOpenFile = null;
-    diffCache = {uncommitted: null, branch: null};
     _lastWorkspaceMtime = 0;
     _workspaceSidebarCache.delete(baseRoot);
-    const content = document.getElementById('content');
-    if (content) content.innerHTML = '<div class="file-viewer-empty">Select a file from the tree</div>';
     const restored = _sidebarRestoreScope(baseRoot);
     afterFirstPaint(() => _refreshSidebarAfterFileConfig({scopeSwitch: restored}));
   }
@@ -4164,14 +4292,8 @@
     if (selected) _sidebarFileConfig.selectedWorktrees[workspaceRoot] = selected;
     else delete _sidebarFileConfig.selectedWorktrees[workspaceRoot];
     _storeSidebarFileConfig();
-    _workspaceDocPath = null;
-    _workspaceDocRoot = null;
-    workspaceOpenFile = null;
-    diffCache = {uncommitted: null, branch: null};
     _lastWorkspaceMtime = 0;
     _workspaceSidebarCache.delete(baseRoot);
-    const content = document.getElementById('content');
-    if (content) content.innerHTML = '<div class="file-viewer-empty">Select a file from the tree</div>';
     const restored = _sidebarRestoreScope(baseRoot);
     afterFirstPaint(() => _refreshSidebarAfterFileConfig({scopeSwitch: restored}));
   }
@@ -10293,6 +10415,7 @@
       // Without this the catch silently degrades the sidebar to a bare
       // "Workspace" title and we lose the actual reason every time.
       if (!e || !e.sidebarReported) console.error('[_refreshWorkspaceSidebar] failed:', e && e.stack || e);
+      if (ownsSidebar() && typeof _sidebarScopeSwitchFailed === 'function') _sidebarScopeSwitchFailed(e?.message);
       // Only wipe the sidebar if it's empty — otherwise we'd nuke the
       // previously-rendered file tree the user is still looking at, which
       // is strictly worse than leaving the old list visible while we log
@@ -18047,6 +18170,7 @@
       _sidebarMarkPainted(baseRoot, fileRoot, files);
       _populateAgentContextMeta(sidebar);
     } catch(e) {
+      if (_sidebarScopeTransition?.baseRoot === SELF_REPO_PATH) _sidebarScopeSwitchFailed(e?.message);
       if (!sidebar._fileScope) sidebar.innerHTML = '<div class="sidebar-title">Home</div>';
     }
   }
@@ -19431,6 +19555,7 @@
       // the shared 6s poll keeps it fresh afterwards.
       _sidebarGitStatusRefresh();
     } catch (e) {
+      if (_sidebarScopeTransition?.baseRoot === rootPath) _sidebarScopeSwitchFailed(e?.message);
       if (!sidebar._fileScope) sidebar.innerHTML = '<div class="sidebar-title">Vault</div>';
     }
   }

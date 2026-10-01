@@ -39,6 +39,8 @@ def test_large_folder_and_worktree_switches_reuse_dom_under_200ms(tmp_path):
         between('  function _sidebarScanLabel(', '  function _sidebarFetchWorkspaceFiles('),
     ])
     checks = r'''
+const _sidebarFileConfigScope = 'switch-test';
+let _sidebarProjectGeneration = 0;
 let currentRepo = null, currentWorkspace = {path:'/workspace', is_workspace:true};
 let _sidebarFileConfig = {folderScopes:[
   {path:'/large-project',label:'Large',worktreeFolder:'/trees'},
@@ -56,6 +58,7 @@ const _sidebarDefaultWorktreeFolder = () => '';
 const _sidebarEnsureWorktrees = () => new Promise(() => {});
 const selfPopulateSidebar = _sidebarEnsureWorktrees, vaultPopulateSidebar = _sidebarEnsureWorktrees, loadWorkspaceView = _sidebarEnsureWorktrees;
 const _sidebarFileScopeButtonsHtml = () => '<button>Folders</button>';
+const _sidebarWorktreeBaseRoot = () => '/workspace';
 const _sidebarScopedRoot = base => (_sidebarFileConfig.selectedWorktrees || {})[_sidebarWorkspaceRoot(base)] || _sidebarWorkspaceRoot(base);
 const sidebar = document.getElementById('sidebar');
 const assert = (value, message) => { if (!value) throw new Error(message); };

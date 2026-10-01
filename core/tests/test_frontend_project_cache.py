@@ -126,6 +126,7 @@ def test_project_sidebar_repairs_replaced_children_in_chrome(tmp_path):
     prelude = r'''
 const assert = (value, message) => { if (!value) throw Error(message); };
 const requests = [], _sidebarScopeViews = new Map();
+const _sidebarScopeTransition = null;
 let currentRepo = null, showWorkspaceDotFiles = false, _workspaceDocPath = null, _workspaceDocRoot = null;
 const _sidebarFileConfig = {recentMinutes:60};
 const _sidebarWorktreeBaseRoot = () => '/workspace';
@@ -178,8 +179,15 @@ try {
   document.body.append(String(error.stack || error));
 }
 '''
+    _check_project_html(tmp_path, '<div id="sidebar"></div><div id="other"></div><script>' + prelude + source + checks + '</script>')
+
+
+def _check_project_html(tmp_path, html):
+    chrome = os.environ.get('CHROME_BIN') or shutil.which('chromium') or '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+    if not Path(chrome).is_file() or not shutil.which('node'):
+        pytest.skip('Chrome and Node are required')
     page = tmp_path / 'project-sidebar.html'
-    page.write_text('<div id="sidebar"></div><div id="other"></div><script>' + prelude + source + checks + '</script>')
+    page.write_text(html)
     profile = tmp_path / 'chrome'
     root = Path(__file__).resolve().parents[2]
     rendered = tmp_path / 'rendered.html'
@@ -195,8 +203,96 @@ try {
                                  page.as_uri(), str(rendered)], env={**os.environ, 'LAB_UI_AUTH_COOKIE':''},
                                 capture_output=True, text=True, timeout=25)
         assert result.returncode == 0, result.stderr
-        assert 'data-result="pass"' in rendered.read_text(), rendered.read_text()
+        assert 'data-result="pass"' in rendered.read_text(), rendered.read_text()[-2000:]
     finally:
         if browser.poll() is None:
             os.killpg(browser.pid, signal.SIGTERM)
         browser.wait(timeout=5)
+
+
+def test_cold_scope_switch_publishes_both_sections_and_rejects_cancelled_reads(tmp_path):
+    from .test_frontend_terminal_ui import _js_between
+    source = _js_between('  let showDotFiles = false;', '  function filterDotFiles(nodes)')
+    prelude = r'''
+let currentRepo=null, currentWorkspace={path:'/workspace',is_workspace:true,repos:[]};
+let _workspaceDocRoot='/old', _workspaceDocPath='old.txt', workspaceOpenFile=null;
+let fileTree=[], diffCache={}, _repoFileRoot=null, _lastWorkspaceMtime=0;
+const _workspaceSidebarCache=new Map(), requests=[];
+const esc=String, escAttr=String, _termCancelPendingLinkedFileOpen=()=>{};
+const _sidebarFilesTitle=()=>'<div>Files</div>';
+const _treeIsOpen=()=>false;
+const renderSidebarFileTree=tree=>'<a class="sidebar-file">'+tree.__files__[0].path+'</a>';
+const ProjectSidebar={read(url,update,current){if(current())requests.push({url,update,current});}};
+const afterFirstPaint=callback=>callback();
+window.setInterval=()=>1;
+'''
+    checks = r'''
+const assert=(value,message)=>{if(!value)throw Error(message);};
+_refreshSidebarAfterFileConfig=async()=>_sidebarProjectView('/workspace',_sidebarScopedRoot('/workspace'));
+_sidebarRecentSectionHtml=files=>files.map(file=>'<a class="sidebar-file">'+file.path+'</a>').join('');
+_sidebarFileConfig=_sidebarNormalizeFileConfig({recentMode:'local-main',selectedFolders:{'/workspace':'/old'},
+  pinnedScopes:['/old','/new','/trees/topic'], folderScopes:[{path:'/old',label:'Old'},
+    {path:'/new',label:'New'},{path:'/trees/topic',label:'New/topic',kind:'worktree'}]});
+const sidebar=document.getElementById('sidebar'),content=document.getElementById('content');
+sidebar.innerHTML='<div class="sidebar-scope-view">'+_sidebarFileScopeButtonsHtml('/workspace')+'<a class="sidebar-file" onclick="window.staleAction=true">old.txt</a></div>';
+content.innerHTML='<p>Keep my open document</p>';
+const button=path=>({getAttribute:name=>name==='data-base-root'?'/workspace':path});
+const respond=(request,data)=>{if(request.current())request.update(data);};
+const directory=(prefix)=>requests.find(request=>request.url.startsWith('/api/sidebar-directory')&&request.url.includes(encodeURIComponent(prefix)));
+const recent=(prefix)=>requests.find(request=>request.url.startsWith('/api/sidebar-recent-files')&&request.url.includes(encodeURIComponent(prefix)));
+const entries=path=>({entries:[{path,type:'file',git_tracked:true}],total:1});
+(async()=>{
+  _sidebarProjectView('/workspace','/old');
+  respond(directory('/old'),entries('old.txt'));
+  respond(recent('/old'),entries('old-change.txt'));
+  sidebar.querySelector('.sidebar-file').onclick=()=>window.staleAction=true;
+  const oldView=sidebar.firstElementChild,oldContent=content.firstElementChild;
+  await sidebarSelectFolder(button('/new'));
+  assert(sidebar.firstElementChild===oldView&&content.firstElementChild===oldContent,'cold selection blanks the view');
+  assert(_workspaceDocPath==='old.txt'&&content.inert,'outgoing document ownership stays until commit');
+  assert(sidebar.querySelector('.sidebar-scope-spinner'),'loading indicator missing');
+  sidebar.querySelector('.sidebar-file').click();
+  assert(!window.staleAction,'outgoing file action ran against the new scope');
+  respond(directory('/new'),entries('new.txt'));
+  assert(sidebar.firstElementChild===oldView,'directory published before recent files');
+  const obsoleteRecent=recent('/new');
+  await sidebarSelectFolder(button('/trees/topic'));
+  const obsoleteDirectory=directory('/trees/topic');
+  await sidebarSelectFolder(button('/old'));
+  assert(sidebar.firstElementChild===oldView&&!content.inert&&!sidebar.querySelector('.sidebar-scope-spinner'),'cached return did not cancel loading');
+  respond(obsoleteRecent,entries('obsolete.txt'));
+  respond(obsoleteDirectory,entries('obsolete-tree.txt'));
+  assert(sidebar.firstElementChild===oldView,'cancelled response stole the restored view');
+  await sidebarSelectFolder(button('/trees/topic'));
+  const retryDirectory=requests.filter(request=>request.url.startsWith('/api/sidebar-directory')).at(-1);
+  respond(retryDirectory,{error:'Temporary read failure'});
+  assert(sidebar.firstElementChild===oldView,'failed read discarded the outgoing tree');
+  assert(sidebar.querySelector('.sidebar-scope-load-error button')&&!sidebar.querySelector('.sidebar-scope-spinner'),'retry UI missing');
+  sidebarRetryScopeSwitch(sidebar.querySelector('.sidebar-scope-load-error button'));
+  const newestDirectory=requests.filter(request=>request.url.startsWith('/api/sidebar-directory')).at(-1);
+  const newestRecent=requests.filter(request=>request.url.startsWith('/api/sidebar-recent-files')).at(-1);
+  assert(newestDirectory!==retryDirectory&&sidebar.querySelector('.sidebar-scope-spinner'),'retry did not start a fresh request');
+  respond(newestRecent,entries('topic-change.txt'));
+  assert(sidebar.firstElementChild===oldView,'recent files published before directory');
+  respond(newestDirectory,entries('topic.txt'));
+  assert(sidebar.firstElementChild.dataset.projectSidebar==='/trees/topic','ready worktree did not publish');
+  assert(sidebar.querySelector('[data-project-directory]').textContent==='topic.txt','directory missing at commit');
+  assert(sidebar.querySelector('[data-project-recent]').textContent==='topic-change.txt','recent files missing at commit');
+  assert(!content.inert&&!sidebar.hasAttribute('aria-busy')&&!sidebar.querySelector('.sidebar-scope-spinner'),'loading state survived commit');
+  assert(_workspaceDocPath===null&&_workspaceDocRoot===null,'old document ownership survived new scope');
+  // A terminal can open an incoming document before the sidebar is ready.
+  await sidebarSelectFolder(button('/new'));
+  content.innerHTML='<p>Newer terminal-linked document</p>';
+  _workspaceDocRoot='/new';_workspaceDocPath='new.txt';
+  respond(requests.filter(request=>request.url.startsWith('/api/sidebar-directory')).at(-1),entries('new.txt'));
+  respond(requests.filter(request=>request.url.startsWith('/api/sidebar-recent-files')).at(-1),entries('new-change.txt'));
+  assert(content.textContent==='Newer terminal-linked document'&&_workspaceDocPath==='new.txt','late sidebar commit erased a newer document');
+  _sidebarScopeViews.clear();
+  await sidebarSelectFolder(button('/trees/topic'));
+  currentWorkspace={path:'/different',is_workspace:true,repos:[]};
+  _sidebarActivateFileConfig();
+  assert(!_sidebarScopeTransition&&!content.inert,'leaving the workspace retained a pending loading lock');
+  document.body.dataset.result='pass';
+})().catch(error=>{document.body.dataset.result='fail';document.body.append(String(error.stack||error));});
+'''
+    _check_project_html(tmp_path, '<div id="sidebar"></div><div id="content"></div><script>' + prelude + source + checks + '</script>')

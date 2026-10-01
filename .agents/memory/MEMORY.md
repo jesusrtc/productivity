@@ -511,3 +511,5 @@
 - [Internal document links use a searchable browser](internal-document-links-use-searchable-browser.md) — document results and whole-document/tab choices, compact summaries, keyboard/mobile support.
 
 - [Scope rows combine branch and actions](sidebar-scopes-combine-branch-and-actions.md) — folder/branch labels, distinct kinds, and active-only inline GitHub/terminal controls.
+
+- [Cold scope switches preserve visible content](sidebar-cold-switches-preserve-visible-content.md) — loading indicator, atomic project publication, cancellation/retry, and instant cached navigation.

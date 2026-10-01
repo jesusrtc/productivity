@@ -31,6 +31,15 @@ Pins, usage, and colors persist in this browser's workspace settings.
 
 ![Inline primary-folder and worktree controls](inline-folder-worktree-controls.png)
 
+Uncached folder/worktree selections keep the existing tree and viewer visible.
+A small spinner appears in the incoming scope row while the root listing and
+recent files load offscreen, then both sections replace the tree together.
+Outgoing file actions are temporarily blocked; selecting another scope cancels
+the pending publication. Failed reads preserve the view and offer **Retry**.
+Cached scopes still restore immediately without an artificial delay.
+
+![Existing content retained while a new scope loads](cold-scope-loading.png)
+
 ![Searchable project and worktree picker](scope-picker.png)
 
 Workspace **File sidebar** Settings contain file preferences only. The duplicate
@@ -140,3 +149,12 @@ kinds for all seven scopes, including a primary `master` checkout and a
 `feature/search` worktree in a differently named directory, exactly one active
 GitHub/attachment action, and no duplicate branch row. Existing metadata editing,
 colors, pins, terminal linking, and mobile document selection still pass.
+
+The loading follow-up passed **87 focused frontend tests**. Chrome checks both
+response orders, cancelled folder/worktree reads, failures and retry, outgoing
+action guards, and preservation of newer terminal-linked document opens. The
+50,000-row fixture retains the under-200ms cached switch target. The full UI run
+holds real API reads for three uncached scopes and verifies the previous tree,
+viewer, loading indicator, and disabled checkout actions before publication;
+all seven scopes, 28 HTTP comparisons, and 14 rendered filters pass with **0
+browser errors**.

@@ -4,11 +4,11 @@ from .test_frontend_terminal_ui import _js_between, _run_node
 
 
 _RENDER_STUBS = r'''
-let showWorkspaceDotFiles = false;
+let showWorkspaceDotFiles = false, currentRepo = null;
 const window = {};
 const _sidebarScopeCacheKey = () => currentWorkspace.path;
 const _sidebarMarkPainted = () => {};
-sidebar.firstElementChild = {classList: {contains: name => name === 'sidebar-scope-view'}};
+sidebar.firstElementChild = {classList: {contains: name => name === 'sidebar-scope-view'}, hasAttribute:()=>false};
 const _rememberNotebookFolders = ()=>{}, _sidebarRememberAvailableExtensions = ()=>{};
 const _sidebarMaybeLogRecentDiagnostics = ()=>{}, _sidebarFileConfigCogHtml = ()=>'';
 const _sidebarRecentSelectorsHtml = ()=>'', _sidebarFileScopeButtonsHtml = ()=>'';

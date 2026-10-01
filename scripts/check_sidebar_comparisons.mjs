@@ -16,7 +16,7 @@ const chrome = spawn(process.env.CHROME_BIN || '/Applications/Google Chrome.app/
   '--user-data-dir=' + profile, 'about:blank',
 ], {stdio: 'ignore'});
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-const result = {rows: [], errors: [], scopeInput: 'CDP mouse and text search', filterInput: 'CDP mouse', picker: {},scopeControls:[]};
+const result = {rows: [], errors: [], scopeInput: 'CDP mouse and text search', filterInput: 'CDP mouse', picker: {},scopeControls:[],coldSwitches:[]};
 let ws;
 try {
   let port;
@@ -89,12 +89,48 @@ try {
   await send('Page.navigate', {url: base + '/?workspace=' + encodeURIComponent(workspace)});
   await wait('!!document.querySelector(".sidebar-scope-add")');
   for (const fixture of fixtures) {
+    // Hold genuine API reads for the first folders/worktrees. Preserve their
+    // response data and use native selection to inspect the intermediate UI.
+    const cold = fixtures.indexOf(fixture) < 3;
+    if (cold) await evaluate(`(()=>{
+      const original=window.fetch, path=${JSON.stringify(fixture.path)};
+      let release;
+      const gate=new Promise(resolve=>release=resolve);
+      window.scopeLoadingProbe={original,release,requests:0,view:document.getElementById('sidebar').firstElementChild,
+        content:document.getElementById('content').innerHTML,file:document.querySelector('#sidebar .sidebar-file')};
+      window.fetch=function(input,...args){
+        const url=new URL(typeof input==='string'?input:input.url,location.href);
+        if(['/api/sidebar-directory','/api/sidebar-recent-files','/api/sidebar-mtime'].includes(url.pathname)
+          && (url.searchParams.get('path')===path || url.searchParams.get('repo')===path)){
+          scopeLoadingProbe.requests++;
+          return gate.then(()=>original.call(window,input,...args));
+        }
+        return original.call(window,input,...args);
+      };
+    })()`);
     await click('.sidebar-scope-add');
     await wait(`!!document.querySelector('.sidebar-scope-picker [data-scope-option="${fixture.path}"]') && !document.querySelector('.sidebar-scope-picker [data-status]')?.textContent.includes('Loading')`);
     await send('Input.insertText', {text: fixture.path});
     await wait(`document.querySelectorAll('.sidebar-scope-picker [data-scope-option]').length===1`);
     await click(`.sidebar-scope-picker [data-scope-option="${fixture.path}"]`);
+    if (cold) {
+      await wait('scopeLoadingProbe.requests>=2 && !!document.querySelector(".sidebar-scope-chip.active .sidebar-scope-spinner")');
+      const preserved=await evaluate(`({sameTree:document.getElementById('sidebar').firstElementChild===scopeLoadingProbe.view,
+        sameContent:document.getElementById('content').innerHTML===scopeLoadingProbe.content,
+        previousFileConnected:!scopeLoadingProbe.file || scopeLoadingProbe.file.isConnected,
+        actionsDisabled:document.querySelector('.sidebar-scope-chip.active .sidebar-repo-history').disabled
+          && document.querySelector('.sidebar-scope-chip.active .sidebar-link-terminal').disabled,
+        busy:document.getElementById('sidebar').getAttribute('aria-busy')==='true'})`);
+      if (Object.values(preserved).some(value=>!value)) throw Error('Cold switch blanked the outgoing view: '+JSON.stringify(preserved));
+      result.coldSwitches.push({scope:fixture.label,...preserved});
+      if (fixtures.indexOf(fixture)===1) {
+        const shot=await send('Page.captureScreenshot',{format:'png'});
+        await writeFile(join(output,'cold-scope-loading.png'),Buffer.from(shot.data,'base64'));
+      }
+      await evaluate('window.fetch=scopeLoadingProbe.original;scopeLoadingProbe.release()');
+    }
     await wait(`document.querySelector('[data-project-sidebar]')?.dataset.projectSidebar===${JSON.stringify(fixture.path)}`);
+    await wait('!document.querySelector(".sidebar-scope-spinner") && !document.getElementById("sidebar").hasAttribute("aria-busy") && !document.getElementById("content").inert');
     const control=await evaluate(`(()=>{const chip=document.querySelector('.sidebar-scope-chip.active');return {label:chip.querySelector('.sidebar-file-scope-button').textContent,kind:chip.dataset.scopeKind,badge:chip.querySelector('.sidebar-scope-tag').textContent,historyEnabled:!chip.querySelector('.sidebar-repo-history').disabled,terminalEnabled:!chip.querySelector('.sidebar-link-terminal').disabled,allInline:Array.from(chip.querySelectorAll('button')).every(button=>{const r=button.getBoundingClientRect(),p=chip.getBoundingClientRect();return r.top>=p.top && r.bottom<=p.bottom}),inactiveDisabled:Array.from(document.querySelectorAll('.sidebar-scope-chip:not(.active) .sidebar-repo-history,.sidebar-scope-chip:not(.active) .sidebar-link-terminal')).every(button=>button.disabled),repeatedBranch:!!document.querySelector('.sidebar-worktree-current,.sidebar-worktree-picker')};})()`);
     const isWorktree=fixture.path!==fixture.project;
     const expectedLabel=fixture.project.split('/').pop()+'/'+fixture.branch;
