@@ -2903,7 +2903,7 @@
     const selected = _sidebarSelectedWorktree(baseRoot);
     const folder = _sidebarSelectedFolder(baseRoot);
     const selectedLabel = selected ? selected.name : folder?.branch || '';
-    return `<div class="sidebar-worktree-picker" data-base-root="${escAttr(baseRoot)}" data-workspace-root="${escAttr(workspaceRoot)}"><button class="sidebar-repo-history" type="button" data-base-root="${escAttr(baseRoot)}" onclick="sidebarOpenRepositoryHistory(this)" title="Open Git history" aria-label="Open Git history">${_SIDEBAR_GITHUB_ICON}</button><span class="sidebar-worktree-current">${esc(selectedLabel)}</span><button type="button" class="sidebar-link-terminal" data-base-root="${escAttr(baseRoot)}" onclick="termLinkCurrentScope(this)" title="Associate the active terminal with this folder/worktree and pin it">Attach terminal</button></div><section class="sidebar-scope-links" data-scope-links="${escAttr(_sidebarScopedRoot(baseRoot))}" aria-label="Folder links"></section>`;
+    return `<div class="sidebar-worktree-picker" data-base-root="${escAttr(baseRoot)}" data-workspace-root="${escAttr(workspaceRoot)}"><button class="sidebar-repo-history" type="button" data-base-root="${escAttr(baseRoot)}" onclick="sidebarOpenRepositoryHistory(this)" title="Open Git history" aria-label="Open Git history">${_SIDEBAR_GITHUB_ICON}</button><button type="button" class="sidebar-worktree-current" data-base-root="${escAttr(baseRoot)}" data-folder-path="${escAttr(_sidebarScopedRoot(baseRoot))}" ondblclick="sidebarEditScopeMetadata(this)" onclick="if(event.detail===0)sidebarEditScopeMetadata(this)" title="Double-click to edit metadata" aria-label="Edit metadata for ${escAttr(selectedLabel || 'this folder')}">${esc(selectedLabel || 'main')}</button><button type="button" class="sidebar-link-terminal" data-base-root="${escAttr(baseRoot)}" onclick="termLinkCurrentScope(this)" title="Associate the active terminal with this folder/worktree and pin it">Attach terminal</button></div><section class="sidebar-scope-links" data-scope-links="${escAttr(_sidebarScopedRoot(baseRoot))}" aria-label="Folder links"></section>`;
   }
 
   function _sidebarFileScopeButtonsHtml(baseRoot) {
@@ -2913,7 +2913,7 @@
       const active = scope.path === activePath;
       const pinned = (_sidebarFileConfig.pinnedScopes || []).includes(scope.path);
       const color = _sidebarValidColor(scope.color);
-      return `<div class="sidebar-scope-chip${active ? ' active' : ''}" style="--sidebar-workspace-color:${escAttr(color)}"><button type="button" class="sidebar-scope-color" data-scope-path="${escAttr(scope.path)}" onclick="sidebarScopeColors(this)" aria-label="Change color for ${escAttr(scope.label)}" title="Change color"></button><button type="button" class="sidebar-file-scope-button${active ? ' active' : ''}" data-base-root="${escAttr(baseRoot)}" data-folder-path="${escAttr(scope.path === baseRoot ? '' : scope.path)}" onclick="sidebarSelectScope(this)" aria-pressed="${active ? 'true' : 'false'}" title="${escAttr(scope.path)}" style="--sidebar-workspace-color:${escAttr(color)}"><span>${esc(scope.label)}</span></button><button type="button" class="sidebar-scope-pin${pinned ? ' pinned' : ''}" data-scope-path="${escAttr(scope.path)}" onclick="sidebarPinScope(this)" aria-label="${pinned ? 'Unpin' : 'Pin'} ${escAttr(scope.label)}" aria-pressed="${pinned}" title="${pinned ? 'Unpin' : 'Pin'}">${_sidebarScopePinIcon()}</button></div>`;
+      return `<div class="sidebar-scope-chip${active ? ' active' : ''}" style="--sidebar-workspace-color:${escAttr(color)}"><button type="button" class="sidebar-scope-color" data-scope-path="${escAttr(scope.path)}" onclick="sidebarScopeColors(this)" aria-label="Change color for ${escAttr(scope.label)}" title="Change color"></button><button type="button" class="sidebar-file-scope-button${active ? ' active' : ''}" data-base-root="${escAttr(baseRoot)}" data-folder-path="${escAttr(scope.path === baseRoot ? '' : scope.path)}" onclick="sidebarActivateScope(this,event)" aria-pressed="${active ? 'true' : 'false'}" title="${escAttr(scope.path)} · Double-click to edit metadata" style="--sidebar-workspace-color:${escAttr(color)}"><span>${esc(scope.label)}</span></button><button type="button" class="sidebar-scope-pin${pinned ? ' pinned' : ''}" data-scope-path="${escAttr(scope.path)}" onclick="sidebarPinScope(this)" aria-label="${pinned ? 'Unpin' : 'Pin'} ${escAttr(scope.label)}" aria-pressed="${pinned}" title="${pinned ? 'Unpin' : 'Pin'}">${_sidebarScopePinIcon()}</button></div>`;
     }).join('')}<button type="button" class="sidebar-scope-add" data-base-root="${escAttr(baseRoot)}" onclick="sidebarAddScope(this)" aria-label="Add project, worktree or folder" title="Add project, worktree or folder">+</button></div>`;
   }
 
@@ -3022,6 +3022,39 @@
     });
   }
   window.sidebarAddScope = sidebarAddScope;
+
+  let _sidebarScopeClick = null;
+  document.addEventListener('pointerdown', event => {
+    if (!event.target.closest?.('.sidebar-file-scope-button')) _sidebarScopeClick = null;
+  });
+  function sidebarActivateScope(button, event) {
+    const baseRoot = button.getAttribute('data-base-root');
+    const path = button.getAttribute('data-folder-path') || baseRoot;
+    const previous = _sidebarScopeClick;
+    _sidebarScopeClick = event?.detail ? {path, configScope:_sidebarFileConfigScope, at:event.timeStamp} : null;
+    // Scope navigation can replace the button between clicks; retain its identity.
+    if (event?.detail && previous?.path === path && previous.configScope === _sidebarFileConfigScope
+        && event.timeStamp - previous.at < 500) {
+      _sidebarScopeClick = null;
+      sidebarEditScopeMetadata(button);
+      return;
+    }
+    return sidebarSelectScope(button);
+  }
+  window.sidebarActivateScope = sidebarActivateScope;
+
+  function sidebarEditScopeMetadata(button) {
+    if (window.LAB_IS_ADMIN === false) return;
+    const baseRoot = button.getAttribute('data-base-root');
+    const path = button.getAttribute('data-folder-path') || baseRoot;
+    const configScope = _sidebarFileConfigScope;
+    if (!path || baseRoot !== _sidebarWorktreeBaseRoot()) return;
+    const row = _sidebarVisibleScopes(baseRoot).find(row => row.path === path);
+    return window.LabScopeLinks?.edit(path,
+      () => configScope === _sidebarFileConfigScope && baseRoot === _sidebarWorktreeBaseRoot(),
+      {label:row?.label || path.split('/').pop(), kind:row?.kind});
+  }
+  window.sidebarEditScopeMetadata = sidebarEditScopeMetadata;
 
   async function sidebarSelectScope(button) {
     const baseRoot = button.getAttribute('data-base-root');
@@ -4006,7 +4039,10 @@
   function _sidebarMountScopeLinks(baseRoot, fileRoot) {
     if (!window.LabScopeLinks || window.LAB_IS_ADMIN === false) return;
     const configScope = _sidebarFileConfigScope;
-    window.LabScopeLinks?.mount(document.querySelector('#sidebar [data-scope-links]'),
+    const host = document.querySelector('#sidebar [data-scope-links]');
+    const scope = _sidebarVisibleScopes(baseRoot).find(row => row.path === fileRoot);
+    if (host) host._scopeLinksScope = {label:scope?.label, kind:scope?.kind};
+    window.LabScopeLinks?.mount(host,
       () => configScope === _sidebarFileConfigScope && baseRoot === _sidebarWorktreeBaseRoot()
         && fileRoot === _sidebarScopedRoot(baseRoot));
   }

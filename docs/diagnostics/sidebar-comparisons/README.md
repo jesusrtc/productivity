@@ -34,7 +34,8 @@ Saving file preferences preserves scope selections, pins, colors, and usage.
 ![File sidebar settings without duplicate project management](file-sidebar-settings.png)
 
 Active folder/worktree links appear immediately below the controls. **Links +**
-opens the editor. Internal links can target an entire document or an individual
+opens the editor; double-clicking a sidebar shortcut or the branch label opens
+metadata for that exact checkout. Internal links can target an entire document or an individual
 nested tab and open inline in Lab. Entire-document links open the main content
 even after a different tab was viewed. External links use the existing default
 browser opener for local sessions; remote sessions open in the user's browser.
@@ -43,6 +44,17 @@ Internal docs, and Jira tickets are the defaults; custom types can target either
 destination. Links belong to the resolved checkout path and follow it across
 workspaces. Internal targets retain library/document/tab IDs and refresh titles
 from the source; missing targets remain visible but disabled.
+
+The internal document browser searches titles and content. It shows document
+results beside **Whole document** and a nested tab list, with a visible selection
+and a compact summary once confirmed. Saved targets can be changed directly.
+Search and browsing alone do not dirty metadata. Pending reads block saving;
+late responses cannot change the selected document, missing saved tabs require
+an explicit replacement, and failed tab reads can retry.
+
+![Searchable internal document and tab browser](internal-document-picker.png)
+
+![Internal document browser on mobile](internal-document-picker-mobile.png)
 
 ![Active worktree links with a specific internal tab open](worktree-links.png)
 
@@ -107,3 +119,10 @@ Chrome Settings checks at desktop and mobile widths. The disposable full UI run
 was repeated after those changes, checking all four kind-filter search words,
 colored worktree icons, one shortcut per line, and scope preservation on saving
 the simplified Settings form.
+
+The metadata-browser follow-up passed **38 focused frontend tests** and the
+complete disposable UI run with **0 browser errors**. It verifies native double-click on both active and
+inactive pinned shortcuts and on the branch label, content search, empty search
+results, editing an existing tab link to the whole document and back, and mobile
+layout. Focused Chrome tests also cover keyboard focus, late reads, save guards,
+missing saved tabs, and retrying failed document reads.

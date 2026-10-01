@@ -503,3 +503,7 @@
 - [Sidebar comparison label is vs main](sidebar-main-label.md) — concise visible label; local-main API/storage semantics remain.
 
 - [Sidebar project management lives in the picker](sidebar-project-management-lives-in-picker.md) — no duplicate workspace Settings list; file-preference saves preserve scope state.
+
+- [Scope metadata opens on double click](scope-metadata-opens-on-double-click.md) — exact checkout metadata from shortcuts and branch labels; immediate single-click navigation.
+
+- [Internal document links use a searchable browser](internal-document-links-use-searchable-browser.md) — document results and whole-document/tab choices, compact summaries, keyboard/mobile support.

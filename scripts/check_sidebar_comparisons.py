@@ -96,6 +96,8 @@ def main():
         lab('assistant', 'migrate', '--embedded', '--apply')
         lab('assistant', 'migrate', '--documents', '--apply')
         lab('assistant', 'document', 'add', 'Feature proposal')
+        lab('assistant', 'document', 'add', 'Release checklist')
+        lab('assistant', 'document', 'add', 'Architecture decisions')
         from lab import assistant_records as records, paths
         assistant = paths.assistant_root()
         proposal = next(row for row in records.records(assistant) if row['title'] == 'Feature proposal')

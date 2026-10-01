@@ -610,7 +610,7 @@ const mainPicker = _sidebarWorktreePickerHtml('/repo');
 process.stdout.write(JSON.stringify({
   scopedRoot,
   pickerHasRoot: !picker.includes('select aria-label="File worktree"'),
-  pickerHasSelected: picker.includes('>feature-b</span>'),
+  pickerHasSelected: picker.includes('>feature-b</button>'),
   pickerColor: scopedButtons.includes('--sidebar-workspace-color:#123abc'),
   pickerHasHistory: picker.includes('sidebarOpenRepositoryHistory(this)'),
   pickerHasGithub: picker.includes('class="sidebar-github-icon"'),
@@ -740,7 +740,7 @@ process.stdout.write(JSON.stringify({
     && buttons.includes('class="sidebar-file-scope-button active"'),
   alphaColor: buttons.includes('--sidebar-workspace-color:#aa22cc'),
   pickerRoot: picker.includes('data-workspace-root="/vault/workspaces/alpha"'),
-  pickerWorktree: picker.includes('>feature-a</span>'),
+  pickerWorktree: picker.includes('>feature-a</button>'),
   scopeColor: scope.includes('--sidebar-worktree-color:#aa22cc'),
 }));
 """

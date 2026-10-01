@@ -57,13 +57,17 @@ try {
       if (await evaluate(expression)) return;
       await sleep(25);
     }
-    throw Error('Timeout: ' + expression + ' sidebar=' + await evaluate('document.getElementById("sidebar")?.textContent'));
+    const shot=await send('Page.captureScreenshot',{format:'png'});
+    await writeFile(join(output,'failure.png'),Buffer.from(shot.data,'base64'));
+    throw Error('Timeout: ' + expression + ' sidebar=' + await evaluate('document.getElementById("sidebar")?.textContent')+' context='+await evaluate('JSON.stringify({session:typeof termCurrentSession==="undefined"?null:termCurrentSession,workspace:typeof termCurrentWorkspaceId==="undefined"?null:termCurrentWorkspaceId,toast:document.querySelector(".explorer-toast")?.textContent,logical:typeof termSessions==="undefined"?null:termSessions.map(row=>({name:row.name,logical_name:row.logical_name,root:row.linked_scope?.root})),scope:typeof _termSelectedScope==="undefined"?null:_termSelectedScope()})'));
   };
-  const click = async selector => {
+  const click = async (selector,clickCount=1) => {
+    await evaluate('new Promise(resolve=>requestAnimationFrame(resolve))');
     const box = await evaluate(`(()=>{const el=document.querySelector(${JSON.stringify(selector)});if(!el)throw Error('Missing control');el.scrollIntoView({block:'center'});const r=el.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()`);
-    await send('Input.dispatchMouseEvent', {type: 'mousePressed', button: 'left', clickCount: 1, ...box});
-    await send('Input.dispatchMouseEvent', {type: 'mouseReleased', button: 'left', clickCount: 1, ...box});
+    await send('Input.dispatchMouseEvent', {type: 'mousePressed', button: 'left', clickCount, ...box});
+    await send('Input.dispatchMouseEvent', {type: 'mouseReleased', button: 'left', clickCount, ...box});
   };
+  const doubleClick=async selector=>{await click(selector);await click(selector,2);};
   const type = async (selector, text) => { await click(selector);await send('Input.insertText',{text}); };
   const choose = async (selector, value) => evaluate(`(()=>{const el=document.querySelector(${JSON.stringify(selector)});if(!el)throw Error('Missing select');el.value=${JSON.stringify(value)};el.dispatchEvent(new Event('change',{bubbles:true}));})()`);
   const selectScope = async path => {
@@ -125,8 +129,8 @@ try {
   const pickerShot = await send('Page.captureScreenshot', {format: 'png'});
   await writeFile(join(output, 'scope-picker.png'), Buffer.from(pickerShot.data, 'base64'));
   result.picker.kindFilters=[];
-  const replaceSearch=async text=>{
-    await click('.sidebar-scope-picker [data-search]');
+  const replaceText=async (selector,text)=>{
+    await click(selector);
     await send('Input.dispatchKeyEvent',{type:'rawKeyDown',key:'a',code:'KeyA',windowsVirtualKeyCode:65,modifiers:4,commands:['SelectAll']});
     await send('Input.dispatchKeyEvent',{type:'keyUp',key:'a',code:'KeyA',windowsVirtualKeyCode:65,modifiers:4});
     if(text)await send('Input.insertText',{text});
@@ -136,7 +140,7 @@ try {
     }
   };
   for(const query of ['worktree','branch','main','master']) {
-    await replaceSearch(query);
+    await replaceText('.sidebar-scope-picker [data-search]',query);
     const worktrees=query==='worktree'||query==='branch';
     await wait(`document.querySelector('.sidebar-scope-picker [data-search]').value===${JSON.stringify(query)} && Array.from(document.querySelectorAll('.sidebar-scope-picker [data-scope-option]')).every(node=>(node.dataset.scopeKind==='worktree')===${worktrees})`);
     const rows=await evaluate(`Array.from(document.querySelectorAll('.sidebar-scope-picker [data-scope-option]'),node=>({path:node.dataset.scopeOption,kind:node.dataset.scopeKind,icon:!!node.querySelector('.sidebar-scope-kind svg'),color:getComputedStyle(node.querySelector('.sidebar-scope-kind')).color,badge:node.querySelector('.sidebar-scope-type')?.textContent}))`);
@@ -147,7 +151,7 @@ try {
       await writeFile(join(output,'worktree-picker-filter.png'),Buffer.from(shot.data,'base64'));
     }
   }
-  await replaceSearch('');
+  await replaceText('.sidebar-scope-picker [data-search]','');
   await send('Input.insertText', {text: first.path});
   await click(`.sidebar-scope-picker [data-scope-option="${first.path}"]`);
   await wait(`document.querySelector('[data-project-sidebar]')?.dataset.projectSidebar===${JSON.stringify(first.path)}`);
@@ -191,9 +195,9 @@ try {
   await click('#labSettingsCenter [type=submit]');
   await wait('document.querySelector("#labSettingsCenter [data-message]")?.textContent==="Saved"');
   await click('#labSettingsCenter [data-done]');
-  result.links = {selectInput:'DOM select change event',textInput:'native CDP text',customType:'Design'};
+  result.links = {selectInput:'DOM type select change event',documentInput:'native CDP clicks and text search',textInput:'native CDP text',customType:'Design',metadataEntry:'scope double-click'};
   await wait('!!document.querySelector("[data-edit-links]")');
-  await click('[data-edit-links]');
+  await doubleClick('.sidebar-file-scope-button.active');
   await wait('!document.querySelector(".scope-links-dialog [data-add-link]").disabled');
   for (const [index,kind,label,url,tab] of [
     [1,'google-docs','Google proposal','https://docs.google.com/document/d/fixture/edit'],
@@ -207,11 +211,20 @@ try {
     await type(card+' [data-label]',label);
     if(url) await type(card+' [data-url]',url);
     else {
-      await wait(`!!document.querySelector(${JSON.stringify(card+' [data-document]')})`);
-      await type(card+' [data-document-search]','Feature proposal');
-      await choose(card+' [data-document]',internalDocument.document_id);
-      await wait(`document.querySelector(${JSON.stringify(card+' [data-tab]')})?.disabled===false`);
-      if(tab) await choose(card+' [data-tab]',tab);
+      await wait(`document.querySelectorAll(${JSON.stringify(card+' [data-document]')}).length>=3`);
+      await type(card+' [data-document-search]','no-matching-document');
+      if(await evaluate(`document.querySelectorAll(${JSON.stringify(card+' [data-document]')}).length`))throw Error('Unmatched document search retained rows');
+      await replaceText(card+' [data-document-search]','implementation');
+      await wait(`document.querySelectorAll(${JSON.stringify(card+' [data-document]')}).length===1`);
+      await click(card+` [data-document="${internalDocument.document_id}"]`);
+      await wait(`!document.querySelector(${JSON.stringify(card)})._targetLoading && !!document.querySelector(${JSON.stringify(card+' [data-tab="'+internalDocument.tab_id+'"]')})`);
+      await click(card+` [data-tab="${tab||''}"]`);
+      if(tab) {
+        const pickerShot=await send('Page.captureScreenshot',{format:'png'});
+        await writeFile(join(output,'internal-document-picker.png'),Buffer.from(pickerShot.data,'base64'));
+      }
+      await click(card+' [data-finish-document]');
+      if(!await evaluate(`document.querySelector(${JSON.stringify(card+' [data-document-picker]')}).hidden`))throw Error('Document browser did not collapse to selected destination');
     }
   }
   const editorShot=await send('Page.captureScreenshot',{format:'png'});
@@ -233,11 +246,31 @@ try {
   await wait('document.querySelector("#assistantModalDocument")?.textContent.includes("Implementation tab content.")');
   const linksShot=await send('Page.captureScreenshot',{format:'png'});
   await writeFile(join(output,'worktree-links.png'),Buffer.from(linksShot.data,'base64'));
-  await selectScope(last.path);
-  await wait(`document.querySelector('[data-scope-links]')?.dataset.scopeLinks===${JSON.stringify(last.path)} && !!document.querySelector('[data-edit-links]')`);
-  if(await evaluate('document.querySelectorAll(".sidebar-scope-link").length'))throw Error('Links leaked into another checkout');
+  await doubleClick(`.sidebar-file-scope-button[data-folder-path="${last.path}"]`);
+  await wait(`!!document.querySelector('.scope-links-dialog') && !document.querySelector('.scope-links-dialog [data-add-link]').disabled && document.querySelector('[data-scope-links]')?.dataset.scopeLinks===${JSON.stringify(last.path)}`);
+  if(await evaluate('document.querySelectorAll(".sidebar-scope-link").length || document.querySelectorAll(".scope-links-dialog [data-link-card]").length'))throw Error('Double-click edited the wrong checkout');
+  await click('.scope-links-dialog [data-close]');
   await selectScope(first.path);
   await wait('document.querySelectorAll(".sidebar-scope-link").length===4');
+  await doubleClick('.sidebar-worktree-current');
+  await wait('document.querySelectorAll(".scope-links-dialog [data-link-card]").length===4 && !Array.from(document.querySelectorAll(".scope-links-dialog [data-link-card]")).some(node=>node._targetLoading)');
+  const internalCard='.scope-links-dialog [data-link-card]:nth-child(4)';
+  if(!await evaluate(`document.querySelector(${JSON.stringify(internalCard+' [data-document-picker]')}).hidden`))throw Error('Saved document target was not compact');
+  await click(internalCard+' [data-change-document]');
+  await click(internalCard+' [data-tab=""]');
+  await click(internalCard+' [data-finish-document]');
+  await click('.scope-links-dialog [type=submit]');
+  await wait('!document.querySelector(".scope-links-dialog")');
+  const changed=await evaluate(`fetch('/api/scope-links?path='+encodeURIComponent(${JSON.stringify(first.path)})).then(r=>r.json())`);
+  if(changed.links[3].tab_id!==null || changed.links[3].id!==linkData.links[3].id)throw Error('Editing a tab link did not preserve its identity or select the whole document');
+  await doubleClick('.sidebar-file-scope-button.active');
+  await wait('document.querySelectorAll(".scope-links-dialog [data-link-card]").length===4 && !Array.from(document.querySelectorAll(".scope-links-dialog [data-link-card]")).some(node=>node._targetLoading)');
+  await click(internalCard+' [data-change-document]');
+  await click(internalCard+` [data-tab="${internalDocument.tab_id}"]`);
+  await click(internalCard+' [data-finish-document]');
+  await click('.scope-links-dialog [type=submit]');
+  await wait('!document.querySelector(".scope-links-dialog")');
+  result.links.documentPicker={contentSearch:true,emptySearch:true,doubleClickInactiveScope:true,doubleClickBranchLabel:true,existingLinkEdit:true,mobileFits:false};
   // Create only a disposable plain terminal through the actual New menu.
   await click('#termNewBtn');
   await wait('document.getElementById("termNewPicker").classList.contains("open")');
@@ -254,7 +287,23 @@ try {
   result.terminal.attachedScope=await evaluate('termSessions[0].linked_scope');
   result.terminal.pinned=true;
   await evaluate(`fetch('/api/term/sessions/'+encodeURIComponent(${JSON.stringify(session.name)})+'?purge=true',{method:'DELETE'}).then(r=>{if(!r.ok)throw Error('Owned terminal cleanup failed')})`);
+  // Exercise the mobile editor after desktop terminal checks; resizing the
+  // viewport also changes the app's independent terminal/sidebar layout.
+  await selectScope(first.path);
+  await doubleClick('.sidebar-file-scope-button.active');
+  await wait('document.querySelectorAll(".scope-links-dialog [data-link-card]").length===4 && !Array.from(document.querySelectorAll(".scope-links-dialog [data-link-card]")).some(node=>node._targetLoading)');
+  await click(internalCard+' [data-change-document]');
+  await send('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:false});
+  await evaluate(`document.querySelector(${JSON.stringify(internalCard+' [data-document-picker]')}).scrollIntoView({block:'center'})`);
+  const fits=await evaluate(`(()=>{const dialog=document.querySelector('.scope-links-dialog'),r=dialog.getBoundingClientRect();return r.left>=0 && r.right<=innerWidth+1 && dialog.scrollWidth<=dialog.clientWidth+1 && Array.from(dialog.querySelectorAll('.scope-document-columns')).every(node=>node.scrollWidth<=node.clientWidth+1)})()`);
+  if(!fits)throw Error('Document picker overflows on mobile');
+  const mobileShot=await send('Page.captureScreenshot',{format:'png'});
+  await writeFile(join(output,'internal-document-picker-mobile.png'),Buffer.from(mobileShot.data,'base64'));
+  await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
+  result.links.documentPicker.mobileFits=fits;
+  await click('.scope-links-dialog [data-close]');
   if (result.errors.length) throw Error('Browser errors: ' + JSON.stringify(result.errors));
+  await rm(join(output,'failure.png'),{force:true});
 } finally {
   await writeFile(join(output, 'browser.json'), JSON.stringify(result, null, 2) + '\n');
   ws?.close();

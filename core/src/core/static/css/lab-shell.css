@@ -658,7 +658,8 @@
   .sidebar-repo-history:hover { color: var(--text-primary); border-color: var(--accent); }
   .sidebar-repo-history .sidebar-github-icon { display: block; width: 14px; height: 14px; }
   .sidebar-worktree-picker label { flex: 1; min-width: 0; }
-  .sidebar-worktree-current { flex: 1; min-width: 0; overflow: hidden; color: var(--text-primary); font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }
+  .sidebar-worktree-current { flex: 1; min-width: 0; overflow: hidden; border:0; background:transparent; padding:4px 0; text-align:left; cursor:pointer; color: var(--text-primary); font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }
+  .sidebar-worktree-current:hover { color:var(--accent); }
   .sidebar-worktree-picker select { width: 100%; min-width: 0; border: 1px solid var(--border); border-radius: 5px; padding: 4px 24px 4px 7px; background: var(--bg-tertiary); color: var(--text-primary); font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; }
   .sidebar-worktree-picker input[type="color"] { flex: none; width: 28px; height: 25px; padding: 2px; border: 1px solid var(--border); border-radius: 5px; background: var(--bg-tertiary); cursor: pointer; }
   .sidebar-worktree-picker input[type="color"]:disabled { visibility: hidden; }
@@ -3254,7 +3255,7 @@
 .sidebar-scope-link span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sidebar-scope-link:hover { border-color: var(--accent); color: var(--accent); }
 .sidebar-scope-link:disabled { opacity: .5; cursor: default; }
-.scope-links-dialog { position: fixed; inset: 0; margin: auto; height: fit-content; box-sizing: border-box; width: min(620px, calc(100vw - 32px)); max-height: calc(100vh - 48px); overflow: auto; padding: 22px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-primary); color: var(--text-primary); font-size: var(--lab-modal-font-size, 14px); }
+.scope-links-dialog { position: fixed; inset: 0; margin: auto; height: fit-content; box-sizing: border-box; width: min(860px, calc(100vw - 32px)); max-height: calc(100dvh - 48px); overflow: auto; padding: 22px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-primary); color: var(--text-primary); font-size: var(--lab-modal-font-size, 14px); }
 .scope-links-dialog::backdrop { background: #0008; }
 .scope-links-heading, .scope-links-card-head, .scope-links-footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .scope-links-heading h2 { margin: 0; font-size: 1.2em; }
@@ -3269,3 +3270,51 @@
 .scope-links-footer button { background: var(--accent); color: var(--bg-primary); }
 .scope-links-hint { font-size: .85em; color: var(--text-dim); }
 .scope-links-dialog .error { color: #ff7b72; }
+.scope-links-dialog [hidden] { display:none!important; }
+.scope-links-dialog :focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.scope-links-heading { position:sticky; top:-22px; z-index:1; background:var(--bg-primary); padding:12px 0; }
+.scope-links-eyebrow { display:block; margin-bottom:4px; color:var(--accent); font-size:.75em; letter-spacing:.06em; text-transform:uppercase; }
+.scope-links-intro { color:var(--text-secondary); font-size:.9em; margin-bottom:22px; }
+.scope-links-dialog button:disabled { opacity:.5; cursor:default; }
+.scope-links-dialog button:hover:not(:disabled) { border-color:var(--accent); }
+.scope-document-summary { display:flex; align-items:center; gap:12px; padding:12px; background:var(--bg-secondary); border:1px solid var(--border); border-radius:8px; }
+.scope-document-summary > span:nth-child(2) { flex:1; min-width:0; }
+.scope-document-summary strong,.scope-document-summary small { display:block; overflow-wrap:anywhere; }
+.scope-document-summary small { margin-top:3px; color:var(--text-secondary); font-size:.85em; }
+.scope-document-glyph { display:grid; place-items:center; flex:none; width:30px; height:34px; border-radius:6px; color:var(--accent); background:color-mix(in srgb,var(--accent) 12%,transparent); font-size:21px; }
+.scope-document-picker { margin-top:10px; border:1px solid var(--border); border-radius:9px; overflow:hidden; background:var(--bg-secondary); }
+.scope-document-search { display:flex; align-items:flex-end; gap:12px; padding:14px; border-bottom:1px solid var(--border); }
+.scope-document-search label { flex:1; min-width:0; margin:0; font-size:.85em; color:var(--text-secondary); }
+.scope-document-search input { background:var(--bg-primary); color:var(--text-primary); }
+.scope-document-search > small { flex:none; padding-bottom:8px; color:var(--text-secondary); font-size:.8em; }
+.scope-document-columns { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); }
+.scope-document-columns > section { min-width:0; padding:10px; }
+.scope-document-targets { border-left:1px solid var(--border); }
+.scope-document-targets h3 { font-size:.85em; color:var(--text-secondary); margin:4px 6px 10px; }
+.scope-document-list,.scope-document-targets [data-document-targets] { max-height:250px; overflow:auto; scrollbar-width:thin; }
+.scope-links-dialog .scope-document-option { display:flex; align-items:center; gap:10px; width:100%; box-sizing:border-box; text-align:left; border:1px solid transparent; padding:10px; margin-bottom:3px; background:transparent; }
+.scope-links-dialog .scope-document-option:hover { background:var(--bg-tertiary); }
+.scope-links-dialog .scope-document-option[aria-pressed=true] { border-color:color-mix(in srgb,var(--accent) 50%,var(--border)); background:color-mix(in srgb,var(--accent) 10%,var(--bg-secondary)); }
+.scope-document-option > span:nth-child(2) { flex:1; min-width:0; }
+.scope-document-option strong { display:block; font-size:.9em; font-weight:500; overflow-wrap:anywhere; }
+.scope-document-option small { display:block; margin-top:3px; color:var(--text-secondary); font-size:.75em; }
+.scope-document-check { flex:none; color:var(--accent); }
+.scope-document-tab-glyph { flex:none; padding-left:calc(var(--tab-depth,0) * 10px); color:var(--text-secondary); }
+.scope-document-section-label { padding:0 10px; margin:16px 0 8px; color:var(--text-secondary); font-size:.75em; }
+.scope-document-empty { padding:12px; margin:0; color:var(--text-secondary); font-size:.85em; line-height:1.5; }
+.scope-document-picker-footer { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 14px; border-top:1px solid var(--border); }
+.scope-links-footer { position:sticky; bottom:-22px; padding:14px 0; background:var(--bg-primary); }
+@media(max-width:600px) {
+  .scope-links-dialog { width:calc(100vw - 16px); padding:14px; max-height:calc(100dvh - 24px); }
+  .scope-links-heading { top:-14px; }
+  .scope-links-footer { bottom:-14px; }
+  .scope-links-dialog fieldset { padding:10px; }
+  .scope-document-columns { grid-template-columns:minmax(0,1fr); }
+  .scope-document-targets { border-left:0; border-top:1px solid var(--border); }
+  .scope-document-list,.scope-document-targets [data-document-targets] { max-height:190px; }
+  .scope-document-summary { gap:8px; padding:10px; flex-wrap:wrap; }
+  .scope-document-summary button { margin-left:auto; }
+  .scope-document-search { flex-wrap:wrap; gap:6px; padding:10px; }
+  .scope-document-search label { flex-basis:100%; }
+  .scope-document-search > small { padding:0; }
+}

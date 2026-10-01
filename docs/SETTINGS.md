@@ -65,7 +65,11 @@ assignment chooses an unused color first, then the least-used color when the
 palette is full. Existing project colors and worktree overrides remain saved.
 
 Active scopes show their metadata links beneath the controls. **Links +** edits
-links for that exact folder or worktree. Internal documents and individual tabs
+links for that exact folder or worktree. Double-click its sidebar shortcut or
+branch label to open the same metadata editor. The internal document browser
+searches titles and content, shows a document list beside its tabs, and offers
+**Whole document** or an individual tab. Saved links show their selected
+destination with a **Change** button. Internal documents and individual tabs
 open directly in Lab; external links open in the default browser. Link types
 are configured under **Global → Link types**.
 

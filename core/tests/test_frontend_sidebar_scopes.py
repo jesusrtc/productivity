@@ -130,3 +130,28 @@ process.stdout.write(JSON.stringify(Object.fromEntries(queries.map(query=>[query
     assert result['main worktree'] == []
     assert result['maintenance'] == ['/trees/maintenance']
     assert result['/trees/main'] == ['/trees/main','/trees/maintenance']
+
+
+def test_double_click_opens_exact_scope_metadata_after_button_replacement():
+    result = _run_node(helpers() + """
+const selected=[],edited=[];
+sidebarSelectScope=button=>selected.push(button.getAttribute('data-folder-path'));
+window.LabScopeLinks={edit:(path,current,scope)=>edited.push({path,current,scope})};
+_sidebarFileConfig.folderScopes=[{path:'/trees/topic',label:'project/topic',kind:'worktree'},
+  {path:'/trees/other',label:'project/other',kind:'worktree'}];
+_sidebarFileConfig.pinnedScopes=['/trees/topic','/trees/other'];
+const button=path=>({getAttribute:name=>name==='data-base-root'?'/workspace':path});
+sidebarActivateScope(button('/trees/topic'),{detail:1,timeStamp:100});
+sidebarActivateScope(button('/trees/topic'),{detail:1,timeStamp:200});
+sidebarActivateScope(button('/trees/other'),{detail:0,timeStamp:250});
+sidebarActivateScope(button('/trees/other'),{detail:1,timeStamp:300});
+sidebarActivateScope(button('/trees/topic'),{detail:1,timeStamp:350});
+const current=edited[0].current();
+_sidebarFileConfigScope='another-workspace';
+const stale=edited[0].current();
+sidebarEditScopeMetadata({getAttribute:()=>'/old-workspace'});
+process.stdout.write(JSON.stringify({selected,edited:edited.map(({path,scope})=>({path,scope})),current,stale}));
+""")
+    assert result == {'selected':['/trees/topic','/trees/other','/trees/other','/trees/topic'],
+                      'edited':[{'path':'/trees/topic','scope':{'label':'project/topic','kind':'worktree'}}],
+                      'current':True,'stale':False}
