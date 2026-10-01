@@ -11304,6 +11304,7 @@
       // the document takes precedence over an optional linked file.
       _termCancelPendingLinkedFileOpen();
       const navigationRequest = _termLinkedNavigationSeq, vaultId = _termVaultId();
+      const inline = !document.body.classList.contains('assistant-expanded-document');
       window.LabWorkspaceDocuments?.selectTerminal(session, {workspace_id:workspaceId, vault:vaultId});
       const isCurrent = () => request === _termTabActivationSeq && _termIsScopeActive(workspaceId)
         && vaultId === _termVaultId() && navigationRequest === _termLinkedNavigationSeq;
@@ -11312,7 +11313,7 @@
       });
       // File discovery must not delay opening the document or start an older
       // document navigation after the user has opened something else.
-      void window.AssistantView.openLinkedTask(session.linked_task, {inline:true, isCurrent}).catch(error => {
+      void window.AssistantView.openLinkedTask(session.linked_task, {inline, isCurrent}).catch(error => {
       }).catch(error => {
         if (isCurrent()) explorerToast(error.message || 'Could not open the linked document.', true);
       });
@@ -13345,7 +13346,7 @@
     if (session?.document_source) {
       _termShowGroupMenu(anchor, '<button role="menuitem" class="term-group-menu-row" data-action="open">Open document</button><button role="menuitem" class="term-group-menu-row" data-action="unlink">Unlink from document…</button>', action => {
         termCloseGroupMenu();
-        if (action === 'open') void window.AssistantView.openLinkedTask(session.linked_task, {inline:true});
+        if (action === 'open') void window.AssistantView.openLinkedTask(session.linked_task, {inline:!document.body.classList.contains('assistant-expanded-document')});
         else void window.LabWorkspaceDocuments.unlink(session).catch(error => explorerToast(error.message,true));
       });
       return;
@@ -13611,7 +13612,7 @@
         _termHideSessionTooltip();
         let link;
         try { link = JSON.parse(button.dataset.terminalTaskOpen); } catch (_) { return; }
-        void window.AssistantView.openLinkedTask(link, {inline:true}).catch(error => explorerToast(error.message,true));
+        void window.AssistantView.openLinkedTask(link, {inline:!document.body.classList.contains('assistant-expanded-document')}).catch(error => explorerToast(error.message,true));
       }, true);
     }
   }

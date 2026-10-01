@@ -22,7 +22,8 @@
     modalCurrent: null,
     modalKind: '',
     inlineHost: null,
-    inlinePending: false,
+    expandedHost: null,
+    documentPending: false,
     documentClickTimer: null,
     request: 0,
     navigation: null,
@@ -1089,7 +1090,7 @@
     overlay = document.createElement('div');
     overlay.id = 'assistantDocumentModal';
     overlay.className = 'modal-overlay assistant-document-overlay';
-    overlay.innerHTML = `<section class="assistant-document-modal" role="dialog" aria-modal="true" aria-labelledby="assistantModalTitle">
+    overlay.innerHTML = `<section class="assistant-document-modal" role="region" aria-labelledby="assistantModalTitle">
       <header class="assistant-modal-header">
         <div class="assistant-modal-heading"><span id="assistantModalKind">Assistant</span><h2 id="assistantModalTitle">Loading…</h2></div>
         <div class="assistant-modal-actions"><span id="assistantNoteStatus" class="assistant-note-status" role="status" aria-live="polite" hidden></span><button type="button" id="assistantEditNote" hidden>Edit</button><button type="button" id="assistantSaveNote" hidden>Save</button><button type="button" id="assistantRevertNote" hidden>Discard</button><details class="assistant-copy-menu"><summary>Copy <span aria-hidden="true">⌄</span></summary><div><button type="button" id="assistantCopyRich">Copy for Google Docs</button><button type="button" id="assistantCopyPlain">Copy plain text</button></div></details><button type="button" id="assistantExpandDocument" hidden>Expand</button><button type="button" class="assistant-modal-close" aria-label="Close Assistant document">×</button></div>
@@ -1117,7 +1118,6 @@
     overlay.querySelector('.assistant-modal-close').addEventListener('click', closeDocumentModal);
     const expandDocument = () => {
       presentDocument(overlay, false);
-      window.LabDocumentTerminal?.open(state.modalCurrent, state.modalRoot, state.data.root);
     };
     overlay.querySelector('#assistantExpandDocument').onclick = expandDocument;
     overlay.querySelector('#assistantModalDocument').addEventListener('click', event => {
@@ -1325,28 +1325,28 @@
   function presentDocument(overlay, inline) {
     const content = document.getElementById('content');
     inline = Boolean(inline && content);
-    if (inline && !state.inlineHost) {
-      state.inlineHost = document.createElement('div');
-      state.inlineHost.id = 'assistantInlineHost';
-      state.inlineHost.className = 'main assistant-inline-host';
-      content.after(state.inlineHost);
-      state.inlineHost.append(overlay);
-      document.body.classList.add('assistant-inline-document');
-    } else if (!inline && state.inlineHost) {
-      document.body.append(overlay);
-      state.inlineHost.remove(); state.inlineHost = null;
-      document.body.classList.remove('assistant-inline-document');
+    if (content && !(inline ? state.inlineHost : state.expandedHost)) {
+      const previous = state.inlineHost || state.expandedHost;
+      const host = document.createElement('div');
+      host.id = inline ? 'assistantInlineHost' : 'assistantExpandedHost';
+      host.className = 'main assistant-inline-host' + (inline ? '' : ' assistant-expanded-host');
+      content.after(host);
+      host.append(overlay);
+      previous?.remove();
+      state.inlineHost = inline ? host : null;
+      state.expandedHost = inline ? null : host;
     }
+    document.body.classList.toggle('assistant-inline-document', inline);
+    document.body.classList.toggle('assistant-expanded-document', Boolean(!inline && content));
     overlay.classList.toggle('assistant-document-inline', inline);
-    const section = overlay.querySelector('.assistant-document-modal');
-    section.setAttribute('role', inline ? 'region' : 'dialog');
-    if (inline) section.removeAttribute('aria-modal'); else section.setAttribute('aria-modal', 'true');
+    overlay.classList.toggle('assistant-document-expanded', Boolean(!inline && content));
     overlay.querySelector('#assistantExpandDocument').hidden = !inline;
     setDocumentTabsOpen(false);
   }
 
   function openDocumentTerminal(detail) {
-    window.LabDocumentTerminal?.open(detail, state.modalRoot, state.data.root, {inline:Boolean(state.inlineHost)});
+    // Both document presentations share the active workspace's terminal panel.
+    window.LabDocumentTerminal?.open(detail, state.modalRoot, state.data.root, {inline:true});
   }
 
   function closeDocumentModal(updateHistory = true) {
@@ -1354,7 +1354,7 @@
     void flushNoteDraft();
     clearTimeout(state.documentClickTimer);
     state.documentClickTimer = null;
-    state.inlinePending = false;
+    state.documentPending = false;
     window.AssistantTasks?.reset();
     window.LabDocumentTerminal?.close();
     closeHeadingMenu();
@@ -1369,7 +1369,13 @@
       state.selectedMeetingPath = ''; state.selectedSeriesPath = '';
     }
     const overlay = document.getElementById('assistantDocumentModal');
-    if (overlay) { overlay.classList.remove('active'); presentDocument(overlay, false); }
+    if (overlay) {
+      overlay.classList.remove('active', 'assistant-document-inline', 'assistant-document-expanded');
+      document.body.append(overlay);
+    }
+    state.inlineHost?.remove(); state.inlineHost = null;
+    state.expandedHost?.remove(); state.expandedHost = null;
+    document.body.classList.remove('assistant-inline-document', 'assistant-expanded-document');
     window.LabWorkspaceDocuments?.openDocument(null);
   }
 
@@ -1401,7 +1407,7 @@
     const overlay = ensureModal();
     const wasOpen = overlay.classList.contains('active');
     const inline = options.inline ?? (wasOpen ? Boolean(state.inlineHost) : document.body.classList.contains('assistant-active'));
-    state.inlinePending = inline;
+    state.documentPending = true;
     const request = ++state.modalRequest;
     const isCurrent = () => request === state.modalRequest && (!options.isCurrent || options.isCurrent());
     overlay.setAttribute('aria-busy', 'true');
@@ -1479,14 +1485,14 @@
       }
       documentError(error.message || String(error));
     } finally {
-      if (request === state.modalRequest) { overlay.removeAttribute('aria-busy'); state.inlinePending = false; }
+      if (request === state.modalRequest) { overlay.removeAttribute('aria-busy'); state.documentPending = false; }
     }
   }
 
   async function openLinkedTask(link, options = {}) {
     if (!link?.document_id || !link?.assistant_root) throw new Error('This terminal has no linked task.');
     const request = ++state.modalRequest;
-    state.inlinePending = Boolean(options.inline);
+    state.documentPending = true;
     try {
       const response = await fetch('/api/assistant');
       const data = await response.json();
@@ -1503,7 +1509,7 @@
         wholeDocument:Boolean(options.wholeDocument),
       });
     } finally {
-      if (request === state.modalRequest) state.inlinePending = false;
+      if (request === state.modalRequest) state.documentPending = false;
     }
   }
 
@@ -2016,7 +2022,7 @@
     } catch (error) {
       if (request === state.modalRequest) documentError(error.message || String(error));
     } finally {
-      if (request === state.modalRequest) { overlay.removeAttribute('aria-busy'); state.inlinePending = false; }
+      if (request === state.modalRequest) { overlay.removeAttribute('aria-busy'); state.documentPending = false; }
     }
   }
 
@@ -2870,7 +2876,7 @@
     bindDocumentLink,
     openLinkedTask,
     closeDocument: closeDocumentModal,
-    closeInlineDocument: () => { if (state.inlineHost || state.inlinePending || state.documentClickTimer) closeDocumentModal(false); },
+    closeInlineDocument: () => { if (state.inlineHost || state.expandedHost || state.documentPending || state.documentClickTimer) closeDocumentModal(false); },
     isInlineDocument: () => Boolean(state.inlineHost),
   };
 })();

@@ -1,4 +1,4 @@
-"""Real browser interactions for workspace references and modal terminals."""
+"""Real browser interactions for workspace documents and shared terminals."""
 import json
 import os
 from pathlib import Path
@@ -55,7 +55,7 @@ function explorerToast(message,error){notices.push([message,error])}
 const background={...source,name:'background-process',agent_session_id:'background-conversation'};
 function termRenderSessionList(){
  if(window.LabDocumentTerminal?.watchCompletion?.())return;
- if(activeView)LabTerminalCompletion.watch('client::demo',background);
+ if(activeView)LabTerminalCompletion.watch('client::demo',source);
 }
 window.fetch=async(url,options={})=>{
  const u=new URL(url,'https://example.test'), body=options.body?JSON.parse(options.body):null;
@@ -174,6 +174,8 @@ window.LabTaskTerminalBridge={patch:async(session,patch,context)=>{
  const draft=document.querySelector('.assistant-note-editor textarea');
  draft.value='Draft kept while expanding';draft.dispatchEvent(new Event('input',{bubbles:true}));
  assert(document.querySelector('.assistant-tab-rail-item.active.assistant-note-dirty'),'rail shows unsaved changes on the active tab');
+ const panel=document.getElementById('termPanel'), workspaceInput=panel.querySelector('textarea'), selectedTerminal=termCurrentSession;
+ workspaceInput.value='Unsent workspace terminal draft';
  const commandClick=target=>target.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true,detail:1,button:0,metaKey:true}));
  commandClick(draft);
  assert(AssistantView.isInlineDocument()&&document.querySelector('.assistant-note-editor textarea')===draft,'Command-click inside an editor keeps editing inline');
@@ -187,19 +189,20 @@ window.LabTaskTerminalBridge={patch:async(session,patch,context)=>{
  assert(!AssistantView.isInlineDocument()&&document.querySelector('.assistant-note-editor textarea')===draft&&draft.value==='Draft kept while expanding','Command-click expands the same document and preserves its draft');
  document.getElementById('assistantExpandDocument').click();
  assert(document.querySelector('.assistant-note-editor textarea')===draft&&draft.value==='Draft kept while expanding','Expand preserves editor and unsaved draft');
- await until(()=>sockets===1);
- assert(!document.body.classList.contains('sidebar-collapsed'),'Expand keeps Files visible');
+ assert(!sockets&&!LabDocumentTerminal.watchCompletion(),'Expand reuses the workspace renderer and completion watcher');
+ assert(!document.body.classList.contains('sidebar-collapsed'),'Expand never changes saved Files visibility');
+ assert(getComputedStyle(document.getElementById('sidebar')).display==='none','expanded document hides Files');
  assert(document.body.classList.contains('workspace-active'),'opening preserves workspace');
  const modal=document.querySelector('.assistant-document-modal');
- const select=document.querySelector('select[data-terminal-placement]');
- select.value='right';select.dispatchEvent(new Event('change'));
- assert(getComputedStyle(modal).display==='grid','right layout is a real side-by-side split');
- const body=document.querySelector('.assistant-modal-body').getBoundingClientRect(), terminal=document.getElementById('assistantDocumentTerminal').getBoundingClientRect();
- assert(terminal.left>=body.right-1&&Math.abs(terminal.top-body.top)<2,'terminal placed right of document');
- select.value='bottom';select.dispatchEvent(new Event('change'));
- assert(document.getElementById('assistantDocumentTerminal').getBoundingClientRect().top>=document.querySelector('.assistant-modal-body').getBoundingClientRect().bottom-1,'bottom placement');
- select.value='right';select.dispatchEvent(new Event('change'));
- assert(sockets===1,'changing layout never reconnects or launches');
+ const documentRect=modal.getBoundingClientRect(), terminalRect=panel.getBoundingClientRect();
+ assert(documentRect.left===0&&Math.abs(documentRect.right-terminalRect.left)<2,'document fills Files area beside workspace terminals');
+ assert(Math.abs(documentRect.top-terminalRect.top)<2&&documentRect.bottom<=innerHeight+1,'document and existing terminals align in one row');
+ assert(document.elementFromPoint(terminalRect.left+100,terminalRect.top+100).closest('#termPanel')===panel,'workspace terminal remains interactive');
+ assert(getComputedStyle(document.querySelector('.assistant-terminal-screen')).display==='none','document has no separate terminal display');
+ assert(document.querySelector('.assistant-document-modal').getAttribute('role')==='region'&&!modal.hasAttribute('aria-modal'),'workspace terminals remain available to assistive technology');
+ const close=document.querySelector('.assistant-modal-close'), closeRect=close.getBoundingClientRect();
+ assert(getComputedStyle(close).color==='rgb(248, 81, 73)'&&documentRect.right-closeRect.right<=13,'expanded close button is red in the upper-right corner');
+ assert(panel.querySelector('textarea')===workspaceInput&&workspaceInput.value==='Unsent workspace terminal draft'&&termCurrentSession===selectedTerminal,'Expand keeps terminal selection and unsent input');
  // The inactive workspace gets the same unread state without being opened.
  await W.poll(true);
  assert(document.querySelectorAll('.workspace-attention-dot').length===2,'active and inactive workspace dots');
@@ -207,7 +210,7 @@ window.LabTaskTerminalBridge={patch:async(session,patch,context)=>{
  assert(LabTerminalCompletion.meta('client::demo',background),'background response starts unread');
  LabTerminalCompletion.setDelaySeconds(1);activeView=true;termRenderSessionList();
  await until(()=>!document.querySelector('.workspace-attention-dot'));
- assert(LabTerminalCompletion.meta('client::demo',background),'modal review never acknowledges its obscured background terminal');
+ assert(!LabTerminalCompletion.meta('client::demo',source)&&LabTerminalCompletion.meta('client::demo',background),'expanded document reviews the visible workspace terminal while keeping other results unread');
  activeView=null;LabTerminalCompletion.stopViewing();
  source.agent_activity={state:'completed',completed_at:600,completion_id:'next'};
  await W.poll(true);assert(document.querySelectorAll('.workspace-attention-dot').length===2,'next response alerts again');
@@ -267,9 +270,11 @@ window.LabTaskTerminalBridge={patch:async(session,patch,context)=>{
   assert(sent.destination===destination&&sent.source_workspace_id==='demo'&&sent.name==='claude','explicit destination and original source');
  }
  AssistantView.closeDocument();
+ assert(getComputedStyle(document.getElementById('sidebar')).display!=='none'&&!document.body.classList.contains('assistant-expanded-document'),'closing restores Files');
+ assert(panel.querySelector('textarea')===workspaceInput&&workspaceInput.value==='Unsent workspace terminal draft'&&!sockets,'closing preserves workspace terminal and draft');
  taskLinks=[{...source,state:'running',linked_task:FIX.link}];
  await AssistantView.openLinkedTask(FIX.link);
- await until(()=>document.querySelector('select[data-terminal-placement]')?.value==='right');
+ assert(document.querySelector('#assistantExpandedHost #assistantDocumentModal.active')&&!sockets,'reopened document shares workspace terminals');
  AssistantView.closeDocument();
  // Assistant derives its own Linked documents section from saved terminal links.
  const assistant={workspace_id:'__assistant__',vault:'__assistant__'};
@@ -300,11 +305,17 @@ window.LabTaskTerminalBridge={patch:async(session,patch,context)=>{
  assert(document.body.classList.contains('sidebar-collapsed')&&localStorage.getItem('test-sidebar-demo')==='0','closing also preserves an explicit collapse');
  assert(document.getElementById('content').textContent==='Original file content','file content preserved after close');
  document.body.classList.remove('sidebar-collapsed');
- let resolveIndex;pendingIndex=new Promise(resolve=>resolveIndex=resolve);
- const opening=AssistantView.openLinkedTask(FIX.link,{inline:true});
- AssistantView.closeInlineDocument();resolveIndex();await opening;pendingIndex=null;
- assert(!document.querySelector('#assistantDocumentModal.active'),'navigation cancels pending document open');
- // A workspace sidebar double-click opens the dialog directly.
+ for(const inline of [true,false])for(const stage of ['index','detail']){
+  let finish;const pending=new Promise(resolve=>finish=resolve);
+  if(stage==='index')pendingIndex=pending;else pendingDetail=pending;
+  const count=calls.filter(row=>row[0]==='/api/assistant/note').length;
+  const opening=AssistantView.openLinkedTask(FIX.link,{inline});
+  if(stage==='detail')await until(()=>calls.filter(row=>row[0]==='/api/assistant/note').length>count);
+  AssistantView.closeInlineDocument();finish();await opening;
+  pendingIndex=null;pendingDetail=null;
+  assert(!document.querySelector('#assistantDocumentModal.active')&&!document.body.classList.contains('assistant-expanded-document'),'workspace navigation cancels pending inline and expanded documents at '+stage);
+ }
+ // A workspace sidebar double-click opens the expanded document directly.
  const doubleClick=button=>{
   button.dispatchEvent(new MouseEvent('click',{bubbles:true,detail:1}));
   button.dispatchEvent(new MouseEvent('click',{bubbles:true,detail:2}));
@@ -312,8 +323,17 @@ window.LabTaskTerminalBridge={patch:async(session,patch,context)=>{
  };
  doubleClick(document.querySelector('.workspace-document-open'));
  await until(()=>document.querySelector('#assistantDocumentModal.active:not(.assistant-document-inline)'));
- assert(document.querySelector('.assistant-document-modal').getAttribute('aria-modal')==='true','double-click opens an accessible dialog');
- AssistantView.closeDocument();
+ assert(document.querySelector('.assistant-document-modal').getAttribute('role')==='region'&&!document.querySelector('.assistant-document-modal').hasAttribute('aria-modal'),'double-click opens an accessible expanded document beside terminals');
+ await _termActivateTab(source.name);
+ await until(()=>document.querySelector('#assistantDocumentModal.active:not([aria-busy])'));
+ assert(document.body.classList.contains('assistant-expanded-document')&&getComputedStyle(document.getElementById('sidebar')).display==='none'&&!sockets,'terminal activation preserves the expanded document layout');
+ AssistantView.closeInlineDocument();
+ assert(!document.body.classList.contains('assistant-expanded-document'),'workspace navigation closes the expanded document');
+ document.body.classList.add('sidebar-collapsed');
+ await AssistantView.openLinkedTask(FIX.link,{inline:false});
+ document.querySelector('.assistant-modal-close').click();
+ assert(document.body.classList.contains('sidebar-collapsed')&&getComputedStyle(document.getElementById('sidebar')).display==='none','closing an expanded document keeps an already collapsed Files sidebar');
+ document.body.classList.remove('sidebar-collapsed');
  document.body.classList.replace('workspace-active','assistant-active');
  AssistantView.init({section:'documents'});
  await until(()=>document.querySelector('[data-assistant-document]'));
@@ -364,7 +384,7 @@ window.LabTaskTerminalBridge={patch:async(session,patch,context)=>{
         'js/lib/workspace-documents.js','js/views/assistant.js','js/views/assistant-tasks.js'])
     css = '\n'.join((STATIC / name).read_text() for name in ['css/lab-shell.css','css/assistant-tasks.css','css/workspace-documents.css'])
     page = tmp_path / 'workspace-documents.html'
-    page.write_text('<!doctype html><meta charset="utf-8"><style>:root{--accent:#58a6ff;--text-primary:#e6edf3;--text-secondary:#8b949e;--bg-secondary:#161b22;--border:#30363d;--green:#3fb950}body{background:#0d1117;color:#e6edf3}'+css+'</style><body class="workspace-active"><div id="workspaceTabs" style="position:fixed;top:0"><div class="workspace-tab" data-kind="workspace" data-workspace-id="demo" data-vault="client">Demo<button class="x">×</button></div><div class="workspace-tab" data-kind="workspace" data-workspace-id="inactive" data-vault="client">Inactive<button class="x">×</button></div></div><div id="sidebar" class="sidebar"><section data-workspace-documents></section><div id="recent">Recently updated</div></div><article style="position:fixed;top:40px" id="document-drag" data-assistant-document-drag draggable="true"><button class="assistant-document-row"><strong>Task document</strong></button></article><div class="layout"><div id="content" class="main">Original file content</div></div><pre id="result">PENDING</pre><script>const FIX='+json.dumps(fixture).replace('</','<\\/')+';'+setup+'</script>'+scripts+'<script>'+checks+'</script>')
+    page.write_text('<!doctype html><meta charset="utf-8"><style>:root{--accent:#58a6ff;--text-primary:#e6edf3;--text-secondary:#8b949e;--bg-secondary:#161b22;--border:#30363d;--green:#3fb950}body{background:#0d1117;color:#e6edf3}'+css+'</style><body class="workspace-active term-open" style="--term-width:24%"><div id="workspaceTabs" style="position:fixed;top:0"><div class="workspace-tab" data-kind="workspace" data-workspace-id="demo" data-vault="client">Demo<button class="x">×</button></div><div class="workspace-tab" data-kind="workspace" data-workspace-id="inactive" data-vault="client">Inactive<button class="x">×</button></div></div><div id="sidebar" class="sidebar"><section data-workspace-documents></section><div id="recent">Recently updated</div></div><article style="position:fixed;top:40px" id="document-drag" data-assistant-document-drag draggable="true"><button class="assistant-document-row"><strong>Task document</strong></button></article><div class="layout"><div id="content" class="main">Original file content</div></div><aside id="termPanel" class="term-panel"><div class="term-stage"><nav class="term-sessions"><span class="sess active">1</span><span class="sess">2</span></nav><div class="term-console"><textarea aria-label="Workspace terminal input"></textarea></div></div></aside><pre id="result">PENDING</pre><script>const FIX='+json.dumps(fixture).replace('</','<\\/')+';'+setup+'</script>'+scripts+'<script>'+checks+'</script>')
     profile = tmp_path / 'profile'
     browser = subprocess.Popen([chrome,'--headless','--disable-gpu','--no-sandbox','--no-first-run','--no-default-browser-check','--allow-file-access-from-files','--user-data-dir='+str(profile),'--remote-debugging-port=0','about:blank'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
     try:
@@ -446,6 +466,21 @@ if(await evaluate("document.getElementById('result').textContent") === 'PASS') {
  await send('Emulation.setDeviceMetricsOverride',{width:390,height:1000,deviceScaleFactor:1,mobile:false});
  await evaluate(`assert(getComputedStyle(document.querySelector('.assistant-tabs-resizer')).display==='none','mobile keeps horizontal tabs')`);
  await evaluate(`assert(getComputedStyle(document.querySelector('.assistant-tabs-rail')).display==='none','mobile hides desktop icon rail')`);
+ const mobileClose=await evaluate(`(() => {
+  document.getElementById('assistantExpandDocument').click();
+  const modal=document.querySelector('.assistant-document-modal'), header=modal.querySelector('header'), close=modal.querySelector('.assistant-modal-close');
+  const rect=close.getBoundingClientRect(), boundary=modal.getBoundingClientRect();
+  assert(document.body.classList.contains('assistant-expanded-document')&&getComputedStyle(document.getElementById('sidebar')).display==='none','mobile expanded view hides Files');
+  assert(getComputedStyle(close).color==='rgb(248, 81, 73)'&&rect.width===44&&boundary.right-rect.right<=11,'mobile modal close is red and touch-sized in the corner');
+  assert(header.scrollWidth<=header.clientWidth+1&&rect.bottom<=header.getBoundingClientRect().bottom,'mobile controls fit around the red close button');
+  return {x:rect.x+rect.width/2,y:rect.y+rect.height/2};
+ })()`);
+ await send('Input.dispatchMouseEvent',{type:'mousePressed',...mobileClose,button:'left',clickCount:1});
+ await send('Input.dispatchMouseEvent',{type:'mouseReleased',...mobileClose,button:'left',clickCount:1});
+ await evaluate(`assert(!document.querySelector('#assistantDocumentModal.active')&&getComputedStyle(document.getElementById('sidebar')).display!=='none','native mobile close restores Files')`);
+ await evaluate(`assert(document.querySelector('#termPanel textarea').value==='Unsent workspace terminal draft'&&!sockets,'mobile close preserves the workspace terminal and its unsent input')`);
+ await evaluate(`AssistantView.openDocument('note',FIX.path)`);
+
  await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
  await evaluate(`new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))`);
  await dragBy(110);

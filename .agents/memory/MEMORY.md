@@ -521,3 +521,5 @@
 - [Inline document close is red in the corner](assistant-inline-close-is-red-in-the-corner.md) — visible top-right control with reserved header space and mobile/keyboard access.
 
 - [Terminal panel width is workspace scoped](terminal-panel-width-is-workspace-scoped.md) — independent percentages, legacy default, view restoration and captured drag ownership.
+
+- [Expanded documents use workspace terminals](expanded-documents-use-workspace-terminals.md) — hide Files temporarily, share the active terminal panel, preserve drafts/preferences, and keep the red corner close button.

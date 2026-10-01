@@ -175,7 +175,7 @@
   async function showInPanel(state) {
     try {
       const shown = await window.LabTaskTerminalBridge?.show?.(state.result);
-      if (!shown && state === current) state.host.querySelector('[data-terminal-status]').textContent='This terminal is not in the current workspace. Use Expand to view it.';
+      if (!shown && state === current) state.host.querySelector('[data-terminal-status]').textContent='This terminal is not available in the current workspace. Open its workspace to view it.';
     } catch (error) { if (state === current) show(state,state.result || {},error.message); }
   }
   function renderLinks(state) {

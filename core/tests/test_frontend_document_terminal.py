@@ -79,6 +79,7 @@ window.fetch=async(url,options={})=>{
  return {ok:!!detail,json:async()=>structuredClone(detail||{detail:'Missing record'})};
 };
 const host=()=>document.getElementById('assistantDocumentTerminal');
+const openLegacy=detail=>LabDocumentTerminal.open(detail,FIX.details[detail.root_path]||detail,FIX.index.root);
 const poll=async()=>{for(const fn of intervals.values())fn();await new Promise(r=>setTimeout(r,20));};
 const choose=async()=>{host().querySelector('[data-terminal-choose]').click();await until(()=>host().querySelector('[draggable=true]'));return host().querySelectorAll('[draggable=true]')};
 const drag=(source,target)=>{const dataTransfer=new DataTransfer();source.dispatchEvent(new DragEvent('dragstart',{bubbles:true,dataTransfer}));const hover=new DragEvent('dragover',{bubbles:true,cancelable:true,dataTransfer});target.dispatchEvent(hover);assert(hover.defaultPrevented&&target.closest('[data-terminal-document]').classList.contains('term-link-drop-target'),'drop preview');target.dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer}));source.dispatchEvent(new DragEvent('dragend',{bubbles:true,dataTransfer}));};
@@ -88,12 +89,17 @@ const drag=(source,target)=>{const dataTransfer=new DataTransfer();source.dispat
  document.querySelector('[data-assistant-view="all"]').click();
  document.querySelector(`[data-assistant-document="${FIX.paths.note}"]`).dispatchEvent(new MouseEvent('dblclick',{bubbles:true,detail:2}));
  await until(()=>host()?.textContent.includes('Drag a terminal'));
- assert(!counters.opened&&!counters.sockets,'opening task allocates no terminal');
+ assert(!counters.opened&&!counters.sockets,'expanded document uses the workspace terminal panel');
+ assert(host().querySelector('[data-terminal-placement]').hidden,'expanded document has no private terminal placement');
  assert(host().getBoundingClientRect().height<180,'unlinked panel stays compact');
  const note=FIX.details[FIX.paths.note],task=note.document_tasks.tasks.find(task=>task.title==='Task A');
  const row=document.querySelector(`[data-task="${task.id}"]`);
  assert(row,'task row exists in dashboard');
  const choices=await choose();drag(choices[0],row.querySelector('.assistant-tasks-task-label'));
+ await until(()=>row.querySelector('.assistant-linked-terminal'));
+ assert(!counters.sockets&&!counters.terminals&&!counters.opened&&counters.patches===1,'linking an expanded document reuses workspace terminals');
+ // Keep coverage for retained legacy conversations through the explicit legacy API.
+ openLegacy(note);
  await until(()=>counters.sockets===1);
  assert(latestSocket.url.includes('existing-one')&&latestSocket.url.includes('cols=')&&latestSocket.url.includes('rows='),'existing session and real geometry');
  assert(!counters.opened&&counters.patches===1,'drop never starts a process');
@@ -101,12 +107,17 @@ const drag=(source,target)=>{const dataTransfer=new DataTransfer();source.dispat
  const before=counters.created;
  document.querySelector(`[data-record-path="${FIX.paths.tab}"]`).click();
  await until(()=>document.querySelector(`[data-record-path="${FIX.paths.tab}"].active`));
- assert(counters.created===before,'content-tab navigation preserves same connection');
+ assert(counters.created===before&&!counters.sockets,'tab navigation uses the shared workspace panel');
+ openLegacy(note);
+ await until(()=>counters.sockets===1);
  latestTerminal.paste('my unsent draft');
  await until(()=>latestSocket.messages.some(message=>message.type==='input'&&message.data==='my unsent draft'));
  const initialName=latestSocket.url;
  AssistantView.closeDocument();assert(!counters.sockets&&!counters.terminals&&!intervals.size,'close releases browser resources');
  document.querySelector(`[data-assistant-document="${FIX.paths.note}"]`).dispatchEvent(new MouseEvent('dblclick',{bubbles:true,detail:2}));
+ await until(()=>host().querySelector('[data-terminal-placement]')?.hidden);
+ assert(!counters.sockets,'normal document reopening never attaches a private renderer');
+ openLegacy(note);
  await until(()=>counters.sockets===1);
  assert(latestSocket.url===initialName&&!counters.opened,'reopen remembers task and exact existing session');
  hidden=true;document.dispatchEvent(new Event('visibilitychange'));
@@ -128,19 +139,19 @@ const drag=(source,target)=>{const dataTransfer=new DataTransfer();source.dispat
  await poll();assert(!counters.opened,'polling never resumes stopped terminals');
  host().querySelector('[data-terminal-wake]').click();await until(()=>counters.sockets===1);assert(counters.resumed===1,'only an explicit click resumes the saved linked session');
  for(let i=0;i<12;i++){
-  LabDocumentTerminal.open(FIX.details[i%2?FIX.paths.note:FIX.paths.task]);
+  openLegacy(FIX.details[i%2?FIX.paths.note:FIX.paths.task]);
   await until(()=>host().textContent.includes(i%2?'Running':'Drag a terminal'));
  }
  assert(counters.peakSockets===1&&counters.peakTerminals===1,'switching never accumulates display resources');
  LabDocumentTerminal.close();
  // Retained legacy conversations are opt-in; existing saved IDs remain recoverable.
  managed.set(FIX.paths.task,{name:'old-managed',state:'sleeping',agent:'codex'});
- LabDocumentTerminal.open(FIX.details[FIX.paths.task]);await until(()=>host().textContent.includes('Resume previous conversation'));
+ openLegacy(FIX.details[FIX.paths.task]);await until(()=>host().textContent.includes('Resume previous conversation'));
  assert(!counters.opened,'sleeping history never auto-wakes');
  host().querySelector('[data-terminal-wake]').click();await until(()=>counters.sockets===1);
  assert(counters.opened===1&&latestSocket.url.includes('old-managed'),'explicit resume still works');
  LabDocumentTerminal.close();
- LabDocumentTerminal.open(note);await until(()=>counters.sockets===1);
+ openLegacy(note);await until(()=>counters.sockets===1);
  assert(counters.peakSockets===1&&counters.peakTerminals===1,'one visible connection');
  document.getElementById('result').textContent='PASS '+JSON.stringify(counters);
 })().catch(error=>document.getElementById('result').textContent='FAIL: '+error.stack);
