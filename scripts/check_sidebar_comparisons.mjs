@@ -16,7 +16,7 @@ const chrome = spawn(process.env.CHROME_BIN || '/Applications/Google Chrome.app/
   '--user-data-dir=' + profile, 'about:blank',
 ], {stdio: 'ignore'});
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-const result = {rows: [], errors: [], scopeInput: 'CDP mouse and text search', filterInput: 'CDP mouse', picker: {}};
+const result = {rows: [], errors: [], scopeInput: 'CDP mouse and text search', filterInput: 'CDP mouse', picker: {},scopeControls:[]};
 let ws;
 try {
   let port;
@@ -95,6 +95,11 @@ try {
     await wait(`document.querySelectorAll('.sidebar-scope-picker [data-scope-option]').length===1`);
     await click(`.sidebar-scope-picker [data-scope-option="${fixture.path}"]`);
     await wait(`document.querySelector('[data-project-sidebar]')?.dataset.projectSidebar===${JSON.stringify(fixture.path)}`);
+    const control=await evaluate(`(()=>{const chip=document.querySelector('.sidebar-scope-chip.active');return {label:chip.querySelector('.sidebar-file-scope-button').textContent,kind:chip.dataset.scopeKind,badge:chip.querySelector('.sidebar-scope-tag').textContent,historyEnabled:!chip.querySelector('.sidebar-repo-history').disabled,terminalEnabled:!chip.querySelector('.sidebar-link-terminal').disabled,allInline:Array.from(chip.querySelectorAll('button')).every(button=>{const r=button.getBoundingClientRect(),p=chip.getBoundingClientRect();return r.top>=p.top && r.bottom<=p.bottom}),inactiveDisabled:Array.from(document.querySelectorAll('.sidebar-scope-chip:not(.active) .sidebar-repo-history,.sidebar-scope-chip:not(.active) .sidebar-link-terminal')).every(button=>button.disabled),repeatedBranch:!!document.querySelector('.sidebar-worktree-current,.sidebar-worktree-picker')};})()`);
+    const isWorktree=fixture.path!==fixture.project;
+    const expectedLabel=fixture.project.split('/').pop()+'/'+fixture.branch;
+    if((fixture.branch==='HEAD'?!control.label.includes('(detached)'):control.label!==expectedLabel)||control.kind!==(isWorktree?'worktree':'folder')||control.badge!==(isWorktree?'Worktree':'Folder')||!control.historyEnabled||!control.terminalEnabled||!control.allInline||!control.inactiveDisabled||control.repeatedBranch)throw Error('Incorrect inline scope controls: '+JSON.stringify({fixture,control}));
+    result.scopeControls.push({scope:fixture.label,...control});
     for (const mode of ['uncommitted', 'local-main']) {
       const selector = `.sidebar-recent-selector[data-recent-mode="${mode}"]`;
       if (await evaluate(`document.querySelector('.sidebar-recent-selector.active')?.dataset.recentMode===${JSON.stringify(mode)}`)) {
@@ -167,6 +172,12 @@ try {
   if (!result.picker.colors.some(row=>row.path===first.path && row.color==='#d4d73b')) throw Error('Manual color did not save');
   const afterShot = await send('Page.captureScreenshot', {format: 'png'});
   await writeFile(join(output, 'pinned-scopes.png'), Buffer.from(afterShot.data, 'base64'));
+  const masterFolder=fixtures.find(row=>row.branch==='master'&&row.path===row.project);
+  await selectScope(masterFolder.path);
+  const primaryShot=await send('Page.captureScreenshot',{format:'png'});
+  await writeFile(join(output,'inline-folder-worktree-controls.png'),Buffer.from(primaryShot.data,'base64'));
+  if(!await evaluate('Array.from(document.querySelectorAll(".sidebar-scope-chip:not(.active) .sidebar-repo-history")).every(button=>button.disabled)'))throw Error('Inactive GitHub control remained enabled');
+  await selectScope(first.path);
   const oldOrigin = await evaluate('performance.timeOrigin');
   await send('Page.reload');
   await wait(`performance.timeOrigin!==${oldOrigin} && typeof _sidebarFileConfig!=='undefined' && document.querySelector('[data-project-sidebar]')?.dataset.projectSidebar===${JSON.stringify(first.path)}`);
@@ -252,7 +263,7 @@ try {
   await click('.scope-links-dialog [data-close]');
   await selectScope(first.path);
   await wait('document.querySelectorAll(".sidebar-scope-link").length===4');
-  await doubleClick('.sidebar-worktree-current');
+  await doubleClick('.sidebar-file-scope-button.active');
   await wait('document.querySelectorAll(".scope-links-dialog [data-link-card]").length===4 && !Array.from(document.querySelectorAll(".scope-links-dialog [data-link-card]")).some(node=>node._targetLoading)');
   const internalCard='.scope-links-dialog [data-link-card]:nth-child(4)';
   if(!await evaluate(`document.querySelector(${JSON.stringify(internalCard+' [data-document-picker]')}).hidden`))throw Error('Saved document target was not compact');
@@ -282,7 +293,7 @@ try {
   await wait(`_sidebarFileConfig.pinnedScopes.includes(${JSON.stringify(first.path)})`);
   await selectScope(last.path);
   if(await evaluate(`_sidebarFileConfig.pinnedScopes.includes(${JSON.stringify(last.path)})`))await click(`.sidebar-scope-pin[data-scope-path="${last.path}"]`);
-  await click('.sidebar-link-terminal');
+  await click('.sidebar-scope-chip.active .sidebar-link-terminal');
   await wait(`termSessions[0]?.linked_scope?.root===${JSON.stringify(last.path)} && _sidebarFileConfig.pinnedScopes.includes(${JSON.stringify(last.path)})`);
   result.terminal.attachedScope=await evaluate('termSessions[0].linked_scope');
   result.terminal.pinned=true;

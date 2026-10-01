@@ -1,0 +1,3 @@
+# Scope rows combine branch and actions
+
+The user wants one row per active/pinned folder or worktree containing its colored kind icon, folder/branch label, kind badge, GitHub history, terminal attachment, and pin. Primary folders show their actual branch too, such as Checkpoint/master; worktrees retain their actual branch, including slashes. Use distinct folder versus branch icons and Folder/Worktree badges. Only the selected row enables GitHub and attachment. Remove the separate repeated branch/action row beneath the shortcuts. The colored kind icon opens the palette; double-click the combined label edits metadata. This supersedes the earlier color-dot and separate branch-label presentation.

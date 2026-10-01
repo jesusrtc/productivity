@@ -155,3 +155,40 @@ process.stdout.write(JSON.stringify({selected,edited:edited.map(({path,scope})=>
     assert result == {'selected':['/trees/topic','/trees/other','/trees/other','/trees/topic'],
                       'edited':[{'path':'/trees/topic','scope':{'label':'project/topic','kind':'worktree'}}],
                       'current':True,'stale':False}
+
+
+def test_primary_folder_and_worktree_use_inline_controls_and_exact_branch_labels():
+    result = _run_node(helpers() + _js_between('  function sidebarOpenRepositoryHistory(', '  function _sidebarGitHistoryButtonHtml(') + """
+currentWorkspace.repos=[{path:'/workspace',name:'Checkpoint',branch:'master'}];
+_sidebarFileConfig=_sidebarNormalizeFileConfig({folderScopes:[
+ {path:'/src/Checkpoint',label:'Checkpoint',kind:'folder',branch:'master'},
+ {path:'/trees/checkout',label:'Checkpoint/feature/login',kind:'worktree',branch:'feature/login',projectPath:'/src/Checkpoint'},
+ {path:'/src/plain',label:'Plain folder',kind:'folder'}],
+ selectedFolders:{'/workspace':'/src/Checkpoint'},pinnedScopes:['/trees/checkout']});
+const rows=_sidebarVisibleScopes('/workspace').map(scope=>({label:_sidebarScopeDisplayLabel(scope),kind:scope.kind}));
+const html=_sidebarFileScopeButtonsHtml('/workspace');
+const history=[],button=(path,disabled=false)=>({disabled,hasAttribute:()=>true,getAttribute:name=>name==='data-base-root'?'/workspace':path});
+function openRepositoryHistory(request){history.push(request)};
+sidebarOpenRepositoryHistory(button('/src/Checkpoint'));
+sidebarOpenRepositoryHistory(button('/trees/checkout',true));
+_sidebarFileConfig.selectedFolders['/workspace']='/trees/checkout';
+sidebarOpenRepositoryHistory(button('/src/Checkpoint'));
+sidebarOpenRepositoryHistory(button('/trees/checkout'));
+delete _sidebarFileConfig.selectedFolders['/workspace'];
+const rootLabel=_sidebarScopeDisplayLabel(_sidebarVisibleScopes('/workspace')[0]);
+currentWorkspace.repos[0].path='/workspace/nested';
+const nestedRootLabel=_sidebarScopeDisplayLabel(_sidebarVisibleScopes('/workspace')[0]);
+process.stdout.write(JSON.stringify({rows,rootLabel,nestedRootLabel,history,
+ disabledHistory:Array.from(html.matchAll(/class="sidebar-repo-history"[^>]*disabled/g)).length,
+ disabledTerminal:Array.from(html.matchAll(/class="sidebar-link-terminal"[^>]*disabled/g)).length,
+ kindIcons:(html.match(/class="sidebar-scope-color"/g)||[]).length,
+ plainLabel:_sidebarScopeDisplayLabel(_sidebarFolderScope('/src/plain')),
+ noRepeatedBranch:!_sidebarWorktreePickerHtml('/workspace').includes('sidebar-worktree-current')}));
+""")
+    assert result == {'rows':[{'label':'Checkpoint/master','kind':'folder'},
+                              {'label':'Checkpoint/feature/login','kind':'worktree'}],
+                      'rootLabel':'Checkpoint/master','nestedRootLabel':'Root',
+                      'history':[{'root':'/src/Checkpoint','label':'master'},
+                                 {'root':'/trees/checkout','label':'feature/login'}],
+                      'disabledHistory':1,'disabledTerminal':1,'kindIcons':2,
+                      'plainLabel':'Plain folder','noRepeatedBranch':True}

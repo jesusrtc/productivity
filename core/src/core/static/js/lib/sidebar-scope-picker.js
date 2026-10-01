@@ -90,9 +90,11 @@
       index = matches.findIndex(row => row.available !== false);
       host.innerHTML = matches.map((row, number) => {
         const worktree = row.kind === 'worktree';
+        const name = row.label || row.name;
+        const label = row.branch && !worktree && row.kind !== 'parent' && !name.endsWith('/' + row.branch) ? name + '/' + row.branch : name;
         const savedColor = bridge.color?.(row) || row.color;
         const color = /^#[\da-f]{6}$/i.test(savedColor || '') ? savedColor : worktree ? '#d2a8ff' : '#8b949e';
-        return `<button type="button" role="option" id="sidebarScopeOption${number}" data-scope-option="${esc(row.path)}" data-scope-kind="${esc(row.kind || 'folder')}" style="--sidebar-scope-color:${color}" aria-selected="false" ${row.available === false ? 'disabled' : ''}><span class="sidebar-scope-kind${worktree ? ' worktree' : ''}" aria-hidden="true">${icons[worktree ? 'worktree' : 'folder']}</span><span><strong>${esc(row.label || row.name)}</strong><small>${esc(row.path)}</small></span><small class="sidebar-scope-type${worktree ? ' worktree' : ''}">${worktree ? 'Worktree' : row.kind === 'parent' ? 'Parent folder' : 'Folder'}</small></button>`;
+        return `<button type="button" role="option" id="sidebarScopeOption${number}" data-scope-option="${esc(row.path)}" data-scope-kind="${esc(row.kind || 'folder')}" style="--sidebar-scope-color:${color}" aria-selected="false" ${row.available === false ? 'disabled' : ''}><span class="sidebar-scope-kind${worktree ? ' worktree' : ''}" aria-hidden="true">${icons[worktree ? 'worktree' : 'folder']}</span><span><strong>${esc(label)}</strong><small>${esc(row.path)}</small></span><small class="sidebar-scope-type${worktree ? ' worktree' : ''}">${worktree ? 'Worktree' : row.kind === 'parent' ? 'Parent folder' : 'Folder'}</small></button>`;
       }).join('');
       host.querySelectorAll('[data-scope-option]').forEach(button => button.onclick = () => select(matches.find(row => row.path === button.dataset.scopeOption)));
       highlight();

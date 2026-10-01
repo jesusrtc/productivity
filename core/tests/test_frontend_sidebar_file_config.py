@@ -610,12 +610,12 @@ const mainPicker = _sidebarWorktreePickerHtml('/repo');
 process.stdout.write(JSON.stringify({
   scopedRoot,
   pickerHasRoot: !picker.includes('select aria-label="File worktree"'),
-  pickerHasSelected: picker.includes('>feature-b</button>'),
+  pickerHasSelected: scopedButtons.includes('>Root/feature-b</span>'),
   pickerColor: scopedButtons.includes('--sidebar-workspace-color:#123abc'),
-  pickerHasHistory: picker.includes('sidebarOpenRepositoryHistory(this)'),
-  pickerHasGithub: picker.includes('class="sidebar-github-icon"'),
-  mainHasHistory: mainPicker.includes('sidebarOpenRepositoryHistory(this)'),
-  mainHasLabel: mainPicker.includes('Attach terminal'),
+  pickerHasHistory: scopedButtons.includes('sidebarOpenRepositoryHistory(this)'),
+  pickerHasGithub: scopedButtons.includes('class="sidebar-github-icon"'),
+  mainHasHistory: _sidebarFileScopeButtonsHtml('/repo').includes('sidebarOpenRepositoryHistory(this)'),
+  mainHasLabel: _sidebarFileScopeButtonsHtml('/repo').includes('Attach active terminal'),
   scopeColor: scope.includes('--sidebar-worktree-color:#123abc'),
   scopePath: scope.includes('data-worktree-path="/worktrees/feature-b"'),
   selectedHistoryRoot,
@@ -739,8 +739,8 @@ process.stdout.write(JSON.stringify({
   alphaActive: buttons.includes('data-folder-path="/worktrees/alpha/feature-a"')
     && buttons.includes('class="sidebar-file-scope-button active"'),
   alphaColor: buttons.includes('--sidebar-workspace-color:#aa22cc'),
-  pickerRoot: picker.includes('data-workspace-root="/vault/workspaces/alpha"'),
-  pickerWorktree: picker.includes('>feature-a</button>'),
+  pickerRoot: picker.includes('data-scope-links="/worktrees/alpha/feature-a"'),
+  pickerWorktree: !picker.includes('sidebar-worktree-current'),
   scopeColor: scope.includes('--sidebar-worktree-color:#aa22cc'),
 }));
 """

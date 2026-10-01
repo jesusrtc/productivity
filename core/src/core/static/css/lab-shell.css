@@ -621,7 +621,11 @@
   .sidebar-scope-chip .sidebar-file-scope-button { flex:1; border:0; border-radius:0; box-shadow:none; background:transparent; padding:5px 4px; }
   .sidebar-scope-chip .sidebar-file-scope-button.active { box-shadow:none; background:transparent; }
   .sidebar-scope-chip .sidebar-file-scope-button span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .sidebar-scope-color { flex:none; width:9px; height:9px; border:0; border-radius:50%; padding:0; margin:0 3px; background:var(--sidebar-workspace-color); cursor:pointer; }
+  .sidebar-scope-color { display:grid; place-items:center; flex:none; width:22px; height:23px; border:0; border-radius:5px; padding:0; margin:0 2px; background:transparent; color:var(--sidebar-workspace-color); cursor:pointer; }
+  .sidebar-scope-color svg { width:17px; height:17px; }
+  .sidebar-scope-color:hover { background:color-mix(in srgb,var(--sidebar-workspace-color) 15%,transparent); }
+  .sidebar-scope-tag { flex:none; font-size:9px; color:var(--text-secondary); padding:2px 4px; border:1px solid var(--border); border-radius:4px; margin:0 3px; }
+  .sidebar-scope-chip[data-scope-kind=worktree] .sidebar-scope-tag { color:var(--sidebar-workspace-color); border-color:color-mix(in srgb,var(--sidebar-workspace-color) 30%,var(--border)); }
   .sidebar-scope-pin { flex:none; display:grid; place-items:center; width:19px; height:23px; border:0; padding:0; color:var(--text-dim); background:transparent; cursor:pointer; opacity:.5; }
   .sidebar-scope-pin.pinned { color:var(--sidebar-workspace-color); opacity:1; }
   .sidebar-scope-chip:hover .sidebar-scope-pin { opacity:1; }
@@ -653,23 +657,11 @@
   .sidebar-scope-palette > div { display:grid; grid-template-columns:repeat(5,1fr); gap:8px; margin-top:10px; }
   .sidebar-scope-palette button { width:26px; height:26px; border:2px solid transparent; border-radius:6px; cursor:pointer; }
   .sidebar-scope-palette button:hover { border-color:var(--text-primary); }
-  .sidebar-worktree-picker { display: flex; align-items: center; gap: 6px; padding: 0 12px 8px; }
-  .sidebar-repo-history { flex: none; width: 27px; height: 25px; display: grid; place-items: center; padding: 0; border: 1px solid var(--border); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-secondary); cursor: pointer; }
-  .sidebar-repo-history:hover { color: var(--text-primary); border-color: var(--accent); }
-  .sidebar-repo-history .sidebar-github-icon { display: block; width: 14px; height: 14px; }
-  .sidebar-worktree-picker label { flex: 1; min-width: 0; }
-  .sidebar-worktree-current { flex: 1; min-width: 0; overflow: hidden; border:0; background:transparent; padding:4px 0; text-align:left; cursor:pointer; color: var(--text-primary); font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }
-  .sidebar-worktree-current:hover { color:var(--accent); }
-  .sidebar-worktree-picker select { width: 100%; min-width: 0; border: 1px solid var(--border); border-radius: 5px; padding: 4px 24px 4px 7px; background: var(--bg-tertiary); color: var(--text-primary); font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; }
-  .sidebar-worktree-picker input[type="color"] { flex: none; width: 28px; height: 25px; padding: 2px; border: 1px solid var(--border); border-radius: 5px; background: var(--bg-tertiary); cursor: pointer; }
-  .sidebar-worktree-picker input[type="color"]:disabled { visibility: hidden; }
-  .sidebar-worktree-picker .sidebar-link-terminal { width: auto; height: auto; padding: 4px 6px; font: inherit; font-size: 10px; white-space: normal; border: 1px solid var(--border); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-secondary); cursor: pointer; }
-
-  .sidebar-worktree-picker { flex-wrap: wrap; }
-  .sidebar-worktree-picker label, .sidebar-worktree-current { min-width: 48px; }
-  .sidebar-worktree-picker .sidebar-link-terminal { flex: none; max-width: 100%; white-space: nowrap; }
-  .sidebar-worktree-picker input[type="color"]:disabled { display: none; }
-  .sidebar-worktree-color-reset { flex: none; border: 0; padding: 2px; background: transparent; color: var(--text-secondary); cursor: pointer; }
+  .sidebar-scope-chip .sidebar-repo-history,.sidebar-scope-chip .sidebar-link-terminal { flex:none; width:23px; height:23px; display:grid; place-items:center; padding:0; border:0; border-radius:4px; background:transparent; color:var(--text-secondary); cursor:pointer; }
+  .sidebar-scope-chip.active .sidebar-repo-history { color:var(--sidebar-workspace-color); }
+  .sidebar-scope-chip .sidebar-repo-history:hover:not(:disabled),.sidebar-scope-chip .sidebar-link-terminal:hover:not(:disabled) { color:var(--sidebar-workspace-color); background:var(--bg-tertiary); }
+  .sidebar-scope-chip .sidebar-repo-history:disabled,.sidebar-scope-chip .sidebar-link-terminal:disabled { opacity:.25; cursor:default; }
+  .sidebar-scope-chip .sidebar-repo-history .sidebar-github-icon { width:14px; height:14px; }
 
   .sidebar-worktree-scope { margin-left: 6px; border-left: 4px solid var(--sidebar-worktree-color, #6e7681); }
   .sidebar-worktree-scope .sidebar-title { padding-left: 9px; }

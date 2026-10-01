@@ -115,10 +115,10 @@ def main():
                              'worktreeFolder': str(vault / '.worktrees' / name)})
         main_root, feature_root, other_root = [Path(row['path']) for row in projects]
         git(feature_root, 'checkout', '-b', 'feature')
-        git(other_root, 'checkout', '-b', 'other-branch')
+        git(other_root, 'checkout', '-b', 'master')
         fixtures = []
         for label, project, branch in (
-            ('feature-worktree', main_root, 'feature-worktree'),
+            ('feature-worktree', main_root, 'feature/search'),
             ('other-worktree', main_root, 'other-worktree'),
             ('detached-worktree', main_root, 'detached-fixture'),
             ('main-worktree', feature_root, 'main'),
@@ -135,7 +135,7 @@ def main():
         for label, root, branch in (
             ('main-checkout', main_root, 'main'),
             ('feature-checkout', feature_root, 'feature'),
-            ('other-checkout', other_root, 'other-branch'),
+            ('other-checkout', other_root, 'master'),
         ):
             fixtures.append({'label': label, 'path': str(root), 'project': str(root),
                              'branch': branch, 'expected': changes(root, branch)})

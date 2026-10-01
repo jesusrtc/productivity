@@ -42,8 +42,12 @@ filter to folders. Worktrees have a colored branch icon and a Worktree badge.
 Adding a folder does not clone or move it. Workspace selections remain
 browser-local.
 
-Only active or pinned folders appear in the sidebar, one per line. Click a pin
-to keep a shortcut visible; attaching a terminal automatically pins its scope.
+Only active or pinned folders appear in the sidebar, one per line. Git folders
+show `folder/branch`, including `master`; worktrees show their actual branch.
+Colored folder/branch icons and Folder/Worktree badges distinguish their kinds.
+Git history, terminal attachment, and the pin sit in the same row. History and
+attachment are enabled for the active row; there is no repeated branch below it.
+Click a pin to keep a shortcut visible; attaching a terminal automatically pins its scope.
 Workspace File sidebar Settings contain file preferences only. Saving them
 preserves existing projects, worktrees, pins, colors, and selections.
 
@@ -60,14 +64,14 @@ Paths refer to the computer running Lab. `~` expands to that computer's home
 folder. Missing worktree parents simply have no choices yet; discovery shows
 only worktrees belonging to the selected Git repository.
 
-Click a sidebar color dot to choose from 20 distinct fixed colors. Automatic
-assignment chooses an unused color first, then the least-used color when the
+Click a colored folder/branch icon to choose from 20 distinct fixed colors.
+Automatic assignment chooses an unused color first, then the least-used color when the
 palette is full. Existing project colors and worktree overrides remain saved.
 
 Active scopes show their metadata links beneath the controls. **Links +** edits
 links for that exact folder or worktree. Double-click its sidebar shortcut or
-branch label to open the same metadata editor. The internal document browser
-searches titles and content, shows a document list beside its tabs, and offers
+folder/branch label to open the same metadata editor. The internal document
+browser searches titles and content, shows a document list beside its tabs, and offers
 **Whole document** or an individual tab. Saved links show their selected
 destination with a **Change** button. Internal documents and individual tabs
 open directly in Lab; external links open in the default browser. Link types

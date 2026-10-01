@@ -1,6 +1,6 @@
 # Sidebar projects, worktrees, and links
 
-Verified on September 30, 2026, using disposable repositories, an isolated Lab
+Verified on October 1, 2026, using disposable repositories, an isolated Lab
 vault/Assistant library, and a separate Chrome profile. All screenshots show the
 actual Lab UI.
 
@@ -12,7 +12,12 @@ filter by folder, path, or branch; selections sort by usage, then recency. An
 absolute or `~/` path can add a folder directly.
 
 The sidebar shows the active folder and pinned folders, one per line, with **+**
-on its own line. Worktrees have a colored branch icon and Worktree badge in the
+on its own line. Each row combines the folder/branch label, kind indicator, Git
+history, terminal attachment, and pin. Main folders show their branch too (for
+example `Checkpoint/master`). History and terminal attachment are enabled only
+in the active row. The duplicate branch and action row below the shortcuts is
+removed. Colored folder/branch icons and Folder/Worktree badges distinguish the
+main checkout from linked worktrees. Worktrees have a colored branch icon and Worktree badge in the
 picker. The search words `branch` / `worktree` restrict results to worktrees;
 `main` / `master` restrict results to folders, including parent folders. These
 filters combine with other search words, and complete paths remain literal.
@@ -20,9 +25,11 @@ filters combine with other search words, and complete paths remain literal.
 ![Worktree-only search with colored branch icons](worktree-picker-filter.png)
 
 Click the pin to keep a shortcut visible; attaching a terminal also pins its exact folder or worktree.
-Click a color dot to select from 20 fixed colors. Automatic assignment chooses
+Click a colored folder/branch icon to select from 20 fixed colors. Automatic assignment chooses
 an unused color first and reuses the least-used color when the palette is full.
 Pins, usage, and colors persist in this browser's workspace settings.
+
+![Inline primary-folder and worktree controls](inline-folder-worktree-controls.png)
 
 ![Searchable project and worktree picker](scope-picker.png)
 
@@ -126,3 +133,10 @@ inactive pinned shortcuts and on the branch label, content search, empty search
 results, editing an existing tab link to the whole document and back, and mobile
 layout. Focused Chrome tests also cover keyboard focus, late reads, save guards,
 missing saved tabs, and retrying failed document reads.
+
+The inline-controls follow-up passed **37 focused sidebar/terminal frontend
+tests** and the complete UI fixture. Native checks assert labels and checkout
+kinds for all seven scopes, including a primary `master` checkout and a
+`feature/search` worktree in a differently named directory, exactly one active
+GitHub/attachment action, and no duplicate branch row. Existing metadata editing,
+colors, pins, terminal linking, and mobile document selection still pass.
