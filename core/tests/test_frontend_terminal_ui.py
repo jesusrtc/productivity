@@ -2679,6 +2679,7 @@ const _sidebarWorktreeRepositoryRoot = root => root;
 const _sidebarFileConfig = {folderScopes: [{path: '/base/forge', label: 'Forge', color: '#123abc'}]};
 const _sidebarWorktreeBaseRoot = () => '/base';
 const _sidebarSelectedWorktree = () => worktree;
+const _sidebarSelectedFolder = () => _sidebarFileConfig.folderScopes[0];
 const _sidebarWorkspaceRoot = () => '/base/forge';
 const _sidebarScopedRoot = () => worktree?.path || '/base/forge';
 const _sidebarWorkspaceLabel = () => 'Forge';

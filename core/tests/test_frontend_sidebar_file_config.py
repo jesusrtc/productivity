@@ -595,6 +595,7 @@ _sidebarFileConfig = {
   selectedWorktrees: {'/repo': '/worktrees/feature-b'},
 };
 const picker = _sidebarWorktreePickerHtml('/repo');
+const scopedButtons = _sidebarFileScopeButtonsHtml('/repo');
 const scope = _sidebarWorktreeScopeStartHtml('/repo');
 const scopedRoot = _sidebarScopedRoot('/repo');
 let historyRequest = null;
@@ -608,13 +609,13 @@ _sidebarFileConfig.worktreeFolder = '';
 const mainPicker = _sidebarWorktreePickerHtml('/repo');
 process.stdout.write(JSON.stringify({
   scopedRoot,
-  pickerHasRoot: picker.includes('<option value="">main</option>'),
-  pickerHasSelected: picker.includes('value="/worktrees/feature-b" selected'),
-  pickerColor: picker.includes('value="#123abc"'),
+  pickerHasRoot: !picker.includes('select aria-label="File worktree"'),
+  pickerHasSelected: picker.includes('>feature-b</span>'),
+  pickerColor: scopedButtons.includes('--sidebar-workspace-color:#123abc'),
   pickerHasHistory: picker.includes('sidebarOpenRepositoryHistory(this)'),
   pickerHasGithub: picker.includes('class="sidebar-github-icon"'),
   mainHasHistory: mainPicker.includes('sidebarOpenRepositoryHistory(this)'),
-  mainHasLabel: mainPicker.includes('<option value="">main</option>'),
+  mainHasLabel: mainPicker.includes('Attach terminal'),
   scopeColor: scope.includes('--sidebar-worktree-color:#123abc'),
   scopePath: scope.includes('data-worktree-path="/worktrees/feature-b"'),
   selectedHistoryRoot,
@@ -663,9 +664,9 @@ _sidebarWorktreeFolders = [{path:tree,name:'feature'}];
 const scope = {config_scope:_sidebarFileConfigScope, base_root:'/workspace',project_root:'/project',worktree:tree,color:'#6e7681'};
 const picker = {getAttribute: () => '/workspace', outerHTML: ''};
 const input = {value:'#6e7681',getAttribute: () => tree,closest: () => picker,hasAttribute: () => false};
-const inherited = [_sidebarWorktreeColor(tree), _termScopeColor(scope), _sidebarWorktreePickerHtml('/workspace').includes('value="#0969da"')];
+const inherited = [_sidebarWorktreeColor(tree), _termScopeColor(scope), _sidebarFileScopeButtonsHtml('/workspace').includes('--sidebar-workspace-color:#0969da')];
 sidebarSetWorktreeColor(input);
-const custom = [_sidebarWorktreeColor(tree), _termScopeColor(scope), picker.outerHTML.includes('Use project color'), _loadSidebarFileConfig().worktreeColors[tree]];
+const custom = [_sidebarWorktreeColor(tree), _termScopeColor(scope), _sidebarFileScopeButtonsHtml('/workspace').includes('--sidebar-workspace-color:#6e7681'), _loadSidebarFileConfig().worktreeColors[tree]];
 _sidebarFileConfig.folderScopes[0].color = '#11aa33';
 input.hasAttribute = () => true;
 sidebarSetWorktreeColor(input);
@@ -733,13 +734,13 @@ process.stdout.write(JSON.stringify({
   fileRoot: _sidebarScopedRoot('/vault'),
   worktreeFolder: _sidebarActiveWorktreeFolder('/vault'),
   hasRoot: buttons.includes('>Root</span>'),
-  hasAlpha: buttons.includes('>Alpha</span>'),
+  hasAlpha: buttons.includes('>Alpha/feature-a</span>'),
   hasBeta: buttons.includes('>Beta</span>'),
-  alphaActive: buttons.includes('data-folder-path="/vault/workspaces/alpha"')
+  alphaActive: buttons.includes('data-folder-path="/worktrees/alpha/feature-a"')
     && buttons.includes('class="sidebar-file-scope-button active"'),
-  alphaColor: buttons.includes('--sidebar-workspace-color:#ff5500'),
+  alphaColor: buttons.includes('--sidebar-workspace-color:#aa22cc'),
   pickerRoot: picker.includes('data-workspace-root="/vault/workspaces/alpha"'),
-  pickerWorktree: picker.includes('value="/worktrees/alpha/feature-a" selected'),
+  pickerWorktree: picker.includes('>feature-a</span>'),
   scopeColor: scope.includes('--sidebar-worktree-color:#aa22cc'),
 }));
 """
@@ -749,9 +750,9 @@ process.stdout.write(JSON.stringify({
         "workspaceRoot": "/vault/workspaces/alpha",
         "fileRoot": "/worktrees/alpha/feature-a",
         "worktreeFolder": "/worktrees/alpha",
-        "hasRoot": True,
+        "hasRoot": False,
         "hasAlpha": True,
-        "hasBeta": True,
+        "hasBeta": False,
         "alphaActive": True,
         "alphaColor": True,
         "pickerRoot": True,

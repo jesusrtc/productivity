@@ -491,3 +491,7 @@
 - [Busy notebook lookups reject unrelated regular names](busy-notebook-lookups-reject-unrelated-regular-names.md) — bounded POSIX filename filtering reduces active-notebook scan work while retaining fresh symlink resolution, locking and fallback behavior.
 
 - [Private connection material lives in Assistant](private-connection-material-lives-in-assistant.md) — this repo is public; keep personal scripts, keys, and machine details in the ignored Assistant secrets folder.
+
+- [Sidebar uses an active/pinned scope picker](sidebar-active-pinned-scope-picker.md)
+
+- [Folder and worktree links support whole documents and tabs](worktree-document-and-tab-links.md)

@@ -58,6 +58,76 @@ def catalog(config: dict, checkpoint=lambda: None) -> dict:
             "warning": warning}
 
 
+def sidebar_scopes(config: dict, checkpoint=lambda: None) -> dict:
+    """Read project folders, their actual Git worktrees, and selectable parents.
+
+    Only the picker calls this; ordinary sidebar refreshes keep their shallow
+    reads. Git's NUL-delimited format preserves spaces/newlines in paths, and
+    worktree registration finds custom destinations outside the default parent.
+    """
+    import subprocess
+
+    data = catalog(config, checkpoint)
+    scopes = {}
+
+    def folder(path, name, kind='folder', **extra):
+        path = str(path)
+        scopes.setdefault(path, {'path': path, 'name': name, 'label': name,
+                                 'kind': kind, 'available': Path(path).is_dir(), **extra})
+
+    folder(data['path'], Path(data['path']).name, 'parent')
+    folder(data['worktreesFolder'], Path(data['worktreesFolder']).name, 'parent')
+    warnings = []
+    for project in data['projects']:
+        checkpoint()
+        folder(project['path'], project['name'], worktreeFolder=project['worktreeFolder'])
+        parent = Path(project['worktreeFolder'])
+        if parent.is_dir():
+            folder(parent, project['name'] + '/worktrees', 'parent')
+        if not project['available'] or not (Path(project['path']) / '.git').exists():
+            continue
+        try:
+            result = subprocess.run(
+                ['git', '--no-optional-locks', '-C', project['path'],
+                 'worktree', 'list', '--porcelain', '-z'],
+                capture_output=True, timeout=3,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            warnings.append(project['name'])
+            continue
+        if result.returncode:
+            warnings.append(project['name'])
+            continue
+        records = []
+        for record in result.stdout.decode('utf-8', errors='surrogateescape').split('\0\0'):
+            fields = dict(field.partition(' ')[::2] for field in record.split('\0') if field)
+            if fields.get('worktree'):
+                records.append(fields)
+        if not records:
+            continue
+        primary = records[0]['worktree']
+        name = Path(primary).name
+        for fields in records:
+            checkpoint()
+            path = fields['worktree']
+            branch = fields.get('branch', '').removeprefix('refs/heads/')
+            if path == primary:
+                if path in scopes:
+                    scopes[path]['branch'] = branch or 'detached'
+                continue
+            label = name + '/' + (branch or Path(path).name + ' (detached)')
+            scopes[path] = {'path': path, 'name': Path(path).name, 'label': label,
+                            'kind': 'worktree', 'projectPath': primary,
+                            'branch': branch or 'detached', 'available': Path(path).is_dir(),
+                            'worktreeFolder': ''}
+            folder(Path(path).parent, name + '/worktrees', 'parent')
+    data['scopes'] = sorted(scopes.values(), key=lambda row: (row['label'].casefold(), row['path']))
+    if warnings:
+        data['warning'] = ' '.join(filter(None, [data['warning'],
+            'Could not read worktrees for: ' + ', '.join(warnings) + '. Retry to refresh.']))
+    return data
+
+
 def register(root: Path, rows: list[dict], base: Path | None = None) -> dict:
     """Validate the entire selection before atomically remembering custom locations."""
     normalized = []

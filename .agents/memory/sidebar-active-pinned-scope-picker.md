@@ -1,0 +1,3 @@
+# Sidebar uses an active/pinned scope picker
+
+The user prefers a + picker over fixed project buttons. Offer default ~/src projects, custom folders, parent folders, and exact Git worktrees labelled project/branch. Filter as the user types and rank by usage. Only the active scope and pinned scopes appear in the row; terminal attachment automatically pins its exact scope. Keep manual unpinning stable during session refresh. Assign from 20 fixed colors, choosing unused colors before reuse, and allow later color changes. This supersedes the fixed-shortcut presentation described in registered-projects-seed-sidebar.md; existing registrations remain available in the picker.

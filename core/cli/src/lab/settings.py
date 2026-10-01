@@ -45,6 +45,11 @@ DEFAULTS: dict[str, Any] = {
     "projectsFolder": "~/src",
     "worktreesFolder": "~/src/.worktrees",
     "projectLocations": [],
+    "scopeLinkTypes": [
+        {"id": "google-docs", "name": "Google Docs", "kind": "external"},
+        {"id": "internal-docs", "name": "Internal docs", "kind": "internal"},
+        {"id": "jira", "name": "Jira tickets", "kind": "external"},
+    ],
     "documentTerminals": {"enabled": True, "sleepMinutes": 5, "expireHours": 36, "maxRunning": 1},
     "autopilot": {"claude": True, "codex": False, "copilot": False},
 }
@@ -58,6 +63,7 @@ def _load_legacy(root: Path) -> dict[str, Any]:
     """Return the merged global settings (defaults + any saved overrides)."""
     merged = {**DEFAULTS, "documentTerminals": dict(DEFAULTS["documentTerminals"])}
     merged["autopilot"] = dict(DEFAULTS["autopilot"])
+    merged['scopeLinkTypes'] = [dict(row) for row in DEFAULTS['scopeLinkTypes']]
     p = paths.config_file(root)
     if p.is_file():
         try:
@@ -80,7 +86,7 @@ def _load_legacy(root: Path) -> dict[str, Any]:
                         for agent, on in data[key].items():
                             if agent in VALID_AGENTS and isinstance(on, bool):
                                 merged["autopilot"][agent] = on
-                elif key in {'projectsFolder', 'worktreesFolder', 'projectLocations'}:
+                elif key in {'projectsFolder', 'worktreesFolder', 'projectLocations', 'scopeLinkTypes'}:
                     try:
                         merged[key] = _validate(key, data[key])
                     except SettingsError:
@@ -137,6 +143,25 @@ def update_global(root: Path, patch: dict[str, Any]) -> dict[str, Any]:
 
 
 def _validate(key: str, value: Any) -> Any:
+    if key == 'scopeLinkTypes':
+        import re
+        if not isinstance(value, list) or not 1 <= len(value) <= 50:
+            raise SettingsError('Define between 1 and 50 link types')
+        identifiers, names, rows = set(), set(), []
+        for row in value:
+            if not isinstance(row, dict) or set(row) != {'id', 'name', 'kind'}:
+                raise SettingsError('Each link type needs id, name and kind')
+            identifier, name, kind = row['id'], row['name'], row['kind']
+            if not isinstance(identifier, str) or not re.fullmatch(r'[a-z0-9][a-z0-9-]{0,63}', identifier):
+                raise SettingsError('Link type IDs must use lowercase letters, numbers and hyphens')
+            if not isinstance(name, str) or not name.strip() or len(name) > 80 or not isinstance(kind, str) or kind not in {'internal', 'external'}:
+                raise SettingsError('Link types need a name and an internal or external destination')
+            name = name.strip()
+            if identifier in identifiers or name.casefold() in names:
+                raise SettingsError('Link type names and IDs must be unique')
+            identifiers.add(identifier); names.add(name.casefold())
+            rows.append({'id': identifier, 'name': name, 'kind': kind})
+        return rows
     if key in {"projectsFolder", "worktreesFolder"}:
         return _folder_path(key, value)
     if key == "projectLocations":

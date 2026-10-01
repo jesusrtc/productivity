@@ -134,3 +134,89 @@ def test_local_main_includes_edits_after_the_uncommitted_snapshot(client, monore
     direct = client.get('/api/sidebar-recent-files', params={'repo': str(selected), 'mode': 'local-main'})
     assert direct.status_code == 200
     assert set(direct.json()['files']) == expected
+
+
+@pytest.mark.parametrize('scope', [
+    'main', 'feature', 'other-branch', 'worktree-main', 'worktree-feature',
+    'worktree-other-branch', 'worktree-detached', 'subfolder-feature',
+    'subfolder-worktree',
+])
+def test_recent_git_filters_distinguish_all_three_file_groups(client, monorepo, scope):
+    source = monorepo / 'comparison-project'
+    source.mkdir()
+    git(source, 'init', '-b', 'main')
+    (source / 'src').mkdir()
+    base_files = {
+        'both-staged.txt', 'both-unstaged.txt', 'uncomm-staged.txt',
+        'uncomm-unstaged.txt', 'committed-only.txt', 'unchanged.txt',
+    }
+    for name in base_files:
+        (source / 'src' / name).write_text('main\n')
+    (source / '.gitignore').write_text('ignored.txt\n')
+    git(source, 'add', '.')
+    git(source, 'commit', '-m', 'Local main baseline')
+    on_main = scope in {'main', 'worktree-main'}
+    branch = 'other-branch' if 'other-branch' in scope else 'feature'
+    root = source
+    if 'worktree' in scope:
+        root = monorepo / 'comparison-tree'
+        if on_main:
+            git(source, 'checkout', '-b', 'source-checkout')
+            git(source, 'worktree', 'add', str(root), 'main')
+        else:
+            git(source, 'worktree', 'add', '-b', branch, str(root))
+    elif not on_main:
+        git(source, 'checkout', '-b', branch)
+    if not on_main:
+        for name in base_files - {'unchanged.txt'}:
+            (root / 'src' / name).write_text('branch commit\n')
+        for name in ('committed-added.txt', 'both-branch-added.txt'):
+            (root / 'src' / name).write_text('branch addition\n')
+        git(root, 'add', 'src')
+        git(root, 'commit', '-m', 'Changes not merged into local main')
+        assert git(root, 'rev-parse', 'HEAD') != git(root, 'rev-parse', 'main')
+        if scope == 'worktree-detached':
+            git(root, 'checkout', '--detach')
+        # These reversions differ from HEAD, but equal local main exactly.
+        for name in ('uncomm-staged.txt', 'uncomm-unstaged.txt'):
+            (root / 'src' / name).write_text('main\n')
+        git(root, 'add', 'src/uncomm-staged.txt')
+        (root / 'src/both-branch-added.txt').write_text('edited branch addition\n')
+    (root / 'src/both-staged.txt').write_text('staged edit\n')
+    (root / 'src/both-unstaged.txt').write_text('unstaged edit\n')
+    (root / 'src/both-added.txt').write_text('staged new file\n')
+    git(root, 'add', 'src/both-staged.txt', 'src/both-added.txt')
+    for name in ('untracked.txt', 'ignored.txt'):
+        (root / 'src' / name).write_text('excluded\n')
+    if root != source:
+        # A dirty primary checkout must not leak into the selected worktree.
+        (source / 'src/unchanged.txt').write_text('only in the source checkout\n')
+
+    selected = root / 'src' if scope.startswith('subfolder-') else root
+    prefix = '' if scope.startswith('subfolder-') else 'src/'
+    both = {prefix + name for name in ('both-staged.txt', 'both-unstaged.txt', 'both-added.txt')}
+    uncommitted_only = set()
+    main_only = set()
+    if not on_main:
+        both.add(prefix + 'both-branch-added.txt')
+        uncommitted_only = {prefix + name for name in ('uncomm-staged.txt', 'uncomm-unstaged.txt')}
+        main_only = {prefix + name for name in ('committed-only.txt', 'committed-added.txt')}
+
+    for cached in (False, True):
+        responses = {
+            mode: ready(client._inner, '/api/sidebar-recent-files',
+                        repo=str(selected), mode=mode, cached=cached)
+            for mode in ('uncommitted', 'local-main')
+        }
+        uncommitted = set(responses['uncommitted']['files'])
+        local_main = set(responses['local-main']['files'])
+        assert uncommitted & local_main == both
+        assert uncommitted - local_main == uncommitted_only
+        assert local_main - uncommitted == main_only
+        assert uncommitted == both | uncommitted_only
+        assert local_main == both | main_only
+        assert all(response['available'] for response in responses.values())
+        assert responses['local-main']['base_ref'] == 'main'
+        if cached:
+            for response in responses.values():
+                assert {row['path'] for row in response['entries']} == set(response['files'])

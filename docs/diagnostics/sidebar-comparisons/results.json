@@ -1,0 +1,850 @@
+{
+  "scopes": [
+    {
+      "label": "detached-worktree",
+      "branch": "HEAD",
+      "expected": {
+        "both": [
+          "both-added.txt",
+          "both-branch-added.txt",
+          "both-staged.txt",
+          "both-unstaged.txt"
+        ],
+        "uncommitted_only": [
+          "uncomm-staged.txt",
+          "uncomm-unstaged.txt"
+        ],
+        "local_main_only": [
+          "committed-only.txt",
+          "committed-added.txt"
+        ],
+        "uncommitted": [
+          "both-added.txt",
+          "both-branch-added.txt",
+          "both-staged.txt",
+          "both-unstaged.txt",
+          "uncomm-staged.txt",
+          "uncomm-unstaged.txt"
+        ],
+        "local-main": [
+          "both-added.txt",
+          "both-branch-added.txt",
+          "both-staged.txt",
+          "both-unstaged.txt",
+          "committed-added.txt",
+          "committed-only.txt"
+        ]
+      },
+      "http": [
+        {
+          "mode": "uncommitted",
+          "cached": false,
+          "files": [
+            "both-added.txt",
+            "both-branch-added.txt",
+            "both-staged.txt",
+            "both-unstaged.txt",
+            "uncomm-staged.txt",
+            "uncomm-unstaged.txt"
+          ]
+        },
+        {
+          "mode": "local-main",
+          "cached": false,
+          "files": [
+            "both-added.txt",
+            "both-branch-added.txt",
+            "both-staged.txt",
+            "both-unstaged.txt",
+            "committed-added.txt",
+            "committed-only.txt"
+          ]
+        },
+        {
+          "mode": "uncommitted",
+          "cached": true,
+          "files": [
+            "both-added.txt",
+            "both-branch-added.txt",
+            "both-staged.txt",
+            "both-unstaged.txt",
+            "uncomm-staged.txt",
+            "uncomm-unstaged.txt"
+          ]
+        },
+        {
+          "mode": "local-main",
+          "cached": true,
+          "files": [
+            "both-added.txt",
+            "both-branch-added.txt",
+            "both-staged.txt",
+            "both-unstaged.txt",
+            "committed-added.txt",
+            "committed-only.txt"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "feature-checkout",
+      "branch": "feature",
+      "expected": {
+        "both": [
+          "both-added.txt",
+          "both-branch-added.txt",
+          "both-staged.txt",
+          "both-unstaged.txt"
+        ],
+        "uncommitted_only": [
+          "uncomm-staged.txt",
+          "uncomm-unstaged.txt"
+        ],
+        "local_main_only": [
+          "committed-only.txt",
+          "committed-added.txt"
+        ],
+        "uncommitted": [
+          "both-added.txt",
+          "both-branch-added.txt",
+          "both-staged.txt",
+          "both-unstaged.txt",
+          "uncomm-staged.txt",
+          "uncomm-unstaged.txt"
+        ],
+        "local-main": [
+          "both-added.txt",
+          "both-branch-added.txt",
+          "both-staged.txt",
+          "both-unstaged.txt",
+          "committed-added.txt",
+          "committed-only.txt"
+        ]
+      },
+      "http": [
+        {
+          "mode": "uncommitted",
+          "cached": false,
+          "files": [
+            "both-added.txt",
+            "both-branch-added.txt",
+            "both-staged.txt",
+            "both-unstaged.txt",
+            "uncomm-staged.txt",
+            "uncomm-unstaged.txt"
+          ]
+        },
+        {
+          "mode": "local-main",
+          "cached": false,
+          "files": [
+            "both-added.txt",
+            "both-branch-added.txt",
+            "both-staged.txt",
+            "both-unstaged.txt",
+            "committed-added.txt",
+            "committed-only.txt"
+          ]
+        },
+        {
+          "mode": "uncommitted",
+          "cached": true,
+          "files": [
+            "both-added.txt",
+            "both-branch-added.txt",
+            "both-staged.txt",
+            "both-unstaged.txt",
+            "uncomm-staged.txt",
+            "uncomm-unstaged.txt"
+          ]
+        },
+        {
+          "mode": "local-main",
+          "cached": true,
+          "files": [
+            "both-added.txt",
+            "both-branch-added.txt",
+            "both-staged.txt",
+            "both-unstaged.txt",
+            "committed-added.txt",
+            "committed-only.txt"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "feature-worktree",
+      "branch": "feature-worktree",
+      "expected": {
+        "both": [
+          "both-added.txt",
+          "both-branch-added.txt",
+          "both-staged.txt",
+          "both-unstaged.txt"
+        ],
+        "uncommitted_only": [
+          "uncomm-staged.txt",
+          "uncomm-unstaged.txt"
+        ],
+        "local_main_only": [
+          "committed-only.txt",
+          "committed-added.txt"
+        ],
+        "uncommitted": [
+          "both-added.txt",
+          "both-branch-added.txt",
+          "both-staged.txt",
+          "both-unstaged.txt",
+          "uncomm-staged.txt",
+          "uncomm-unstaged.txt"
+        ],
+        "local-main": [
+          "both-added.txt",
+          "both-branch-added.txt",
+          "both-staged.txt",
+          "both-unstaged.txt",
+          "committed-added.txt",
+          "committed-only.txt"
+        ]
+      },
+      "http": [
+        {
+          "mode": "uncommitted",
+          "cached": false,
+          "files": [
+            "both-added.txt",
+            "both-branch-added.txt",
+            "both-staged.txt",
+            "both-unstaged.txt",
+            "uncomm-staged.txt",
+            "uncomm-unstaged.txt"
+          ]
+        },
+        {
+          "mode": "local-main",
+          "cached": false,
+          "files": [
+            "both-added.txt",
+            "both-branch-added.txt",
+            "both-staged.txt",
+            "both-unstaged.txt",
+            "committed-added.txt",
+            "committed-only.txt"
+          ]
+        },
+        {
+          "mode": "uncommitted",
+          "cached": true,
+          "files": [
+            "both-added.txt",
+            "both-branch-added.txt",
+            "both-staged.txt",
+            "both-unstaged.txt",
+            "uncomm-staged.txt",
+            "uncomm-unstaged.txt"
+          ]
+        },
+        {
+          "mode": "local-main",
+          "cached": true,
+          "files": [
+            "both-added.txt",
+            "both-branch-added.txt",
+            "both-staged.txt",
+            "both-unstaged.txt",
+            "committed-added.txt",
+            "committed-only.txt"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "main-checkout",
+      "branch": "main",
+      "expected": {
+        "both": [
+          "both-added.txt",
+          "both-staged.txt",
+          "both-unstaged.txt"
+        ],
+        "uncommitted_only": [],
+        "local_main_only": [],
+        "uncommitted": [
+          "both-added.txt",
+          "both-staged.txt",
+          "both-unstaged.txt"
+        ],
+        "local-main": [
+          "both-added.txt",
+          "both-staged.txt",
+          "both-unstaged.txt"
+        ]
+      },
+      "http": [
+        {
+          "mode": "uncommitted",
+          "cached": false,
+          "files": [
+            "both-added.txt",
+            "both-staged.txt",
+            "both-unstaged.txt"
+          ]
+        },
+        {
+          "mode": "local-main",
+          "cached": false,
+          "files": [
+            "both-added.txt",
+            "both-staged.txt",
+            "both-unstaged.txt"
+          ]
+        },
+        {
+          "mode": "uncommitted",
+          "cached": true,
+          "files": [
+            "both-added.txt",
+            "both-staged.txt",
+            "both-unstaged.txt"
+          ]
+        },
+        {
+          "mode": "local-main",
+          "cached": true,
+          "files": [
+            "both-added.txt",
+            "both-staged.txt",
+            "both-unstaged.txt"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "main-worktree",
+      "branch": "main",
+      "expected": {
+        "both": [
+          "both-added.txt",
+          "both-staged.txt",
+          "both-unstaged.txt"
+        ],
+        "uncommitted_only": [],
+        "local_main_only": [],
+        "uncommitted": [
+          "both-added.txt",
+          "both-staged.txt",
+          "both-unstaged.txt"
+        ],
+        "local-main": [
+          "both-added.txt",
+          "both-staged.txt",
+          "both-unstaged.txt"
+        ]
+      },
+      "http": [
+        {
+          "mode": "uncommitted",
+          "cached": false,
+          "files": [
+            "both-added.txt",
+            "both-staged.txt",
+            "both-unstaged.txt"
+          ]
+        },
+        {
+          "mode": "local-main",
+          "cached": false,
+          "files": [
+            "both-added.txt",
+            "both-staged.txt",
+            "both-unstaged.txt"
+          ]
+        },
+        {
+          "mode": "uncommitted",
+          "cached": true,
+          "files": [
+            "both-added.txt",
+            "both-staged.txt",
+            "both-unstaged.txt"
+          ]
+        },
+        {
+          "mode": "local-main",
+          "cached": true,
+          "files": [
+            "both-added.txt",
+            "both-staged.txt",
+            "both-unstaged.txt"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "other-checkout",
+      "branch": "other-branch",
+      "expected": {
+        "both": [
+          "both-added.txt",
+          "both-branch-added.txt",
+          "both-staged.txt",
+          "both-unstaged.txt"
+        ],
+        "uncommitted_only": [
+          "uncomm-staged.txt",
+          "uncomm-unstaged.txt"
+        ],
+        "local_main_only": [
+          "committed-only.txt",
+          "committed-added.txt"
+        ],
+        "uncommitted": [
+          "both-added.txt",
+          "both-branch-added.txt",
+          "both-staged.txt",
+          "both-unstaged.txt",
+          "uncomm-staged.txt",
+          "uncomm-unstaged.txt"
+        ],
+        "local-main": [
+          "both-added.txt",
+          "both-branch-added.txt",
+          "both-staged.txt",
+          "both-unstaged.txt",
+          "committed-added.txt",
+          "committed-only.txt"
+        ]
+      },
+      "http": [
+        {
+          "mode": "uncommitted",
+          "cached": false,
+          "files": [
+            "both-added.txt",
+            "both-branch-added.txt",
+            "both-staged.txt",
+            "both-unstaged.txt",
+            "uncomm-staged.txt",
+            "uncomm-unstaged.txt"
+          ]
+        },
+        {
+          "mode": "local-main",
+          "cached": false,
+          "files": [
+            "both-added.txt",
+            "both-branch-added.txt",
+            "both-staged.txt",
+            "both-unstaged.txt",
+            "committed-added.txt",
+            "committed-only.txt"
+          ]
+        },
+        {
+          "mode": "uncommitted",
+          "cached": true,
+          "files": [
+            "both-added.txt",
+            "both-branch-added.txt",
+            "both-staged.txt",
+            "both-unstaged.txt",
+            "uncomm-staged.txt",
+            "uncomm-unstaged.txt"
+          ]
+        },
+        {
+          "mode": "local-main",
+          "cached": true,
+          "files": [
+            "both-added.txt",
+            "both-branch-added.txt",
+            "both-staged.txt",
+            "both-unstaged.txt",
+            "committed-added.txt",
+            "committed-only.txt"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "other-worktree",
+      "branch": "other-worktree",
+      "expected": {
+        "both": [
+          "both-added.txt",
+          "both-branch-added.txt",
+          "both-staged.txt",
+          "both-unstaged.txt"
+        ],
+        "uncommitted_only": [
+          "uncomm-staged.txt",
+          "uncomm-unstaged.txt"
+        ],
+        "local_main_only": [
+          "committed-only.txt",
+          "committed-added.txt"
+        ],
+        "uncommitted": [
+          "both-added.txt",
+          "both-branch-added.txt",
+          "both-staged.txt",
+          "both-unstaged.txt",
+          "uncomm-staged.txt",
+          "uncomm-unstaged.txt"
+        ],
+        "local-main": [
+          "both-added.txt",
+          "both-branch-added.txt",
+          "both-staged.txt",
+          "both-unstaged.txt",
+          "committed-added.txt",
+          "committed-only.txt"
+        ]
+      },
+      "http": [
+        {
+          "mode": "uncommitted",
+          "cached": false,
+          "files": [
+            "both-added.txt",
+            "both-branch-added.txt",
+            "both-staged.txt",
+            "both-unstaged.txt",
+            "uncomm-staged.txt",
+            "uncomm-unstaged.txt"
+          ]
+        },
+        {
+          "mode": "local-main",
+          "cached": false,
+          "files": [
+            "both-added.txt",
+            "both-branch-added.txt",
+            "both-staged.txt",
+            "both-unstaged.txt",
+            "committed-added.txt",
+            "committed-only.txt"
+          ]
+        },
+        {
+          "mode": "uncommitted",
+          "cached": true,
+          "files": [
+            "both-added.txt",
+            "both-branch-added.txt",
+            "both-staged.txt",
+            "both-unstaged.txt",
+            "uncomm-staged.txt",
+            "uncomm-unstaged.txt"
+          ]
+        },
+        {
+          "mode": "local-main",
+          "cached": true,
+          "files": [
+            "both-added.txt",
+            "both-branch-added.txt",
+            "both-staged.txt",
+            "both-unstaged.txt",
+            "committed-added.txt",
+            "committed-only.txt"
+          ]
+        }
+      ]
+    }
+  ],
+  "browser": {
+    "rows": [
+      {
+        "scope": "detached-worktree",
+        "branch": "HEAD",
+        "mode": "uncommitted",
+        "files": [
+          "both-added.txt",
+          "both-branch-added.txt",
+          "both-staged.txt",
+          "both-unstaged.txt",
+          "uncomm-staged.txt",
+          "uncomm-unstaged.txt"
+        ],
+        "screenshot": "detached-worktree-uncommitted.png"
+      },
+      {
+        "scope": "detached-worktree",
+        "branch": "HEAD",
+        "mode": "local-main",
+        "files": [
+          "both-added.txt",
+          "both-branch-added.txt",
+          "both-staged.txt",
+          "both-unstaged.txt",
+          "committed-added.txt",
+          "committed-only.txt"
+        ],
+        "screenshot": "detached-worktree-local-main.png"
+      },
+      {
+        "scope": "feature-checkout",
+        "branch": "feature",
+        "mode": "uncommitted",
+        "files": [
+          "both-added.txt",
+          "both-branch-added.txt",
+          "both-staged.txt",
+          "both-unstaged.txt",
+          "uncomm-staged.txt",
+          "uncomm-unstaged.txt"
+        ],
+        "screenshot": "feature-checkout-uncommitted.png"
+      },
+      {
+        "scope": "feature-checkout",
+        "branch": "feature",
+        "mode": "local-main",
+        "files": [
+          "both-added.txt",
+          "both-branch-added.txt",
+          "both-staged.txt",
+          "both-unstaged.txt",
+          "committed-added.txt",
+          "committed-only.txt"
+        ],
+        "screenshot": "feature-checkout-local-main.png"
+      },
+      {
+        "scope": "feature-worktree",
+        "branch": "feature-worktree",
+        "mode": "uncommitted",
+        "files": [
+          "both-added.txt",
+          "both-branch-added.txt",
+          "both-staged.txt",
+          "both-unstaged.txt",
+          "uncomm-staged.txt",
+          "uncomm-unstaged.txt"
+        ],
+        "screenshot": "feature-worktree-uncommitted.png"
+      },
+      {
+        "scope": "feature-worktree",
+        "branch": "feature-worktree",
+        "mode": "local-main",
+        "files": [
+          "both-added.txt",
+          "both-branch-added.txt",
+          "both-staged.txt",
+          "both-unstaged.txt",
+          "committed-added.txt",
+          "committed-only.txt"
+        ],
+        "screenshot": "feature-worktree-local-main.png"
+      },
+      {
+        "scope": "main-checkout",
+        "branch": "main",
+        "mode": "uncommitted",
+        "files": [
+          "both-added.txt",
+          "both-staged.txt",
+          "both-unstaged.txt"
+        ],
+        "screenshot": "main-checkout-uncommitted.png"
+      },
+      {
+        "scope": "main-checkout",
+        "branch": "main",
+        "mode": "local-main",
+        "files": [
+          "both-added.txt",
+          "both-staged.txt",
+          "both-unstaged.txt"
+        ],
+        "screenshot": "main-checkout-local-main.png"
+      },
+      {
+        "scope": "main-worktree",
+        "branch": "main",
+        "mode": "uncommitted",
+        "files": [
+          "both-added.txt",
+          "both-staged.txt",
+          "both-unstaged.txt"
+        ],
+        "screenshot": "main-worktree-uncommitted.png"
+      },
+      {
+        "scope": "main-worktree",
+        "branch": "main",
+        "mode": "local-main",
+        "files": [
+          "both-added.txt",
+          "both-staged.txt",
+          "both-unstaged.txt"
+        ],
+        "screenshot": "main-worktree-local-main.png"
+      },
+      {
+        "scope": "other-checkout",
+        "branch": "other-branch",
+        "mode": "uncommitted",
+        "files": [
+          "both-added.txt",
+          "both-branch-added.txt",
+          "both-staged.txt",
+          "both-unstaged.txt",
+          "uncomm-staged.txt",
+          "uncomm-unstaged.txt"
+        ],
+        "screenshot": "other-checkout-uncommitted.png"
+      },
+      {
+        "scope": "other-checkout",
+        "branch": "other-branch",
+        "mode": "local-main",
+        "files": [
+          "both-added.txt",
+          "both-branch-added.txt",
+          "both-staged.txt",
+          "both-unstaged.txt",
+          "committed-added.txt",
+          "committed-only.txt"
+        ],
+        "screenshot": "other-checkout-local-main.png"
+      },
+      {
+        "scope": "other-worktree",
+        "branch": "other-worktree",
+        "mode": "uncommitted",
+        "files": [
+          "both-added.txt",
+          "both-branch-added.txt",
+          "both-staged.txt",
+          "both-unstaged.txt",
+          "uncomm-staged.txt",
+          "uncomm-unstaged.txt"
+        ],
+        "screenshot": "other-worktree-uncommitted.png"
+      },
+      {
+        "scope": "other-worktree",
+        "branch": "other-worktree",
+        "mode": "local-main",
+        "files": [
+          "both-added.txt",
+          "both-branch-added.txt",
+          "both-staged.txt",
+          "both-unstaged.txt",
+          "committed-added.txt",
+          "committed-only.txt"
+        ],
+        "screenshot": "other-worktree-local-main.png"
+      }
+    ],
+    "errors": [],
+    "scopeInput": "CDP mouse and text search",
+    "filterInput": "CDP mouse",
+    "picker": {
+      "visibleBeforePin": [
+        "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-7c8sxgmh/vault/.worktrees/main-project/other-worktree"
+      ],
+      "automaticColors": [
+        "#d2a8ff",
+        "#ff7b72",
+        "#39c5cf",
+        "#58a6ff",
+        "#3fb950",
+        "#ffa657",
+        "#f778ba"
+      ],
+      "mostUsed": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-7c8sxgmh/vault/.worktrees/main-project/other-worktree",
+      "visibleAfterSwitch": [
+        "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-7c8sxgmh/vault/.worktrees/main-project/detached-worktree",
+        "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-7c8sxgmh/vault/.worktrees/main-project/other-worktree"
+      ],
+      "colors": [
+        {
+          "path": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-7c8sxgmh/vault/main-project",
+          "color": "#d2a8ff"
+        },
+        {
+          "path": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-7c8sxgmh/vault/feature-project",
+          "color": "#ff7b72"
+        },
+        {
+          "path": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-7c8sxgmh/vault/other-project",
+          "color": "#39c5cf"
+        },
+        {
+          "path": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-7c8sxgmh/vault/.worktrees/main-project/detached-worktree",
+          "color": "#d4d73b"
+        },
+        {
+          "path": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-7c8sxgmh/vault/.worktrees/main-project/feature-worktree",
+          "color": "#3fb950"
+        },
+        {
+          "path": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-7c8sxgmh/vault/.worktrees/feature-project/main-worktree",
+          "color": "#ffa657"
+        },
+        {
+          "path": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-7c8sxgmh/vault/.worktrees/main-project/other-worktree",
+          "color": "#f778ba"
+        }
+      ],
+      "reload": {
+        "pins": [
+          "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-7c8sxgmh/vault/.worktrees/main-project/other-worktree"
+        ],
+        "color": "#d4d73b"
+      }
+    },
+    "links": {
+      "selectInput": "DOM select change event",
+      "textInput": "native CDP text",
+      "customType": "Design",
+      "saved": [
+        {
+          "type": "google-docs",
+          "label": "Google proposal"
+        },
+        {
+          "type": "jira",
+          "label": "LAB-1"
+        },
+        {
+          "type": "internal-docs",
+          "label": "Whole proposal",
+          "document_id": "note_6047f6cf682e4fdfbae78bd09d5cc151",
+          "tab_id": null
+        },
+        {
+          "type": "internal-docs",
+          "label": "Implementation tab",
+          "document_id": "note_6047f6cf682e4fdfbae78bd09d5cc151",
+          "tab_id": "note_e56dd1cee22f4c23918c1f8205a1accb"
+        }
+      ],
+      "tabOpened": "Feature proposal\u203aImplementation notes",
+      "wholeDocumentOpened": "Feature proposal"
+    },
+    "terminal": {
+      "name": "lab-sidebar-comparison-7c8sxgmh-comparisons-bash",
+      "createdScope": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-7c8sxgmh/vault/.worktrees/main-project/detached-worktree",
+      "attachedScope": {
+        "base_root": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-7c8sxgmh/vault/workspaces/comparisons",
+        "project_root": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-7c8sxgmh/vault/main-project",
+        "root": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-7c8sxgmh/vault/.worktrees/main-project/other-worktree",
+        "worktree": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-7c8sxgmh/vault/.worktrees/main-project/other-worktree",
+        "label": "main-project \u00b7 other-worktree",
+        "color": "#f778ba",
+        "config_scope": "%2Fprivate%2Fvar%2Ffolders%2Fh4%2F8j7rgrw91fs8bmnnr3z_qkk80000gn%2FT%2Flab-sidebar-comparison-7c8sxgmh%2Fvault%2Fworkspaces%2Fcomparisons"
+      },
+      "pinned": true
+    }
+  },
+  "externalBrowser": {
+    "calls": 2,
+    "launcher": "/usr/bin/open",
+    "mode": "OS launcher intercepted in this disposable process; no external app opened"
+  }
+}

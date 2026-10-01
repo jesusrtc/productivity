@@ -1,0 +1,3 @@
+# Folder and worktree links support whole documents and tabs
+
+The user wants metadata links on each exact folder/worktree, visible whenever it is active and shared across Lab workspaces. Allowed link types are configurable in Settings, defaulting to Google Docs, Internal docs, and Jira tickets, with custom types allowed. Internal links may target a whole Assistant document or one nested document tab; retain library/document/tab IDs and open the chosen target directly inside Lab. A whole-document link must override remembered tab navigation. External links use the shared system-browser opener for local clients. Metadata saves must preserve other checkouts and reject stale revisions.

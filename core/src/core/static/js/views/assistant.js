@@ -1421,7 +1421,7 @@
         rootKind = parent ? 'task' : 'subtask';
       }
       if (!isCurrent()) return;
-      let showIndex = !focusHeading && detail.path === root.path && Boolean(root.document_tasks);
+      let showIndex = !options.wholeDocument && !focusHeading && detail.path === root.path && Boolean(root.document_tasks);
       let terminalTask = null;
       if (options.linkedTask?.task_id) {
         terminalTask = root.document_tasks?.tasks?.find(task => task.id === options.linkedTask.task_id);
@@ -1438,7 +1438,7 @@
         showIndex = !tab;
       }
       // Explicit subtab links and heading targets always win over remembered navigation.
-      if (!terminalTask && !focusHeading && !path.includes('#tab=') && detail.path === root.path && root.tree) {
+      if (!terminalTask && !focusHeading && !options.wholeDocument && !path.includes('#tab=') && detail.path === root.path && root.tree) {
         const remembered = rememberedDocumentTab(root);
         if (remembered === 'index' && (root.tree.children?.length || root.document_tasks)) showIndex = true;
         else if (remembered) {
@@ -1498,8 +1498,9 @@
       state.data = data;
       window.LabWorkspaceDocuments?.updateDocuments(data);
       // Render over the current workspace without navigating its page or terminal.
-      return openDocumentModal(documentKind(row),row.path,'',{
+      return openDocumentModal(documentKind(row),row.path + (link.tab_id ? '#tab=' + encodeURIComponent(link.tab_id) : ''),'',{
         linkedTask:link, inline:Boolean(options.inline), isCurrent:options.isCurrent,
+        wholeDocument:Boolean(options.wholeDocument),
       });
     } finally {
       if (request === state.modalRequest) state.inlinePending = false;

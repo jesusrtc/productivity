@@ -2419,6 +2419,12 @@
   ]);
   const SIDEBAR_SORT_MODES = Object.freeze(['updated', 'name', 'type']);
   const SIDEBAR_WORKTREE_DEFAULT_COLOR = '#6e7681';
+  const SIDEBAR_SCOPE_COLORS = Object.freeze([
+    '#58a6ff', '#ff7b72', '#3fb950', '#d2a8ff', '#ffa657',
+    '#39c5cf', '#f778ba', '#d4d73b', '#a5d6ff', '#ffb5a7',
+    '#80ed99', '#9d79ed', '#e3b341', '#1f9eab', '#db61a2',
+    '#c4a484', '#b4e1ff', '#f2cc60', '#66c2a5', '#d9a7ff',
+  ]);
   const SIDEBAR_FILE_CONFIG_DEFAULTS = Object.freeze({
     showHidden: false,
     showRecent: true,
@@ -2436,6 +2442,9 @@
     worktreeColorsVersion: 2,
     worktreeColors: {},
     selectedWorktrees: {},
+    pinnedScopes: [],
+    scopeUsage: {},
+    terminalScopePins: {},
   });
   let _sidebarAvailableExtensions = new Set();
   let _sidebarRecentDiagnosticsPending = null;
@@ -2517,6 +2526,8 @@
         label: String(row.label || fallback).trim() || fallback,
         color: _sidebarValidColor(row.color),
         worktreeFolder: String(row.worktreeFolder || '').trim(),
+        ...(row.kind ? {kind: ['worktree', 'parent'].includes(row.kind) ? row.kind : 'folder',
+          projectPath: String(row.projectPath || ''), branch: String(row.branch || '')} : {}),
       }];
     });
   }
@@ -2531,6 +2542,9 @@
       selectedFolders: {},
       worktreeColors: {},
       selectedWorktrees: {},
+      pinnedScopes: [],
+      scopeUsage: {},
+      terminalScopePins: {},
     };
   }
 
@@ -2593,6 +2607,12 @@
       worktreeColors: Object.fromEntries(Object.entries(_sidebarStringMap(stored && stored.worktreeColors, {colors: true}))
         .filter(([, color]) => stored?.worktreeColorsVersion === 2 || color !== SIDEBAR_WORKTREE_DEFAULT_COLOR)),
       selectedWorktrees: _sidebarStringMap(stored && stored.selectedWorktrees),
+      pinnedScopes: Array.isArray(stored?.pinnedScopes)
+        ? [...new Set(stored.pinnedScopes.filter(path => typeof path === 'string' && path.startsWith('/')))] : [],
+      scopeUsage: Object.fromEntries(Object.entries(stored?.scopeUsage || {})
+        .filter(([path, row]) => path.startsWith('/') && row && Number.isFinite(row.count) && Number.isFinite(row.lastUsed))
+        .map(([path, row]) => [path, {count: Math.max(0, row.count), lastUsed: Math.max(0, row.lastUsed)}])),
+      terminalScopePins: _sidebarStringMap(stored && stored.terminalScopePins),
     };
   }
 
@@ -2725,6 +2745,7 @@
 
   function _sidebarActiveWorktreeFolder(baseRoot) {
     const selected = _sidebarSelectedFolder(baseRoot);
+    if (selected?.kind === 'worktree' || selected?.kind === 'parent') return '';
     if (selected) return String(selected.worktreeFolder || _sidebarDefaultWorktreeFolder(selected.path)).trim();
     return String(
       (_sidebarFileConfig.rootWorktreeFolders || {})[baseRoot]
@@ -2879,34 +2900,170 @@
 
   function _sidebarWorktreePickerHtml(baseRoot) {
     const workspaceRoot = _sidebarWorkspaceRoot(baseRoot);
-    const worktreeFolder = _sidebarActiveWorktreeFolder(baseRoot);
     const selected = _sidebarSelectedWorktree(baseRoot);
-    const selectedPath = selected ? selected.path : '';
-    const selectedLabel = selected ? selected.name : 'main';
-    const color = selected ? _sidebarWorktreeColor(selected.path, baseRoot) : _sidebarWorkspaceColor(baseRoot);
-    const customColor = !!_sidebarFileConfig.worktreeColors?.[selectedPath];
-    const rootControl = worktreeFolder
-      ? `<label title="Choose the root shown by Recently updated and Files"><select aria-label="File worktree" data-base-root="${escAttr(baseRoot)}" onchange="sidebarSelectWorktree(this)">${_sidebarWorktreeOptionsHtml(baseRoot)}</select></label>`
-      : `<span class="sidebar-worktree-current" title="Main checkout">main</span>`;
-    return `<div class="sidebar-worktree-picker" data-base-root="${escAttr(baseRoot)}" data-workspace-root="${escAttr(workspaceRoot)}"><button class="sidebar-repo-history" type="button" data-base-root="${escAttr(baseRoot)}" onclick="sidebarOpenRepositoryHistory(this)" title="Open Git history for ${escAttr(selectedLabel)}" aria-label="Open Git history for ${escAttr(selectedLabel)}">${_SIDEBAR_GITHUB_ICON}</button>${rootControl}<button type="button" class="sidebar-link-terminal" data-base-root="${escAttr(baseRoot)}" onclick="termLinkCurrentScope(this)" title="Associate the active terminal with this folder/worktree; its running directory stays unchanged">Link current terminal</button><input type="color" aria-label="Worktree color" title="${customColor ? 'Custom color' : 'Inherits project color'} — ${escAttr(selected ? selected.name : 'main')}" data-worktree-path="${escAttr(selectedPath)}" value="${escAttr(color)}" onchange="sidebarSetWorktreeColor(this)"${selected ? '' : ' disabled'} />${customColor ? `<button type="button" class="sidebar-worktree-color-reset" data-inherit-color data-worktree-path="${escAttr(selectedPath)}" onclick="sidebarSetWorktreeColor(this)" title="Use project color" aria-label="Use project color">↺</button>` : ''}</div>`;
+    const folder = _sidebarSelectedFolder(baseRoot);
+    const selectedLabel = selected ? selected.name : folder?.branch || '';
+    return `<div class="sidebar-worktree-picker" data-base-root="${escAttr(baseRoot)}" data-workspace-root="${escAttr(workspaceRoot)}"><button class="sidebar-repo-history" type="button" data-base-root="${escAttr(baseRoot)}" onclick="sidebarOpenRepositoryHistory(this)" title="Open Git history" aria-label="Open Git history">${_SIDEBAR_GITHUB_ICON}</button><span class="sidebar-worktree-current">${esc(selectedLabel)}</span><button type="button" class="sidebar-link-terminal" data-base-root="${escAttr(baseRoot)}" onclick="termLinkCurrentScope(this)" title="Associate the active terminal with this folder/worktree and pin it">Attach terminal</button></div><section class="sidebar-scope-links" data-scope-links="${escAttr(_sidebarScopedRoot(baseRoot))}" aria-label="Folder links"></section>`;
   }
 
   function _sidebarFileScopeButtonsHtml(baseRoot) {
-    const selectedPath = _sidebarSelectedFolder(baseRoot)?.path || '';
-    const rootColor = _sidebarValidColor((_sidebarFileConfig.rootScopeColors || {})[baseRoot]);
-    const scopes = [
-      {path: '', label: 'Root', color: rootColor, title: baseRoot},
-      ...(_sidebarFileConfig.folderScopes || []).map(row => ({
-        path: row.path,
-        label: row.label,
-        color: _sidebarValidColor(row.color),
-        title: row.path,
-      })),
-    ];
-    return `<div class="sidebar-file-scope-buttons" role="group" aria-label="Workspace folders">${scopes.map(scope => {
-      const active = scope.path === selectedPath;
-      return `<button type="button" class="sidebar-file-scope-button${active ? ' active' : ''}" data-base-root="${escAttr(baseRoot)}" data-folder-path="${escAttr(scope.path)}" onclick="sidebarSelectFolder(this)" aria-pressed="${active ? 'true' : 'false'}" title="${escAttr(scope.title)}" style="--sidebar-workspace-color:${escAttr(scope.color)}"><span class="sidebar-file-scope-dot"></span><span>${esc(scope.label)}</span></button>`;
-    }).join('')}</div>`;
+    const activePath = _sidebarScopedRoot(baseRoot);
+    const scopes = _sidebarVisibleScopes(baseRoot);
+    return `<div class="sidebar-file-scope-buttons" role="group" aria-label="Active and pinned folders">${scopes.map(scope => {
+      const active = scope.path === activePath;
+      const pinned = (_sidebarFileConfig.pinnedScopes || []).includes(scope.path);
+      const color = _sidebarValidColor(scope.color);
+      return `<div class="sidebar-scope-chip${active ? ' active' : ''}" style="--sidebar-workspace-color:${escAttr(color)}"><button type="button" class="sidebar-scope-color" data-scope-path="${escAttr(scope.path)}" onclick="sidebarScopeColors(this)" aria-label="Change color for ${escAttr(scope.label)}" title="Change color"></button><button type="button" class="sidebar-file-scope-button${active ? ' active' : ''}" data-base-root="${escAttr(baseRoot)}" data-folder-path="${escAttr(scope.path === baseRoot ? '' : scope.path)}" onclick="sidebarSelectScope(this)" aria-pressed="${active ? 'true' : 'false'}" title="${escAttr(scope.path)}" style="--sidebar-workspace-color:${escAttr(color)}"><span>${esc(scope.label)}</span></button><button type="button" class="sidebar-scope-pin${pinned ? ' pinned' : ''}" data-scope-path="${escAttr(scope.path)}" onclick="sidebarPinScope(this)" aria-label="${pinned ? 'Unpin' : 'Pin'} ${escAttr(scope.label)}" aria-pressed="${pinned}" title="${pinned ? 'Unpin' : 'Pin'}">${_sidebarScopePinIcon()}</button></div>`;
+    }).join('')}<button type="button" class="sidebar-scope-add" data-base-root="${escAttr(baseRoot)}" onclick="sidebarAddScope(this)" aria-label="Add project, worktree or folder" title="Add project, worktree or folder">+</button></div>`;
+  }
+
+  function _sidebarScopePinIcon() {
+    return '<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M5 2h6l-1 5 2 3H4l2-3-1-5Zm3 8v4"/></svg>';
+  }
+
+  function _sidebarVisibleScopes(baseRoot) {
+    const activePath = _sidebarScopedRoot(baseRoot);
+    const selected = _sidebarSelectedWorktree(baseRoot);
+    const rows = [{path: baseRoot, label: 'Root', color: _sidebarFileConfig.rootScopeColors?.[baseRoot]},
+      ...(_sidebarFileConfig.folderScopes || [])];
+    if (selected && !rows.some(row => row.path === selected.path)) rows.push({
+      path: selected.path, kind: 'worktree', projectPath: _sidebarWorkspaceRoot(baseRoot),
+      label: _sidebarWorkspaceLabel(baseRoot) + '/' + selected.name,
+      color: _sidebarWorktreeColor(selected.path, baseRoot), branch: selected.name,
+    });
+    const pinned = _sidebarFileConfig.pinnedScopes || [];
+    return rows.filter(row => row.path === activePath || pinned.includes(row.path));
+  }
+
+  function _sidebarNextScopeColor(config = _sidebarFileConfig) {
+    const used = [...(config.folderScopes || []).map(row => row.color),
+      ...Object.values(config.rootScopeColors || {}), ...Object.values(config.worktreeColors || {})];
+    const counts = SIDEBAR_SCOPE_COLORS.map(color => used.filter(value => value === color).length);
+    return SIDEBAR_SCOPE_COLORS[counts.indexOf(Math.min(...counts))];
+  }
+
+  function _sidebarRememberScope(row, config = _sidebarFileConfig) {
+    const existing = (config.folderScopes || []).find(scope => scope.path === row.path);
+    if (existing) {
+      if (row.kind) Object.assign(existing, {kind: row.kind, projectPath: row.projectPath || '', branch: row.branch || ''});
+      if (row.kind === 'worktree' && row.label) existing.label = row.label;
+      if (!existing.color || existing.color === SIDEBAR_WORKTREE_DEFAULT_COLOR) existing.color = _sidebarNextScopeColor(config);
+      return existing;
+    }
+    const scope = {...row, label: row.label || row.name || row.path.split('/').pop(),
+      color: row.color && row.color !== SIDEBAR_WORKTREE_DEFAULT_COLOR ? _sidebarValidColor(row.color) : _sidebarNextScopeColor(config),
+      worktreeFolder: row.worktreeFolder || ''};
+    config.folderScopes = [...(config.folderScopes || []), scope];
+    return scope;
+  }
+
+  function _sidebarRecordScopeUse(path) {
+    const previous = _sidebarFileConfig.scopeUsage?.[path];
+    _sidebarFileConfig.scopeUsage = {..._sidebarFileConfig.scopeUsage,
+      [path]: {count: (previous?.count || 0) + 1, lastUsed: Date.now()}};
+  }
+
+  function _sidebarRenderScopeButtons() {
+    const baseRoot = _sidebarWorktreeBaseRoot();
+    const host = document.querySelector?.('#sidebar .sidebar-file-scope-buttons');
+    if (host && baseRoot) host.outerHTML = _sidebarFileScopeButtonsHtml(baseRoot);
+  }
+
+  function sidebarPinScope(button) {
+    const path = button.getAttribute('data-scope-path');
+    if (!path) return;
+    const pins = new Set(_sidebarFileConfig.pinnedScopes || []);
+    if (pins.has(path)) pins.delete(path);
+    else {
+      const row = _sidebarVisibleScopes(_sidebarWorktreeBaseRoot()).find(row => row.path === path);
+      if (row && path !== _sidebarWorktreeBaseRoot()) _sidebarRememberScope(row);
+      pins.add(path);
+    }
+    _sidebarFileConfig.pinnedScopes = [...pins];
+    _storeSidebarFileConfig();
+    _sidebarRenderScopeButtons();
+  }
+  window.sidebarPinScope = sidebarPinScope;
+
+  function sidebarScopeColors(button) {
+    const path = button.getAttribute('data-scope-path');
+    const configScope = _sidebarFileConfigScope;
+    window.LabSidebarScopes?.colors(button, SIDEBAR_SCOPE_COLORS, color => {
+      if (configScope !== _sidebarFileConfigScope) return;
+      const row = _sidebarFolderScope(path);
+      if (row) row.color = color;
+      else if (path === _sidebarWorktreeBaseRoot()) _sidebarFileConfig.rootScopeColors[path] = color;
+      else _sidebarFileConfig.worktreeColors[path] = color;
+      _storeSidebarFileConfig();
+      _sidebarRenderScopeButtons();
+      document.querySelectorAll('#sidebar [data-file-scope-root]').forEach(node => {
+        if (node.dataset.fileScopeRoot === path) node.style.setProperty('--sidebar-worktree-color', color);
+      });
+      termRenderSessionList();
+    });
+  }
+  window.sidebarScopeColors = sidebarScopeColors;
+
+  function sidebarAddScope(button) {
+    const configScope = _sidebarFileConfigScope, baseRoot = _sidebarWorktreeBaseRoot();
+    window.LabSidebarScopes?.open(button, {
+      current: () => configScope === _sidebarFileConfigScope && baseRoot === _sidebarWorktreeBaseRoot(),
+      folders: () => _sidebarFileConfig.folderScopes || [],
+      usage: () => _sidebarFileConfig.scopeUsage || {},
+      root: baseRoot,
+      select: async row => {
+        if (configScope !== _sidebarFileConfigScope || baseRoot !== _sidebarWorktreeBaseRoot()) return;
+        if (row.path !== baseRoot) _sidebarRememberScope(row);
+        _storeSidebarFileConfig();
+        await sidebarSelectScope({getAttribute: name => name === 'data-base-root' ? baseRoot : row.path === baseRoot ? '' : row.path});
+      },
+    });
+  }
+  window.sidebarAddScope = sidebarAddScope;
+
+  async function sidebarSelectScope(button) {
+    const baseRoot = button.getAttribute('data-base-root');
+    const path = button.getAttribute('data-folder-path') || baseRoot;
+    const previous = _sidebarScopedRoot(baseRoot);
+    const row = _sidebarVisibleScopes(baseRoot).find(row => row.path === path);
+    if (row?.kind === 'worktree') _sidebarRememberScope(row);
+    const folder = _sidebarFolderScope(path);
+    if (folder) _sidebarRememberScope(folder);
+    else if (path === baseRoot && !_sidebarFileConfig.rootScopeColors?.[baseRoot])
+      _sidebarFileConfig.rootScopeColors = {..._sidebarFileConfig.rootScopeColors, [baseRoot]: _sidebarNextScopeColor()};
+    _sidebarRecordScopeUse(path);
+    // A shortcut denotes the exact checkout, independent of an old dropdown selection.
+    if (previous === path) {
+      _storeSidebarFileConfig();
+      _sidebarRenderScopeButtons();
+      return;
+    }
+    if (_sidebarWorkspaceRoot(baseRoot) === path) {
+      await sidebarSelectWorktree({value: '', getAttribute: () => baseRoot});
+      return;
+    }
+    if (folder) delete _sidebarFileConfig.selectedWorktrees?.[path];
+    _storeSidebarFileConfig();
+    await sidebarSelectFolder(button);
+  }
+  window.sidebarSelectScope = sidebarSelectScope;
+
+  function _sidebarPinTerminalScope(scope, identity = '', force = false) {
+    if (!scope?.root || scope.config_scope !== _sidebarFileConfigScope) return;
+    const seen = _sidebarFileConfig.terminalScopePins || {};
+    if (!force && seen[identity] === scope.root) return;
+    const baseRoot = scope.base_root;
+    const existing = _sidebarFolderScope(scope.root);
+    if (scope.root !== baseRoot) _sidebarRememberScope({path: scope.root,
+      label: String(scope.label || scope.root.split('/').pop()).replace(' · ', '/'),
+      kind: existing?.kind || (scope.worktree ? 'worktree' : 'folder'), projectPath: scope.project_root,
+      branch: existing?.branch || scope.worktree?.split('/').pop() || '', color: scope.color});
+    else if (!_sidebarFileConfig.rootScopeColors?.[baseRoot])
+      _sidebarFileConfig.rootScopeColors = {..._sidebarFileConfig.rootScopeColors, [baseRoot]: _sidebarNextScopeColor()};
+    _sidebarFileConfig.pinnedScopes = [...new Set([...(_sidebarFileConfig.pinnedScopes || []), scope.root])];
+    _sidebarFileConfig.terminalScopePins = {...seen, [identity]: scope.root};
+    _storeSidebarFileConfig();
+    _sidebarRenderScopeButtons();
   }
 
   function _sidebarWorktreeScopeStartHtml(baseRoot) {
@@ -3477,6 +3634,7 @@
       const fallback = path.split('/').filter(Boolean).pop() || path;
       const worktreeFolder = _sidebarNormalizeWorktreeFolder(worktreeInput && worktreeInput.value, path);
       folderScopes.push({
+        ..._sidebarFolderScope(path),
         path,
         label: String(labelInput && labelInput.value || fallback).trim() || fallback,
         color,
@@ -3826,7 +3984,7 @@
   // expansion and scroll state. The bounded cache is shared by all surfaces.
   const _sidebarScopeViews = new Map();
   function _sidebarScopeCacheKey(baseRoot) {
-    const {selectedFolders, selectedWorktrees, ...settings} = _sidebarFileConfig;
+    const {selectedFolders, selectedWorktrees, scopeUsage, pinnedScopes, terminalScopePins, ...settings} = _sidebarFileConfig;
     const folder = _sidebarWorkspaceRoot(baseRoot);
     const worktree = _sidebarActiveWorktreeFolder(baseRoot)
       ? String((selectedWorktrees || {})[folder] || '') : '';
@@ -3840,6 +3998,15 @@
     const sidebar = document.getElementById('sidebar');
     if (sidebar) sidebar._fileScope = {baseRoot, fileRoot, key: _sidebarScopeCacheKey(baseRoot),
       view: sidebar.firstElementChild, revision: files?._snapshotRevision};
+    if (typeof _sidebarMountScopeLinks === 'function') _sidebarMountScopeLinks(baseRoot, fileRoot);
+  }
+
+  function _sidebarMountScopeLinks(baseRoot, fileRoot) {
+    if (!window.LabScopeLinks || window.LAB_IS_ADMIN === false) return;
+    const configScope = _sidebarFileConfigScope;
+    window.LabScopeLinks?.mount(document.querySelector('#sidebar [data-scope-links]'),
+      () => configScope === _sidebarFileConfigScope && baseRoot === _sidebarWorktreeBaseRoot()
+        && fileRoot === _sidebarScopedRoot(baseRoot));
   }
 
   function _sidebarCacheCurrentScope(baseRoot) {
@@ -3884,9 +4051,11 @@
       diffCache = cached.repoDiff;
     }
     sidebar.replaceChildren(...cached.nodes);
+    if (typeof _sidebarRenderScopeButtons === 'function') _sidebarRenderScopeButtons();
     sidebar._fileScope = cached;
     sidebar._filesSignature = cached.signature;
     sidebar.scrollTop = cached.scroll;
+    if (typeof _sidebarMountScopeLinks === 'function') _sidebarMountScopeLinks(baseRoot, cached.fileRoot);
     sidebar.querySelectorAll('.sidebar-file.active').forEach(row => row.classList.remove('active'));
     _sidebarSetScanState(cached.fileRoot, _sidebarScanStates.get(cached.fileRoot) || 'ready');
     return true;
@@ -13518,9 +13687,11 @@
     const config = scope ? (scope.config_scope === _sidebarFileConfigScope
       ? _sidebarFileConfig : _loadSidebarFileConfig(scope.config_scope)) : null;
     const folder = config?.folderScopes?.find(row => row.path === scope.project_root);
+    const direct = config?.folderScopes?.find(row => row.path === scope.root && row.kind === 'worktree');
     const savedAlias = String(scope?.label || '').split(' · ')[0].trim();
-    const alias = folder?.label || (savedAlias && savedAlias !== 'Root' ? savedAlias : 'main');
-    const worktree = String(scope?.worktree || '').replace(/\/+$/, '').split('/').pop();
+    const alias = direct ? (config.folderScopes.find(row => row.path === direct.projectPath)?.label
+      || direct.projectPath?.split('/').pop() || savedAlias) : folder?.label || (savedAlias && savedAlias !== 'Root' ? savedAlias : 'main');
+    const worktree = direct?.branch || String(scope?.worktree || '').replace(/\/+$/, '').split('/').pop();
     const label = worktree ? (alias === 'main' ? worktree : `${alias}/${worktree}`) : alias;
     const checkout = worktree ? 'worktree' : 'main';
     const color = scope ? _termScopeColor(scope) : '#8b949e';
@@ -13580,6 +13751,9 @@
   }
 
   function termRenderSessionList() {
+    if (typeof _sidebarPinTerminalScope === 'function') {
+      for (const session of termSessions || []) _sidebarPinTerminalScope(session.linked_scope, session.logical_name || session.name);
+    }
     if (typeof _termMarkVisibleCompletionSeen === 'function') _termMarkVisibleCompletionSeen();
     window.LabWorkspaceDocuments?.updateSessions(_termRecentScopeKey(), termSessions || []);
     if (_termDragState) {
@@ -14033,6 +14207,8 @@
     });
     const body = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(body.detail || 'Could not update terminal link.');
+    if (patch.linked_scope && typeof _sidebarPinTerminalScope === 'function')
+      _sidebarPinTerminalScope(patch.linked_scope, session.logical_name, true);
     // Displaced file owners may belong to a different open workspace.
     _termSessionsCache.clear();
     if (source) { await _termRefreshSessionsForWorkspaceId(_termActiveWorkspaceId()); return body.session; }
@@ -14139,7 +14315,8 @@
       const root = row.getAttribute('data-folder-path') || baseRoot;
       const folder = _sidebarFolderScope(root);
       return {kind: 'folder', root, path: '', row, scope: {base_root: baseRoot,
-        project_root: root, root, worktree: null, label: folder?.label || 'Root',
+        project_root: folder?.projectPath || root, root, worktree: folder?.kind === 'worktree' ? root : null,
+        label: folder?.kind === 'worktree' ? (folder.projectPath?.split('/').pop() || folder.label.split('/')[0]) + ' · ' + (folder.branch || root.split('/').pop()) : folder?.label || 'Root',
         color: _sidebarValidColor(folder?.color || _sidebarFileConfig.rootScopeColors?.[baseRoot]),
         config_scope: _sidebarFileConfigScope}};
     }
@@ -14199,12 +14376,17 @@
   function _termSelectedScope(baseRoot = _sidebarWorktreeBaseRoot()) {
     if (!baseRoot) return null;
     const worktree = _sidebarSelectedWorktree(baseRoot);
+    const folder = _sidebarSelectedFolder(baseRoot);
+    const directWorktree = folder?.kind === 'worktree';
+    const label = directWorktree
+      ? (folder.projectPath?.split('/').pop() || folder.label.split('/')[0]) + ' · ' + (folder.branch || folder.path.split('/').pop())
+      : _sidebarWorkspaceLabel(baseRoot) + (worktree ? ` · ${worktree.name}` : '');
     return {
       base_root: baseRoot,
-      project_root: _sidebarWorkspaceRoot(baseRoot),
+      project_root: directWorktree ? folder.projectPath || folder.path : _sidebarWorkspaceRoot(baseRoot),
       root: _sidebarScopedRoot(baseRoot),
-      worktree: worktree?.path || null,
-      label: _sidebarWorkspaceLabel(baseRoot) + (worktree ? ` · ${worktree.name}` : ''),
+      worktree: directWorktree ? folder.path : worktree?.path || null,
+      label,
       color: worktree ? _sidebarWorktreeColor(worktree.path, baseRoot) : _sidebarWorkspaceColor(baseRoot),
       config_scope: _sidebarFileConfigScope,
     };
@@ -14228,7 +14410,11 @@
       ...(config.folderScopes || [])];
     const candidates = [];
     for (const project of projects) {
-      candidates.push({project, root: project.path, worktree: null, label: project.label, color: project.color});
+      candidates.push({project: project.kind === 'worktree' ? {...project, path: project.projectPath || project.path} : project,
+        root: project.path, worktree: project.kind === 'worktree' ? project.path : null,
+        label: project.kind === 'worktree' ? (project.projectPath?.split('/').pop() || project.label.split('/')[0]) + ' · ' + (project.branch || project.path.split('/').pop()) : project.label,
+        color: project.color});
+      if (project.kind === 'worktree' || project.kind === 'parent') continue;
       const worktreeFolder = project.worktreeFolder || _sidebarDefaultWorktreeFolder(_sidebarWorktreeRepositoryRoot(project.path));
       const query = new URLSearchParams({path: worktreeFolder,
         repo: _sidebarWorktreeRepositoryRoot(project.path), scope: project.path, optional: 'true'});
@@ -14252,9 +14438,10 @@
     const config = scope.config_scope === _sidebarFileConfigScope
       ? _sidebarFileConfig : _loadSidebarFileConfig(scope.config_scope);
     const project = config.folderScopes?.find(row => row.path === scope.project_root);
+    const direct = config.folderScopes?.find(row => row.path === scope.root && row.kind === 'worktree');
     const projectColor = scope.project_root === scope.base_root
       ? config.rootScopeColors?.[scope.base_root] : project?.color;
-    const color = (scope.worktree && config.worktreeColors?.[scope.worktree]) || projectColor;
+    const color = direct?.color || (scope.worktree && config.worktreeColors?.[scope.worktree]) || projectColor;
     return _sidebarValidColor(color || (project || scope.project_root === scope.base_root ? null : scope.color));
   }
 
@@ -14279,16 +14466,17 @@
     if (scope.base_root !== baseRoot) return;
     if (_sidebarScopedRoot(baseRoot) === scope.root) return;
     _sidebarCacheCurrentScope(baseRoot);
+    const direct = _sidebarFolderScope(scope.root);
     // Preserve the saved identity even when this browser has not configured the folder yet.
-    if (scope.project_root !== baseRoot && !_sidebarFolderScope(scope.project_root)) {
+    if (!direct && scope.project_root !== baseRoot && !_sidebarFolderScope(scope.project_root)) {
       _sidebarFileConfig.folderScopes.push({path: scope.project_root,
         label: scope.label.split(' · ')[0], color: scope.color, worktreeFolder: ''});
     }
     _sidebarFileConfig.selectedFolders = {..._sidebarFileConfig.selectedFolders,
-      [baseRoot]: scope.project_root === baseRoot ? '' : scope.project_root};
+      [baseRoot]: direct ? direct.path : scope.project_root === baseRoot ? '' : scope.project_root};
     _sidebarFileConfig.selectedWorktrees = {..._sidebarFileConfig.selectedWorktrees,
-      [scope.project_root]: scope.worktree || ''};
-    if (scope.worktree && !_sidebarActiveWorktreeFolder(baseRoot)) {
+      [direct ? direct.path : scope.project_root]: direct ? '' : scope.worktree || ''};
+    if (!direct && scope.worktree && !_sidebarActiveWorktreeFolder(baseRoot)) {
       const parent = scope.worktree.slice(0, scope.worktree.lastIndexOf('/')) || '/';
       const folder = _sidebarFolderScope(scope.project_root);
       if (folder) folder.worktreeFolder = parent;

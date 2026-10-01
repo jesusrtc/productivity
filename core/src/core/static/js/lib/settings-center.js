@@ -5,7 +5,7 @@
   const labels = {claude:'Claude Code',codex:'Codex',copilot:'Copilot',terminal:'Terminal',attach:'Attach tmux session'};
   const globalScope = {key:'global',label:'Global',kind:'global'};
   const sections = scope => scope.kind === 'global'
-    ? [['general','General'],['projects','Projects and worktrees'],['appearance','Appearance'],['terminals','Terminal appearance'],['documents','Document terminals']]
+    ? [['general','General'],['projects','Projects and worktrees'],['links','Link types'],['appearance','Appearance'],['terminals','Terminal appearance'],['documents','Document terminals']]
     : [['general','Agent'],['terminals','Terminal sessions'],['files','File sidebar']];
   const esc = value => String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   let state = null;
@@ -70,6 +70,7 @@
       if (s!==state||token!==s.version) return;
       if (section==='general') await general(panel,scope,s,token);
       else if(section==='projects') projects(panel,s);
+      else if(section==='links') linkTypes(panel,s);
       else if(section==='appearance') appearance(panel);
       else if(section==='documents') documents(panel,s);
       else if(section==='terminals') terminals(panel,scope,s);
@@ -131,6 +132,20 @@
     }
     (s.config.projectLocations||[]).forEach(add);
     node.querySelector('[data-add-location]').onclick=()=>{add();s.dirty=true;message('Unsaved changes');};
+  }
+  function linkTypes(panel,s) {
+    const node=form(panel,`<p class="settings-intro">Choose the link types available on projects, folders, and worktrees. Internal documents open in Lab; external links open in your default browser.</p><div data-link-types></div><button type="button" data-add-type>+ Link type</button>`,async()=>{
+      const scopeLinkTypes=[...node.querySelectorAll('[data-link-type]')].map(card=>({id:card.dataset.linkType,name:card.querySelector('[data-name]').value.trim(),kind:card.querySelector('[data-kind]').value}));
+      await saveGlobal({scopeLinkTypes},s);
+    });
+    function add(row={id:'link-'+crypto.randomUUID(),name:'',kind:'external'}) {
+      const card=document.createElement('div');card.className='settings-folder';card.dataset.linkType=row.id;
+      card.innerHTML=`${field('Name',`<input data-name value="${esc(row.name)}" required maxlength="80" placeholder="Design, pull request, wiki…">`)}${field('Opens in',`<select data-kind><option value="external" ${row.kind==='external'?'selected':''}>Default browser</option><option value="internal" ${row.kind==='internal'?'selected':''}>Lab internal document</option></select>`)}<button type="button" data-remove>Remove type</button>`;
+      card.querySelector('[data-remove]').onclick=()=>{card.remove();s.dirty=true;message('Unsaved changes');};
+      node.querySelector('[data-link-types]').append(card);
+    }
+    (s.config.scopeLinkTypes||[]).forEach(add);
+    node.querySelector('[data-add-type]').onclick=()=>{add();s.dirty=true;message('Unsaved changes');};
   }
   function appearance(panel) {
     const value=readTypography();
@@ -250,7 +265,7 @@
       ${field('Consider files recent for',choices('recentMinutes',draft.recentMinutes,[[15,'15 minutes'],[60,'1 hour'],[120,'2 hours'],[360,'6 hours'],[1440,'24 hours']]))}
       ${field('Track file types',choices('trackMode',draft.trackMode,[['all','All file types'],['extensions','Selected extensions']]))}
       ${field('Extensions',input('extensions',draft.extensions.join(', ')),'Comma-separated, for example md, py, ipynb. Use __none__ for files without an extension.')}
-      <fieldset><legend>Workspace projects</legend><p class="settings-hint">Choose a project or add a custom folder. Each appears as a colored shortcut in Files and Recently updated.</p><button type="button" data-project-settings>Configure project defaults</button><div data-folders></div><button type="button" data-add-folder>+ Add project</button><div data-project-picker hidden></div></fieldset>
+      <fieldset><legend>Workspace projects</legend><p class="settings-hint">Available projects and folders. The sidebar shows the active folder and any folders you pin. Use + in the sidebar to select a project or worktree.</p><button type="button" data-project-settings>Configure project defaults</button><div data-folders></div><button type="button" data-add-folder>+ Add project</button><div data-project-picker hidden></div></fieldset>
       <details><summary>Worktree colors</summary><div data-worktree-colors></div></details>`,async f=>{
         const value={...draft,showHidden:f.elements.showHidden.checked,filesSort:f.elements.filesSort.value,recentSort:f.elements.recentSort.value,recentMode:f.elements.recentMode.value,recentMinutes:Number(f.elements.recentMinutes.value),trackMode:f.elements.trackMode.value,extensions:f.elements.extensions.value.split(',').map(v=>v.trim().replace(/^\./,'').toLowerCase()).filter(Boolean)};
         value.rootScopeColors={...draft.rootScopeColors};value.rootWorktreeFolders={...draft.rootWorktreeFolders};value.folderScopes=[];
@@ -262,7 +277,7 @@
           if(!raw)throw new Error('Every folder needs a path.');
           const path=projectPath(raw,root,s);
           if(seen.has(path))throw new Error('Each folder must have a different path.');seen.add(path);
-          value.folderScopes.push({path,label:card.querySelector('[data-label]').value.trim()||path.split('/').pop(),color,worktreeFolder:worktree});
+          value.folderScopes.push({...draft.folderScopes.find(row=>row.path===path),path,label:card.querySelector('[data-label]').value.trim()||path.split('/').pop(),color,worktreeFolder:worktree});
         }
         value.selectedFolders=Object.fromEntries(Object.entries(draft.selectedFolders).filter(([,path])=>value.folderScopes.some(row=>row.path===path)));
         value.worktreeColors={...draft.worktreeColors};

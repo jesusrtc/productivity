@@ -1,0 +1,88 @@
+# Sidebar projects, worktrees, and links
+
+Verified on September 30, 2026, using disposable repositories, an isolated Lab
+vault/Assistant library, and a separate Chrome profile. All screenshots show the
+actual Lab UI.
+
+## New controls
+
+The **+** picker lists projects from the configured projects folder (default
+`~/src`), registered custom folders, Git worktrees, and parent folders. Type to
+filter by folder, path, or branch; selections sort by usage, then recency. An
+absolute or `~/` path can add a folder directly.
+
+The sidebar shows the active folder and pinned folders. Click the pin to keep a
+shortcut visible; attaching a terminal also pins its exact folder or worktree.
+Click a color dot to select from 20 fixed colors. Automatic assignment chooses
+an unused color first and reuses the least-used color when the palette is full.
+Pins, usage, and colors persist in this browser's workspace settings.
+
+![Searchable project and worktree picker](scope-picker.png)
+
+Active folder/worktree links appear immediately below the controls. **Links +**
+opens the editor. Internal links can target an entire document or an individual
+nested tab and open inline in Lab. Entire-document links open the main content
+even after a different tab was viewed. External links use the existing default
+browser opener for local sessions; remote sessions open in the user's browser.
+Configure allowed types in **Settings → Global → Link types**. Google Docs,
+Internal docs, and Jira tickets are the defaults; custom types can target either
+destination. Links belong to the resolved checkout path and follow it across
+workspaces. Internal targets retain library/document/tab IDs and refresh titles
+from the source; missing targets remain visible but disabled.
+
+![Active worktree links with a specific internal tab open](worktree-links.png)
+
+## Three comparison categories
+
+**Uncommitted** compares staged and unstaged tracked changes with `HEAD`.
+**vs local main** compares the current checkout's content, including current
+edits, with the local `main` branch. Neither filter includes untracked/ignored
+files. A newly staged file is included.
+
+| Category | Fixture example | Uncommitted | vs local main |
+| --- | --- | --- | --- |
+| In both | `both-staged.txt`, `both-unstaged.txt`, `both-added.txt`, `both-branch-added.txt` | Yes | Yes |
+| Only uncommitted | `uncomm-staged.txt`, `uncomm-unstaged.txt`: branch committed a change, then an uncommitted edit restores main's bytes | Yes | No |
+| Only vs local main | `committed-only.txt`, `committed-added.txt`: committed on this branch and absent from main | No | Yes |
+
+On `main` itself, both filters have the same result. The two exclusive
+categories require a branch that differs from main, so the main fixtures show
+that expected equality rather than inventing impossible examples.
+
+| Scope | Uncommitted screenshot | vs local main screenshot |
+| --- | --- | --- |
+| Main checkout | [View](main-checkout-uncommitted.png) | [View](main-checkout-local-main.png) |
+| Feature checkout | [View](feature-checkout-uncommitted.png) | [View](feature-checkout-local-main.png) |
+| Other branch checkout | [View](other-checkout-uncommitted.png) | [View](other-checkout-local-main.png) |
+| Main worktree | [View](main-worktree-uncommitted.png) | [View](main-worktree-local-main.png) |
+| Feature worktree | [View](feature-worktree-uncommitted.png) | [View](feature-worktree-local-main.png) |
+| Other branch worktree | [View](other-worktree-uncommitted.png) | [View](other-worktree-local-main.png) |
+| Detached worktree | [View](detached-worktree-uncommitted.png) | [View](detached-worktree-local-main.png) |
+
+## Verification and reproduction
+
+```sh
+core/.venv/bin/python scripts/check_sidebar_comparisons.py \
+  --output docs/diagnostics/sidebar-comparisons
+```
+
+The runner creates its vault/worktrees/library through Lab, checks 28 direct and
+cached HTTP comparisons, then clicks all 14 filters in Chrome and verifies exact
+rendered file lists. Backend regression tests additionally cover workspace
+subdirectories within primary and linked checkouts.
+
+The same UI run checks filtered selection, usage order, active-only visibility,
+pin/color persistence after reload, a custom link type, whole-document/tab
+navigation, per-checkout link isolation, and real terminal creation/attachment
+with automatic pins. It deletes only its own disposable terminal. The two
+external link clicks reach the OS launcher; the launcher is intercepted in this
+fixture process so it opens no external applications. Browser errors: **0**.
+
+Exact evidence is in [results.json](results.json) and
+[browser.json](browser.json). All temporary paths/IDs in those reports belonged
+to fixtures that were removed after the run.
+
+The combined sidebar/settings/links/terminal regression suite passed **183
+tests**, including Chrome navigation and cached DOM performance checks. An
+additional branch-name/parent-kind pinning regression verifies that a worktree's
+actual branch is retained even when its directory has a different name.

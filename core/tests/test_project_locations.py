@@ -79,6 +79,7 @@ def test_project_locations_require_admin(client, monorepo, tmp_path):
     client.post('/api/auth/logout')
     _login(client, 'reader', 'test-secret')
     assert client.get('/api/projects').status_code == 403
+    assert client.get('/api/projects/scopes').status_code == 403
     assert client.post('/api/projects/register', json={'projects': []}).status_code == 403
     assert client.post('/api/settings', json={'projectsFolder': '/'}).status_code == 403
     assert client.get('/api/git-status', params={'vault': 'main', 'repo': str(custom)}).status_code == 400
@@ -108,3 +109,39 @@ def test_worktrees_outside_vault_follow_shared_and_custom_locations(client, mono
     settings.update_global(monorepo, {'projectsFolder': str(tmp_path / 'other'), 'worktreesFolder': str(tmp_path / 'other-trees'),
         'projectLocations': [{'path': str(repo), 'worktreeFolder': str(parent)}]})
     assert client.get('/api/sidebar-worktrees', params={'repo': str(repo), 'path': str(parent)}).status_code == 200
+
+
+def test_scope_picker_catalog_includes_parents_real_branches_and_custom_worktrees(client, monorepo, tmp_path):
+    source = tmp_path / 'src'
+    repo = source / 'project'
+    repo.mkdir(parents=True)
+    ordinary = source / 'ordinary folder'
+    ordinary.mkdir()
+    subprocess.run(['git', 'init', '-qb', 'main', str(repo)], check=True)
+    subprocess.run(['git', '-C', str(repo), '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid',
+                    'commit', '-qm', 'Base', '--allow-empty'], check=True)
+    tree = tmp_path / 'custom trees/checkout with spaces'
+    tree.parent.mkdir()
+    subprocess.run(['git', '-C', str(repo), 'worktree', 'add', '-qb', 'feature/search', str(tree)], check=True)
+    detached = tmp_path / 'custom trees/detached'
+    subprocess.run(['git', '-C', str(repo), 'worktree', 'add', '-q', '--detach', str(detached)], check=True)
+    settings.update_global(monorepo, {'projectsFolder': str(source), 'worktreesFolder': str(tmp_path / 'missing-trees')})
+    before = settings.client_settings_file().read_bytes()
+    response = client.get('/api/projects/scopes')
+    assert response.status_code == 200, response.text
+    rows = {row['path']: row for row in response.json()['scopes']}
+    assert rows[str(source)]['kind'] == 'parent'
+    assert rows[str(tree.parent)]['kind'] == 'parent'
+    assert rows[str(ordinary)]['kind'] == 'folder'
+    assert rows[str(repo)]['branch'] == 'main'
+    assert rows[str(tree)]['label'] == 'project/feature/search'
+    assert rows[str(tree)]['kind'] == 'worktree'
+    assert rows[str(tree)]['projectPath'] == str(repo)
+    assert rows[str(detached)]['branch'] == 'detached'
+    assert rows[str(tmp_path / 'missing-trees')]['available'] is False
+    assert not (tmp_path / 'missing-trees').exists()
+    assert settings.client_settings_file().read_bytes() == before
+    # Adding the linked checkout itself must keep its worktree identity.
+    assert client.post('/api/projects/register', json={'projects': [{'path': str(tree)}]}).status_code == 200
+    rows = {row['path']: row for row in client.get('/api/projects/scopes').json()['scopes']}
+    assert rows[str(tree)]['kind'] == 'worktree'
