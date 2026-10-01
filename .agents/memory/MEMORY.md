@@ -523,3 +523,5 @@
 - [Terminal panel width is workspace scoped](terminal-panel-width-is-workspace-scoped.md) — independent percentages, legacy default, view restoration and captured drag ownership.
 
 - [Expanded documents use workspace terminals](expanded-documents-use-workspace-terminals.md) — hide Files temporarily, share the active terminal panel, preserve drafts/preferences, and keep the red corner close button.
+
+- [Regular documents open expanded](regular-documents-open-expanded.md) — single-click, keyboard, recent/linked documents, worktree links and terminal navigation share the expanded workspace layout by default.

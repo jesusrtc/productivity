@@ -138,10 +138,10 @@ window.LabTaskTerminalBridge={patch:async(session,patch,context)=>{
  let finishScope;pendingScope=new Promise(resolve=>finishScope=resolve);
  await _termActivateTab(source.name);
  assert(termCurrentSession===source.name&&termCurrentWorkspaceId==='demo','terminal attaches immediately in its original workspace');
- await until(()=>document.querySelector('#assistantInlineHost #assistantDocumentModal.active'));
+ await until(()=>document.querySelector('#assistantExpandedHost #assistantDocumentModal.active'));
  assert(!sockets&&!fileOpens.length,'linked document takes precedence over file sync without creating a renderer');
  assert(scopeOpens.at(-1).scope.root==='/trees/feature'&&scopeOpens.at(-1).options.force,'document activation also restores its independently linked worktree');
- assert(!document.body.classList.contains('sidebar-collapsed')&&getComputedStyle(document.getElementById('sidebar')).display!=='none','terminal click keeps Files visible');
+ assert(!document.body.classList.contains('sidebar-collapsed')&&getComputedStyle(document.getElementById('sidebar')).display==='none','terminal click uses the expanded document without changing Files preference');
  AssistantView.closeInlineDocument();
  finishScope();pendingScope=null;await new Promise(resolve=>setTimeout(resolve,30));
  assert(!document.querySelector('#assistantDocumentModal.active'),'late file discovery never reopens a closed document');
@@ -159,14 +159,17 @@ window.LabTaskTerminalBridge={patch:async(session,patch,context)=>{
  }
  W.selectTerminal(taskLinks[0],scope);
  docRow.querySelector('button').click();
- await until(()=>document.querySelector('#assistantInlineHost #assistantDocumentModal.active'));
- assert(!document.body.classList.contains('sidebar-collapsed'),'Files stays visible when opening from the sidebar');
- assert(getComputedStyle(document.getElementById('content')).display==='none','inline document replaces main content');
- assert(document.querySelector('.assistant-document-modal').getAttribute('role')==='region','inline document is not a dialog');
- assert(!sockets&&!LabDocumentTerminal.watchCompletion(),'inline view reuses regular terminal panel');
+ await until(()=>document.querySelector('#assistantExpandedHost #assistantDocumentModal.active'));
+ assert(!document.body.classList.contains('sidebar-collapsed')&&getComputedStyle(document.getElementById('sidebar')).display==='none','regular sidebar open hides Files without changing saved visibility');
+ assert(document.getElementById('assistantExpandDocument').hidden,'regular open already fills the document area');
+ assert(getComputedStyle(document.getElementById('content')).display==='none','regular document replaces main content');
+ assert(document.querySelector('.assistant-document-modal').getAttribute('role')==='region','regular document is an accessible region');
+ assert(!sockets&&!LabDocumentTerminal.watchCompletion(),'regular document reuses the workspace terminal panel');
  const inlineRect=document.querySelector('.assistant-document-modal').getBoundingClientRect();
- assert(inlineRect.height>700&&inlineRect.bottom<=innerHeight+1,'inline document fits available viewport');
+ assert(inlineRect.height>700&&inlineRect.bottom<=innerHeight+1,'regular document fits available viewport');
  assert(document.querySelector('.workspace-document.document-open'),'opened document marked');
+ // Explicit inline presentation remains compatible; normal entry points use expanded.
+ await AssistantView.openLinkedTask(FIX.link,{inline:true});
  document.querySelector(`[data-record-path="${FIX.path}"]`).click();
  await until(()=>!document.getElementById('assistantEditNote').hidden);
  document.getElementById('assistantEditNote').click();
@@ -348,8 +351,8 @@ window.LabTaskTerminalBridge={patch:async(session,patch,context)=>{
   AssistantView.closeDocument();
  }
  singleClick();
- await until(()=>AssistantView.isInlineDocument()&&!document.querySelector('#assistantDocumentModal[aria-busy]'));
- assert(document.querySelector('.assistant-document-modal').getAttribute('role')==='region','Assistant single click defaults to inline');
+ await until(()=>document.querySelector('#assistantExpandedHost #assistantDocumentModal.active:not([aria-busy])'));
+ assert(document.querySelector('.assistant-document-modal').getAttribute('role')==='region','Assistant single click defaults to the expanded document');
  assert(getComputedStyle(document.getElementById('content')).display==='none','Assistant chooser replaced with document');
  assert(document.querySelector('[data-metadata-field="workspace"]').closest('.assistant-metadata-more'),'organization fields live in Properties');
  assert(document.querySelector('[data-edit-attributes]').closest('.assistant-metadata-more'),'attributes remain accessible under Properties');
@@ -357,7 +360,7 @@ window.LabTaskTerminalBridge={patch:async(session,patch,context)=>{
  copy.querySelector('summary').click();
  assert(copy.open&&document.getElementById('assistantCopyRich').getBoundingClientRect().height>=36,'Copy menu exposes both formats at comfortable size');
  document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
- assert(!copy.open&&AssistantView.isInlineDocument(),'Escape dismisses Copy without closing document');
+ assert(!copy.open&&document.body.classList.contains('assistant-expanded-document'),'Escape dismisses Copy without closing document');
  AssistantView.closeDocument();
  assert(getComputedStyle(document.getElementById('content')).display!=='none','close returns to Assistant chooser');
  doubleClick(row());
@@ -368,7 +371,10 @@ window.LabTaskTerminalBridge={patch:async(session,patch,context)=>{
  singleClick();AssistantView.closeInlineDocument();
  await new Promise(resolve=>setTimeout(resolve,350));
  assert(!document.querySelector('#assistantDocumentModal.active'),'navigation cancels delayed pointer opens');
- singleClick();await until(()=>AssistantView.isInlineDocument());
+ singleClick();await until(()=>document.querySelector('#assistantExpandedHost #assistantDocumentModal.active:not([aria-busy])'));
+ assert(getComputedStyle(document.getElementById('sidebar')).display==='none'&&document.getElementById('assistantExpandDocument').hidden,'ordinary pointer open uses the expanded layout');
+ AssistantView.closeDocument();
+ await AssistantView.openDocument('note',FIX.path,'',{inline:true});
  document.getElementById('assistantInlineHost').style.maxWidth='740px';
  const header=document.querySelector('.assistant-modal-header');
  assert(header.scrollWidth<=header.clientWidth+1,'inline header fits a narrow workspace');
@@ -456,6 +462,7 @@ if(await evaluate("document.getElementById('result').textContent") === 'PASS') {
   AssistantView.closeDocument();
   document.getElementById('assistantDocumentModal').remove();
   await AssistantView.openDocument('note',FIX.path);
+  assert(document.body.classList.contains('assistant-expanded-document')&&getComputedStyle(document.getElementById('sidebar')).display==='none','programmatic regular open defaults to expanded');
   assert(document.getElementById('assistantDocumentNav').getBoundingClientRect().width===320,'new document view restores stored width');
   const handle=document.querySelector('.assistant-tabs-resizer');
   handle.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowLeft',bubbles:true}));
@@ -479,7 +486,7 @@ if(await evaluate("document.getElementById('result').textContent") === 'PASS') {
  await send('Input.dispatchMouseEvent',{type:'mouseReleased',...mobileClose,button:'left',clickCount:1});
  await evaluate(`assert(!document.querySelector('#assistantDocumentModal.active')&&getComputedStyle(document.getElementById('sidebar')).display!=='none','native mobile close restores Files')`);
  await evaluate(`assert(document.querySelector('#termPanel textarea').value==='Unsent workspace terminal draft'&&!sockets,'mobile close preserves the workspace terminal and its unsent input')`);
- await evaluate(`AssistantView.openDocument('note',FIX.path)`);
+ await evaluate(`AssistantView.openDocument('note',FIX.path,'',{inline:true})`);
 
  await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
  await evaluate(`new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))`);

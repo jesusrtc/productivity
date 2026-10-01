@@ -92,7 +92,7 @@ const mount=()=>W.mount(scope,document.getElementById('sidebar'),true);
  AssistantView.closeDocument();release();await opening;pendingDetail=null;
  assert(JSON.stringify(saved())===stable,'cancelled asynchronous opens never enter history');
  rows()[1].querySelector('button').click();
- await until(()=>AssistantView.isInlineDocument()&&ids()[0]===FIX.series_id);
+ await until(()=>document.querySelector('#assistantExpandedHost #assistantDocumentModal.active')&&ids()[0]===FIX.series_id);
  assert(ids().join()===[FIX.series_id,FIX.note_id].join(),'keyboard activation reopens a recent document and moves it to the top');
  AssistantView.closeDocument();
  const button=rows()[1].querySelector('button');

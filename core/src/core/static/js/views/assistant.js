@@ -1018,9 +1018,9 @@
   function bindDocumentLink(button, open) {
     // Keep the chooser mounted until the second click can reach the same row.
     // Keyboard activation opens immediately; pointer clicks allow double-click.
-    const openInline = () => {
+    const openRegular = () => {
       state.documentClickTimer = null;
-      open({inline:button.closest('.assistant-document-overlay') ? Boolean(state.inlineHost) : true});
+      open({inline:button.closest('.assistant-document-overlay') ? Boolean(state.inlineHost) : false});
     };
     button.addEventListener('click', event => {
       if (event.target.closest('[data-assistant-nudge]')) return;
@@ -1033,8 +1033,8 @@
         return;
       }
       if (event.detail > 1) return;
-      if (!event.detail) openInline();
-      else state.documentClickTimer = setTimeout(openInline, 300);
+      if (!event.detail) openRegular();
+      else state.documentClickTimer = setTimeout(openRegular, 300);
     });
     button.addEventListener('dblclick', event => {
       if (event.target.closest('[data-assistant-nudge]')) return;
@@ -1048,7 +1048,7 @@
       if (event.key !== 'Enter' && event.key !== ' ') return;
       event.preventDefault();
       clearTimeout(state.documentClickTimer);
-      openInline();
+      openRegular();
     });
   }
 
@@ -1406,7 +1406,7 @@
     window.AssistantTasks?.reset();
     const overlay = ensureModal();
     const wasOpen = overlay.classList.contains('active');
-    const inline = options.inline ?? (wasOpen ? Boolean(state.inlineHost) : document.body.classList.contains('assistant-active'));
+    const inline = options.inline ?? (wasOpen ? Boolean(state.inlineHost) : false);
     state.documentPending = true;
     const request = ++state.modalRequest;
     const isCurrent = () => request === state.modalRequest && (!options.isCurrent || options.isCurrent());

@@ -18,7 +18,7 @@ def test_scope_links_ignore_late_reads_and_keep_cached_buttons_clickable():
     result = _run_node(r"""
 const replies={},calls=[],opened=[];
 const window={LabExternalLinks:{open:async (url,options)=>opened.push({url,...options})},
-  AssistantView:{openLinkedTask:async(link,options)=>{if(options.isCurrent())opened.push({id:link.document_id,tab:link.tab_id,whole:options.wholeDocument})}}};
+  AssistantView:{openLinkedTask:async(link,options)=>{if(options.isCurrent()){if(options.inline===true)throw Error('scope links must use the regular expanded document');opened.push({id:link.document_id,tab:link.tab_id,whole:options.wholeDocument})}}}};
 const fetch=url=>new Promise(resolve=>replies[decodeURIComponent(url.split('path=')[1])]=data=>resolve({ok:true,json:async()=>data}));
 const host=path=>({dataset:{scopeLinks:path},isConnected:true,paintCount:0,buttons:[],
   set innerHTML(value){this.paintCount++;this.edit={};this.buttons=Array.from(value.matchAll(/data-scope-link="(\d+)"/g),m=>({dataset:{scopeLink:m[1]}}));},
