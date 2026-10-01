@@ -67,9 +67,6 @@ window.fetch=async(url,opts={})=>{
  else if(u.pathname==='/api/vault/agents')data={supported:['claude','codex','copilot'],default:cfg.defaultAgent};
  else if(u.pathname==='/api/workspaces/same'){if(delayA&&u.searchParams.get('vault')==='a')await new Promise(r=>releaseA=r);data=overrides[u.searchParams.get('vault')]}
  else if(u.pathname==='/api/workspaces/same/agent'){Object.assign(overrides[u.searchParams.get('vault')],body);data={ok:true}}
- else if(u.pathname==='/api/projects')data={path:'/home/test/src',projects:[{name:'lab',path:'/home/test/src/lab',available:true},{name:'offline',path:'/old/offline',available:false}]};
- else if(u.pathname==='/api/projects/register'){cfg.projectLocations=body.projects;data={projects:body.projects,settings:cfg}}
- else if(u.pathname==='/api/sidebar-worktrees')data={folders:[{path:'/trees/feature'}]};
  else throw Error('Unexpected API '+url);
  return {ok:true,json:async()=>structuredClone(data)};
 };
@@ -140,58 +137,27 @@ const fits=()=>{const d=document.getElementById('labSettingsCenter');const rect=
  assert(localStorage.getItem('labTermNewOptions-v1:a::same')==='["codex","terminal"]','active terminal options untouched');
  assert(localStorage.getItem('labTermNewOptions-v1:b::same')==='["codex","terminal","attach"]','inactive terminal options scoped');
  assert(q('[data-stop]').disabled&&!appliedOptions,'inactive workspace cannot stop active sessions');
+ const betaScope={path:'/vault-b/same'};
+ const projectState={
+  folderScopes:[{path:'/home/test/src/lab',label:'Lab',color:'#0969da'},{path:'/trees/feature',label:'lab/feature',kind:'worktree',branch:'feature-branch',projectPath:'/home/test/src/lab',color:'#d2a8ff'}],
+  selectedFolders:{'/vault-b/same':'/trees/feature'},selectedWorktrees:{'/home/test/src/lab':'/trees/feature'},
+  pinnedScopes:['/home/test/src/lab','/trees/feature'],terminalScopePins:{'test-session':'/trees/feature'},
+  scopeUsage:{'/trees/feature':{count:4,lastUsed:123456789}},rootScopeColors:{'/vault-b/same':'#58a6ff'},
+  rootWorktreeFolders:{'/vault-b/same':'/custom/trees'},worktreeColors:{'/trees/feature':'#6e7681'}
+ };
+ LabSettingsBridge.saveSidebar(betaScope,{...LabSettingsBridge.sidebar(betaScope),...projectState});
+ const beforeProjects=LabSettingsBridge.sidebar(betaScope),requestCount=calls.length;
  await section('files');fits();field('showHidden',true);field('filesSort','type');
+ assert(!q('[data-folders],[data-add-folder],[data-project-picker],[data-worktree-colors],[data-project-settings]')&&!q('[data-panel]').textContent.includes('Workspace projects'),'project management lives only in the sidebar picker');
  const recentChoices=[...form().elements.recentMode.options];
  assert(recentChoices.map(row=>row.value).join(',')==='none,mtime,uncommitted,local-main','only supported recent filters');
- assert(recentChoices.at(-1).textContent.includes('including uncommitted'),'local main explains total working-tree comparison');
- assert([...q('[data-folders]').querySelectorAll('[data-location-editor]')].every(el=>el.hidden&&el.getClientRects().length===0),'project paths start hidden');
- q('[data-add-folder]').click();await until(()=>q('[data-custom-project]'));q('[data-custom-project]').click();const card=q('[data-folder-card="folder"]');card.querySelector('[data-path]').value='notes';card.querySelector('[data-label]').value='Notes';
- assert(!card.querySelector('[data-location-editor="path"]').hidden,'adding a custom folder opens its location editor');
- card.querySelector('[data-location-toggle="worktree"]').click();
- card.querySelector('[data-worktree]').value='/trees';card.querySelector('[data-worktree]').dispatchEvent(new Event('input',{bubbles:true}));
- assert(card.querySelector('[data-location-toggle="worktree"]').textContent==='Custom'&&card.querySelector('[data-location-editor="path"]').hidden,'custom worktree location is labeled and only its editor is open');
- card.querySelector('[data-scan]').click();await until(()=>card.querySelector('[data-scan-status]').textContent==='1 worktrees found');
- card.querySelector('[data-color]').value='#0969da';card.querySelector('[data-color]').dispatchEvent(new Event('input',{bubbles:true}));
- assert(q('[data-worktree-color]').value==='#0969da','scanned worktree inherits project color');
- await save();
- const bStorage='labSidebarFileConfig-v2:'+encodeURIComponent('/vault-b/same');
- assert(!Object.keys(JSON.parse(localStorage.getItem(bStorage)).worktreeColors).length,'scanning and saving does not create color overrides');
- const changeWorktreeColor=color=>{const input=q('[data-worktree-color]');input.value=color;input.dispatchEvent(new Event('change',{bubbles:true}));};
- changeWorktreeColor('#123456');await save();
- const bKey='labSidebarFileConfig-v2:'+encodeURIComponent('/vault-b/same'),b=JSON.parse(localStorage.getItem(bKey));
- assert(b.showHidden&&b.filesSort==='type'&&b.folderScopes[0].path==='/vault-b/same/notes'&&b.worktreeColors['/trees/feature']==='#123456','inactive files prefs and worktree colors saved');
- card.querySelector('[data-color]').value='#aabbcc';card.querySelector('[data-color]').dispatchEvent(new Event('input',{bubbles:true}));
- assert(q('[data-worktree-color]').value==='#123456','custom color survives project color changes');
- q('[data-inherit-color]').click();assert(q('[data-worktree-color]').value==='#aabbcc','reset restores inherited color');await save();
- assert(!JSON.parse(localStorage.getItem(bStorage)).worktreeColors['/trees/feature'],'reset removes the saved override');
- changeWorktreeColor('#6e7681');await save();
- assert(LabSettingsBridge.sidebar({path:'/vault-b/same'}).worktreeColors['/trees/feature']==='#6e7681','an explicit gray override survives reload');
+ assert(recentChoices.at(-1).textContent==='Compared with main (including uncommitted)','main comparison label explains total working-tree comparison');
+ field('extensions','.MD, py');await save();
+ const bKey='labSidebarFileConfig-v2:'+encodeURIComponent(betaScope.path),b=JSON.parse(localStorage.getItem(bKey));
+ assert(b.showHidden&&b.filesSort==='type'&&b.extensions.join(',')==='md,py','inactive file preferences saved');
+ for(const key of Object.keys(projectState))assert(JSON.stringify(b[key])===JSON.stringify(beforeProjects[key]),'file preferences preserve '+key);
+ assert(calls.length===requestCount,'file preferences need no project registration or worktree scans');
  assert(localStorage.getItem(aKey)===beforeA&&!_sidebarFileConfig.showHidden&&!rendered,'inactive save never mutates active sidebar');
- q('[data-add-folder]').click();await until(()=>q('[data-project-list] option'));fits();
- assert(q('[data-project-list] [value="/old/offline"]').disabled,'missing custom projects stay visible but unavailable');
- q('[data-project-list]').value='/home/test/src/lab';q('[data-project-list]').dispatchEvent(new Event('change'));q('[data-use-project]').click();
- const picked=q('[data-folder-card]:last-child');
- assert(picked.querySelector('[data-worktree]').value===''&&picked.querySelector('[data-worktree]').placeholder==='~/src/.worktrees/lab','picked project inherits worktree layout');
- assert([...picked.querySelectorAll('[data-location-toggle]')].every(el=>el.textContent==='Default'),'default project and worktree are labeled Default');
- assert([...picked.querySelectorAll('[data-location-editor]')].every(el=>el.hidden&&el.getClientRects().length===0),'selected default project is a collapsed row');fits();
- await save();
- const savedPaths=localStorage.getItem(bKey),requestCount=calls.length;
- picked.querySelector('[data-location-toggle="path"]').click();
- assert(!picked.querySelector('[data-location-editor="path"]').hidden&&picked.querySelector('[data-path]').getClientRects().length,'location click reveals the actual project path');
- picked.querySelector('[data-location-toggle="worktree"]').click();
- assert(picked.querySelector('[data-location-editor="path"]').hidden&&!picked.querySelector('[data-location-editor="worktree"]').hidden,'worktree click switches editors');
- const worktreeInput=picked.querySelector('[data-worktree]');worktreeInput.value='/home/test/src/.worktrees/lab';worktreeInput.dispatchEvent(new Event('input',{bubbles:true}));
- assert(picked.querySelector('[data-location-toggle="worktree"]').textContent==='Default','explicit path matching the default still says Default');
- worktreeInput.value='~/special/lab';worktreeInput.dispatchEvent(new Event('input',{bubbles:true}));
- assert(picked.querySelector('[data-location-toggle="worktree"]').textContent==='Custom','editing a location changes its inline status');
- worktreeInput.value='';worktreeInput.dispatchEvent(new Event('input',{bubbles:true}));
- picked.querySelector('[data-location-toggle="worktree"]').click();
- assert(picked.querySelector('[data-location-editor="worktree"]').hidden&&localStorage.getItem(bKey)===savedPaths&&calls.length===requestCount,'disclosures preserve saved paths and do not issue API requests');
- await save();
- q('[data-add-folder]').click();await until(()=>q('[data-project-list] option'));
- assert(q('[data-project-list] [value="/home/test/src/lab"]').disabled,'already added project is disabled');
- q('[data-custom-project]').click();const custom=q('[data-folder-card]:last-child');custom.querySelector('[data-path]').value='~/custom/project';await save();
- assert(JSON.parse(localStorage.getItem(bKey)).folderScopes.at(-1).path==='/home/test/custom/project','home expansion is on the server computer');
  field('recentMinutes','60');discard=false;q('[data-scope="global"]').click();
  assert(form().elements.recentMinutes.value==='60'&&q('[data-title]').textContent.includes('Beta'),'dirty navigation can be cancelled');
  discard=true;q('[data-scope="global"]').click();await until(()=>form()?.elements.defaultAgent);
@@ -213,7 +179,7 @@ const fits=()=>{const d=document.getElementById('labSettingsCenter');const rect=
  await openSidebarFileConfig();await until(()=>form()?.elements.showHidden);assert(q('[data-title]').textContent==='Workspace Alpha · File sidebar','local file sidebar shortcut');LabSettings.close();
  focus.dispatchEvent(new KeyboardEvent('keydown',{key:',',ctrlKey:true,bubbles:true,cancelable:true}));await until(()=>form()?.elements.defaultAgent);fits();
  assert(currentWorkspace.path==='/vault-a/same'&&!calls.some(c=>c.path.includes('/term/sessions')),'opening or saving settings never changes workspace or launches terminals');
- await scope('/vault-b/same');await section('files');q('[data-folders]').closest('fieldset').scrollIntoView({block:'start'});fits();
+ await scope('/vault-b/same');await section('files');form().elements.extensions.scrollIntoView({block:'center'});fits();
  document.getElementById('result').textContent='PASS scoped settings, typography, responsive switches, shortcuts, policy, drafts, late responses';
 })().catch(error=>document.getElementById('result').textContent='FAIL: '+error.stack);
 '''

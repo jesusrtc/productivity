@@ -3,11 +3,19 @@
 (function () {
   'use strict';
   const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+  const icons = {
+    worktree: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="6" cy="4" r="2"/><circle cx="6" cy="16" r="2"/><circle cx="15" cy="5" r="2"/><path d="M6 6v8m9-7c0 5-9 3-9 7"/></svg>',
+    folder: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M2.5 6V4.5h5l2 2h8v9h-15V6Z"/></svg>',
+  };
   let opened = null;
 
   function ranked(rows, usage, query = '') {
     const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
-    return rows.filter(row => words.every(word => `${row.label || row.name} ${row.path} ${row.branch || ''}`.toLowerCase().includes(word)))
+    return rows.filter(row => words.every(word => {
+      if (['branch', 'branches', 'worktree', 'worktrees'].includes(word)) return row.kind === 'worktree';
+      if (word === 'main' || word === 'master') return row.kind !== 'worktree';
+      return `${row.label || row.name} ${row.path} ${row.branch || ''}`.toLowerCase().includes(word);
+    }))
       .sort((a, b) => (usage[b.path]?.count || 0) - (usage[a.path]?.count || 0)
         || (usage[b.path]?.lastUsed || 0) - (usage[a.path]?.lastUsed || 0)
         || String(a.label || a.name).localeCompare(String(b.label || b.name)) || a.path.localeCompare(b.path));
@@ -51,6 +59,7 @@
       <header><strong>Add project or worktree</strong><button type="button" data-close aria-label="Close picker">×</button></header>
       <input type="search" data-search role="combobox" aria-label="Search projects, worktrees and folders" aria-controls="sidebarScopeResults" aria-expanded="true" aria-autocomplete="list" placeholder="Search projects, branches or folders…" autocomplete="off">
       <div class="sidebar-scope-results" id="sidebarScopeResults" role="listbox" aria-label="Projects, worktrees and parent folders"></div>
+      <p class="sidebar-scope-search-hint">Worktrees: branch / worktree · Folders: main / master</p>
       <p data-status role="status">Loading folders…</p>
       <button type="button" class="sidebar-scope-custom" data-custom hidden>Add this folder</button>`);
     const {dialog} = state;
@@ -79,7 +88,12 @@
     function render() {
       matches = ranked(rows, bridge.usage(), search.value);
       index = matches.findIndex(row => row.available !== false);
-      host.innerHTML = matches.map((row, number) => `<button type="button" role="option" id="sidebarScopeOption${number}" data-scope-option="${esc(row.path)}" aria-selected="false" ${row.available === false ? 'disabled' : ''}><span class="sidebar-scope-kind" aria-hidden="true">${row.kind === 'worktree' ? '⑂' : '▱'}</span><span><strong>${esc(row.label || row.name)}</strong><small>${esc(row.path)}</small></span><small class="sidebar-scope-type">${row.kind === 'worktree' ? 'Worktree' : row.kind === 'parent' ? 'Parent folder' : 'Folder'}</small></button>`).join('');
+      host.innerHTML = matches.map((row, number) => {
+        const worktree = row.kind === 'worktree';
+        const savedColor = bridge.color?.(row) || row.color;
+        const color = /^#[\da-f]{6}$/i.test(savedColor || '') ? savedColor : worktree ? '#d2a8ff' : '#8b949e';
+        return `<button type="button" role="option" id="sidebarScopeOption${number}" data-scope-option="${esc(row.path)}" data-scope-kind="${esc(row.kind || 'folder')}" style="--sidebar-scope-color:${color}" aria-selected="false" ${row.available === false ? 'disabled' : ''}><span class="sidebar-scope-kind${worktree ? ' worktree' : ''}" aria-hidden="true">${icons[worktree ? 'worktree' : 'folder']}</span><span><strong>${esc(row.label || row.name)}</strong><small>${esc(row.path)}</small></span><small class="sidebar-scope-type${worktree ? ' worktree' : ''}">${worktree ? 'Worktree' : row.kind === 'parent' ? 'Parent folder' : 'Folder'}</small></button>`;
+      }).join('');
       host.querySelectorAll('[data-scope-option]').forEach(button => button.onclick = () => select(matches.find(row => row.path === button.dataset.scopeOption)));
       highlight();
       const path = search.value.trim();

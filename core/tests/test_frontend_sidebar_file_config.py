@@ -1218,7 +1218,7 @@ def test_sidebar_config_modal_and_all_sidebar_surfaces_are_wired() -> None:
     assert "['mtime:1440', '24h', '24 hours'" in source
     assert "['uncommitted', 'Uncomm', 'Uncommitted'" in source
     assert "['origin-main', 'vs remote', 'vs origin/main'" not in source
-    assert "['local-main', 'vs local', 'vs local main'" in source
+    assert "['local-main', 'vs main', 'vs main'" in source
     assert "['last-2-commits', '2 cmts', 'Last 2 commits'" not in source
     assert "Show hidden files</label>" not in source
     assert source.count("_sidebarRecentSectionHtml(") >= 4

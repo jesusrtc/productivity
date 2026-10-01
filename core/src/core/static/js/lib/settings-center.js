@@ -74,7 +74,7 @@
       else if(section==='appearance') appearance(panel);
       else if(section==='documents') documents(panel,s);
       else if(section==='terminals') terminals(panel,scope,s);
-      else files(panel,scope,s);
+      else files(panel,scope);
     } catch(error) {
       if (s===state&&token===s.version&&error.name!=='AbortError') {panel.innerHTML='';message(error.message,true);}
     }
@@ -101,17 +101,6 @@
   async function saveGlobal(patch,s) {
     s.config=await api('/api/settings/global',patch,s.abort.signal);
     bridge()?.settingsSaved(s.config);
-  }
-  function expandHome(path,s) {
-    return path==='~' ? s.config.homeFolder || path : path.startsWith('~/') && s.config.homeFolder ? s.config.homeFolder+path.slice(1) : path;
-  }
-  function projectPath(path,root,s) {return normalizePath(expandHome(path.trim(),s),root);}
-  function defaultWorktrees(path,s) {
-    const custom=(s.config.projectLocations||[]).find(row=>expandHome(row.path,s)===path);
-    return custom?.worktreeFolder || (s.config.worktreesFolder||'~/src/.worktrees').replace(/\/+$/,'')+'/'+path.split('/').filter(Boolean).pop();
-  }
-  function isDefaultProject(path,root,s) {
-    return path && (projectPath(path,root,s).split('/').slice(0,-1).join('/')||'/') === projectPath(s.config.projectsFolder||'~/src',root,s);
   }
   function projects(panel,s) {
     const node=form(panel,`<p class="settings-intro">Choose where your projects live. Folders directly inside the projects folder appear in each workspace’s project picker.</p>
@@ -254,157 +243,20 @@
     panel.querySelector('[data-appearance]').onclick=()=>select(globalScope,'terminals');
     panel.querySelector('[data-stop]').onclick=()=>bridge().stop(scope);
   }
-  function files(panel,scope,s) {
-    const draft=bridge().sidebar(scope), root=scope.path;
-    const modes=[['none','Hidden'],['mtime','Recently modified'],['uncommitted','Uncommitted'],['local-main','Compared with local main (including uncommitted)']];
+  function files(panel,scope) {
+    const draft=bridge().sidebar(scope);
+    const modes=[['none','Hidden'],['mtime','Recently modified'],['uncommitted','Uncommitted'],['local-main','Compared with main (including uncommitted)']];
     const sort=[['name','Name'],['updated','Updated'],['type','File type']];
-    const node=form(panel,`<p class="settings-intro">File sidebar preferences for <strong>${esc(scope.label)}</strong>, saved in this browser.</p>
+    form(panel,`<p class="settings-intro">File sidebar preferences for <strong>${esc(scope.label)}</strong>, saved in this browser.</p>
       ${check('showHidden','Show hidden files and folders',draft.showHidden)}
       <div class="settings-grid">${field('Files sort order',choices('filesSort',draft.filesSort,sort))}${field('Recently updated sort order',choices('recentSort',draft.recentSort,sort))}</div>
       ${field('Recently updated section',choices('recentMode',draft.recentMode,modes),'Only Git-tracked files; ignored and untracked files are excluded.')}
       ${field('Consider files recent for',choices('recentMinutes',draft.recentMinutes,[[15,'15 minutes'],[60,'1 hour'],[120,'2 hours'],[360,'6 hours'],[1440,'24 hours']]))}
       ${field('Track file types',choices('trackMode',draft.trackMode,[['all','All file types'],['extensions','Selected extensions']]))}
-      ${field('Extensions',input('extensions',draft.extensions.join(', ')),'Comma-separated, for example md, py, ipynb. Use __none__ for files without an extension.')}
-      <fieldset><legend>Workspace projects</legend><p class="settings-hint">Available projects and folders. The sidebar shows the active folder and any folders you pin. Use + in the sidebar to select a project or worktree.</p><button type="button" data-project-settings>Configure project defaults</button><div data-folders></div><button type="button" data-add-folder>+ Add project</button><div data-project-picker hidden></div></fieldset>
-      <details><summary>Worktree colors</summary><div data-worktree-colors></div></details>`,async f=>{
+      ${field('Extensions',input('extensions',draft.extensions.join(', ')),'Comma-separated, for example md, py, ipynb. Use __none__ for files without an extension.')}`,async f=>{
         const value={...draft,showHidden:f.elements.showHidden.checked,filesSort:f.elements.filesSort.value,recentSort:f.elements.recentSort.value,recentMode:f.elements.recentMode.value,recentMinutes:Number(f.elements.recentMinutes.value),trackMode:f.elements.trackMode.value,extensions:f.elements.extensions.value.split(',').map(v=>v.trim().replace(/^\./,'').toLowerCase()).filter(Boolean)};
-        value.rootScopeColors={...draft.rootScopeColors};value.rootWorktreeFolders={...draft.rootWorktreeFolders};value.folderScopes=[];
-        const seen=new Set([root]);
-        for(const card of node.querySelectorAll('[data-folder-card]')) {
-          const color=card.querySelector('[data-color]').value, worktree=card.querySelector('[data-worktree]').value.trim();
-          if(card.dataset.folderCard==='root') {value.rootScopeColors[root]=color;value.rootWorktreeFolders[root]=worktree;continue;}
-          const raw=card.querySelector('[data-path]').value.trim();
-          if(!raw)throw new Error('Every folder needs a path.');
-          const path=projectPath(raw,root,s);
-          if(seen.has(path))throw new Error('Each folder must have a different path.');seen.add(path);
-          value.folderScopes.push({...draft.folderScopes.find(row=>row.path===path),path,label:card.querySelector('[data-label]').value.trim()||path.split('/').pop(),color,worktreeFolder:worktree});
-        }
-        value.selectedFolders=Object.fromEntries(Object.entries(draft.selectedFolders).filter(([,path])=>value.folderScopes.some(row=>row.path===path)));
-        value.worktreeColors={...draft.worktreeColors};
-        const changed=value.folderScopes.filter(row=>!draft.folderScopes.some(old=>old.path===row.path&&old.worktreeFolder===row.worktreeFolder));
-        if(value.rootWorktreeFolders[root] && value.rootWorktreeFolders[root]!==draft.rootWorktreeFolders[root])changed.push({path:root,worktreeFolder:value.rootWorktreeFolders[root]});
-        if(changed.length) {
-          const registered=await api('/api/projects/register',{base:root,projects:changed.map(({path,worktreeFolder})=>({path,worktreeFolder}))},s.abort.signal);
-          s.config=registered.settings;bridge()?.settingsSaved(s.config);
-        }
         bridge().saveSidebar(scope,value);Object.assign(draft,value);
       });
-    const knownWorktrees=new Map(Object.keys(draft.worktreeColors).map(path=>[path,{path}]));
-    function colors() {
-      const host=node.querySelector('[data-worktree-colors]');
-      const projects=[...node.querySelectorAll('[data-folder-card]')].map(card=>{
-        const workspace=card.dataset.folderCard==='root'?root:projectPath(card.querySelector('[data-path]').value,root,s);
-        return {card,folder:projectPath(card.querySelector('[data-worktree]').value.trim()||defaultWorktrees(workspace,s),workspace,s)};
-      }).sort((a,b)=>b.folder.length-a.folder.length);
-      host.innerHTML=[...knownWorktrees.values()].map(row=>{
-        const project=projects.find(({folder})=>row.path.startsWith(folder+'/'));
-        const custom=draft.worktreeColors[row.path],color=custom||project?.card.querySelector('[data-color]').value||'#6e7681';
-        return `<div class="settings-field"><label>${esc(row.name||row.path.split('/').pop())}<small>${custom?'Custom color':'Project color'}</small></label><span class="settings-project-actions"><input type="color" aria-label="Worktree color" value="${esc(color)}" data-worktree-color="${esc(row.path)}">${custom?`<button type="button" data-inherit-color="${esc(row.path)}">Use project color</button>`:''}</span></div>`;
-      }).join('')||'<p class="settings-hint">Worktrees inherit their project color. Scan a worktree folder to set individual colors.</p>';
-      host.querySelectorAll('[data-worktree-color]').forEach(input=>input.onchange=()=>{draft.worktreeColors[input.dataset.worktreeColor]=input.value;colors();});
-      host.querySelectorAll('[data-inherit-color]').forEach(button=>button.onclick=()=>{
-        delete draft.worktreeColors[button.dataset.inheritColor];colors();s.dirty=true;message('Unsaved changes');
-      });
-    }
-    let folderSerial=0;
-    function add(row,isRoot=false) {
-      const id='settings-project-'+(++folderSerial);
-      const card=document.createElement('div');card.className='settings-folder settings-project';card.dataset.folderCard=isRoot?'root':'folder';
-      const name=row.label||row.path?.split('/').filter(Boolean).pop()||'';
-      const locationButton=(kind,label)=>`<span class="settings-project-location"><span>${label}</span><button type="button" class="settings-location-button" data-location-toggle="${kind}" id="${id}-${kind}-toggle" aria-controls="${id}-${kind}" aria-expanded="false">Default</button></span>`;
-      card.innerHTML=`<div class="settings-project-heading">
-        <input type="color" data-color value="${esc(row.color||'#6e7681')}" aria-label="Project color">
-        ${isRoot?'<strong>Root</strong>':`<input type="text" data-label value="${esc(name)}" placeholder="Project name" aria-label="Project name">`}
-        ${locationButton('path','Location')}${locationButton('worktree','Worktrees')}
-        ${isRoot?'':`<button type="button" data-remove class="settings-project-remove" aria-label="Remove project" title="Remove project">×</button>`}
-        </div>
-        <div class="settings-project-editor" data-location-editor="path" id="${id}-path" aria-labelledby="${id}-path-toggle" hidden>
-          ${field(isRoot?'Workspace folder':'Project folder',isRoot?`<input value="${esc(root)}" readonly>`:`<input data-path value="${esc(row.path||'')}" placeholder="~/src/my-project">`)}
-        </div>
-        <div class="settings-project-editor" data-location-editor="worktree" id="${id}-worktree" aria-labelledby="${id}-worktree-toggle" hidden>
-          ${field('Worktree folder',`<input data-worktree value="${esc(row.worktreeFolder||'')}">`,'Leave empty to inherit the project default.')}
-          <button type="button" data-scan>Scan worktrees</button><small data-scan-status role="status"></small>
-        </div>`;
-      node.querySelector('[data-folders]').append(card);
-      card.querySelector('[data-color]').addEventListener('input',colors);
-      const updateDefault=()=>{
-        const raw=isRoot?root:card.querySelector('[data-path]').value;
-        const path=projectPath(raw,root,s), worktree=card.querySelector('[data-worktree]');
-        worktree.placeholder=defaultWorktrees(path,s);
-        const standard=(s.config.worktreesFolder||'~/src/.worktrees').replace(/\/+$/,'')+'/'+path.split('/').filter(Boolean).pop();
-        const defaults={path:isRoot||isDefaultProject(raw,root,s),worktree:projectPath(worktree.value.trim()||worktree.placeholder,path,s)===projectPath(standard,path,s)};
-        for(const [kind,isDefault] of Object.entries(defaults)) {
-          const button=card.querySelector(`[data-location-toggle="${kind}"]`),label=isDefault?'Default':'Custom';
-          button.textContent=label;button.setAttribute('aria-label',`${kind==='path'?'Project':'Worktree'} location: ${label}`);
-        }
-      };
-      for(const selector of ['[data-path]','[data-worktree]'])card.querySelector(selector)?.addEventListener('input',updateDefault);
-      card.querySelector('[data-path]')?.addEventListener('change',()=>{
-        const label=card.querySelector('[data-label]');
-        if(!label.value.trim())label.value=card.querySelector('[data-path]').value.trim().split('/').filter(Boolean).pop()||'';
-      });
-      updateDefault();
-      card.querySelectorAll('[data-location-toggle]').forEach(button=>button.onclick=()=>{
-        const expanded=button.getAttribute('aria-expanded')!=='true';
-        card.querySelectorAll('[data-location-toggle]').forEach(toggle=>{
-          const open=toggle===button&&expanded;
-          toggle.setAttribute('aria-expanded',String(open));
-          card.querySelector(`[data-location-editor="${toggle.dataset.locationToggle}"]`).hidden=!open;
-        });
-        if(expanded)card.querySelector(`[data-location-editor="${button.dataset.locationToggle}"] input`).focus();
-      });
-      card.querySelector('[data-remove]')?.addEventListener('click',()=>{card.remove();s.dirty=true;message('Unsaved changes');});
-      card.querySelector('[data-scan]').onclick=async()=>{
-        const status=card.querySelector('[data-scan-status]'),button=card.querySelector('[data-scan]');
-        try {
-          const workspace=isRoot?root:projectPath(card.querySelector('[data-path]').value,root,s);
-          const folder=card.querySelector('[data-worktree]').value.trim()||defaultWorktrees(workspace,s);
-          button.disabled=true;status.textContent='Scanning…';
-          const params=new URLSearchParams({path:projectPath(folder,workspace,s),repo:workspace,scope:workspace,optional:'true',preview:'true'});
-          const data=await api('/api/sidebar-worktrees?'+params,undefined,s.abort.signal);
-          if(!card.isConnected)return;
-          for(const row of data.folders||[])knownWorktrees.set(row.path,row);
-          colors();status.textContent=(data.folders||[]).length+' worktrees found';
-        }catch(error){if(error.name!=='AbortError')status.textContent=error.message;}
-        finally{button.disabled=false;}
-      };
-      return card;
-    }
-    add({color:draft.rootScopeColors[root],worktreeFolder:draft.rootWorktreeFolders[root]||draft.worktreeFolder},true);
-    draft.folderScopes.forEach(row=>add(row));colors();
-    node.querySelector('[data-project-settings]').onclick=()=>select(globalScope,'projects');
-    const picker=node.querySelector('[data-project-picker]');
-    node.querySelector('[data-add-folder]').onclick=async()=>{
-      picker.hidden=false;
-      picker.innerHTML=`<p class="settings-hint" data-project-status>Loading projects…</p><input type="search" data-project-search placeholder="Filter projects…" aria-label="Filter projects"><select data-project-list size="6" aria-label="Available projects"></select><div class="settings-project-actions"><button type="button" data-use-project disabled>Add selected project</button><button type="button" data-custom-project>Use a custom folder</button><button type="button" data-close-picker>Cancel</button></div>`;
-      picker.querySelector('[data-close-picker]').onclick=()=>{picker.hidden=true;};
-      picker.querySelector('[data-custom-project]').onclick=()=>{const card=add({});picker.hidden=true;s.dirty=true;message('Unsaved changes');card.querySelector('[data-location-toggle="path"]').click();};
-      const list=picker.querySelector('[data-project-list]'),status=picker.querySelector('[data-project-status]'),use=picker.querySelector('[data-use-project]');
-      let catalog=[];
-      const render=()=>{
-        const selected=new Set([root,...[...node.querySelectorAll('[data-folder-card] [data-path]')].map(el=>projectPath(el.value,root,s))]);
-        const needle=picker.querySelector('[data-project-search]').value.toLowerCase();
-        list.innerHTML=catalog.filter(row=>(row.name+' '+row.path).toLowerCase().includes(needle)).map(row=>`<option value="${esc(row.path)}" ${selected.has(row.path)||!row.available?'disabled':''}>${esc(row.name+' — '+(isDefaultProject(row.path,root,s)?'Default':'Custom')+(selected.has(row.path)?' (Added)':!row.available?' (Unavailable)':''))}</option>`).join('');
-        use.disabled=!list.value;
-      };
-      list.onchange=()=>{use.disabled=!list.value;};
-      picker.querySelector('[data-project-search]').oninput=render;
-      use.onclick=()=>{
-        const row=catalog.find(row=>row.path===list.value);if(!row)return;
-        add({path:row.path,label:row.name});picker.hidden=true;s.dirty=true;message('Unsaved changes');
-      };
-      try {
-        const data=await api('/api/projects',undefined,s.abort.signal);
-        if(!list.isConnected)return;
-        catalog=data.projects||[];status.textContent=data.warning||`${catalog.length} projects available`;
-        render();
-      }catch(error){if(error.name!=='AbortError'&&status.isConnected)status.textContent=error.message;}
-    };
-  }
-  function normalizePath(value,root) {
-    const parts=[];
-    for(const part of (value.startsWith('/')?value:root+'/'+value).split('/')) {if(part==='..')parts.pop();else if(part&&part!=='.')parts.push(part);}
-    return '/'+parts.join('/');
   }
   async function open(options={}) {
     if(window.LAB_IS_ADMIN===false)return;

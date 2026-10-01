@@ -3010,6 +3010,8 @@
       current: () => configScope === _sidebarFileConfigScope && baseRoot === _sidebarWorktreeBaseRoot(),
       folders: () => _sidebarFileConfig.folderScopes || [],
       usage: () => _sidebarFileConfig.scopeUsage || {},
+      color: row => _sidebarFolderScope(row.path)?.color || _sidebarFileConfig.worktreeColors?.[row.path]
+        || (row.path === baseRoot ? _sidebarFileConfig.rootScopeColors?.[baseRoot] : ''),
       root: baseRoot,
       select: async row => {
         if (configScope !== _sidebarFileConfigScope || baseRoot !== _sidebarWorktreeBaseRoot()) return;
@@ -3377,7 +3379,7 @@
       ],
       [
         ['uncommitted', 'Uncomm', 'Uncommitted', 'Files with uncommitted changes'],
-        ['local-main', 'vs local', 'vs local main', 'Files changed compared with the local main branch, including uncommitted changes'],
+        ['local-main', 'vs main', 'vs main', 'Files changed compared with the local main branch, including uncommitted changes'],
       ],
     ];
     return `<div class="sidebar-recent-selectors" role="group" aria-label="Recent document and file scope" title="Choose a time window for opened documents and updated files, or a Git scope for files; click the active option again to hide Recently updated">${rows.map(row => `<div class="sidebar-recent-selector-row">${row.map(([value, shortLabel, longLabel, title]) => {

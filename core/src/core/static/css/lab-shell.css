@@ -610,22 +610,22 @@
   @container lab-sidebar (max-width: 399px) {
     .sidebar-recent-selector-row + .sidebar-recent-selector-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   }
-  .sidebar-file-scope-buttons { display: flex; flex-wrap: wrap; gap: 5px; padding: 0 12px 8px; }
+  .sidebar-file-scope-buttons { display: flex; flex-direction: column; gap: 5px; padding: 0 12px 8px; }
   .sidebar-file-scope-button { display: inline-flex; align-items: center; gap: 5px; min-width: 0; max-width: 100%; border: 1px solid var(--border); border-radius: 999px; padding: 4px 8px; background: var(--bg-primary); color: var(--text-secondary); font: 11px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; cursor: pointer; }
   .sidebar-file-scope-button > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .sidebar-file-scope-button:hover { color: var(--text-primary); border-color: var(--sidebar-workspace-color, var(--accent)); }
   .sidebar-file-scope-button.active { border-color: var(--sidebar-workspace-color, var(--accent)); background: var(--bg-tertiary); color: var(--text-primary); box-shadow: inset 0 -2px 0 var(--sidebar-workspace-color, var(--accent)); }
   .sidebar-file-scope-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--sidebar-workspace-color, #6e7681); }
-  .sidebar-scope-chip { display:flex; align-items:center; min-width:0; max-width:100%; border:1px solid var(--border); border-radius:7px; background:var(--bg-primary); padding:0 3px; }
+  .sidebar-scope-chip { display:flex; align-items:center; box-sizing:border-box; min-width:0; max-width:100%; border:1px solid var(--border); border-radius:7px; background:var(--bg-primary); padding:0 3px; }
   .sidebar-scope-chip.active { border-color:var(--sidebar-workspace-color); background:color-mix(in srgb,var(--sidebar-workspace-color) 10%,var(--bg-primary)); }
-  .sidebar-scope-chip .sidebar-file-scope-button { border:0; border-radius:0; box-shadow:none; background:transparent; padding:5px 4px; }
+  .sidebar-scope-chip .sidebar-file-scope-button { flex:1; border:0; border-radius:0; box-shadow:none; background:transparent; padding:5px 4px; }
   .sidebar-scope-chip .sidebar-file-scope-button.active { box-shadow:none; background:transparent; }
   .sidebar-scope-chip .sidebar-file-scope-button span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .sidebar-scope-color { flex:none; width:9px; height:9px; border:0; border-radius:50%; padding:0; margin:0 3px; background:var(--sidebar-workspace-color); cursor:pointer; }
   .sidebar-scope-pin { flex:none; display:grid; place-items:center; width:19px; height:23px; border:0; padding:0; color:var(--text-dim); background:transparent; cursor:pointer; opacity:.5; }
   .sidebar-scope-pin.pinned { color:var(--sidebar-workspace-color); opacity:1; }
   .sidebar-scope-chip:hover .sidebar-scope-pin { opacity:1; }
-  .sidebar-scope-add { width:27px; height:27px; border:1px dashed var(--border); border-radius:7px; padding:0; background:transparent; color:var(--text-secondary); font:20px/1 sans-serif; cursor:pointer; }
+  .sidebar-scope-add { align-self:flex-start; width:27px; height:27px; border:1px dashed var(--border); border-radius:7px; padding:0; background:transparent; color:var(--text-secondary); font:20px/1 sans-serif; cursor:pointer; }
   .sidebar-scope-add:hover { border-color:var(--accent); color:var(--accent); }
   .sidebar-scope-picker,.sidebar-scope-palette { position:fixed; margin:0; box-sizing:border-box; color:var(--text-primary); background:var(--bg-secondary); border:1px solid var(--border); border-radius:10px; box-shadow:0 12px 48px #0007; font:13px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
   .sidebar-scope-picker::backdrop,.sidebar-scope-palette::backdrop { background:transparent; }
@@ -641,7 +641,11 @@
   .sidebar-scope-results strong,.sidebar-scope-results small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .sidebar-scope-results strong { font-weight:500; }
   .sidebar-scope-results small { font-size:10px; color:var(--text-dim); }
-  .sidebar-scope-kind { flex:none; color:var(--text-secondary); font-size:20px; }
+  .sidebar-scope-kind { display:flex; align-items:center; justify-content:center; flex:none; width:28px; height:28px; color:var(--sidebar-scope-color); border:1px solid transparent; border-radius:7px; }
+  .sidebar-scope-kind svg { width:20px; height:20px; }
+  .sidebar-scope-kind.worktree { background:color-mix(in srgb,var(--sidebar-scope-color) 14%,transparent); border-color:color-mix(in srgb,var(--sidebar-scope-color) 35%,transparent); }
+  .sidebar-scope-results .sidebar-scope-type.worktree { padding:2px 5px; border-radius:4px; color:var(--sidebar-scope-color); background:color-mix(in srgb,var(--sidebar-scope-color) 12%,transparent); }
+  .sidebar-scope-search-hint { margin:8px 0 0; color:var(--text-secondary); font-size:10px; }
   .sidebar-scope-type { flex:none; }
   .sidebar-scope-picker [data-status] { margin:10px 0 0; font-size:11px; color:var(--text-secondary); }
   .sidebar-scope-custom { margin-top:8px; border:1px solid var(--border); border-radius:6px; padding:6px; color:var(--accent); background:transparent; cursor:pointer; font:inherit; max-width:100%; overflow-wrap:anywhere; }

@@ -190,7 +190,7 @@
   "filterInput": "CDP mouse",
   "picker": {
     "visibleBeforePin": [
-      "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-7c8sxgmh/vault/.worktrees/main-project/other-worktree"
+      "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-ajm7vx22/vault/.worktrees/main-project/other-worktree"
     ],
     "automaticColors": [
       "#d2a8ff",
@@ -201,47 +201,369 @@
       "#ffa657",
       "#f778ba"
     ],
-    "mostUsed": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-7c8sxgmh/vault/.worktrees/main-project/other-worktree",
+    "mostUsed": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-ajm7vx22/vault/.worktrees/main-project/other-worktree",
+    "kindFilters": [
+      {
+        "query": "worktree",
+        "rows": [
+          {
+            "path": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-ajm7vx22/vault/.worktrees/main-project/other-worktree",
+            "kind": "worktree",
+            "icon": true,
+            "color": "rgb(247, 120, 186)",
+            "badge": "Worktree"
+          },
+          {
+            "path": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-ajm7vx22/vault/.worktrees/feature-project/main-worktree",
+            "kind": "worktree",
+            "icon": true,
+            "color": "rgb(255, 166, 87)",
+            "badge": "Worktree"
+          },
+          {
+            "path": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-ajm7vx22/vault/.worktrees/main-project/feature-worktree",
+            "kind": "worktree",
+            "icon": true,
+            "color": "rgb(63, 185, 80)",
+            "badge": "Worktree"
+          },
+          {
+            "path": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-ajm7vx22/vault/.worktrees/main-project/detached-worktree",
+            "kind": "worktree",
+            "icon": true,
+            "color": "rgb(88, 166, 255)",
+            "badge": "Worktree"
+          }
+        ]
+      },
+      {
+        "query": "branch",
+        "rows": [
+          {
+            "path": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-ajm7vx22/vault/.worktrees/main-project/other-worktree",
+            "kind": "worktree",
+            "icon": true,
+            "color": "rgb(247, 120, 186)",
+            "badge": "Worktree"
+          },
+          {
+            "path": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-ajm7vx22/vault/.worktrees/feature-project/main-worktree",
+            "kind": "worktree",
+            "icon": true,
+            "color": "rgb(255, 166, 87)",
+            "badge": "Worktree"
+          },
+          {
+            "path": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-ajm7vx22/vault/.worktrees/main-project/feature-worktree",
+            "kind": "worktree",
+            "icon": true,
+            "color": "rgb(63, 185, 80)",
+            "badge": "Worktree"
+          },
+          {
+            "path": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-ajm7vx22/vault/.worktrees/main-project/detached-worktree",
+            "kind": "worktree",
+            "icon": true,
+            "color": "rgb(88, 166, 255)",
+            "badge": "Worktree"
+          }
+        ]
+      },
+      {
+        "query": "main",
+        "rows": [
+          {
+            "path": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-ajm7vx22/vault/other-project",
+            "kind": "folder",
+            "icon": true,
+            "color": "rgb(57, 197, 207)",
+            "badge": "Folder"
+          },
+          {
+            "path": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-ajm7vx22/vault/main-project",
+            "kind": "folder",
+            "icon": true,
+            "color": "rgb(210, 168, 255)",
+            "badge": "Folder"
+          },
+          {
+            "path": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-ajm7vx22/vault/feature-project",
+            "kind": "folder",
+            "icon": true,
+            "color": "rgb(255, 123, 114)",
+            "badge": "Folder"
+          },
+          {
+            "path": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-ajm7vx22/vault/.worktrees",
+            "kind": "parent",
+            "icon": true,
+            "color": "rgb(139, 148, 158)",
+            "badge": "Parent folder"
+          },
+          {
+            "path": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-ajm7vx22/vault/apps",
+            "kind": "folder",
+            "icon": true,
+            "color": "rgb(139, 148, 158)",
+            "badge": "Folder"
+          },
+          {
+            "path": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-ajm7vx22/vault/content",
+            "kind": "folder",
+            "icon": true,
+            "color": "rgb(139, 148, 158)",
+            "badge": "Folder"
+          },
+          {
+            "path": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-ajm7vx22/vault/docs",
+            "kind": "folder",
+            "icon": true,
+            "color": "rgb(139, 148, 158)",
+            "badge": "Folder"
+          },
+          {
+            "path": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-ajm7vx22/vault/.worktrees/feature-project",
+            "kind": "parent",
+            "icon": true,
+            "color": "rgb(139, 148, 158)",
+            "badge": "Parent folder"
+          },
+          {
+            "path": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-ajm7vx22/vault/.worktrees/main-project",
+            "kind": "parent",
+            "icon": true,
+            "color": "rgb(139, 148, 158)",
+            "badge": "Parent folder"
+          },
+          {
+            "path": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-ajm7vx22/vault/repositories",
+            "kind": "folder",
+            "icon": true,
+            "color": "rgb(139, 148, 158)",
+            "badge": "Folder"
+          },
+          {
+            "path": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-ajm7vx22/vault/workspaces/comparisons",
+            "kind": "folder",
+            "icon": true,
+            "color": "rgb(139, 148, 158)",
+            "badge": "Folder"
+          },
+          {
+            "path": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-ajm7vx22/vault/scripts",
+            "kind": "folder",
+            "icon": true,
+            "color": "rgb(139, 148, 158)",
+            "badge": "Folder"
+          },
+          {
+            "path": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-ajm7vx22/vault/skills",
+            "kind": "folder",
+            "icon": true,
+            "color": "rgb(139, 148, 158)",
+            "badge": "Folder"
+          },
+          {
+            "path": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-ajm7vx22/vault",
+            "kind": "parent",
+            "icon": true,
+            "color": "rgb(139, 148, 158)",
+            "badge": "Parent folder"
+          },
+          {
+            "path": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-ajm7vx22/vault/workspaces",
+            "kind": "folder",
+            "icon": true,
+            "color": "rgb(139, 148, 158)",
+            "badge": "Folder"
+          }
+        ]
+      },
+      {
+        "query": "master",
+        "rows": [
+          {
+            "path": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-ajm7vx22/vault/other-project",
+            "kind": "folder",
+            "icon": true,
+            "color": "rgb(57, 197, 207)",
+            "badge": "Folder"
+          },
+          {
+            "path": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-ajm7vx22/vault/main-project",
+            "kind": "folder",
+            "icon": true,
+            "color": "rgb(210, 168, 255)",
+            "badge": "Folder"
+          },
+          {
+            "path": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-ajm7vx22/vault/feature-project",
+            "kind": "folder",
+            "icon": true,
+            "color": "rgb(255, 123, 114)",
+            "badge": "Folder"
+          },
+          {
+            "path": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-ajm7vx22/vault/.worktrees",
+            "kind": "parent",
+            "icon": true,
+            "color": "rgb(139, 148, 158)",
+            "badge": "Parent folder"
+          },
+          {
+            "path": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-ajm7vx22/vault/apps",
+            "kind": "folder",
+            "icon": true,
+            "color": "rgb(139, 148, 158)",
+            "badge": "Folder"
+          },
+          {
+            "path": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-ajm7vx22/vault/content",
+            "kind": "folder",
+            "icon": true,
+            "color": "rgb(139, 148, 158)",
+            "badge": "Folder"
+          },
+          {
+            "path": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-ajm7vx22/vault/docs",
+            "kind": "folder",
+            "icon": true,
+            "color": "rgb(139, 148, 158)",
+            "badge": "Folder"
+          },
+          {
+            "path": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-ajm7vx22/vault/.worktrees/feature-project",
+            "kind": "parent",
+            "icon": true,
+            "color": "rgb(139, 148, 158)",
+            "badge": "Parent folder"
+          },
+          {
+            "path": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-ajm7vx22/vault/.worktrees/main-project",
+            "kind": "parent",
+            "icon": true,
+            "color": "rgb(139, 148, 158)",
+            "badge": "Parent folder"
+          },
+          {
+            "path": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-ajm7vx22/vault/repositories",
+            "kind": "folder",
+            "icon": true,
+            "color": "rgb(139, 148, 158)",
+            "badge": "Folder"
+          },
+          {
+            "path": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-ajm7vx22/vault/workspaces/comparisons",
+            "kind": "folder",
+            "icon": true,
+            "color": "rgb(139, 148, 158)",
+            "badge": "Folder"
+          },
+          {
+            "path": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-ajm7vx22/vault/scripts",
+            "kind": "folder",
+            "icon": true,
+            "color": "rgb(139, 148, 158)",
+            "badge": "Folder"
+          },
+          {
+            "path": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-ajm7vx22/vault/skills",
+            "kind": "folder",
+            "icon": true,
+            "color": "rgb(139, 148, 158)",
+            "badge": "Folder"
+          },
+          {
+            "path": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-ajm7vx22/vault",
+            "kind": "parent",
+            "icon": true,
+            "color": "rgb(139, 148, 158)",
+            "badge": "Parent folder"
+          },
+          {
+            "path": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-ajm7vx22/vault/workspaces",
+            "kind": "folder",
+            "icon": true,
+            "color": "rgb(139, 148, 158)",
+            "badge": "Folder"
+          }
+        ]
+      }
+    ],
     "visibleAfterSwitch": [
-      "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-7c8sxgmh/vault/.worktrees/main-project/detached-worktree",
-      "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-7c8sxgmh/vault/.worktrees/main-project/other-worktree"
+      "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-ajm7vx22/vault/.worktrees/main-project/detached-worktree",
+      "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-ajm7vx22/vault/.worktrees/main-project/other-worktree"
+    ],
+    "scopeRows": [
+      {
+        "top": 228,
+        "bottom": 253,
+        "left": 12,
+        "width": 349.390625
+      },
+      {
+        "top": 258,
+        "bottom": 283,
+        "left": 12,
+        "width": 349.390625
+      },
+      {
+        "top": 288,
+        "bottom": 315,
+        "left": 12,
+        "width": 27
+      }
     ],
     "colors": [
       {
-        "path": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-7c8sxgmh/vault/main-project",
+        "path": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-ajm7vx22/vault/main-project",
         "color": "#d2a8ff"
       },
       {
-        "path": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-7c8sxgmh/vault/feature-project",
+        "path": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-ajm7vx22/vault/feature-project",
         "color": "#ff7b72"
       },
       {
-        "path": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-7c8sxgmh/vault/other-project",
+        "path": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-ajm7vx22/vault/other-project",
         "color": "#39c5cf"
       },
       {
-        "path": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-7c8sxgmh/vault/.worktrees/main-project/detached-worktree",
+        "path": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-ajm7vx22/vault/.worktrees/main-project/detached-worktree",
         "color": "#d4d73b"
       },
       {
-        "path": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-7c8sxgmh/vault/.worktrees/main-project/feature-worktree",
+        "path": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-ajm7vx22/vault/.worktrees/main-project/feature-worktree",
         "color": "#3fb950"
       },
       {
-        "path": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-7c8sxgmh/vault/.worktrees/feature-project/main-worktree",
+        "path": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-ajm7vx22/vault/.worktrees/feature-project/main-worktree",
         "color": "#ffa657"
       },
       {
-        "path": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-7c8sxgmh/vault/.worktrees/main-project/other-worktree",
+        "path": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-ajm7vx22/vault/.worktrees/main-project/other-worktree",
         "color": "#f778ba"
       }
     ],
     "reload": {
       "pins": [
-        "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-7c8sxgmh/vault/.worktrees/main-project/other-worktree"
+        "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-ajm7vx22/vault/.worktrees/main-project/other-worktree"
       ],
       "color": "#d4d73b"
     }
+  },
+  "settings": {
+    "duplicateProjectControls": false,
+    "preservedScopePreferences": [
+      "folderScopes",
+      "selectedFolders",
+      "selectedWorktrees",
+      "pinnedScopes",
+      "scopeUsage",
+      "terminalScopePins",
+      "rootScopeColors",
+      "rootWorktreeFolders",
+      "worktreeColors"
+    ]
   },
   "links": {
     "selectInput": "DOM select change event",
@@ -259,30 +581,30 @@
       {
         "type": "internal-docs",
         "label": "Whole proposal",
-        "document_id": "note_6047f6cf682e4fdfbae78bd09d5cc151",
+        "document_id": "note_4a8b194be8b746b78555a0288d43d59d",
         "tab_id": null
       },
       {
         "type": "internal-docs",
         "label": "Implementation tab",
-        "document_id": "note_6047f6cf682e4fdfbae78bd09d5cc151",
-        "tab_id": "note_e56dd1cee22f4c23918c1f8205a1accb"
+        "document_id": "note_4a8b194be8b746b78555a0288d43d59d",
+        "tab_id": "note_b2569427167c4ced8f689b0b3942581d"
       }
     ],
     "tabOpened": "Feature proposal›Implementation notes",
     "wholeDocumentOpened": "Feature proposal"
   },
   "terminal": {
-    "name": "lab-sidebar-comparison-7c8sxgmh-comparisons-bash",
-    "createdScope": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-7c8sxgmh/vault/.worktrees/main-project/detached-worktree",
+    "name": "lab-sidebar-comparison-ajm7vx22-comparisons-bash",
+    "createdScope": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-ajm7vx22/vault/.worktrees/main-project/detached-worktree",
     "attachedScope": {
-      "base_root": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-7c8sxgmh/vault/workspaces/comparisons",
-      "project_root": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-7c8sxgmh/vault/main-project",
-      "root": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-7c8sxgmh/vault/.worktrees/main-project/other-worktree",
-      "worktree": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-7c8sxgmh/vault/.worktrees/main-project/other-worktree",
+      "base_root": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-ajm7vx22/vault/workspaces/comparisons",
+      "project_root": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-ajm7vx22/vault/main-project",
+      "root": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-ajm7vx22/vault/.worktrees/main-project/other-worktree",
+      "worktree": "/private/var/folders/h4/8j7rgrw91fs8bmnnr3z_qkk80000gn/T/lab-sidebar-comparison-ajm7vx22/vault/.worktrees/main-project/other-worktree",
       "label": "main-project · other-worktree",
       "color": "#f778ba",
-      "config_scope": "%2Fprivate%2Fvar%2Ffolders%2Fh4%2F8j7rgrw91fs8bmnnr3z_qkk80000gn%2FT%2Flab-sidebar-comparison-7c8sxgmh%2Fvault%2Fworkspaces%2Fcomparisons"
+      "config_scope": "%2Fprivate%2Fvar%2Ffolders%2Fh4%2F8j7rgrw91fs8bmnnr3z_qkk80000gn%2FT%2Flab-sidebar-comparison-ajm7vx22%2Fvault%2Fworkspaces%2Fcomparisons"
     },
     "pinned": true
   }

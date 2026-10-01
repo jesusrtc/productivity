@@ -11,13 +11,27 @@ The **+** picker lists projects from the configured projects folder (default
 filter by folder, path, or branch; selections sort by usage, then recency. An
 absolute or `~/` path can add a folder directly.
 
-The sidebar shows the active folder and pinned folders. Click the pin to keep a
-shortcut visible; attaching a terminal also pins its exact folder or worktree.
+The sidebar shows the active folder and pinned folders, one per line, with **+**
+on its own line. Worktrees have a colored branch icon and Worktree badge in the
+picker. The search words `branch` / `worktree` restrict results to worktrees;
+`main` / `master` restrict results to folders, including parent folders. These
+filters combine with other search words, and complete paths remain literal.
+
+![Worktree-only search with colored branch icons](worktree-picker-filter.png)
+
+Click the pin to keep a shortcut visible; attaching a terminal also pins its exact folder or worktree.
 Click a color dot to select from 20 fixed colors. Automatic assignment chooses
 an unused color first and reuses the least-used color when the palette is full.
 Pins, usage, and colors persist in this browser's workspace settings.
 
 ![Searchable project and worktree picker](scope-picker.png)
+
+Workspace **File sidebar** Settings contain file preferences only. The duplicate
+project list, location editors, Add project control, and Worktree colors section
+have been removed. Project defaults and link types remain under Global settings.
+Saving file preferences preserves scope selections, pins, colors, and usage.
+
+![File sidebar settings without duplicate project management](file-sidebar-settings.png)
 
 Active folder/worktree links appear immediately below the controls. **Links +**
 opens the editor. Internal links can target an entire document or an individual
@@ -35,21 +49,21 @@ from the source; missing targets remain visible but disabled.
 ## Three comparison categories
 
 **Uncommitted** compares staged and unstaged tracked changes with `HEAD`.
-**vs local main** compares the current checkout's content, including current
+**vs main** compares the current checkout's content, including current
 edits, with the local `main` branch. Neither filter includes untracked/ignored
 files. A newly staged file is included.
 
-| Category | Fixture example | Uncommitted | vs local main |
+| Category | Fixture example | Uncommitted | vs main |
 | --- | --- | --- | --- |
 | In both | `both-staged.txt`, `both-unstaged.txt`, `both-added.txt`, `both-branch-added.txt` | Yes | Yes |
 | Only uncommitted | `uncomm-staged.txt`, `uncomm-unstaged.txt`: branch committed a change, then an uncommitted edit restores main's bytes | Yes | No |
-| Only vs local main | `committed-only.txt`, `committed-added.txt`: committed on this branch and absent from main | No | Yes |
+| Only vs main | `committed-only.txt`, `committed-added.txt`: committed on this branch and absent from main | No | Yes |
 
 On `main` itself, both filters have the same result. The two exclusive
 categories require a branch that differs from main, so the main fixtures show
 that expected equality rather than inventing impossible examples.
 
-| Scope | Uncommitted screenshot | vs local main screenshot |
+| Scope | Uncommitted screenshot | vs main screenshot |
 | --- | --- | --- |
 | Main checkout | [View](main-checkout-uncommitted.png) | [View](main-checkout-local-main.png) |
 | Feature checkout | [View](feature-checkout-uncommitted.png) | [View](feature-checkout-local-main.png) |
@@ -72,7 +86,8 @@ rendered file lists. Backend regression tests additionally cover workspace
 subdirectories within primary and linked checkouts.
 
 The same UI run checks filtered selection, usage order, active-only visibility,
-pin/color persistence after reload, a custom link type, whole-document/tab
+pin/color persistence after reload, scope preservation on file-preference saves,
+a custom link type, whole-document/tab
 navigation, per-checkout link isolation, and real terminal creation/attachment
 with automatic pins. It deletes only its own disposable terminal. The two
 external link clicks reach the OS launcher; the launcher is intercepted in this
@@ -86,3 +101,9 @@ The combined sidebar/settings/links/terminal regression suite passed **183
 tests**, including Chrome navigation and cached DOM performance checks. An
 additional branch-name/parent-kind pinning regression verifies that a worktree's
 actual branch is retained even when its directory has a different name.
+
+The latest UI refinements passed **34 focused frontend tests**, including real
+Chrome Settings checks at desktop and mobile widths. The disposable full UI run
+was repeated after those changes, checking all four kind-filter search words,
+colored worktree icons, one shortcut per line, and scope preservation on saving
+the simplified Settings form.

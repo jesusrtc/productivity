@@ -495,3 +495,11 @@
 - [Sidebar uses an active/pinned scope picker](sidebar-active-pinned-scope-picker.md)
 
 - [Folder and worktree links support whole documents and tabs](worktree-document-and-tab-links.md)
+
+- [Sidebar picker supports worktree and folder search words](sidebar-picker-type-search.md)
+
+- [Sidebar scope shortcuts use one row each](sidebar-scope-shortcuts-one-per-line.md)
+
+- [Sidebar comparison label is vs main](sidebar-main-label.md) — concise visible label; local-main API/storage semantics remain.
+
+- [Sidebar project management lives in the picker](sidebar-project-management-lives-in-picker.md) — no duplicate workspace Settings list; file-preference saves preserve scope state.

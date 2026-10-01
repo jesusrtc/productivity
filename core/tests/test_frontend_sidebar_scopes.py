@@ -98,3 +98,35 @@ process.stdout.write(JSON.stringify({sorted:window.LabSidebarScopes.ranked(rows,
 """)
     assert result == {'sorted': ['/src/z', '/src/a', '/trees/search'], 'branch': ['/trees/search'],
                       'path': ['/src/a'], 'empty': []}
+
+
+def test_picker_keywords_filter_scope_kind_and_combine_with_text():
+    module = (ROOT / 'core/src/core/static/js/lib/sidebar-scope-picker.js').read_text()
+    result = _run_node('const window = {};\n' + module + """
+const rows=[
+  {path:'/src/project',label:'Project',kind:'folder',branch:'feature'},
+  {path:'/src/branch-tools',label:'Branch tools',kind:'folder'},
+  {path:'/src',label:'Projects',kind:'parent'},
+  {path:'/trees/search',label:'Project/feature/search',branch:'feature/search',kind:'worktree'},
+  {path:'/trees/main',label:'Project/main',branch:'main',kind:'worktree'},
+  {path:'/trees/maintenance',label:'Project/maintenance',branch:'maintenance',kind:'worktree'}];
+const usage={'/src/project':{count:5,lastUsed:1},'/trees/main':{count:3,lastUsed:2}};
+const queries=['branch','worktree','branches','WORKTREES','main','MASTER',
+  'worktree search','branch project','main project','master branch-tools',
+  'main worktree','maintenance','/trees/main'];
+process.stdout.write(JSON.stringify(Object.fromEntries(queries.map(query=>[query,
+  window.LabSidebarScopes.ranked(rows,usage,query).map(row=>row.path)]))));
+""")
+    worktrees = ['/trees/main', '/trees/search', '/trees/maintenance']
+    folders = ['/src/project', '/src/branch-tools', '/src']
+    for keyword in ['branch','worktree','branches','WORKTREES']:
+        assert result[keyword] == worktrees
+    for keyword in ['main','MASTER']:
+        assert result[keyword] == folders
+    assert result['worktree search'] == ['/trees/search']
+    assert result['branch project'] == worktrees
+    assert result['main project'] == ['/src/project','/src']
+    assert result['master branch-tools'] == ['/src/branch-tools']
+    assert result['main worktree'] == []
+    assert result['maintenance'] == ['/trees/maintenance']
+    assert result['/trees/main'] == ['/trees/main','/trees/maintenance']

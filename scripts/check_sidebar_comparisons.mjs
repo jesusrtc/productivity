@@ -124,11 +124,37 @@ try {
   if (result.picker.mostUsed !== last.path) throw Error('Usage sorting did not put the most recent tie first');
   const pickerShot = await send('Page.captureScreenshot', {format: 'png'});
   await writeFile(join(output, 'scope-picker.png'), Buffer.from(pickerShot.data, 'base64'));
+  result.picker.kindFilters=[];
+  const replaceSearch=async text=>{
+    await click('.sidebar-scope-picker [data-search]');
+    await send('Input.dispatchKeyEvent',{type:'rawKeyDown',key:'a',code:'KeyA',windowsVirtualKeyCode:65,modifiers:4,commands:['SelectAll']});
+    await send('Input.dispatchKeyEvent',{type:'keyUp',key:'a',code:'KeyA',windowsVirtualKeyCode:65,modifiers:4});
+    if(text)await send('Input.insertText',{text});
+    else {
+      await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Backspace',code:'Backspace'});
+      await send('Input.dispatchKeyEvent',{type:'keyUp',key:'Backspace',code:'Backspace'});
+    }
+  };
+  for(const query of ['worktree','branch','main','master']) {
+    await replaceSearch(query);
+    const worktrees=query==='worktree'||query==='branch';
+    await wait(`document.querySelector('.sidebar-scope-picker [data-search]').value===${JSON.stringify(query)} && Array.from(document.querySelectorAll('.sidebar-scope-picker [data-scope-option]')).every(node=>(node.dataset.scopeKind==='worktree')===${worktrees})`);
+    const rows=await evaluate(`Array.from(document.querySelectorAll('.sidebar-scope-picker [data-scope-option]'),node=>({path:node.dataset.scopeOption,kind:node.dataset.scopeKind,icon:!!node.querySelector('.sidebar-scope-kind svg'),color:getComputedStyle(node.querySelector('.sidebar-scope-kind')).color,badge:node.querySelector('.sidebar-scope-type')?.textContent}))`);
+    if(!rows.length || rows.some(row=>!row.icon || worktrees && row.badge!=='Worktree'))throw Error('Missing scope icons or type filters');
+    result.picker.kindFilters.push({query,rows});
+    if(query==='worktree') {
+      const shot=await send('Page.captureScreenshot',{format:'png'});
+      await writeFile(join(output,'worktree-picker-filter.png'),Buffer.from(shot.data,'base64'));
+    }
+  }
+  await replaceSearch('');
   await send('Input.insertText', {text: first.path});
   await click(`.sidebar-scope-picker [data-scope-option="${first.path}"]`);
   await wait(`document.querySelector('[data-project-sidebar]')?.dataset.projectSidebar===${JSON.stringify(first.path)}`);
   result.picker.visibleAfterSwitch = await evaluate('Array.from(document.querySelectorAll(".sidebar-file-scope-button"),node=>node.dataset.folderPath)');
   if (result.picker.visibleAfterSwitch.length !== 2 || !result.picker.visibleAfterSwitch.includes(last.path)) throw Error('Pinned scope did not survive switching');
+  result.picker.scopeRows=await evaluate(`Array.from(document.querySelectorAll('.sidebar-scope-chip,.sidebar-scope-add'),node=>{const r=node.getBoundingClientRect();return {top:r.top,bottom:r.bottom,left:r.left,width:r.width}})`);
+  if(result.picker.scopeRows.some((row,index,rows)=>index && row.top<rows[index-1].bottom))throw Error('Scopes or + button share a line');
   await click(`.sidebar-scope-color[data-scope-path="${first.path}"]`);
   const paletteButtons = await evaluate('Array.from(document.querySelectorAll(".sidebar-scope-palette [data-color]"),node=>node.dataset.color)');
   if (paletteButtons.length !== 20 || new Set(paletteButtons).size !== 20) throw Error('Expected 20 distinct fixed colors');
@@ -144,7 +170,19 @@ try {
   if (!result.picker.reload.pins.includes(last.path) || result.picker.reload.color !== '#d4d73b') throw Error('Pins or colors were lost on reload');
   // Settings define allowed metadata types without navigating the workspace.
   await click('.sidebar-file-config-cog');
-  await wait('!!document.querySelector("#labSettingsCenter [data-section=files]")');
+  await wait('!!document.querySelector("#labSettingsCenter [name=filesSort]")');
+  if(await evaluate('!!document.querySelector("#labSettingsCenter [data-folders],#labSettingsCenter [data-add-folder],#labSettingsCenter [data-worktree-colors],#labSettingsCenter [data-project-settings]")'))throw Error('Duplicate project settings are still visible');
+  const scopePreferenceKeys=['folderScopes','selectedFolders','selectedWorktrees','pinnedScopes','scopeUsage','terminalScopePins','rootScopeColors','rootWorktreeFolders','worktreeColors'];
+  const readScopePreferences=()=>evaluate(`Object.fromEntries(${JSON.stringify(scopePreferenceKeys)}.map(key=>[key,_sidebarFileConfig[key]]))`);
+  const beforeFileSave=await readScopePreferences();
+  await choose('#labSettingsCenter [name=filesSort]','type');
+  await click('#labSettingsCenter [type=submit]');
+  await wait('document.querySelector("#labSettingsCenter [data-message]")?.textContent==="Saved"');
+  const afterFileSave=await readScopePreferences();
+  if(JSON.stringify(beforeFileSave)!==JSON.stringify(afterFileSave))throw Error('File preference save changed projects, pins, usage, or colors');
+  result.settings={duplicateProjectControls:false,preservedScopePreferences:scopePreferenceKeys};
+  const settingsShot=await send('Page.captureScreenshot',{format:'png'});
+  await writeFile(join(output,'file-sidebar-settings.png'),Buffer.from(settingsShot.data,'base64'));
   await click('#labSettingsCenter [data-scope=global]');
   await click('#labSettingsCenter [data-section=links]');
   await wait('document.querySelectorAll("#labSettingsCenter [data-link-type]").length===3');
