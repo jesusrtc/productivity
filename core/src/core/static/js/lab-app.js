@@ -11465,6 +11465,7 @@
   // further down the script. Without this hoist the helpers hit a
   // TDZ on `_TERM_VIS_KEY_PREFIX`.
   const _TERM_VIS_KEY_PREFIX = 'labTermShown:';
+  const _TERM_PCT_KEY_PREFIX = 'labTermPct:';
   const _TERM_SESSION_ORIENTATION_KEY = 'labTermSessionOrientation';
   const _TERM_SESSION_WIDTH_KEY = 'labTermSessionWidth';
   const _TERM_GROUPS_KEY = 'labTermGroups-v1';
@@ -12717,11 +12718,36 @@
     } catch {}
     return defaultShown;
   }
+
+  function _termWidthKey() {
+    const view = _sidebarViewSuffix();
+    // A checkout or server tab keeps its workspace's width. Absolute paths
+    // also distinguish equally named workspaces in different vaults.
+    const scope = view.startsWith('workspace:') || view.startsWith('proxy:')
+      ? 'workspace:' + encodeURIComponent(currentWorkspace.path || _termSessionsKey(currentWorkspace.name))
+      : view;
+    return _TERM_PCT_KEY_PREFIX + scope;
+  }
+
+  function _termApplyWidthForView() {
+    const valid = pct => Number.isFinite(pct) && pct > 0 && pct < 100;
+    let pct = NaN;
+    try { pct = parseFloat(localStorage.getItem(_termWidthKey())); } catch {}
+    if (!valid(pct)) {
+      // Preserve the previous global choice as the default for untouched
+      // workspaces; resizing now writes only the active workspace's key.
+      try { pct = parseFloat(localStorage.getItem('labTermPct')); } catch {}
+    }
+    if (valid(pct)) document.documentElement.style.setProperty('--term-width', pct + '%');
+    else document.documentElement.style.removeProperty('--term-width');
+  }
+
   // Apply the remembered (or default) visibility for the current view.
   function _termApplyRememberedVisibility() {
     const key = _termVisibilityKey();
     const shown = _termRecallVisibility(key, true);
     document.body.classList.toggle('term-collapsed', !shown);
+    _termApplyWidthForView();
     // The files sidebar piggy-backs on the same per-view entry point: every
     // view init (workspace / self / cerebro) lands here, so this is the one
     // place that restores the sidebar's per-view collapse state + width.
@@ -12791,7 +12817,6 @@
   // drag protect readability.
   (function initColumnResize() {
     const SIDEBAR_KEY = 'labSidebarPct';
-    const TERM_KEY = 'labTermPct';
     const MIN_SIDEBAR_PX = 150;
     const MIN_MAIN_PX = 320;
     const MIN_TERM_PX = 280;
@@ -12814,28 +12839,29 @@
     // this refactor — they'd produce wildly wrong widths).
     const savedSidebar = parseFloat(localStorage.getItem(SIDEBAR_KEY));
     if (Number.isFinite(savedSidebar) && savedSidebar > 0) setSidebarPct(savedSidebar);
-    const savedTerm = parseFloat(localStorage.getItem(TERM_KEY));
-    if (Number.isFinite(savedTerm) && savedTerm > 0) setTermPct(savedTerm);
+    _termApplyWidthForView();
 
-    const wire = (resizerId, dragClass, onDrag, onDrop) => {
+    const wire = (resizerId, dragClass, onDrag, onDrop, scopeKey = null) => {
       const resizer = document.getElementById(resizerId);
       if (!resizer) return;
       let dragging = false;
       let startX = 0;
       let startSidebar = 0;
       let startTerm = 0;
+      let startScope = null;
       resizer.addEventListener('mousedown', (e) => {
         dragging = true;
         startX = e.clientX;
         startSidebar = currentSidebarPct();
         startTerm = currentTermPct();
+        startScope = scopeKey?.();
         document.body.classList.add(dragClass);
         if (resizerId === 'sidebarResizer') _resetSidebarLayout(document.getElementById('sidebar'));
         resizer.classList.add('dragging');
         e.preventDefault();
       });
       document.addEventListener('mousemove', (e) => {
-        if (!dragging) return;
+        if (!dragging || scopeKey && scopeKey() !== startScope) return;
         onDrag(e.clientX - startX, startSidebar, startTerm);
         refit();
       });
@@ -12844,7 +12870,7 @@
         dragging = false;
         document.body.classList.remove(dragClass);
         resizer.classList.remove('dragging');
-        onDrop();
+        if (!scopeKey || scopeKey() === startScope) onDrop(startScope);
         if (resizerId === 'sidebarResizer') _primeSidebarLayout(document.getElementById('sidebar'));
         refit();
         if (typeof termSendResize === 'function') termSendResize();
@@ -12868,14 +12894,16 @@
       } catch {}
     });
 
-    // Main/terminal divider: dragging left grows the terminal.
+    // Main/terminal divider: dragging left grows this workspace's terminal.
     wire('termResizer', 'term-resizing', (dx, _startSidebar, startTerm) => {
       const nextPx = Math.max(MIN_TERM_PX, (startTerm * vw() / 100) - dx);
       const sidebarPx = currentSidebarPct() * vw() / 100;
       const maxPx = vw() - sidebarPx - MIN_MAIN_PX;
       const clamped = Math.min(nextPx, Math.max(MIN_TERM_PX, maxPx));
       setTermPct(pxToPct(clamped));
-    }, () => localStorage.setItem(TERM_KEY, String(currentTermPct())));
+    }, key => {
+      try { localStorage.setItem(key, String(currentTermPct())); } catch {}
+    }, _termWidthKey);
 
     // Window resize: percentages already re-resolve against the viewport,
     // but if the user shrinks past the pixel minimums we rebalance so no

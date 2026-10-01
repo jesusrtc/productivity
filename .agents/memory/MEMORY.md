@@ -517,3 +517,7 @@
 - [Cold scope switches preserve visible content](sidebar-cold-switches-preserve-visible-content.md) — loading indicator, atomic project publication, cancellation/retry, and instant cached navigation.
 
 - [External folder links open on the client](folder-external-links-open-on-client.md) — Google and other folder links follow the clicking browser, including SSH-forwarded sessions.
+
+- [Inline document close is red in the corner](assistant-inline-close-is-red-in-the-corner.md) — visible top-right control with reserved header space and mobile/keyboard access.
+
+- [Terminal panel width is workspace scoped](terminal-panel-width-is-workspace-scoped.md) — independent percentages, legacy default, view restoration and captured drag ownership.
