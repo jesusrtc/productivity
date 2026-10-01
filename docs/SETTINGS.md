@@ -74,8 +74,9 @@ folder/branch label to open the same metadata editor. The internal document
 browser searches titles and content, shows a document list beside its tabs, and offers
 **Whole document** or an individual tab. Saved links show their selected
 destination with a **Change** button. Internal documents and individual tabs
-open directly in Lab; external links open in the default browser. Link types
-are configured under **Global → Link types**.
+open directly in Lab; external folder links open in the clicking browser,
+including sessions forwarded over SSH. Link types are configured under
+**Global → Link types**.
 
 **Recently updated** only includes Git-tracked files that do not match Git
 ignore rules. This applies to time filters and Git comparisons. Time filters

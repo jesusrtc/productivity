@@ -31,7 +31,9 @@
       if (!current()) return;
       const link = data.links[Number(button.dataset.scopeLink)];
       try {
-        if (link.kind === 'external') await window.LabExternalLinks.open(link.url);
+        // Folder links belong to the clicking client, including SSH-forwarded
+        // loopback sessions where the server's browser is on another desktop.
+        if (link.kind === 'external') await window.LabExternalLinks.open(link.url, {clientOnly:true});
         else await window.AssistantView.openLinkedTask(link, {inline:true, wholeDocument:!link.tab_id, isCurrent:current});
       } catch (error) { if (current()) window.alert(error.message); }
     });

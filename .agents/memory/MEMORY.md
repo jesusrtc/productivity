@@ -515,3 +515,5 @@
 - [Scope rows combine branch and actions](sidebar-scopes-combine-branch-and-actions.md) — folder/branch labels, distinct kinds, and active-only inline GitHub/terminal controls.
 
 - [Cold scope switches preserve visible content](sidebar-cold-switches-preserve-visible-content.md) — loading indicator, atomic project publication, cancellation/retry, and instant cached navigation.
+
+- [External folder links open on the client](folder-external-links-open-on-client.md) — Google and other folder links follow the clicking browser, including SSH-forwarded sessions.

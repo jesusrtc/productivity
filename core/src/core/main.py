@@ -647,6 +647,7 @@ def create_app() -> FastAPI:
         _STATIC_DIR / "js" / "lib" / "markdown-content.js",
         _STATIC_DIR / "vendor" / "lab-markdown-editor" / "markdown-editor.min.js",
         _STATIC_DIR / "js" / "lib" / "external-links.js",
+        _STATIC_DIR / "js" / "lib" / "scope-links.js",
         _STATIC_DIR / "js" / "lib" / "terminal-cleanup.js",
         _STATIC_DIR / "js" / "lib" / "workspace-documents.js",
         _STATIC_DIR / "js" / "lib" / "document-terminal.js",

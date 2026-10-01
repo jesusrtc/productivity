@@ -19,7 +19,8 @@ def test_external_link_clicks_in_browser(tmp_path):
     node = shutil.which('node')
     if not Path(chrome).is_file() or not node:
         pytest.skip('Chrome and Node are required')
-    source = (ROOT / 'core/src/core/static/js/lib/external-links.js').read_text()
+    source = '\n'.join((ROOT / 'core/src/core/static/js/lib' / name).read_text()
+                       for name in ('external-links.js', 'scope-links.js'))
     checks = r'''
 const assert = (ok, message) => { if (!ok) throw new Error(message); };
 const requests = [], tabs = [];
@@ -81,6 +82,36 @@ const click = (link, options = {}) => {
   click(associated);
   assert(tabs.length === 2 && requests.length === 7, 'associated documents stay on the client even with a loopback/server flag');
   assert(await LabExternalLinks.open('javascript:alert(1)') === false, 'terminal URLs are validated');
+
+  // An SSH-forwarded browser also looks local to the server. Folder links
+  // must open on the clicking client even when the shell advertises OS opening.
+  const google = 'https://www.google.com/';
+  const fetchBeforeScopes = window.fetch;
+  window.fetch = async (url, options) => url.startsWith('/api/scope-links?')
+    ? {ok:true, json:async()=>({links:[{kind:'external',url:google,label:'Google doc',type_name:'Google Docs'}]})}
+    : fetchBeforeScopes(url, options);
+  const host = document.createElement('section');
+  host.dataset.scopeLinks = '/projects/cpython'; document.body.append(host);
+  let currentScope = true;
+  await LabScopeLinks.mount(host, () => currentScope);
+  // Remounting a cached host must keep the click usable without an API wait.
+  await LabScopeLinks.mount(host, () => currentScope);
+  let activating = false;
+  const openBeforeScopes = window.open;
+  window.open = (...args) => { assert(activating, 'folder link opens synchronously during activation'); return openBeforeScopes(...args); };
+  const googleButton = host.querySelector('[data-scope-link]');
+  googleButton.focus();
+  activating = true; googleButton.click(); activating = false;
+  assert(tabs.length === 3 && tabs[2][0] === google && requests.length === 7,
+    'Google folder link opens in the client browser and never the server desktop');
+  window.LAB_EXTERNAL_BROWSER = false;
+  activating = true; googleButton.click(); activating = false;
+  assert(tabs.length === 4 && tabs[3][0] === google && requests.length === 7, 'remote folder link also opens on the client');
+  currentScope = false;
+  googleButton.click();
+  assert(tabs.length === 4, 'outgoing folder links remain guarded');
+  window.open = openBeforeScopes; window.fetch = fetchBeforeScopes;
+  window.LAB_EXTERNAL_BROWSER = true;
 
   window.fetch = async () => ({ok:false});
   click(anchor('https://example.com/failure')); await tick();

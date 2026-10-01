@@ -123,7 +123,7 @@
     node.querySelector('[data-add-location]').onclick=()=>{add();s.dirty=true;message('Unsaved changes');};
   }
   function linkTypes(panel,s) {
-    const node=form(panel,`<p class="settings-intro">Choose the link types available on projects, folders, and worktrees. Internal documents open in Lab; external links open in your default browser.</p><div data-link-types></div><button type="button" data-add-type>+ Link type</button>`,async()=>{
+    const node=form(panel,`<p class="settings-intro">Choose the link types available on projects, folders, and worktrees. Internal documents open in Lab; external links open in your browser.</p><div data-link-types></div><button type="button" data-add-type>+ Link type</button>`,async()=>{
       const scopeLinkTypes=[...node.querySelectorAll('[data-link-type]')].map(card=>({id:card.dataset.linkType,name:card.querySelector('[data-name]').value.trim(),kind:card.querySelector('[data-kind]').value}));
       await saveGlobal({scopeLinkTypes},s);
     });
