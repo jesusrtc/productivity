@@ -12,14 +12,16 @@
 <div id="lab-objectives-proposal" aria-label="Workspace objectives proposal">
   <div class="ob-shell"><span><strong>Objectives demo</strong> <span class="ob-muted">/ Simulated workspace</span></span><div class="ob-demo-actions"><span class="ob-muted">Demo data only</span><button type="button" class="ob-action" data-reset>Reset demo</button></div></div>
 
-  <nav class="ob-focus" aria-label="Objectives in focus" data-focus></nav>
   <section class="ob-dialog" data-dialog hidden aria-label="Objective action"></section>
   <div class="ob-layout">
-    <aside class="ob-overview" aria-label="Objective resources and worktrees" data-overview></aside>
+    <aside class="ob-overview" aria-label="Objective resources and worktrees">
+      <nav class="ob-focus" aria-label="Objectives in focus" data-focus></nav>
+      <div data-overview></div>
+    </aside>
     <main class="ob-reader" aria-label="Selected resource" data-reader></main>
     <aside class="ob-terminals" aria-label="Terminals by objective and worktree" data-terminals></aside>
   </div>
-  <div class="ob-message" aria-live="polite" data-message>SMS recovery · 3 open to-dos · 2 associated worktrees</div>
+  <div class="ob-message" aria-live="polite" data-message>Drag resources onto a worktree or terminal. Hover a document to reveal its subtabs.</div>
 </div>
 
 </body>
