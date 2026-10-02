@@ -52,6 +52,32 @@ console.log(JSON.stringify({pastes, notices, paths: _termDropPaths(data({'applic
     assert len(result['notices']) == 2
 
 
+def test_reference_drops_keep_urls_tabs_and_registry_targets_as_unsent_arguments():
+    result = run(r'''
+const pastes = [], notices = [];
+const termXterm = {paste: text => pastes.push(text), focus() {}};
+const termWS = {readyState: 1}, WebSocket = {OPEN: 1};
+const _termDragState = null, workspaceTabsDragId = null;
+const explorerToast = text => notices.push(text);
+const data = values => ({types: Object.keys(values), getData: key => values[key] || ''});
+const event = dataTransfer => ({dataTransfer, preventDefault() {}, stopPropagation() {}});
+const references = ['/other vault/Notes.md#tab=child-id', '/workspace/.lab/objectives.json#objective=id&view=tasks', "https://example.com/path?q=one&other=$(bad)#it's-a-tab"];
+_termHandleDrop(event(data({'application/x-lab-reference':JSON.stringify(references),'text/plain':'/wrong/current-workspace.md'})));
+_termHandleDrop(event(data({'text/uri-list':'https://example.com/a?x=1&y=2'})));
+_termHandleDrop(event(data({'text/plain':'https://example.com/b'})));
+for(const value of ['javascript:alert(1)','relative.md','/repo/a\nwhoami','https://example.com/\nwhoami'])
+  _termHandleDrop(event(data({'application/x-lab-reference':JSON.stringify([value]),'text/plain':'/fallback-must-not-paste'})));
+_termHandleDrop(event(data({'application/x-lab-reference':'bad json','text/plain':'/fallback-must-not-paste'})));
+_termHandleDrop(event(data({'text/uri-list':'file://remote/repo/a'})));
+_termHandleDrop(event(data({'application/x-lab-terminal':'session','application/x-lab-reference':JSON.stringify(['/wrong'])})));
+console.log(JSON.stringify({pastes,notices}));
+''')
+    assert result['pastes'] == [
+        "'/other vault/Notes.md#tab=child-id' '/workspace/.lab/objectives.json#objective=id&view=tasks' 'https://example.com/path?q=one&other=$(bad)#it'\\''s-a-tab'",
+        "'https://example.com/a?x=1&y=2'", 'https://example.com/b']
+    assert result['notices'] == []
+
+
 @pytest.mark.parametrize('text,expected', [
     ('│ hello │\n│ world │', 'hello\nworld'),
     ('╭──────╮\n│ hello│\n╰──────╯', 'hello'),
@@ -90,7 +116,8 @@ def test_reflow_application_wraps_without_changing_structured_content(case):
     assert result == case['expected']
 
 
-def test_drag_uses_source_root_and_preserves_filename_whitespace():
+@pytest.mark.parametrize('objectives_enabled', [False, True])
+def test_drag_uses_source_root_and_preserves_filename_whitespace(objectives_enabled):
     source = APP.read_text()
     start = source.index("  document.addEventListener('dragstart', event => {")
     handler = source[start:source.index('  function _termDropPaths(', start)]
@@ -101,13 +128,17 @@ def test_drag_uses_source_root_and_preserves_filename_whitespace():
 let handler;
 const document = {addEventListener: (type, fn) => handler = fn};
 const _explorerContextFromRow = row => row;
-''' + handler + r'''
+const currentWorkspace = {path:'/active/workspace'};
+''' + 'const window={LabObjectives:{active:()=>'+json.dumps(objectives_enabled)+'}};\n' + handler + r'''
 const written = {};
 const dataTransfer = {setData: (key, value) => written[key] = value};
-handler({target:{closest: () => ({root:'/other vault/worktree/',path:'docs/ file.md '})},dataTransfer});
+handler({target:{closest: () => ({root:'/other vault/worktree/',path:'docs/ file.md ',kind:'file'})},dataTransfer});
+written.effect = dataTransfer.effectAllowed;
 console.log(JSON.stringify(written));
 '''], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
     data = json.loads(result.stdout)
     assert json.loads(data['application/x-lab-file-path']) == ['/other vault/worktree/docs/ file.md ']
     assert data['text/plain'] == '/other vault/worktree/docs/ file.md '
+    assert json.loads(data['application/x-lab-file-context']) == {'root':'/other vault/worktree/','path':'docs/ file.md ','kind':'file'}
+    assert data['effect'] == ('copyLink' if objectives_enabled else 'copy')

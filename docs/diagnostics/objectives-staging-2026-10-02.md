@@ -175,3 +175,33 @@ gray roots and flat terminal rails passed. This is measured evidence for the
 listed interactions, not a universal latency guarantee.
 [All sanitized five-tab samples](objectives-five-tabs-2026-10-02.json) retain the
 first-use miss and every validated input clock.
+
+## Follow-up: sidebar references and arbitrary terminal targets
+
+Actual native UI drops into the dedicated phone staging shell passed for ten
+object types: owned document/subtab, Assistant document/subtab, notebook, URL,
+Tasks, workspace Root, Objective directory and worktree. Each pasted its exact
+source reference with shell quoting and no Enter. References were cleared from
+that owned shell without submitting commands.
+
+Native drops onto the owned terminal name persisted associations for those
+same object types plus ordinary Files and folder rows. Clicking the terminal
+reopened the documents/subtabs, notebook, Tasks and folder/worktree browser.
+The external site's association was checked without opening the public site;
+URL dispatch is covered in the isolated native Objective fixture. Dragging the
+terminal onto Tasks also worked and cleared the terminal reorder state.
+
+Objective resources, tasks, worktrees and focus slots remained unchanged. The
+owned shell's original Objective mapping was restored and every terminal's
+saved identity, launch folder, command, label, agent session and original links
+matched its baseline. There were no page exceptions. The existing staging tab
+stopped delivering native input during the first probe, so the verification
+used a fresh test tab; no application workaround was introduced.
+[Sanitized native drag results](objectives-object-drops-2026-10-02.json) contain
+the per-type results and preservation checks.
+
+Focused regressions passed for source identity, URL/subtab quoting, invalid
+references, original Assistant ownership, Tasks/folder association, folder
+boundary rejection, and native file/sidebar behavior. The real-API Objective
+fixture also verifies that associations send no terminal input and preserve
+session metadata while retaining its existing editor/save/conflict checks.

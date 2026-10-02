@@ -49,6 +49,33 @@ const host=path=>({dataset:{scopeLinks:path},isConnected:true,paintCount:0,butto
         {'id':'doc','tab':'tab','whole':False}, {'id':'doc','tab':None,'whole':True}, {'url':'https://new.invalid/','clientOnly':True}]}
 
 
+def test_link_drags_capture_original_url_document_and_tab_and_reject_retired_rows():
+    module = (ROOT/'core/src/core/static/js/lib/scope-links.js').read_text()
+    result = _run_node(r'''
+const document={addEventListener(){},getElementById:()=>null};
+const window={};let active=true;
+const links=[{kind:'internal',document_id:'doc',assistant_root:'/other vault',path:'Notes.md#tab=deep',tab_id:'deep'},
+ {kind:'external',url:'https://example.com/a?one=1&two=2#section'},
+ {kind:'internal',document_id:'missing',assistant_root:'/other vault',unavailable:true}];
+const fetch=async()=>({ok:true,json:async()=>({links,revision:'r'})});
+const host={dataset:{scopeLinks:'/checkout'},isConnected:true,buttons:[],
+ set innerHTML(value){this.edit={};this.buttons=Array.from(value.matchAll(/data-scope-link="(\d+)"/g),m=>({dataset:{scopeLink:m[1]}}))},
+ querySelector(){return this.edit},querySelectorAll(){return this.buttons}};
+''' + module + r'''
+(async()=>{
+ await window.LabScopeLinks.mount(host,()=>active);
+ const drag=button=>{const values={};let prevented=false;button.ondragstart({dataTransfer:{setData:(k,v)=>values[k]=v},preventDefault(){prevented=true}});return{values,prevented}};
+ const drags=host.buttons.map(drag);active=false;const retired=drag(host.buttons[0]);
+ process.stdout.write(JSON.stringify({drags,retired}));
+})().catch(error=>{process.stderr.write(error.stack);process.exitCode=1});
+''')
+    document, external, missing = result['drags']
+    assert json.loads(document['values']['application/x-lab-reference']) == ['/other vault/Notes.md#tab=deep']
+    assert json.loads(document['values']['application/x-lab-assistant-document'])['tab_id'] == 'deep'
+    assert external['values']['text/uri-list'] == 'https://example.com/a?one=1&two=2#section'
+    assert missing == result['retired'] == {'values':{},'prevented':True}
+
+
 @pytest.mark.parametrize('viewport', [1440, 390])
 def test_internal_document_browser_keeps_targets_through_search_and_late_reads(tmp_path, viewport):
     chrome=os.environ.get('CHROME_BIN') or shutil.which('chromium') or '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'

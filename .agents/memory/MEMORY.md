@@ -1,5 +1,7 @@
 # Memory index
 
+- [Sidebar objects paste or associate by drop target](sidebar-object-drops-paste-or-associate.md) — console drops paste source references without Enter; terminal-name and reverse drops associate any Objective sidebar object without changing its launch folder.
+
 - [Workspace objectives use five focus tabs](workspace-objectives-use-five-focus-tabs.md) — All library/search/filters and five vault-style slots replace Overview and left selectors; servers remain.
 - [Global Cleanup uses workspace tabs](global-cleanup-uses-workspace-tabs.md) — beside global Logs; per-workspace review including empty tabs, with kills limited to the selected workspace.
 - [Objective Tasks and fixed gray folders](objective-tasks-and-fixed-gray-folders.md) — Tasks below selectors; gray workspace Root and changing Objective directory precede worktrees.

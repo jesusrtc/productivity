@@ -114,11 +114,23 @@ name and a thin objective-colored line down the left. Worktree groups use spacin
 rather than extra boxes or headings. Shortcut and real checkout paths share the
 same group.
 
-Drag a resource, subtab or file onto a terminal to associate that working view
-with the session. A terminal can also be dropped onto an objective resource.
-Clicking an associated terminal opens its resource and selects the relevant
-worktree. These mappings do not move the terminal's launch folder, transfer
-ownership, change its Assistant document link, or replace its agent session.
+Drop any sidebar object onto a **terminal name** to associate it with that
+session: documents and subtabs, notebooks, links, Tasks, files, folders, Root,
+the Objective directory, or a worktree. The reverse gesture works too: drag a
+terminal onto a resource, Tasks, or a folder/worktree row. Clicking a linked
+terminal reopens that object; Tasks opens the task list and folders use the
+existing folder browser. Its corresponding sidebar scope is selected.
+These mappings do not move the terminal's launch folder, transfer ownership,
+change its Assistant document link, or replace its agent session.
+
+Drop an object **inside the console** to paste its reference without submitting
+input. Local objects use their captured absolute source path, external links
+use their URL, and document subtabs retain `#tab=<id>`. Shell quoting preserves
+spaces and special characters. Tasks uses its common details document when
+there is one; empty lists or lists with multiple detail documents reference the
+objective's entry in `.lab/objectives.json`. Console drops never create an
+association. Ordinary workspace links and file/folder rows also support these
+reference pastes.
 
 ## Storage and commands
 
@@ -126,7 +138,10 @@ The version-1 registry is `<workspace>/.lab/objectives.json`. Owned content
 lives under `<workspace>/objectives/<objective-id>/` as ordinary Markdown and
 notebook files. Markdown uses the existing embedded subtab format with stable
 IDs. Assistant resources store references. Existing-file resources store their
-folder and relative path. Terminal mappings use stable session UUIDs. The
+folder and relative path. Terminal mappings use stable session UUIDs and one
+target: a resource/subtab, file, folder, or `view: "tasks"`. Folder paths are
+validated within the objective's workspace, own directory, or associated
+checkout roots, including after resolving symlinks. The
 existing `focused` array holds ordered objective IDs; empty slots can contain
 `null`. Focus mutations accept a zero-based `slot` from 0 to 4. Older three-slot
 registries remain readable without a migration.

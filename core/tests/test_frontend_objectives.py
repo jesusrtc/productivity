@@ -26,7 +26,16 @@ def test_objective_inline_editor_serializes_sibling_saves_and_retains_conflicts(
     for name in ['Child','Sibling']:
         data = objectives.mutate(monorepo, 'demo', {'type':'subtab','objective_id':oid,'resource_id':rid,'title':name,'body':name+' source'})
     resource = data['objectives'][0]['resources'][0]
-    fixture = {'folder':str(folder),'oid':oid,'rid':rid,'child':resource['content']['tabs'][0]['id']}
+    checkout = tmp_path/'other checkout';checkout.mkdir()
+    data = objectives.mutate(monorepo, 'demo', {'type':'worktree','objective_id':oid,'path':str(checkout),'kind':'folder'})
+    for kind, title, extra in [('notebook','Analysis',{}),('link','External',{'url':'https://example.com/a?one=1&two=2#section'})]:
+        data = objectives.mutate(monorepo, 'demo', {'type':'resource','objective_id':oid,'kind':kind,'title':title,**extra})
+    file = folder/'existing file.py';file.write_text('print(1)\n')
+    data = objectives.mutate(monorepo, 'demo', {'type':'resource','objective_id':oid,'kind':'file','title':'Existing file','path':file.name})
+    from core.routes import term
+    term._upsert_workspace_session(monorepo,'demo',{'name':'native-drag-shell','kind':'terminal','cwd':str(folder),'agent_session_id':'preserved'})
+    saved_session=term._get_workspace_sessions(monorepo,'demo')[0]
+    fixture = {'folder':str(folder),'oid':oid,'rid':rid,'child':resource['content']['tabs'][0]['id'],'checkout':str(checkout),'session':saved_session,'editorPath':resource['path']}
     scripts = '\n'.join('<script>'+(STATIC/path).read_text()+'</script>' for path in [
         'vendor/marked@12.0.1/marked.min.js','vendor/dompurify@3.4.15/purify.min.js',
         'js/lib/markdown-content.js','vendor/lab-markdown-editor/markdown-editor.min.js','js/lib/workspace-objectives.js'])
@@ -46,10 +55,35 @@ window.fetch=async(url,options={})=>{
 };
 window.read=()=>realFetch('/api/objectives?workspace_id=demo').then(r=>r.json());
 window.resource=data=>data.objectives[0].resources[0];
-LabObjectives.connect({context:()=>({workspace_id:'demo',path:FIX.folder}),refreshTabs:()=>document.getElementById('tabs').innerHTML=LabObjectives.tabsHtml(FIX.folder),readyContent:()=>Promise.resolve(),prepareCenter:()=>{},selectWorktree:()=>{}});
+const pasted=[],termXterm={paste:text=>pasted.push(text),focus(){}},termWS={readyState:1};
+const _termDragState=null,workspaceTabsDragId=null;
+const notices=[],opened=[];let scopeRoot=FIX.folder;
+window.explorerToast=(message,error)=>{if(error)throw Error(message);notices.push(message)};
+document.getElementById('termBody').addEventListener('drop',_termHandleDrop);
+document.addEventListener('dragstart',event=>{if(event.isTrusted){window.nativeDrag={effect:event.dataTransfer.effectAllowed,reference:event.dataTransfer.getData('application/x-lab-reference')};event.preventDefault()}});
+window.checkDrag=(selector,expected)=>{
+ const node=document.querySelector(selector),transfer=new DataTransfer();assert(node?.draggable,'draggable '+selector);
+ node.dispatchEvent(new DragEvent('dragstart',{bubbles:true,cancelable:true,dataTransfer:transfer}));
+ assert(JSON.parse(transfer.getData('application/x-lab-reference'))[0]===expected,'captured reference '+selector);
+ const count=pasted.length;
+ document.getElementById('termBody').dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:transfer}));
+ assert(pasted.length===count+1&&pasted.at(-1)===_termQuoteDropPath(expected),'unsent console paste '+selector);
+};
+window.checkLink=async(selector,expected)=>{
+ const node=document.querySelector(selector),transfer=new DataTransfer();
+ node.dispatchEvent(new DragEvent('dragstart',{bubbles:true,cancelable:true,dataTransfer:transfer}));
+ const count=pasted.length;
+ document.querySelector('#termSessionList .sess').dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:transfer}));
+ await until(async()=>{const link=(await read()).terminal_links[FIX.session.session_id];return link&&Object.entries(expected).every(([key,value])=>JSON.stringify(link[key])===JSON.stringify(value))});
+ assert(pasted.length===count,'association never writes terminal input');
+ await LabObjectives.load(undefined,true);assert(LabObjectives.openForTerminal(FIX.session),'linked terminal opens target');
+};
+LabObjectives.connect({context:()=>({workspace_id:'demo',path:FIX.folder}),refreshTabs:()=>document.getElementById('tabs').innerHTML=LabObjectives.tabsHtml(FIX.folder),readyContent:()=>Promise.resolve(),prepareCenter:()=>{},scopeRoot:()=>scopeRoot,selectWorktree:row=>{scopeRoot=row.path},session:name=>name===FIX.session.name?FIX.session:null,openLink:link=>opened.push({url:link.url}),openFile:file=>opened.push({file}),openNotebook:r=>opened.push({notebook:r.path}),openFolder:folder=>opened.push({folder})});
 (async()=>{await LabObjectives.load();LabObjectives.selectObjective(FIX.oid);document.getElementById('result').textContent='READY'})().catch(e=>document.getElementById('result').textContent=e.stack);
 '''
-    page = '<!doctype html><meta charset="utf-8"><style>'+ (STATIC/'css/lab-shell.css').read_text()+(STATIC/'css/workspace-objectives.css').read_text()+'</style><div class="repo-tabs" id="tabs"></div><div id="sidebar"><section data-objectives-sidebar></section></div><main id="content"></main><pre id="result">PENDING</pre>'+scripts+'<script>const FIX='+json.dumps(fixture)+';</script><script>'+setup+'</script>'
+    app = (STATIC/'js/lab-app.js').read_text()
+    setup = app[app.index('  function _termDropPaths('):app.index('  function _termReflowSelection(')] + setup
+    page = '<!doctype html><meta charset="utf-8"><style>'+ (STATIC/'css/lab-shell.css').read_text()+(STATIC/'css/workspace-objectives.css').read_text()+'</style><div class="repo-tabs" id="tabs"></div><div id="sidebar"><section data-objectives-sidebar></section></div><main id="content"></main><div id="termSessionList"><button class="sess" data-name="'+saved_session['name']+'">Shell</button></div><div id="termBody"></div><pre id="result">PENDING</pre>'+scripts+'<script>const FIX='+json.dumps(fixture)+';</script><script>'+setup+'</script>'
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args): pass
         def do_GET(self):
@@ -80,6 +114,18 @@ const fs=require('node:fs');
  await send('Page.navigate',{url:process.argv[2]});
  for(let i=0;i<200;i++){if(await evaluate('!!window.until'))break;await new Promise(r=>setTimeout(r,20));}
  await evaluate(`until(()=>document.getElementById('result').textContent==='READY')`);
+ await evaluate(`(async()=>{const d=await read(),o=d.objectives[0];for(const r of o.resources)checkDrag('[data-objective-resource="'+r.id+'"]',r.kind==='link'?r.url:(r.file_root||FIX.folder)+'/'+r.path);checkDrag('[data-open-objective-tasks]',FIX.folder+'/.lab/objectives.json#objective='+FIX.oid+'&view=tasks');checkDrag('[data-select-worktree="workspace-root"]',FIX.folder);checkDrag('[data-select-worktree="objective-root"]',o.path);checkDrag('[data-objective-worktree] [data-select-worktree]',FIX.checkout);const result=await fetch('/api/objectives',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({workspace_id:'demo',expected:d.revision,action:{type:'task',objective_id:FIX.oid,title:'Task with details'}})});assert(result.ok,'task creation');await LabObjectives.load(undefined,true);const updated=await read(),task=updated.objectives[0].tasks[0],resource=updated.objectives[0].resources.find(r=>r.id===task.document_id);checkDrag('[data-open-objective-tasks]',FIX.folder+'/'+resource.path)})()`);
+ const dragPoint=await evaluate(`(()=>{const n=document.querySelector('[data-objective-resource]');n.scrollIntoView({block:'center'});const r=n.getBoundingClientRect();return{x:r.x+Math.min(40,r.width/2),y:r.y+r.height/2}})()`);
+ await send('Input.dispatchMouseEvent',{type:'mouseMoved',...dragPoint});
+ await send('Input.dispatchMouseEvent',{type:'mousePressed',...dragPoint,button:'left',buttons:1,clickCount:1});
+ await send('Input.dispatchMouseEvent',{type:'mouseMoved',x:dragPoint.x+20,y:dragPoint.y+4,button:'left',buttons:1});
+ await send('Input.dispatchMouseEvent',{type:'mouseMoved',x:dragPoint.x+40,y:dragPoint.y+8,button:'left',buttons:1});
+ await send('Input.dispatchMouseEvent',{type:'mouseReleased',x:dragPoint.x+40,y:dragPoint.y+8,button:'left',clickCount:1});
+ await evaluate(`assert(nativeDrag.effect==='copyLink'&&JSON.parse(nativeDrag.reference)[0]===FIX.folder+'/'+FIX.editorPath,'trusted native drag carries source and supports copy or association')`);
+ await evaluate(`(async()=>{for(const r of (await read()).objectives[0].resources)await checkLink('[data-objective-resource="'+r.id+'"]',{resource_id:r.id});assert(opened.some(o=>o.url==='https://example.com/a?one=1&two=2#section')&&opened.some(o=>o.notebook)&&opened.some(o=>o.file),'links, notebooks and files reopen');await checkLink('[data-open-objective-tasks]',{view:'tasks'});assert(document.querySelector('.objective-working h2').textContent==='Tasks','Tasks association opens task list');for(const [id,root] of [['workspace-root',FIX.folder],['objective-root',(await read()).objectives[0].path]]){await checkLink('[data-select-worktree="'+id+'"]',{folder:{root,path:'.'}});await until(()=>opened.some(o=>o.folder?.root===root));assert(scopeRoot===root,'folder association selects sidebar scope')}await checkLink('[data-objective-worktree] [data-select-worktree]',{folder:{root:FIX.checkout,path:'.'}});await until(()=>opened.some(o=>o.folder?.root===FIX.checkout));assert(scopeRoot===FIX.checkout,'worktree association selects captured checkout');const transfer=new DataTransfer();transfer.setData('application/x-lab-file-path',JSON.stringify([FIX.folder+'/existing file.py']));transfer.setData('application/x-lab-file-context',JSON.stringify({kind:'file',root:FIX.folder,path:'existing file.py'}));document.querySelector('#termSessionList .sess').dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:transfer}));await until(async()=>{const link=(await read()).terminal_links[FIX.session.session_id];return link.file?.root===FIX.folder&&link.file.path==='existing file.py'});assert(pasted.every(p=>!p.includes('\\n')),'no submitted drops')})()`);
+ await click('[data-objective-resource]');
+ await evaluate(`checkDrag('[data-objective-tab="'+FIX.child+'"]',FIX.folder+'/'+FIX.editorPath+'#tab='+FIX.child)`);
+ await evaluate(`checkLink('[data-objective-tab="'+FIX.child+'"]',{resource_id:FIX.rid,tab_id:FIX.child})`);
  await click('[data-objective-resource]');
  await evaluate(`assert(editor()&&document.querySelector('.cm-content strong')?.textContent==='Bold','live editor on open');assert(getComputedStyle(editor().view.dom).fontSize==='13px','native text size');assert(document.querySelector('[data-objectives-sidebar]').firstElementChild.hasAttribute('data-open-objective-tasks'),'Tasks at sidebar top');assert(document.querySelectorAll('[data-objective-root]').length===2,'two fixed roots');assert(document.querySelectorAll('[data-objective-slot]').length===5&&document.querySelector('[data-all-objectives]'),'All and five top slots');assert(!document.querySelector('.objective-selectors'),'no duplicate sidebar selectors');assert(document.querySelectorAll('.objective-document [role=tablist]').length===0,'tabs outside content')`);
  await type('\nFirst submitted edit.');
@@ -116,5 +162,6 @@ const fs=require('node:fs');
         result=subprocess.run(['node','-e',driver,str(profile),f'http://127.0.0.1:{server.server_port}'],capture_output=True,text=True,timeout=90)
         assert result.returncode==0,result.stdout+result.stderr
         assert 'PASS' in result.stdout
+        assert term._get_workspace_sessions(monorepo,'demo') == [saved_session]
     finally:
         process.terminate();process.wait(timeout=10);server.shutdown();server.server_close()

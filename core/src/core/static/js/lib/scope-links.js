@@ -245,8 +245,20 @@
     });
   }
   function render(host, data, current) {
-    host.innerHTML = `<div class="sidebar-scope-links-head"><span>Links</span><button type="button" data-edit-links aria-label="Edit links for this folder" title="Edit links">+</button></div><div class="sidebar-scope-links-list">${data.links.map((link, index) => `<button type="button" data-scope-link="${index}" class="sidebar-scope-link" ${link.unavailable ? 'disabled' : ''} title="${esc(linkTitle(link))}">${icon(link)}<span>${esc(label(link))}</span></button>`).join('')}</div>`;
+    host.innerHTML = `<div class="sidebar-scope-links-head"><span>Links</span><button type="button" data-edit-links aria-label="Edit links for this folder" title="Edit links">+</button></div><div class="sidebar-scope-links-list">${data.links.map((link, index) => `<button type="button" data-scope-link="${index}" class="sidebar-scope-link" ${link.unavailable ? 'disabled' : 'draggable="true"'} title="${esc(linkTitle(link))}">${icon(link)}<span>${esc(label(link))}</span></button>`).join('')}</div>`;
     host.querySelector('[data-edit-links]').onclick = () => edit(host.dataset.scopeLinks, host._scopeLinksCurrent, host._scopeLinksScope);
+    host.querySelectorAll('[data-scope-link]').forEach(button => button.ondragstart = event => {
+      const link = data.links[Number(button.dataset.scopeLink)], transfer = event.dataTransfer;
+      if (!current() || link.unavailable || !transfer) { event.preventDefault(); return; }
+      const reference = link.kind === 'external' ? link.url : link.path?.startsWith('/') ? link.path
+        : link.assistant_root?.startsWith('/') && link.path ? rootKey(link.assistant_root) + '/' + link.path : null;
+      if (!reference || /[\x00-\x1f\x7f]/.test(reference)) { event.preventDefault(); return; }
+      transfer.setData('application/x-lab-reference', JSON.stringify([reference]));
+      transfer.setData('text/plain', reference);
+      if (link.kind === 'external') transfer.setData('text/uri-list', reference);
+      else transfer.setData(documentMime, JSON.stringify({document_id:link.document_id,assistant_root:link.assistant_root,path:link.path,tab_id:link.tab_id || null,title:link.title}));
+      transfer.effectAllowed = 'copyLink';
+    });
     host.querySelectorAll('[data-scope-link]').forEach(button => button.onclick = async (event = {}) => {
       if (!current()) return;
       const link = data.links[Number(button.dataset.scopeLink)];

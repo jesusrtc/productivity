@@ -5,6 +5,16 @@ PTY and WebSocket. The browser's input/output path is unchanged by socket
 rotation: once attached, terminal bytes continue to travel directly between
 the PTY and WebSocket event loop.
 
+## Sidebar references and object links
+
+Sidebar objects dropped inside the console paste a shell-quoted reference
+without Enter: the captured absolute file/folder path, document path with its
+subtab fragment, or external URL. Objective Tasks also has a draggable reference.
+In an Objectives workspace, dropping onto a terminal's name instead stores an
+independent link to the object; clicking that terminal reopens it. Tasks and
+folder/worktree targets use this association without changing the launch folder
+or the running process. See [OBJECTIVES.md](OBJECTIVES.md).
+
 ## Inactive terminal cleanup
 
 The global **Cleanup** button sits beside **Logs** in the header. Its modal has

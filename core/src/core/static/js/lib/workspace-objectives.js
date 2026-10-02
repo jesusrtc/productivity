@@ -69,6 +69,23 @@
     const root=resource.document_id||resource.id,rows=resource.content?.tabs||[],children=new Map();rows.forEach(t=>{const parent=t.parent?.id||root;if(!children.has(parent))children.set(parent,[]);children.get(parent).push(t);});
     const result=[],seen=new Set();function visit(id,depth){for(const t of children.get(id)||[]){if(seen.has(t.id))continue;seen.add(t.id);result.push({...t,depth});visit(t.id,depth+1);}}visit(root,0);rows.filter(t=>!seen.has(t.id)).forEach(t=>result.push({...t,depth:0}));return result;
   }
+  function resourceReference(resource,tabId) {
+    if(!resource||resource.error)return null;
+    if(resource.kind==='link')return resource.url;
+    const root=resource.kind==='assistant'?resource.assistant_root:resource.kind==='file'?resource.file_root:context()?.path;
+    if(!root?.startsWith('/')||!resource.path)return null;
+    const path=resource.path.startsWith('/')?resource.path:root.replace(/\/+$/,'')+'/'+resource.path;
+    const tab=tabId||resource.tab_id;
+    return path+(tab&&!path.includes('#tab=')?'#tab='+encodeURIComponent(tab):'');
+  }
+  function dragReference(transfer,reference) {
+    if(!transfer||!reference||/[\x00-\x1f\x7f]/.test(reference))return false;
+    transfer.setData('application/x-lab-reference',JSON.stringify([reference]));
+    transfer.setData('text/plain',reference);
+    if(reference.startsWith('/')&&!reference.includes('#'))transfer.setData('application/x-lab-file-path',JSON.stringify([reference]));
+    else if(/^https?:\/\//i.test(reference))transfer.setData('text/uri-list',reference);
+    transfer.effectAllowed='copyLink';return true;
+  }
   function resourceRow(o,r) {
     const selected=state().selected?.resource===r.id&&!state().selected?.tab,icon=r.kind==='notebook'?'▦':r.kind==='link'?'↗':'▤';
     const rows=tabsFor(r),reveal=state().revealed.has(r.id),pins=state().pins[r.id]||[];
@@ -82,11 +99,11 @@
     if(!d.enabled){host.innerHTML='<button type="button" class="sidebar-objective-add" data-new-objective>+ Objective</button>';return;}
     const o=objective();if(!o)return;state().objective=o.id;
     const t=tree(o),general=o.resources.filter(r=>!r.worktree),scoped=o.resources.filter(r=>r.worktree&&(r.worktree===t?.id||r.worktree===t?.membership));
-    host.innerHTML=`<button type="button" class="sidebar-scope-link objective-tasks" data-open-objective-tasks><span aria-hidden="true">☑</span><span>Tasks</span>${badge(o)}</button>
+    host.innerHTML=`<button type="button" class="sidebar-scope-link objective-tasks" data-open-objective-tasks draggable="true"><span aria-hidden="true">☑</span><span>Tasks</span>${badge(o)}</button>
       <div class="sidebar-title objective-title">${esc(o.name)}<button type="button" data-objective-settings aria-label="Objective settings">⚙</button></div>
       <section data-objective-shared><div class="sidebar-title objective-title">Documents & notebooks<button type="button" data-add-resource="document" aria-label="Add objective document">+</button></div><div class="objective-resources">${general.filter(r=>r.kind!=='link').map(r=>resourceRow(o,r)).join('')}</div><div class="sidebar-title objective-title">Links<button type="button" data-add-resource="link" aria-label="Add objective link">+</button></div><div class="objective-resources">${general.filter(r=>r.kind==='link').map(r=>resourceRow(o,r)).join('')}</div>
       </section>
-      <div class="sidebar-title objective-title">Worktrees<button type="button" data-associate-worktree aria-label="Associate worktree">+</button></div><div class="objective-worktrees">${scopeRows(o).map(item=>`<div class="sidebar-scope-chip${item.id===t?.id?' active':''}" style="--sidebar-workspace-color:${esc(item.color)}" ${item.fixed?'data-objective-root':'data-objective-worktree'}="${esc(item.id)}"><span class="objective-worktree-icon" aria-hidden="true">${item.fixed?'⌂':'⑂'}</span><button type="button" class="sidebar-file-scope-button" data-select-worktree="${esc(item.id)}" aria-pressed="${item.id===t?.id}" title="${esc(item.path)}"><span>${esc(item.label)}</span></button><span class="sidebar-scope-tag">${esc(item.kind==='folder'?'Folder':'Worktree')}</span></div>`).join('')}</div>
+      <div class="sidebar-title objective-title">Worktrees<button type="button" data-associate-worktree aria-label="Associate worktree">+</button></div><div class="objective-worktrees">${scopeRows(o).map(item=>`<div class="sidebar-scope-chip${item.id===t?.id?' active':''}" style="--sidebar-workspace-color:${esc(item.color)}" ${item.fixed?'data-objective-root':'data-objective-worktree'}="${esc(item.id)}"><span class="objective-worktree-icon" aria-hidden="true">${item.fixed?'⌂':'⑂'}</span><button type="button" class="sidebar-file-scope-button" data-select-worktree="${esc(item.id)}" draggable="true" aria-pressed="${item.id===t?.id}" title="${esc(item.path)}"><span>${esc(item.label)}</span></button><span class="sidebar-scope-tag">${esc(item.kind==='folder'?'Folder':'Worktree')}</span></div>`).join('')}</div>
       ${scoped.length?`<div class="sidebar-title">For this ${t?.kind==='folder'?'folder':'worktree'}</div><div class="objective-resources">${scoped.map(r=>resourceRow(o,r)).join('')}</div>`:''}`;
     host.querySelectorAll('[data-resource-group]').forEach(row=>{row.onmouseenter=()=>{clearTimeout(hoverTimer);const id=row.dataset.resourceGroup;hoverTimer=setTimeout(()=>{if(row.isConnected&&key(context())===key(scope)){state().revealed.add(id);paint();}},1500);};row.onmouseleave=()=>clearTimeout(hoverTimer);});
   }
@@ -253,7 +270,35 @@
       return `<section class="objective-terminal-group" style="--objective-color:${esc(o.color)}"><button type="button" class="objective-terminal-heading" data-select-objective="${esc(id)}" title="${esc(o.name)}">${esc(o.name)}</button><div class="objective-terminal-rows">${terminals}</div></section>`;
     }).join('')+newButton;
   }
-  function openForTerminal(t) {const link=data()?.terminal_links[terminalIdentity(t)],o=terminalObjective(t);if(!o||!link)return false;state().objective=o.id;state().view='objective';const resource=o.resources.find(r=>r.id===link.resource_id),w=o.worktrees.find(w=>w.id===resource?.worktree||[w.path,w.resolved_path].includes(link.file?.root||t.linked_scope?.root));if(w){state().tree[o.id]=w.id;if(bridge.scopeRoot?.()!==w.path)bridge.selectWorktree?.(w);}persistView();if(link.resource_id)openResource(link.resource_id,link.tab_id);else if(link.file)bridge.openFile?.(link.file);paint();return true;}
+  function openForTerminal(t) {
+    const link=data()?.terminal_links[terminalIdentity(t)],o=terminalObjective(t);if(!o||!link)return false;
+    state().objective=o.id;state().view='objective';
+    const resource=o.resources.find(r=>r.id===link.resource_id),root=link.folder?.root||link.file?.root||t.linked_scope?.root;
+    const w=scopeRows(o).find(w=>w.id===resource?.worktree||[w.path,w.resolved_path].includes(root));
+    let selected;if(w){state().tree[o.id]=w.id;if(bridge.scopeRoot?.()!==w.path)selected=bridge.selectWorktree?.(w);}persistView();
+    if(link.view==='tasks'||link.folder){
+      state().selected=null;renderTasks();
+      if(link.folder){const view=openView,scope=key(context());Promise.resolve(selected).then(()=>{if(openView===view&&key(context())===scope)bridge.openFolder?.(link.folder);});}
+    }else if(link.resource_id)openResource(link.resource_id,link.tab_id);else if(link.file)bridge.openFile?.(link.file);
+    paint();return true;
+  }
+  function sidebarTarget(node,o=objective()) {
+    const resource=node.closest?.('[data-objective-resource]');if(resource)return {resource_id:resource.dataset.objectiveResource,tab_id:resource.dataset.objectiveTab||null};
+    if(node.closest?.('[data-objectives-sidebar] [data-open-objective-tasks]'))return {view:'tasks'};
+    const row=node.closest?.('[data-objective-root],[data-objective-worktree]'),tree=scopeRows(o).find(t=>t.id===(row?.dataset.objectiveRoot||row?.dataset.objectiveWorktree));
+    return tree?{folder:{root:tree.path,path:'.'}}:null;
+  }
+  function linkTerminal(t,target,o=objective()) {
+    if(!t)throw new Error('Choose a terminal in this workspace');
+    return change({type:'terminal',objective_id:o.id,session_id:terminalIdentity(t),source:t.document_source,...target}).then(()=>notify('Terminal linked.'));
+  }
+  function fileDropTarget(transfer) {
+    const raw=transfer.getData('application/x-lab-file-context');
+    if(raw){const file=JSON.parse(raw);if(!['file','folder'].includes(file.kind)||!file.root?.startsWith('/')||typeof file.path!=='string')throw new Error('Choose a file or folder in this objective');return {[file.kind]:{root:file.root,path:file.path}};}
+    const path=JSON.parse(transfer.getData('application/x-lab-file-path'))[0];
+    const root=scopeRows().map(t=>t.path).filter(root=>typeof path==='string'&&(path===root||path.startsWith(root.replace(/\/+$/,'')+'/'))).sort((a,b)=>b.length-a.length)[0];
+    if(!root)throw new Error('Choose a file in this objective');return {file:{root,path}};
+  }
   function handleClick(e) {
     const host=e.target.closest?.('[data-objectives-sidebar],.objective-working,.objective-dialog,.objective-terminal-group,[data-objective-notebook-controls],.repo-tabs');
     if(!host)return;
@@ -296,21 +341,30 @@
   document.addEventListener('dragstart',e=>{
     const project=e.target.closest?.('[data-drag-objective],.objective-tab[data-select-objective]');
     if(project){e.dataTransfer.setData(objectiveMime,JSON.stringify({scope:key(context()),objective_id:project.dataset.dragObjective||project.dataset.selectObjective}));e.dataTransfer.effectAllowed='move';return;}
-    const row=e.target.closest?.('[data-objective-resource]');if(row)e.dataTransfer.setData(resourceMime,JSON.stringify({objective_id:objective().id,resource_id:row.dataset.objectiveResource,tab_id:row.dataset.objectiveTab||null}));
+    const row=e.target.closest?.('[data-objective-resource]'),o=objective();
+    if(row&&o){const resource=o.resources.find(r=>r.id===row.dataset.objectiveResource);if(!dragReference(e.dataTransfer,resourceReference(resource,row.dataset.objectiveTab))) {e.preventDefault();return;}e.dataTransfer.setData(resourceMime,JSON.stringify({scope:key(context()),objective_id:o.id,resource_id:row.dataset.objectiveResource,tab_id:row.dataset.objectiveTab||null}));return;}
+    const folder=e.target.closest?.('[data-select-worktree]');if(folder){const tree=scopeRows(o).find(t=>t.id===folder.dataset.selectWorktree);if(dragReference(e.dataTransfer,tree?.path))e.dataTransfer.setData(resourceMime,JSON.stringify({scope:key(context()),objective_id:o.id,folder:{root:tree.path,path:'.'}}));return;}
+    if(o&&e.target.closest?.('[data-objectives-sidebar] [data-open-objective-tasks]')){
+      const documents=[...new Set(o.tasks.map(t=>t.document_id))].map(id=>o.resources.find(r=>r.id===id)),resource=documents[0];
+      // Empty lists still have an actual source: the objective's task registry.
+      const reference=documents.length===1?resourceReference(resource):context().path+'/.lab/objectives.json#objective='+encodeURIComponent(o.id)+'&view=tasks';
+      if(dragReference(e.dataTransfer,reference))e.dataTransfer.setData(resourceMime,JSON.stringify({scope:key(context()),objective_id:o.id,view:'tasks'}));
+    }
   });
   document.addEventListener('dragover',e=>{const slot=e.target.closest?.('[data-objective-slot]');if(slot&&e.dataTransfer.types.includes(objectiveMime)){e.preventDefault();e.dataTransfer.dropEffect='move';slot.classList.add('objective-drop-target');}},true);
   document.addEventListener('dragleave',e=>e.target.closest?.('[data-objective-slot]')?.classList.remove('objective-drop-target'));
   document.addEventListener('dragend',()=>document.querySelectorAll('.objective-drop-target').forEach(n=>n.classList.remove('objective-drop-target')));
-  document.addEventListener('dragover',e=>{if(!active(context()?.path))return;const target=e.target.closest?.('[data-objective-resource],[data-objective-root],[data-objective-worktree],[data-objective-shared],#termSessionList .sess');if(target&&[resourceMime,documentMime,'application/x-lab-file-path','application/x-lab-terminal'].some(m=>e.dataTransfer.types.includes(m))){e.preventDefault();e.dataTransfer.dropEffect='link';}},true);
+  const linkDropSelector='[data-objective-resource],[data-objective-root],[data-objective-worktree],[data-objective-shared],[data-objectives-sidebar] [data-open-objective-tasks],#termSessionList .sess';
+  document.addEventListener('dragover',e=>{if(!active(context()?.path))return;const target=e.target.closest?.(linkDropSelector);if(target&&[resourceMime,documentMime,'application/x-lab-file-path','application/x-lab-terminal'].some(m=>e.dataTransfer.types.includes(m))){e.preventDefault();e.dataTransfer.dropEffect='link';}},true);
   document.addEventListener('drop',e=>{
     const project=e.dataTransfer.getData(objectiveMime),slot=e.target.closest?.('[data-objective-slot]');
     if(project&&slot){e.preventDefault();e.stopImmediatePropagation();slot.classList.remove('objective-drop-target');try{const item=JSON.parse(project);if(item.scope!==key(context()))throw new Error('Choose an objective in this workspace');void placeObjective(item.objective_id,Number(slot.dataset.objectiveSlot)).catch(()=>{});}catch(error){notify(error.message,true);}return;}
-    if(!active(context()?.path))return;const target=e.target.closest?.('[data-objective-resource],[data-objective-root],[data-objective-worktree],[data-objective-shared],#termSessionList .sess');if(!target)return;
+    if(!active(context()?.path))return;const target=e.target.closest?.(linkDropSelector);if(!target)return;
     const raw=e.dataTransfer.getData(resourceMime),assistant=e.dataTransfer.getData(documentMime),file=e.dataTransfer.getData('application/x-lab-file-path'),terminal=e.dataTransfer.getData('application/x-lab-terminal');if(!raw&&!assistant&&!file&&!terminal)return;e.preventDefault();e.stopImmediatePropagation();
-    try{if(raw){const item=JSON.parse(raw);if(item.objective_id!==objective().id)throw new Error('Choose a resource in this objective');if(target.classList.contains('sess')){const t=bridge.session?.(target.dataset.name);change({type:'terminal',objective_id:item.objective_id,session_id:terminalIdentity(t),source:t.document_source,resource_id:item.resource_id,tab_id:item.tab_id}).catch(()=>{});}else change({type:'scope',...item,worktree:target.dataset.objectiveWorktree||null}).catch(()=>{});}
+    try{if(raw){const {scope,...item}=JSON.parse(raw);if(scope!==key(context())||item.objective_id!==objective().id)throw new Error('Choose a resource in this objective');if(target.classList.contains('sess'))linkTerminal(bridge.session?.(target.dataset.name),item).catch(()=>{});else if(item.resource_id&&!target.hasAttribute('data-open-objective-tasks'))change({type:'scope',...item,worktree:target.dataset.objectiveWorktree||null}).catch(()=>{});}
       else if(assistant){const ref=JSON.parse(assistant),o=objective();change({type:'resource',objective_id:o.id,kind:'assistant',title:ref.title||'Assistant document',document_id:ref.document_id,assistant_root:ref.assistant_root,worktree:target.dataset.objectiveWorktree||null}).then(d=>{if(target.classList.contains('sess'))return change({type:'terminal',objective_id:o.id,session_id:terminalIdentity(bridge.session(target.dataset.name)),source:bridge.session(target.dataset.name).document_source,resource_id:d.objectives.find(item=>item.id===o.id).resources.at(-1).id});}).catch(()=>{});}
-      else if(file&&target.classList.contains('sess')){const paths=JSON.parse(file),t=bridge.session?.(target.dataset.name);change({type:'terminal',objective_id:objective().id,session_id:terminalIdentity(t),source:t.document_source,file:{root:bridge.scopeRoot?.(),path:paths[0]}}).catch(()=>{});}
-      else if(terminal&&target.dataset.objectiveResource){const t=bridge.session?.(terminal);if(!t)throw new Error('Choose a terminal in this workspace');change({type:'terminal',objective_id:objective().id,session_id:terminalIdentity(t),source:t.document_source,resource_id:target.dataset.objectiveResource,tab_id:target.dataset.objectiveTab||null}).catch(()=>{});}
+      else if(file&&target.classList.contains('sess'))linkTerminal(bridge.session?.(target.dataset.name),fileDropTarget(e.dataTransfer)).catch(()=>{});
+      else if(terminal){const item=sidebarTarget(target);if(item)linkTerminal(bridge.session?.(terminal),item).catch(()=>{});}
     }catch(error){notify(error.message,true);}
   },true);
   window.LabObjectives={connect(adapter){bridge=adapter;},load,active,sidebarHtml,paint,worktrees,tree,associate,terminalHtml,openForTerminal,collapse,progress,complete,change,selectObjective,renderTasks,tabsHtml,showAll,

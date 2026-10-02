@@ -430,18 +430,38 @@ def mutate(root, workspace_id, action, expected=None):
                 if resource['kind'] == 'document' and not any(t['id'] == action['tab_id'] for t in document(folder, resource)['tabs']):
                     raise ValueError('Subtab not found')
             linked_file = action.get('file')
-            if linked_file:
+            linked_folder = action.get('folder')
+            view = action.get('view')
+            if view is not None and view != 'tasks':
+                raise ValueError('Choose an objective view')
+            for field in ['file', 'folder']:
+                if action.get(field) is not None and not isinstance(action[field], dict):
+                    raise ValueError('Choose a file or folder target')
+            if sum(bool(target) for target in [resource, linked_file, linked_folder, view]) > 1:
+                raise ValueError('Choose one terminal target')
+            if linked_file or linked_folder:
                 allowed = [folder.resolve(), (folder/'objectives'/objective['id']).resolve(), *(Path(t['path']).resolve() for t in objective['worktrees'])]
-                file_root = Path(linked_file.get('root', '')).resolve()
+                linked = linked_file or linked_folder
+                if not isinstance(linked.get('root'), str) or not isinstance(linked.get('path', ''), str):
+                    raise ValueError('Choose a file or folder target')
+                file_root = Path(linked.get('root', '')).resolve()
                 if file_root not in allowed:
                     raise ValueError('File folder must belong to this objective')
-                relative = Path(linked_file.get('path', ''))
+                relative = Path(linked.get('path', ''))
                 target = (file_root / relative).resolve()
-                if not target.is_relative_to(file_root) or not target.is_file():
-                    raise ValueError('Choose a file in this objective')
-                linked_file = {'root':str(file_root), 'path':target.relative_to(file_root).as_posix()}
+                if not target.is_relative_to(file_root) or not (target.is_file() if linked_file else target.is_dir()):
+                    raise ValueError('Choose a file or folder in this objective')
+                normalized = {'root':str(file_root), 'path':target.relative_to(file_root).as_posix()}
+                if linked_file:
+                    linked_file = normalized
+                else:
+                    linked_folder = normalized
             data['terminal_links'][name] = {'objective_id': objective['id'], 'resource_id': action.get('resource_id'),
                                           'tab_id': action.get('tab_id'), 'file': linked_file}
+            if linked_folder:
+                data['terminal_links'][name]['folder'] = linked_folder
+            if view:
+                data['terminal_links'][name]['view'] = view
         elif operation == 'remove-resource':
             resource_id = action.get('resource_id')
             if any(t['document_id'] == resource_id for p in objective['tasks'] for t in [p, *p['children']]):

@@ -172,6 +172,29 @@ def test_terminal_resource_links_never_change_session_metadata(client, monorepo,
     assert response.status_code==200,response.text
     assert response.json()['terminal_links'][saved['session_id']]['file']['path']==Path(notebook['path']).name
     assert term._get_workspace_sessions(monorepo,'demo') == [saved]
+    body['action'].pop('file')
+    nested = folder/'nested folder';nested.mkdir()
+    for root, relative in [(folder,'.'), (folder/'objectives'/oid,'.'), (folder,nested.name)]:
+        body['action']['folder']={'root':str(root),'path':relative}
+        response=client.post('/api/objectives',json=body)
+        assert response.status_code==200,response.text
+        assert response.json()['terminal_links'][saved['session_id']]['folder']=={'root':str(root.resolve()),'path':relative}
+        assert term._get_workspace_sessions(monorepo,'demo') == [saved]
+    before = objectives.load(monorepo,'demo')
+    for invalid in ['not a folder target', {'root':4,'path':'.'}, {'root':str(folder),'path':'../../outside'}, {'root':str(folder),'path':notebook['path']},
+                    {'root':str(monorepo),'path':'.'}]:
+        body['action']['folder']=invalid
+        assert client.post('/api/objectives',json=body).status_code==400
+        assert objectives.load(monorepo,'demo') == before
+    body['action'].pop('folder');body['action']['view']='tasks'
+    response=client.post('/api/objectives',json=body)
+    assert response.status_code==200,response.text
+    assert response.json()['terminal_links'][saved['session_id']]['view']=='tasks'
+    before=objectives.load(monorepo,'demo')
+    body['action']['file']={'root':str(folder),'path':notebook['path']}
+    assert client.post('/api/objectives',json=body).status_code==400
+    assert objectives.load(monorepo,'demo')==before
+    body['action'].pop('file')
     body['action']['session_id'] = 'a-terminal-in-another-workspace'
     assert client.post('/api/objectives',json=body).status_code == 400
     assert term._get_workspace_sessions(monorepo,'demo') == [saved]

@@ -2930,7 +2930,7 @@
       const color = _sidebarValidColor(scope.color), label = _sidebarScopeDisplayLabel(scope);
       const kind = scope.kind === 'worktree' ? 'Worktree' : scope.kind === 'parent' ? 'Parent folder' : 'Main folder';
       const scopeAttrs = `data-base-root="${escAttr(baseRoot)}" data-folder-path="${escAttr(scope.path === baseRoot ? '' : scope.path)}"`;
-      return `<div class="sidebar-scope-chip${active ? ' active' : ''}${loading ? ' loading' : ''}" aria-busy="${loading}" data-scope-kind="${escAttr(scope.kind || 'folder')}" ${scopeAttrs} style="--sidebar-workspace-color:${escAttr(color)}"><button type="button" class="sidebar-scope-color" data-scope-path="${escAttr(scope.path)}" onclick="sidebarScopeColors(this)" aria-label="${kind} · Change color for ${escAttr(label)}" title="${kind} · Change color">${_sidebarScopeKindIcon(scope.kind)}</button><button type="button" class="sidebar-file-scope-button${active ? ' active' : ''}" ${scopeAttrs} onclick="sidebarActivateScope(this,event)" aria-pressed="${active ? 'true' : 'false'}" title="${escAttr(scope.path)} · Double-click to edit metadata" style="--sidebar-workspace-color:${escAttr(color)}"><span>${esc(label)}</span></button>${loading ? '<span class="sidebar-scope-spinner" role="status" aria-label="Loading folder"></span>' : ''}<span class="sidebar-scope-tag" title="${kind}">${scope.kind === 'worktree' ? 'Worktree' : scope.kind === 'parent' ? 'Parent' : 'Folder'}</span><button type="button" class="sidebar-repo-history" ${scopeAttrs} onclick="sidebarOpenRepositoryHistory(this)" ${active && !switching ? '' : 'disabled'} aria-label="Open Git history for ${escAttr(label)}" title="${active ? 'Open Git history' : 'Select this folder to open Git history'}">${_SIDEBAR_GITHUB_ICON}</button><button type="button" class="sidebar-link-terminal" ${scopeAttrs} onclick="termToggleNewPicker(event)" ${active && !switching ? '' : 'disabled'} aria-label="Open a new terminal" title="${active ? 'Open a new terminal…' : 'Select this folder to open the terminal menu'}">${attachIcon}</button><button type="button" class="sidebar-scope-pin${pinned ? ' pinned' : ''}" data-scope-path="${escAttr(scope.path)}" onclick="sidebarPinScope(this)" aria-label="${pinned ? 'Unpin' : 'Pin'} ${escAttr(label)}" aria-pressed="${pinned}" title="${pinned ? 'Unpin' : 'Pin'}">${_sidebarScopePinIcon()}</button></div>`;
+      return `<div class="sidebar-scope-chip${active ? ' active' : ''}${loading ? ' loading' : ''}" aria-busy="${loading}" data-scope-kind="${escAttr(scope.kind || 'folder')}" ${scopeAttrs} style="--sidebar-workspace-color:${escAttr(color)}"><button type="button" class="sidebar-scope-color" data-scope-path="${escAttr(scope.path)}" onclick="sidebarScopeColors(this)" aria-label="${kind} · Change color for ${escAttr(label)}" title="${kind} · Change color">${_sidebarScopeKindIcon(scope.kind)}</button><button type="button" class="sidebar-file-scope-button${active ? ' active' : ''}" ${scopeAttrs} draggable="true" onclick="sidebarActivateScope(this,event)" aria-pressed="${active ? 'true' : 'false'}" title="${escAttr(scope.path)} · Double-click to edit metadata" style="--sidebar-workspace-color:${escAttr(color)}"><span>${esc(label)}</span></button>${loading ? '<span class="sidebar-scope-spinner" role="status" aria-label="Loading folder"></span>' : ''}<span class="sidebar-scope-tag" title="${kind}">${scope.kind === 'worktree' ? 'Worktree' : scope.kind === 'parent' ? 'Parent' : 'Folder'}</span><button type="button" class="sidebar-repo-history" ${scopeAttrs} onclick="sidebarOpenRepositoryHistory(this)" ${active && !switching ? '' : 'disabled'} aria-label="Open Git history for ${escAttr(label)}" title="${active ? 'Open Git history' : 'Select this folder to open Git history'}">${_SIDEBAR_GITHUB_ICON}</button><button type="button" class="sidebar-link-terminal" ${scopeAttrs} onclick="termToggleNewPicker(event)" ${active && !switching ? '' : 'disabled'} aria-label="Open a new terminal" title="${active ? 'Open a new terminal…' : 'Select this folder to open the terminal menu'}">${attachIcon}</button><button type="button" class="sidebar-scope-pin${pinned ? ' pinned' : ''}" data-scope-path="${escAttr(scope.path)}" onclick="sidebarPinScope(this)" aria-label="${pinned ? 'Unpin' : 'Pin'} ${escAttr(label)}" aria-pressed="${pinned}" title="${pinned ? 'Unpin' : 'Pin'}">${_sidebarScopePinIcon()}</button></div>`;
     }).join('')}<button type="button" class="sidebar-scope-add" data-base-root="${escAttr(baseRoot)}" onclick="sidebarAddScope(this)" aria-label="Add project, worktree or folder" title="Add project, worktree or folder">+</button>${_sidebarScopeTransition?.baseRoot === baseRoot && _sidebarScopeTransition.error ? `<div class="sidebar-scope-load-error" role="alert"><span>${esc(_sidebarScopeTransition.error)}</span><button type="button" data-base-root="${escAttr(baseRoot)}" onclick="sidebarRetryScopeSwitch(this)">Retry</button></div>` : ''}</div>`;
   }
 
@@ -15639,12 +15639,14 @@
   // omit its parent folders or belong to a different vault/worktree).
   document.addEventListener('dragstart', event => {
     const row = event.target.closest?.('[data-entry-kind="file"][data-entry-path], [data-entry-kind="folder"][data-entry-path], [data-open-file][data-filepath]');
-    const ctx = _explorerContextFromRow(row);
+    const folder = event.target.closest?.('.sidebar-file-scope-button[data-base-root]');
+    const ctx = _explorerContextFromRow(row) || (folder ? {root:folder.dataset.folderPath || folder.dataset.baseRoot,path:'.',kind:'folder'} : null);
     if (!ctx || !event.dataTransfer) return;
     const path = ctx.path.startsWith('/') ? ctx.path
       : ctx.root.replace(/\/+$/, '') + '/' + ctx.path.replace(/^\.\//, '');
-    event.dataTransfer.effectAllowed = 'copy';
+    event.dataTransfer.effectAllowed = typeof window !== 'undefined' && window.LabObjectives?.active?.(currentWorkspace?.path) ? 'copyLink' : 'copy';
     event.dataTransfer.setData('application/x-lab-file-path', JSON.stringify([path]));
+    event.dataTransfer.setData('application/x-lab-file-context', JSON.stringify({root:ctx.root,path:ctx.path,kind:ctx.kind}));
     event.dataTransfer.setData('text/plain', path);
   });
 
@@ -15670,6 +15672,38 @@
     return valid([data.getData('text/plain')]);
   }
 
+  function _termDropReferences(data) {
+    if (!data) return [];
+    const valid = value => {
+      if (typeof value !== 'string' || !value || /[\x00-\x1f\x7f]/.test(value)) return false;
+      if (value.startsWith('/')) return true;
+      try { return ['http:', 'https:'].includes(new URL(value).protocol); } catch { return false; }
+    };
+    const internal = data.getData('application/x-lab-reference');
+    if (internal) {
+      try {
+        const references = JSON.parse(internal);
+        return Array.isArray(references) && references.length && references.every(valid) ? references : [];
+      } catch { return []; }
+    }
+    // Keep original filesystem identity and local-file URI validation.
+    if (data.getData('application/x-lab-file-path')) return _termDropPaths(data);
+    const uris = data.getData('text/uri-list').split(/\r?\n/).filter(line => line && !line.startsWith('#'));
+    if (uris.length) {
+      try {
+        const references = uris.map(value => {
+          const url = new URL(value);
+          if (url.protocol === 'file:' && (!url.hostname || url.hostname === 'localhost')) return decodeURIComponent(url.pathname);
+          if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Not a reference');
+          return value;
+        });
+        return references.every(valid) ? references : [];
+      } catch { return []; }
+    }
+    const plain = data.getData('text/plain');
+    return valid(plain) ? [plain] : [];
+  }
+
   function _termQuoteDropPath(path) {
     return /^[a-zA-Z0-9_./:@%+=,-]+$/.test(path) ? path : "'" + path.replace(/'/g, "'\\''") + "'";
   }
@@ -15679,16 +15713,16 @@
         || Array.from(event.dataTransfer?.types || []).includes('application/x-lab-terminal')) return;
     event.preventDefault();
     event.stopPropagation();
-    const paths = _termDropPaths(event.dataTransfer);
-    if (!paths.length) {
+    const references = _termDropReferences(event.dataTransfer);
+    if (!references.length) {
       if (event.dataTransfer?.files?.length) explorerToast('The browser did not provide the original path. Drag the file or folder from Lab’s sidebar, or copy its pathname in Finder and paste it here.', true);
       return;
     }
     if (!termXterm || !termWS || termWS.readyState !== WebSocket.OPEN) {
-      explorerToast('Connect a terminal before dropping a file or folder.', true);
+      explorerToast('Connect a terminal before dropping a reference.', true);
       return;
     }
-    termXterm.paste(paths.map(_termQuoteDropPath).join(' '));
+    termXterm.paste(references.map(_termQuoteDropPath).join(' '));
     termXterm.focus();
   }
 
@@ -15930,7 +15964,7 @@
         body.addEventListener('copy', _termHandleCopy, { capture: true });
         body.addEventListener('dragover', event => {
           const types = Array.from(event.dataTransfer?.types || []);
-          if (!types.some(type => ['application/x-lab-file-path', 'Files', 'text/uri-list', 'text/plain'].includes(type))
+          if (!types.some(type => ['application/x-lab-reference', 'application/x-lab-file-path', 'Files', 'text/uri-list', 'text/plain'].includes(type))
               || types.includes('application/x-lab-terminal') || _termDragState || workspaceTabsDragId) return;
           event.preventDefault();
           event.dataTransfer.dropEffect = 'copy';
@@ -20353,6 +20387,7 @@
     },
     openNotebook: resource => openWorkspaceDoc(resource.path,{root:currentWorkspace.path}),
     openFile: file => openWorkspaceDoc(file.path,{root:file.root}),
+    openFolder: folder => openWorkspaceFolderModal(folder.path || '.',{root:folder.root}),
     openAssistant: resource => window.LabScopeLinks.openDocument(resource,currentWorkspace.path,
       {terminalScope:{...window.LabTaskTerminalBridge.context(),root:treeRootForObjective()},wholeDocument:!resource.tab_id,inline:true,externalTabs:true,selectTerminal:false}),
     openLink: resource => window.LabScopeLinks.openExternal({kind:'external',...resource},currentWorkspace.path),

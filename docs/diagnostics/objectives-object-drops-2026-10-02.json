@@ -1,0 +1,136 @@
+{
+  "date": "2026-10-02",
+  "workspace": "large-projects",
+  "consoleDrops": [
+    {
+      "label": "document",
+      "effect": "copyLink",
+      "quoted": true,
+      "noEnter": true
+    },
+    {
+      "label": "notebook",
+      "effect": "copyLink",
+      "quoted": true,
+      "noEnter": true
+    },
+    {
+      "label": "external link",
+      "effect": "copyLink",
+      "quoted": true,
+      "noEnter": true
+    },
+    {
+      "label": "Assistant document",
+      "effect": "copyLink",
+      "quoted": true,
+      "noEnter": true
+    },
+    {
+      "label": "Tasks",
+      "effect": "copyLink",
+      "quoted": true,
+      "noEnter": true
+    },
+    {
+      "label": "Root",
+      "effect": "copyLink",
+      "quoted": true,
+      "noEnter": true
+    },
+    {
+      "label": "Objective folder",
+      "effect": "copyLink",
+      "quoted": true,
+      "noEnter": true
+    },
+    {
+      "label": "worktree",
+      "effect": "copyLink",
+      "quoted": true,
+      "noEnter": true
+    },
+    {
+      "label": "owned subtab",
+      "quoted": true,
+      "hasTab": true,
+      "noEnter": true
+    },
+    {
+      "label": "Assistant subtab",
+      "quoted": true,
+      "hasTab": true,
+      "noEnter": true
+    }
+  ],
+  "terminalAssociations": [
+    {
+      "label": "Tasks",
+      "pasteUnchanged": true,
+      "opened": true
+    },
+    {
+      "label": "Root",
+      "pasteUnchanged": true,
+      "opened": true
+    },
+    {
+      "label": "Objective folder",
+      "pasteUnchanged": true,
+      "opened": true
+    },
+    {
+      "label": "worktree",
+      "pasteUnchanged": true,
+      "opened": true
+    },
+    {
+      "label": "document",
+      "pasteUnchanged": true,
+      "opened": true
+    },
+    {
+      "label": "notebook",
+      "pasteUnchanged": true,
+      "opened": true
+    },
+    {
+      "label": "external link",
+      "pasteUnchanged": true,
+      "opened": false
+    },
+    {
+      "label": "Assistant document",
+      "pasteUnchanged": true,
+      "opened": true
+    },
+    {
+      "label": "owned subtab",
+      "pasteUnchanged": true,
+      "opened": true
+    },
+    {
+      "label": "Assistant subtab",
+      "pasteUnchanged": true,
+      "opened": true
+    },
+    {
+      "label": "native folder",
+      "pasteUnchanged": true
+    },
+    {
+      "label": "native file",
+      "pasteUnchanged": true
+    },
+    {
+      "label": "terminal onto Tasks",
+      "dragCleared": true
+    }
+  ],
+  "resourcesPreserved": true,
+  "slotsPreserved": true,
+  "terminalMappingsRestored": true,
+  "sessionMetadataPreserved": true,
+  "pageErrors": [],
+  "externalLinkOpen": "URL dispatch covered by isolated native Objective fixture; live staging verified association without opening the external site."
+}
