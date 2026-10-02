@@ -29,6 +29,7 @@
     --border: #30363d; --text-primary: #e6edf3; --text-secondary: #8b949e;
     --text-dim: #484f58; --accent: #58a6ff; --green: #3fb950; --red: #f85149;
     --yellow: #d29922; --purple: #a371f7; --highlight: #5c4b00;
+    --inline-code-text: #f2a23a; --inline-code-bg: #21262d; --inline-code-border: #444a52;
     /* Git status decorations (VS Code Explorer palette) */
     --git-modified: #e2c08d; --git-added: #81b88b; --git-untracked: #73c991;
     --git-deleted: #f85149; --git-renamed: #58a6ff; --git-ignored: #6e7681;
@@ -41,6 +42,7 @@
     --border: #d0d7de; --text-primary: #1f2328; --text-secondary: #656d76;
     --text-dim: #8b949e; --accent: #0969da; --green: #1a7f37; --red: #cf222e;
     --yellow: #9a6700; --purple: #8250df; --highlight: #fff8c5;
+    --inline-code-text: #9a4d00; --inline-code-bg: #fff5e6; --inline-code-border: #e2ccb0;
     --git-modified: #895503; --git-added: #1a7f37; --git-untracked: #1a7f37;
     --git-deleted: #cf222e; --git-renamed: #0969da; --git-ignored: #8b949e;
     --tree-indent-guide: rgba(31,35,40,0.16);
@@ -1405,7 +1407,7 @@
   body.light-mode [style*="border-left:1px solid #21262d"] { border-color: #d0d7de !important; }
 
   body.light-mode .workspace-content pre { background: #f6f8fa !important; color: #1f2328 !important; border-color: #d0d7de !important; }
-  body.light-mode .workspace-content code { color: #1f2328 !important; background: #e8eaed; }
+  body.light-mode .workspace-content pre code { color: #1f2328 !important; background: #e8eaed; }
 
   body.light-mode .no-repo, body.light-mode .no-repo h2,
   body.light-mode .no-repo p { color: #1f2328 !important; }
@@ -2960,7 +2962,8 @@
 .lab-live-strong { font-weight:650; }
 .lab-live-emphasis { font-style:italic; }
 .lab-live-strike { text-decoration:line-through; }
-.lab-live-code-inline { font:0.9em ui-monospace,SFMono-Regular,Menlo,monospace; padding:2px 4px; border-radius:4px; background:var(--bg-tertiary); }
+.lab-live-code-inline,
+:is(.assistant-markdown, .workspace-content, .doc, .k-pane .doc, .md-content, .nb-markdown, .nb-history-markdown) code:not(pre code) { font:0.9em ui-monospace,SFMono-Regular,Menlo,monospace; color:var(--inline-code-text); padding:.1em .32em; border:1px solid var(--inline-code-border); border-radius:5px; background:var(--inline-code-bg); -webkit-box-decoration-break:clone; box-decoration-break:clone; }
 .lab-live-link { color:var(--accent); text-decoration:underline; text-underline-offset:3px; cursor:text; }
 .lab-live-syntax { color:var(--text-dim); font:0.8em ui-monospace,SFMono-Regular,Menlo,monospace; text-decoration:none; }
 .assistant-note-editor .cm-line.lab-live-list { padding-left:10px; }

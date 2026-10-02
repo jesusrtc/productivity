@@ -539,3 +539,5 @@
 - [Markdown slash menu exposes foldable content](markdown-slash-menu-exposes-foldable-content.md) — searchable block actions with native folds, keyboard/click control, and preserved save/copy behavior.
 
 - [Markdown toolbars theme the tooltip itself](markdown-toolbars-theme-the-tooltip-itself.md) — CodeMirror places both classes on one element; theme contrast and interface type sizes need native checks.
+
+- [Inline code uses Slack-style highlighting](inline-code-uses-slack-style-highlighting.md) — orange text, filled rounded outline, shared across live and rendered Markdown with readable light-mode colors.
