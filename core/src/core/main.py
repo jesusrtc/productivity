@@ -562,6 +562,10 @@ def create_app() -> FastAPI:
     app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
 
     templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
+    # Keep the shell's context contract paired with this backend process. Jinja's
+    # automatic reload otherwise combines a newly pulled template with old Python
+    # code, so newly required tojson values become unserializable Undefineds.
+    index_template = templates.get_template("index.html")
 
     # The index template is large enough that re-rendering it through Jinja on
     # every load costs more than serving the bytes. The first visible shell does
@@ -666,6 +670,7 @@ def create_app() -> FastAPI:
         user = auth.require_user(request)
         admin = auth.is_admin(user)
         external_browser = ui_route.can_open_external(request)
+        native_browser_reuse = ui_route.can_reuse_browser_tabs(request)
         root = auth.request_root(request)
         shell_root = root
         if not admin:
@@ -696,6 +701,7 @@ def create_app() -> FastAPI:
             user["username"],
             user["role"],
             external_browser,
+            native_browser_reuse,
             state["INITIAL_VIEW"],
             state["INITIAL_BODY_CLASS"],
             state["INITIAL_WORKSPACE_NAME"],
@@ -707,14 +713,14 @@ def create_app() -> FastAPI:
         bytes_by_key = _index_cache["bytes_by_key"]
         if key not in bytes_by_key:
             asset_v = format(max(mtime) // 1_000_000, "x") if mtime else "0"
-            html = templates.get_template("index.html").render(
+            html = index_template.render(
                 MONOREPO_ROOT=framework_root,
                 VAULT_ROOT=vault_root,
                 ASSISTANT_ROOT=str(assistant_root or ""),
                 USER=auth.public_user(user),
                 IS_ADMIN=admin,
                 EXTERNAL_BROWSER=external_browser,
-                NATIVE_BROWSER_REUSE=ui_route.can_reuse_browser_tabs(request),
+                NATIVE_BROWSER_REUSE=native_browser_reuse,
                 ASSET_V=asset_v,
                 LINK_SERVICES=link_services.SERVICES,
                 **state,

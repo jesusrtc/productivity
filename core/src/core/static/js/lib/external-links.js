@@ -41,8 +41,8 @@
           method:'POST', headers:{'Content-Type':'application/json'},
           body:JSON.stringify({url:url.href, reuse_existing:true}),
         });
-        if (!response.ok) {
-          const data = await response.json().catch(() => ({}));
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || data.ok === false) {
           throw new Error(data.detail || 'Could not reuse your browser tab.');
         }
         return true;

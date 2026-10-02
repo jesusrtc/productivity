@@ -195,8 +195,8 @@
     const host=draft.node.closest('.objective-document'),status=host.querySelector('.objective-document-status');
     host.querySelector('[data-save-objective-document]').disabled=!dirtyDraft(draft)||draft.saving;
     host.querySelector('[data-revert-objective-document]').disabled=draft.saving;
-    status.textContent=draft.error||(draft.saving?'Saving…':dirtyDraft(draft)?'Unsaved · saves after 10s idle':draft.saved?'Saved at '+new Date(draft.saved).toLocaleTimeString():'Click to edit · / for commands');
-    status.classList.toggle('error',!!draft.error);
+    status.textContent=draft.error||draft.loadingError||(draft.saving?'Saving…':dirtyDraft(draft)?'Unsaved · saves after 10s idle':draft.saved?'Saved at '+new Date(draft.saved).toLocaleTimeString():'Click to edit · / for commands');
+    status.classList.toggle('error',!!(draft.error||draft.loadingError));
   }
   function scheduleDraft(draft) {
     clearTimeout(draft.timer);
@@ -238,16 +238,27 @@
     activeDraft=draft;host.replaceChildren(draft.node);
     const mount=()=>{
       if(activeDraft!==draft||!draft.node.isConnected||draft.input)return;
+      draft.loadingError='';
       draft.node.replaceChildren();
       draft.input=window.LabMarkdownEditor.create(draft.node,{body:draft.body,
         onChange:text=>{if(draft.syncing)return;draft.body=text;draft.edited=Date.now();draftControls(draft);scheduleDraft(draft);},
         onSave:()=>saveDraft(draft,true)});
       draftControls(draft);
     };
-    if(window.LabMarkdownEditor)mount();
+    if(window.LabMarkdownEditor&&window.marked&&window.DOMPurify)mount();
     else{
-      draft.node.innerHTML=window.LabMarkdown.render(draft.body);
-      window.ensureLiveMarkdownEditor().then(mount).catch(error=>{draft.error=error.message;draftControls(draft);});
+      // Resources can open while the lazy editor/parser scripts are still in
+      // flight. Rendering the preview also needs Marked and DOMPurify.
+      draft.node.textContent='Loading document…';
+      Promise.resolve().then(()=>bridge.readyContent?.()).then(()=>{
+        if(activeDraft!==draft||!draft.node.isConnected||draft.input)return;
+        if(!window.marked||!window.DOMPurify)throw new Error('Could not load Markdown rendering');
+        if(window.LabMarkdownEditor)mount();
+        else{
+          draft.node.innerHTML=window.LabMarkdown.render(draft.body);
+          return window.ensureLiveMarkdownEditor().then(mount);
+        }
+      }).catch(error=>{draft.loadingError=error.message;if(activeDraft===draft&&!draft.input)draft.node.textContent=draft.body;draftControls(draft);});
     }
     draftControls(draft);scheduleDraft(draft);
     for(const [entry,value] of drafts){

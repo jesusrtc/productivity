@@ -15,6 +15,7 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 import time
 from pathlib import Path
 
@@ -1265,6 +1266,24 @@ def _entry_has_head(repo_root: Path) -> bool:
         raise HTTPException(status_code=504, detail="Git commit lookup timed out")
 
 
+def _entry_git_text(args: list[str], *, max_bytes: int | None = None) -> subprocess.CompletedProcess:
+    """Bound Git content before decoding it; repository text need not be UTF-8."""
+    # A pipe + text=True both buffers an arbitrarily large patch and decodes it
+    # strictly before we can check its size. Spool bytes and check before reading.
+    if max_bytes is None:
+        max_bytes = _ENTRY_DIFF_MAX_BYTES
+    with tempfile.TemporaryFile() as output:
+        proc = subprocess.run(args, stdout=output, stderr=subprocess.PIPE, timeout=20)
+        size = output.tell()
+        if size > max_bytes:
+            raise HTTPException(status_code=413, detail="Git revision is too large to render (8 MiB limit)")
+        output.seek(0)
+        return subprocess.CompletedProcess(
+            args, proc.returncode, output.read().decode("utf-8", errors="replace"),
+            proc.stderr.decode("utf-8", errors="replace"),
+        )
+
+
 def _entry_worktree_diff(repo_root: Path, repo_rel: str) -> tuple[str, list[str]]:
     """Return the final HEAD-to-working-tree patch, including untracked files."""
     untracked = _entry_untracked_files(repo_root, repo_rel)
@@ -1272,12 +1291,11 @@ def _entry_worktree_diff(repo_root: Path, repo_rel: str) -> tuple[str, list[str]
     try:
         has_head = _entry_has_head(repo_root)
         if has_head:
-            tracked = subprocess.run(
+            tracked = _entry_git_text(
                 [
                     "git", "-C", str(repo_root), "diff", "HEAD", "--no-color",
                     "--find-renames", "--", repo_rel,
                 ],
-                capture_output=True, text=True, timeout=20,
             )
             if tracked.returncode != 0:
                 raise HTTPException(
@@ -1301,13 +1319,14 @@ def _entry_worktree_diff(repo_root: Path, repo_rel: str) -> tuple[str, list[str]
             patches = []
             files_from_empty = list(dict.fromkeys(tracked_files + untracked))
 
+        patch_bytes = sum(len(patch.encode("utf-8")) for patch in patches)
         for untracked_file in files_from_empty:
-            created = subprocess.run(
+            created = _entry_git_text(
                 [
                     "git", "-C", str(repo_root), "diff", "--no-index",
                     "--no-color", "--", "/dev/null", untracked_file,
                 ],
-                capture_output=True, text=True, timeout=20,
+                max_bytes=max(0, _ENTRY_DIFF_MAX_BYTES - patch_bytes),
             )
             # git diff --no-index returns 1 when differences were found.
             if created.returncode not in {0, 1}:
@@ -1316,6 +1335,7 @@ def _entry_worktree_diff(repo_root: Path, repo_rel: str) -> tuple[str, list[str]
                     detail=created.stderr.strip() or "Could not read untracked file diff",
                 )
             patches.append(created.stdout)
+            patch_bytes += len(created.stdout.encode("utf-8"))
 
         states = []
         staged = subprocess.run(
@@ -1341,16 +1361,13 @@ def _entry_worktree_diff(repo_root: Path, repo_rel: str) -> tuple[str, list[str]
 def _entry_git_blob(repo_root: Path, revision: str, repo_rel: str) -> str:
     """Read a text blob from Git; a missing path/revision is an empty side."""
     try:
-        proc = subprocess.run(
+        proc = _entry_git_text(
             ["git", "-C", str(repo_root), "show", f"{revision}:{repo_rel}"],
-            capture_output=True, text=True, timeout=20,
         )
     except subprocess.TimeoutExpired:
         raise HTTPException(status_code=504, detail="Git notebook history timed out")
     if proc.returncode != 0:
         return ""
-    if len(proc.stdout.encode(errors="replace")) > _ENTRY_DIFF_MAX_BYTES:
-        raise HTTPException(status_code=413, detail="Notebook revision is too large to render")
     return proc.stdout
 
 
@@ -1411,12 +1428,11 @@ def _entry_history_revision_files(
         patch, _ = _entry_worktree_diff(repo_root, ".")
     else:
         try:
-            proc = subprocess.run(
+            proc = _entry_git_text(
                 [
                     "git", "-C", str(repo_root), "show", "--format=",
                     "--no-color", "--find-renames", sha,
                 ],
-                capture_output=True, text=True, timeout=20,
             )
         except subprocess.TimeoutExpired:
             raise HTTPException(status_code=504, detail="Git diff timed out")

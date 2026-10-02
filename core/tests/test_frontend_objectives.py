@@ -44,6 +44,9 @@ def test_objective_inline_editor_serializes_sibling_saves_and_retains_conflicts(
         'js/lib/markdown-content.js','vendor/lab-markdown-editor/markdown-editor.min.js','js/lib/workspace-objectives.js'])
     setup = r'''
 window.assert=(ok,message)=>{if(!ok)throw Error(message)};
+window.contentErrors=[];
+window.addEventListener('error',event=>contentErrors.push(event.error?.stack||event.message));
+window.addEventListener('unhandledrejection',event=>contentErrors.push(String(event.reason)));
 window.until=async fn=>{for(let i=0;i<800;i++){if(await fn())return;await new Promise(r=>setTimeout(r,25))}throw Error('Timed out: '+fn)};
 const makeEditor=LabMarkdownEditor.create;window.editors=[];
 LabMarkdownEditor.create=(parent,options)=>{const input=makeEditor(parent,options);editors.push(input);return input};
@@ -81,7 +84,7 @@ window.checkLink=async(selector,expected)=>{
  assert(pasted.length===count,'association never writes terminal input');
  await LabObjectives.load(undefined,true);assert(LabObjectives.openForTerminal(FIX.session),'linked terminal opens target');
 };
-LabObjectives.connect({fileIcon:fileIconHtml,context:()=>({workspace_id:'demo',path:FIX.folder}),refreshTabs:()=>document.getElementById('tabs').innerHTML=LabObjectives.tabsHtml(FIX.folder),readyContent:()=>Promise.resolve(),prepareCenter:()=>{},scopeRoot:()=>scopeRoot,selectWorktree:row=>{scopeRoot=row.path},session:name=>name===FIX.session.name?FIX.session:null,openLink:link=>opened.push({url:link.url}),openFile:file=>opened.push({file}),openNotebook:r=>opened.push({notebook:r.path}),openFolder:folder=>opened.push({folder})});
+LabObjectives.connect({fileIcon:fileIconHtml,context:()=>({workspace_id:'demo',path:FIX.folder}),refreshTabs:()=>document.getElementById('tabs').innerHTML=LabObjectives.tabsHtml(FIX.folder),readyContent:()=>window.awaitAssets?.()||Promise.resolve(),prepareCenter:()=>{},scopeRoot:()=>scopeRoot,selectWorktree:row=>{scopeRoot=row.path},session:name=>name===FIX.session.name?FIX.session:null,openLink:link=>opened.push({url:link.url}),openFile:file=>opened.push({file}),openNotebook:r=>opened.push({notebook:r.path}),openFolder:folder=>opened.push({folder})});
 (async()=>{await LabObjectives.load();LabObjectives.selectObjective(FIX.oid);document.getElementById('result').textContent='READY'})().catch(e=>document.getElementById('result').textContent=e.stack);
 '''
     app = (STATIC/'js/lab-app.js').read_text()
@@ -117,6 +120,24 @@ const fs=require('node:fs');
  await send('Page.navigate',{url:process.argv[2]});
  for(let i=0;i<200;i++){if(await evaluate('!!window.until'))break;await new Promise(r=>setTimeout(r,20));}
  await evaluate(`until(()=>document.getElementById('result').textContent==='READY')`);
+ await evaluate(`(async()=>{
+   const assets={marked:window.marked,DOMPurify:window.DOMPurify,LabMarkdownEditor:window.LabMarkdownEditor};
+   const open=()=>document.querySelector('[data-objective-resource="'+FIX.rid+'"]').click();
+   const unload=()=>{for(const key of Object.keys(assets))delete window[key]};
+   const restore=()=>Object.assign(window,assets);
+   unload();window.awaitAssets=()=>new Promise(resolve=>window.releaseAssets=()=>{restore();resolve()});
+   open();await until(()=>window.releaseAssets);
+   assert(document.querySelector('.objective-note-editor').textContent==='Loading document…','opening before lazy assets finish waits without calling Marked');
+   LabObjectives.renderTasks();releaseAssets();await new Promise(resolve=>setTimeout(resolve,0));
+   assert(!editor(),'a late asset load cannot mount an outgoing document');
+   unload();window.awaitAssets=async()=>{throw Error('Could not load Markdown assets')};open();
+   await until(()=>document.querySelector('.objective-document-status')?.textContent.includes('Could not load Markdown assets'));
+   assert(!editor(),'asset failure is visible and does not create an editor');
+   restore();delete window.awaitAssets;open();await until(()=>editor());
+   assert(editor().value==='# Document\\n\\n**Bold** text.\\n','retry mounts the original body');
+   assert(!contentErrors.length,'lazy document loading raises no unhandled errors: '+contentErrors.join('\\n'));
+   LabObjectives.renderTasks();
+ })()`);
  await evaluate(`(async()=>{const d=await read(),o=d.objectives[0];for(const r of o.resources)checkDrag('[data-objective-resource="'+r.id+'"]',r.kind==='link'?r.url:(r.file_root||FIX.folder)+'/'+r.path);checkDrag('[data-open-objective-tasks]',FIX.folder+'/.lab/objectives.json#objective='+FIX.oid+'&view=tasks');checkDrag('[data-select-worktree="workspace-root"]',FIX.folder);checkDrag('[data-select-worktree="objective-root"]',o.path);checkDrag('[data-objective-worktree] [data-select-worktree]',FIX.checkout);const result=await fetch('/api/objectives',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({workspace_id:'demo',expected:d.revision,action:{type:'task',objective_id:FIX.oid,title:'Task with details'}})});assert(result.ok,'task creation');await LabObjectives.load(undefined,true);const updated=await read(),task=updated.objectives[0].tasks[0],resource=updated.objectives[0].resources.find(r=>r.id===task.document_id);checkDrag('[data-open-objective-tasks]',FIX.folder+'/'+resource.path)})()`);
  const dragPoint=await evaluate(`(()=>{const n=document.querySelector('[data-objective-resource]');n.scrollIntoView({block:'center'});const r=n.getBoundingClientRect();return{x:r.x+Math.min(40,r.width/2),y:r.y+r.height/2}})()`);
  await send('Input.dispatchMouseEvent',{type:'mouseMoved',...dragPoint});

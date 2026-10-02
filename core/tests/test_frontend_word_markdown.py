@@ -47,6 +47,11 @@ Unsafe [label](javascript:alert(1)) remains text.
 '''
     setup = r'''
 window.assert=(ok,message)=>{if(!ok)throw Error(message)};
+window.editorErrors=[];
+window.addEventListener('error',event=>editorErrors.push(event.error?.stack||event.message));
+window.addEventListener('unhandledrejection',event=>editorErrors.push(String(event.reason)));
+const realConsoleError=console.error;
+console.error=(...args)=>{editorErrors.push(args.map(String).join(' '));realConsoleError(...args)};
 window.until=async fn=>{for(let i=0;i<300;i++){if(fn())return;await new Promise(r=>setTimeout(r,10))}throw Error('Timed out: '+fn)};
 window.opened=[];window.LabExternalLinks={open:async url=>opened.push(url)};
 window.changes=[];window.saves=[];
@@ -243,7 +248,8 @@ await evaluate(`new Promise(resolve=>requestAnimationFrame(()=>requestAnimationF
 const emptyCell=await evaluate(`(() => {const r=document.querySelectorAll('.lab-live-table-row')[1].querySelector('.lab-live-table-cell').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()`);await click(emptyCell);await send('Input.insertText',{text:'Left'});
 await evaluate(`assert(editor.value.endsWith('| Left| right |'),'clicking an empty cell edits its own Markdown position: '+editor.value)`);
 await evaluate(`reset();editor.view.dispatch({selection:{anchor:0,head:0}});until(()=>!document.querySelector('.lab-live-syntax'))`);
-await evaluate(`assertReading();document.getElementById('result').textContent='PASS'`);
+await evaluate(`new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))`);
+await evaluate(`assertReading();assert(!editorErrors.length,'native editing must not raise update/measurement errors: '+editorErrors.join('\\n'));document.getElementById('result').textContent='PASS'`);
 '''
     profile = tmp_path/'profile'
     process = subprocess.Popen([chrome,'--headless','--disable-gpu','--no-sandbox','--no-first-run','--no-default-browser-check','--allow-file-access-from-files','--user-data-dir='+str(profile),'--remote-debugging-port=0','about:blank'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)

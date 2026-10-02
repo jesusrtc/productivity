@@ -128,12 +128,12 @@ const click = (link, options = {}) => {
   // Local Mac workspace links ask the native helper to focus an existing tab.
   const nativeCalls = [], tabCount = tabs.length;
   window.LAB_NATIVE_BROWSER_REUSE = true;
-  window.fetch = async (url, options) => { nativeCalls.push({url, body:JSON.parse(options.body)}); return {ok:true}; };
+  window.fetch = async (url, options) => { nativeCalls.push({url, body:JSON.parse(options.body)}); return {ok:true,json:async()=>({ok:true,reused:true})}; };
   assert(await LabExternalLinks.open('https://example.com/native?x=1#part', {clientOnly:true, reuseTab:true}), 'native reuse succeeds');
   assert(nativeCalls.length === 1 && nativeCalls[0].url === '/api/ui/open-external'
     && nativeCalls[0].body.reuse_existing === true && nativeCalls[0].body.url === 'https://example.com/native?x=1#part'
     && tabs.length === tabCount, 'native reuse avoids an additional browser tab');
-  window.fetch = async () => ({ok:false,json:async()=>({detail:'Allow Automation to control Chrome.'})});
+  window.fetch = async () => ({ok:true,json:async()=>({ok:false,requires_browser_click:true,detail:'Allow Automation to control Chrome.'})});
   assert(await LabExternalLinks.open('https://example.com/denied', {clientOnly:true, reuseTab:true}) === false, 'denied native reuse is reported');
   assert(tabs.length === tabCount && document.querySelector('dialog[open] p').textContent.includes('Automation'), 'native failure offers an explicit fresh click without silently duplicating a tab');
   document.querySelector('dialog[open]').close();

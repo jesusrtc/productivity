@@ -106,17 +106,19 @@ def test_external_link_reuses_native_tab_or_opens_default_browser(client, monkey
 
 
 @pytest.mark.parametrize('error,message', [
-    (subprocess.TimeoutExpired('osascript', 6), 'did not respond'),
+    (subprocess.TimeoutExpired('osascript', 6), 'not responding'),
     (subprocess.CalledProcessError(1, 'osascript'), 'Automation'),
 ])
 def test_native_tab_automation_failure_does_not_silently_duplicate_tab(client, monkeypatch, error, message):
     from core import browser_tabs
     monkeypatch.setattr(ui.sys, 'platform', 'darwin')
-    def unavailable(url):
+    monkeypatch.setattr(browser_tabs, '_retry_after', 0.0)
+    def unavailable(*args, **kwargs):
         raise error
-    monkeypatch.setattr(browser_tabs, 'focus_existing', unavailable)
-    monkeypatch.setattr(ui.subprocess, 'run', lambda *a, **kw: pytest.fail('Do not silently open a duplicate on automation failure'))
+    monkeypatch.setattr(browser_tabs.subprocess, 'run', unavailable)
     with _browser_client(client) as browser:
         response = browser.post('/api/ui/open-external', json={'url': 'https://example.com', 'reuse_existing': True}, headers={'Origin': 'http://localhost'})
-    assert response.status_code == 503
+    assert response.status_code == 200
+    assert response.json()['ok'] is False
+    assert response.json()['requires_browser_click'] is True
     assert message in response.json()['detail']

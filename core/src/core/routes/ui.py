@@ -53,11 +53,16 @@ def open_external(body: ExternalLink, request: Request) -> dict:
     if request.headers.get("origin") != str(request.base_url).rstrip("/"):
         raise HTTPException(status_code=403, detail="Browser opening requires the Lab origin")
     url = str(body.url)
-    try:
-        if body.reuse_existing and sys.platform == 'darwin':
-            from core import browser_tabs
+    if body.reuse_existing and sys.platform == 'darwin':
+        from core import browser_tabs
+        try:
             if browser_tabs.focus_existing(url):
                 return {"ok": True, "reused": True}
+        except browser_tabs.BrowserAutomationUnavailable as exc:
+            # This is an actionable browser state, not an HTTP service outage.
+            # Never launch a duplicate after an uncertain automation outcome.
+            return {"ok": False, "reused": False, "requires_browser_click": True, "detail": str(exc)}
+    try:
         if sys.platform == "win32":
             os.startfile(url)
         else:
@@ -68,11 +73,8 @@ def open_external(body: ExternalLink, request: Request) -> dict:
                 stderr=subprocess.DEVNULL,
             )
     except subprocess.TimeoutExpired as exc:
-        message = "Your browser did not respond to tab automation. Try again or open a new browser tab." if body.reuse_existing and sys.platform == 'darwin' else "Could not open the default browser"
-        raise HTTPException(status_code=503, detail=message) from exc
+        raise HTTPException(status_code=503, detail="Could not open the default browser") from exc
     except (OSError, subprocess.SubprocessError, ValueError) as exc:
-        if body.reuse_existing and sys.platform == 'darwin':
-            raise HTTPException(status_code=503, detail="Could not reuse a browser tab. Allow Lab's process to control your browser in macOS Privacy & Security → Automation, or open a new browser tab.") from exc
         raise HTTPException(status_code=503, detail="Could not open the default browser") from exc
     return {"ok": True, "reused": False} if body.reuse_existing else {"ok": True}
 

@@ -1,5 +1,10 @@
 # Memory index
 
+- [Shell templates stay with their backend process](shell-template-stays-with-backend-process.md) — avoid new Jinja context contracts in older running Python; retain asset invalidation.
+- [History content is bounded before decoding](history-content-is-bounded-before-decoding.md) — non-UTF-8 companions, temporary byte spooling and aggregate 8 MiB preview limits.
+- [Native browser timeouts use an explicit fallback](native-browser-timeouts-use-explicit-fallback.md) — batched URL reads, serialized probes, brief backoff and a fresh browser click.
+- [Markdown preview clicks avoid measurement dispatch](markdown-preview-clicks-avoid-measure-dispatch.md) — retain click-time position mapping and capture native editor errors in regressions.
+
 - [Objective focus uses one current tab and ordered slots](objective-focus-uses-current-tab-and-ordered-slots.md) — hover dropdown, five library slots, insertion shifts and parks the fifth; supersedes separate focus tabs and swaps.
 - [Objective colors belong to focus slots](objective-colors-belong-to-focus-slots.md) — fixed slot palettes recolor moved/shifted objectives and worktrees; parked objectives are gray.
 - [Inactive Objective terminals only color headers](inactive-objective-terminals-only-color-headers.md) — active group keeps worktree colors; other rails and associations are neutral.

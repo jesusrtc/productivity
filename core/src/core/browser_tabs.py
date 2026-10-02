@@ -6,6 +6,8 @@ arguments are data, never interpolated into executable AppleScript/JXA.
 import json
 import re
 import subprocess
+import threading
+import time
 from urllib.parse import parse_qsl, urlsplit
 
 
@@ -35,16 +37,19 @@ function run(argv) {
         app.activate();
         return JSON.stringify({handled:true, reused:true});
     }
-    for (const window of app.windows()) {
-        const tabs = window.tabs();
-        for (let index = 0; index < tabs.length; index++) {
-            const candidate = tabs[index].url();
-            if (candidate === target) return focus(window, tabs[index], index);
+    // Fetch URL values in one Apple event. Reading each tab individually
+    // grows the number of synchronous IPC calls with the browser's tab count.
+    const windows = app.windows.tabs.url();
+    for (let wi = 0; wi < windows.length; wi++) {
+        const urls = windows[wi];
+        for (let index = 0; index < urls.length; index++) {
+            const candidate = urls[index];
+            if (candidate === target) return focus(app.windows[wi], app.windows[wi].tabs[index], index);
             // Same Google document, even if its browser URL includes /edit or
             // account/query parameters. A boundary avoids matching ID prefixes.
             if (!documentMatch && docPrefix && typeof candidate === 'string' && candidate.startsWith(docPrefix)
                     && ['', '/', '?', '#'].includes(candidate.charAt(docPrefix.length)))
-                documentMatch = {window, tab:tabs[index], index};
+                documentMatch = {window:app.windows[wi], tab:app.windows[wi].tabs[index], index};
         }
     }
     if (documentMatch) return focus(documentMatch.window, documentMatch.tab, documentMatch.index);
@@ -63,13 +68,41 @@ def document_prefix(url: str) -> str:
     return f'{parsed.scheme}://{parsed.netloc}{match[0].rstrip("/")}' if match else ''
 
 
+class BrowserAutomationUnavailable(ValueError):
+    """The native tab query failed; opening a fresh tab requires a user click."""
+
+
+_automation_lock = threading.Lock()
+_retry_after = 0.0
+_failure_detail = ''
+_RETRY_DELAY_S = 30
+
+
 def focus_existing(url: str) -> bool:
-    result = subprocess.run(
-        ['/usr/bin/osascript', '-l', 'JavaScript', '-e', SCRIPT, '--', url, document_prefix(url)],
-        check=True, timeout=6, text=True, stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-    )
-    data = json.loads(result.stdout)
-    if not isinstance(data, dict) or type(data.get('handled')) is not bool:
-        raise ValueError('Invalid browser automation result')
-    return data['handled']
+    global _retry_after, _failure_detail
+    # A nonresponding browser must not accumulate osascript processes from
+    # double-clicks/concurrent clients, or cost another six seconds per click.
+    with _automation_lock:
+        if time.monotonic() < _retry_after:
+            raise BrowserAutomationUnavailable(_failure_detail)
+        try:
+            result = subprocess.run(
+                ['/usr/bin/osascript', '-l', 'JavaScript', '-e', SCRIPT, '--', url, document_prefix(url)],
+                check=True, timeout=6, text=True, stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            )
+            data = json.loads(result.stdout)
+            if (not isinstance(data, dict) or type(data.get('handled')) is not bool
+                    or type(data.get('reused')) is not bool or data['handled'] != data['reused']):
+                raise ValueError('Invalid browser automation result')
+        except (OSError, subprocess.SubprocessError, ValueError) as exc:
+            if isinstance(exc, subprocess.TimeoutExpired) or '-1712' in str(getattr(exc, 'stderr', '')):
+                detail = 'Your browser is not responding to macOS tab queries. Open the link below, or restart your browser before trying tab reuse again.'
+            else:
+                detail = "Could not reuse a browser tab. Allow Lab's process to control your browser in macOS Privacy & Security → Automation, or open the link below."
+            _failure_detail = detail
+            _retry_after = time.monotonic() + _RETRY_DELAY_S
+            raise BrowserAutomationUnavailable(detail) from exc
+        _retry_after = 0.0
+        _failure_detail = ''
+        return data['reused']
