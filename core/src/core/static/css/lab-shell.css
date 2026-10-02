@@ -3324,14 +3324,33 @@ body.light-mode .lab-live-code-toolbar select { color-scheme:light; }
 .sidebar-scope-link span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sidebar-scope-link:hover { border-color: var(--accent); color: var(--accent); }
 .sidebar-scope-link:disabled { opacity: .5; cursor: default; }
+.scope-link-icon { display:inline-block; flex:0 0 16px; width:16px; height:16px; line-height:16px; text-align:center; background:var(--link-icon) center / contain no-repeat; }
+.scope-link-icon[data-link-service="google-docs"] { --link-icon:url("../img/link-icons/google-docs.png"); }
+.scope-link-icon[data-link-service="google-sheets"] { --link-icon:url("../img/link-icons/google-sheets.png"); }
+.scope-link-icon[data-link-service="google-slides"] { --link-icon:url("../img/link-icons/google-slides.png"); }
+.scope-link-icon[data-link-service="google-forms"] { --link-icon:url("../img/link-icons/google-forms.png"); }
+.scope-link-icon[data-link-service="google-drive"] { --link-icon:url("../img/link-icons/google-drive.svg"); }
+.scope-link-icon[data-link-service="slack"] { --link-icon:url("../img/link-icons/slack.svg"); }
+.scope-link-icon[data-link-service="jira"] { --link-icon:url("../img/link-icons/jira.svg"); }
+.scope-link-icon[data-link-service="confluence"] { --link-icon:url("../img/link-icons/confluence.svg"); }
+.scope-link-icon[data-link-service="grafana"] { --link-icon:url("../img/link-icons/grafana.svg"); }
+.scope-link-icon[data-link-service="github"] { --link-icon:url("../img/link-icons/github.svg"); }
+.scope-link-icon[data-link-service="gitlab"] { --link-icon:url("../img/link-icons/gitlab.svg"); }
+.scope-link-icon[data-link-service="notion"] { --link-icon:url("../img/link-icons/notion.svg"); }
+.scope-link-icon[data-link-service="figma"] { --link-icon:url("../img/link-icons/figma.svg"); }
+.scope-link-icon[data-link-service="linear"] { --link-icon:url("../img/link-icons/linear.svg"); }
+.scope-link-icon[data-link-service="trello"] { --link-icon:url("../img/link-icons/trello.svg"); }
+.scope-link-icon[data-link-service="bitbucket"] { --link-icon:url("../img/link-icons/bitbucket.svg"); }
+.scope-link-icon[data-link-service="youtube"] { --link-icon:url("../img/link-icons/youtube.svg"); }
+.scope-link-icon[data-link-service="teams"] { --link-icon:url("../img/link-icons/teams.svg"); }
+.scope-link-icon:is([data-link-service="github"],[data-link-service="notion"],[data-link-service="linear"]) { background:currentColor; mask:var(--link-icon) center / contain no-repeat; }
 .scope-links-dialog { position: fixed; inset: 0; margin: auto; height: fit-content; box-sizing: border-box; width: min(860px, calc(100vw - 32px)); max-height: calc(100dvh - 48px); overflow: auto; padding: 22px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-primary); color: var(--text-primary); font-size: var(--lab-modal-font-size, 14px); }
 .scope-links-dialog::backdrop { background: #0008; }
-.scope-links-heading, .scope-links-card-head, .scope-links-footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
-.scope-links-heading h2 { margin: 0; font-size: 1.2em; }
-.scope-links-path { font-size: .85em; color: var(--text-dim); overflow-wrap: anywhere; }
-.scope-links-dialog fieldset { border: 1px solid var(--border); border-radius: 8px; margin: 14px 0; padding: 14px; }
+.scope-links-heading, .scope-links-footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.scope-links-heading > div { min-width:0; }
+.scope-links-heading h2 { margin: 0; font-size: 1.2em; overflow-wrap:anywhere; }
+.scope-links-path { font-size: .85em; color: var(--text-dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .scope-links-dialog label { display: block; margin-bottom: 12px; }
-.scope-links-card-head label { flex: 1; }
 .scope-links-dialog input, .scope-links-dialog select { box-sizing: border-box; display: block; width: 100%; background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border); border-radius: 6px; margin-top: 5px; padding: 8px; font: inherit; }
 .scope-links-dialog button { background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; font: inherit; cursor: pointer; }
 .scope-links-heading button { border: 0; background: transparent; font-size: 1.3em; }
@@ -3346,6 +3365,20 @@ body.light-mode .lab-live-code-toolbar select { color-scheme:light; }
 .scope-links-intro { color:var(--text-secondary); font-size:.9em; margin-bottom:22px; }
 .scope-links-dialog button:disabled { opacity:.5; cursor:default; }
 .scope-links-dialog button:hover:not(:disabled) { border-color:var(--accent); }
+.scope-link-row { border:1px solid var(--border); border-radius:7px; margin-bottom:6px; overflow:hidden; }
+.scope-link-row-head { display:flex; align-items:center; min-width:0; background:var(--bg-secondary); }
+.scope-links-dialog .scope-link-row-toggle { display:flex; align-items:center; gap:10px; flex:1; min-width:0; padding:11px 12px; border:0; border-radius:0; background:transparent; text-align:left; }
+.scope-link-row-toggle:hover { background:var(--bg-tertiary); }
+.scope-link-row-toggle [data-row-icon] { display:flex; flex:none; }
+.scope-link-row-toggle [data-row-label] { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.scope-link-row-toggle [data-row-service] { max-width:30%; color:var(--text-secondary); font-size:.8em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.scope-link-row-toggle::after { content:'⌄'; color:var(--text-dim); flex:none; }
+.scope-link-row-toggle[aria-expanded=true]::after { content:'⌃'; }
+.scope-links-dialog .scope-link-remove { flex:none; width:32px; height:32px; margin-right:5px; padding:0; border:0; background:transparent; color:var(--text-secondary); font-size:20px; }
+.scope-links-dialog .scope-link-remove:hover { color:var(--red,#f85149); background:var(--bg-tertiary); }
+.scope-link-row.is-editing { border-color:var(--accent); }
+.scope-link-fields { padding:14px; border-top:1px solid var(--border); }
+.scope-links-add { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
 .scope-document-summary { display:flex; align-items:center; gap:12px; padding:12px; background:var(--bg-secondary); border:1px solid var(--border); border-radius:8px; }
 .scope-document-summary > span:nth-child(2) { flex:1; min-width:0; }
 .scope-document-summary strong,.scope-document-summary small { display:block; overflow-wrap:anywhere; }
@@ -3377,7 +3410,8 @@ body.light-mode .lab-live-code-toolbar select { color-scheme:light; }
   .scope-links-dialog { width:calc(100vw - 16px); padding:14px; max-height:calc(100dvh - 24px); }
   .scope-links-heading { top:-14px; }
   .scope-links-footer { bottom:-14px; }
-  .scope-links-dialog fieldset { padding:10px; }
+  .scope-link-fields { padding:10px; }
+  .scope-links-dialog .scope-link-row-toggle { padding:10px; gap:7px; }
   .scope-document-columns { grid-template-columns:minmax(0,1fr); }
   .scope-document-targets { border-left:0; border-top:1px solid var(--border); }
   .scope-document-list,.scope-document-targets [data-document-targets] { max-height:190px; }

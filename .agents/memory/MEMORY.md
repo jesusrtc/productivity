@@ -1,5 +1,7 @@
 # Memory index
 
+- [Link rows infer services from URLs](link-rows-infer-services-from-urls.md) — local brand icons, one-line click-to-edit metadata, automatic external types, and preserved internal document/tab targets.
+
 - [Markdown code blocks have protected UI containers](markdown-code-blocks-have-protected-ui-containers.md) — automatic fences, None/language picker, editable highlighting, UI deletion and native undo.
 - [Markdown tables align editable cells](markdown-tables-align-editable-cells.md) — forgiving separator counts, shared wrapping columns, empty cells and browser caret selection.
 - [Headless macOS select uses native type-to-select](headless-macos-select-uses-native-type-to-select.md) — CDP character input selects real native dropdown options where popup arrow keys are ignored.

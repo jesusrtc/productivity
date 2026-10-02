@@ -20,7 +20,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from core import auth, config
+from core import auth, config, link_services
 from lab import paths as lab_paths
 from core.routes import auth as auth_route
 from core.routes import appstate as appstate_route
@@ -648,6 +648,7 @@ def create_app() -> FastAPI:
         _STATIC_DIR / "vendor" / "lab-markdown-editor" / "markdown-editor.min.js",
         _STATIC_DIR / "js" / "lib" / "external-links.js",
         _STATIC_DIR / "js" / "lib" / "scope-links.js",
+        link_services.REGISTRY_PATH,
         _STATIC_DIR / "js" / "lib" / "terminal-cleanup.js",
         _STATIC_DIR / "js" / "lib" / "workspace-documents.js",
         _STATIC_DIR / "js" / "lib" / "document-terminal.js",
@@ -712,6 +713,7 @@ def create_app() -> FastAPI:
                 IS_ADMIN=admin,
                 EXTERNAL_BROWSER=external_browser,
                 ASSET_V=asset_v,
+                LINK_SERVICES=link_services.SERVICES,
                 **state,
             )
             bytes_by_key[key] = _compact_index_html(html).encode("utf-8")

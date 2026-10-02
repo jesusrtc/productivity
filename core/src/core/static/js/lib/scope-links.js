@@ -6,6 +6,7 @@
   const lastDocument = new Map();
   const documentMime = 'application/x-lab-assistant-document';
   const rootKey = path => String(path || '').replace(/\/+$/, '') || '/';
+  const services = window.LAB_LINK_SERVICES || [];
   let editor = null;
   async function api(url, options = {}) {
     const response = await fetch(url, options);
@@ -13,7 +14,29 @@
     if (!response.ok) throw Object.assign(new Error(typeof data.detail === 'string' ? data.detail : 'Could not load links.'),{status:response.status});
     return data;
   }
-  function label(link) { return link.label || link.title || link.type_name || link.url || 'Document'; }
+  function serviceFor(link, useType = true) {
+    if (link.kind === 'internal') return null;
+    try {
+      const url = new URL(link.url), host = url.hostname.toLowerCase().replace(/\.$/, ''), path = url.pathname.toLowerCase();
+      if (!['http:', 'https:'].includes(url.protocol)) return null;
+      const domainMatches = domain => host === domain || host.endsWith('.' + domain);
+      for (const service of services) {
+        if (service.rules.some(rule => domainMatches(rule.domain) && (path === rule.path || path.startsWith(rule.path + '/')))
+          || service.domains.some(domainMatches)
+          || service.host_labels.some(label => host.split('.').some(part => part === label || part.startsWith(label + '-') || part.endsWith('-' + label)))) return service;
+      }
+    } catch (_) { /* Unfinished URLs retain the generic link glyph. */ }
+    if (useType) {
+      const names = [link.type, link.type_name].map(value => String(value || '').toLowerCase().replace(/[\s_]+/g, '-'));
+      return services.find(service => names.some(name => name === service.id || name === service.name.toLowerCase().replace(/\s+/g, '-') || service.aliases.includes(name))) || null;
+    }
+    return null;
+  }
+  function icon(link) {
+    const service = serviceFor(link);
+    return `<span class="scope-link-icon" ${service ? `data-link-service="${esc(service.id)}"` : ''} aria-hidden="true">${service ? '' : link.kind === 'internal' ? '▤' : '↗'}</span>`;
+  }
+  function label(link) { return link.label || link.title || serviceFor(link)?.name || link.type_name || link.url || 'Document'; }
   function tabs(tree, depth = 0) {
     return (tree?.children || []).flatMap(row => [{id:row.id, title:'· '.repeat(depth) + row.title, name:row.title, depth}, ...tabs(row, depth + 1)]);
   }
@@ -93,7 +116,7 @@
     });
   }
   function render(host, data, current) {
-    host.innerHTML = `<div class="sidebar-scope-links-head"><span>Links</span><button type="button" data-edit-links aria-label="Edit links for this folder" title="Edit links">+</button></div><div class="sidebar-scope-links-list">${data.links.map((link, index) => `<button type="button" data-scope-link="${index}" class="sidebar-scope-link" ${link.unavailable ? 'disabled' : ''} title="${esc(link.unavailable ? link.error : (link.type_name + ' · ' + (link.title || link.url)))}"><span aria-hidden="true">${link.kind === 'internal' ? '▤' : '↗'}</span><span>${esc(label(link))}</span></button>`).join('')}</div>`;
+    host.innerHTML = `<div class="sidebar-scope-links-head"><span>Links</span><button type="button" data-edit-links aria-label="Edit links for this folder" title="Edit links">+</button></div><div class="sidebar-scope-links-list">${data.links.map((link, index) => `<button type="button" data-scope-link="${index}" class="sidebar-scope-link" ${link.unavailable ? 'disabled' : ''} title="${esc(link.unavailable ? link.error : ((serviceFor(link)?.name || link.type_name) + ' · ' + (link.title || link.url)))}">${icon(link)}<span>${esc(label(link))}</span></button>`).join('')}</div>`;
     host.querySelector('[data-edit-links]').onclick = () => edit(host.dataset.scopeLinks, host._scopeLinksCurrent, host._scopeLinksScope);
     host.querySelectorAll('[data-scope-link]').forEach(button => button.onclick = async () => {
       if (!current()) return;
@@ -134,7 +157,7 @@
   async function edit(path, current = () => true, scope = {}) {
     if (editor) { close(); if (editor) return; }
     const dialog = document.createElement('dialog'); dialog.className = 'scope-links-dialog';dialog.setAttribute('aria-labelledby','scopeMetadataTitle');
-    dialog.innerHTML = `<form><div class="scope-links-heading"><div><span class="scope-links-eyebrow">${scope.kind === 'worktree' ? 'Worktree' : 'Project / folder'}</span><h2 id="scopeMetadataTitle">${esc(scope.label || path.split('/').pop())}</h2></div><button type="button" data-close aria-label="Close">×</button></div><p class="scope-links-path">${esc(path)}</p><p class="scope-links-intro">Keep documents, tickets, and useful links with this checkout.</p><div data-link-cards>Loading…</div><button type="button" data-add-link disabled>+ Add link</button><div class="scope-links-footer"><span data-message role="status"></span><button type="submit" disabled>Save links</button></div><p class="scope-links-hint">Manage allowed link types in Settings → Global → Link types.</p></form>`;
+    dialog.innerHTML = `<form novalidate><div class="scope-links-heading"><div><span class="scope-links-eyebrow">${scope.kind === 'worktree' ? 'Worktree' : 'Project / folder'}</span><h2 id="scopeMetadataTitle">${esc(scope.label || path.split('/').pop())}</h2></div><button type="button" data-close aria-label="Close">×</button></div><p class="scope-links-path" title="${esc(path)}">${esc(path)}</p><p class="scope-links-intro">Click a link to edit it. Paste a URL to identify its service.</p><div data-link-cards>Loading…</div><div class="scope-links-add"><button type="button" data-add-link disabled>+ Add link</button><button type="button" data-add-document hidden>+ Internal document</button></div><div class="scope-links-footer"><span data-message role="status"></span><button type="submit" disabled>Save links</button></div></form>`;
     const s = editor = {dialog, path, current, abort:new AbortController(), dirty:false, focus:document.activeElement};
     document.body.append(dialog); dialog.showModal();
     const message = (value, error = false) => { const node=dialog.querySelector('[data-message]');node.textContent=value;node.classList.toggle('error',error); };
@@ -150,21 +173,29 @@
       dialog.querySelector('[data-add-link]').disabled = false;
       dialog.querySelector('[type="submit"]').disabled = false;
       dialog.querySelector('[data-add-link]').onclick = () => { card(s);s.dirty=true; };
+      const internalType = s.data.types.find(type => type.kind === 'internal');
+      const addDocument = dialog.querySelector('[data-add-document]');
+      addDocument.hidden = !internalType;
+      addDocument.onclick = () => { card(s, {kind:'internal', type:internalType.id});s.dirty=true; };
       dialog.querySelector('form').onsubmit = async event => {
         event.preventDefault();
         const button=dialog.querySelector('[type="submit"]');button.disabled=true;message('Saving…');
         try {
           const links=[...dialog.querySelectorAll('[data-link-card]')].map(node => {
-            const type=node.querySelector('[data-type]').value;
-            const row={id:node.dataset.linkCard,type,label:node.querySelector('[data-label]').value.trim()};
-            if (s.data.types.find(row=>row.id===type)?.kind==='internal') {
+            if (!validateCard(node)) throw new Error('Complete the highlighted link before saving.');
+            const row={id:node.dataset.linkCard,type:node._link.type,label:node.querySelector('[data-label]').value.trim()};
+            if (node._kind === 'internal') {
               if(node._targetLoading)throw new Error('Wait for the document and its tabs to load before saving.');
               if(node._targetError)throw new Error(node._targetError);
               const doc=s.documents?.documents.find(doc=>doc.id===node._internalTarget?.documentId);
               if (!doc) throw new Error('Choose an internal document for each internal link.');
               return {...row,assistant_root:s.documents.root,document_id:doc.id,tab_id:node._internalTarget.tabId||null};
             }
-            return {...row,url:node.querySelector('[data-url]')?.value.trim()||''};
+            const url=node.querySelector('[data-url]').value.trim();
+            // Preserve saved custom types on untouched URLs. Changed and new
+            // URLs are inferred by the backend from the same service registry.
+            const knownType=s.data.types.some(type=>type.id===row.type&&type.kind==='external') || services.some(service=>service.id===row.type) || row.type==='url';
+            return {...row,...(url === node._link.url && knownType ? {} : {kind:'external'}),url};
           });
           const data=await api('/api/scope-links',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({path,links,expected:s.data.revision}),signal:s.abort.signal});
           cache.set(path,{data,at:Date.now()});
@@ -179,13 +210,43 @@
     } catch(error) { if(editor===s&&error.name!=='AbortError') message(error.message,true); }
   }
   function card(s, link = {}) {
-    const node=document.createElement('fieldset');node.dataset.linkCard=link.id||crypto.randomUUID();
-    node.innerHTML=`<legend>Link</legend><div class="scope-links-card-head"><label>Type<select data-type required>${link.type&&!s.data.types.some(type=>type.id===link.type)?'<option value="" selected>Choose an allowed type…</option>':''}${s.data.types.map(type=>`<option value="${esc(type.id)}" ${type.id===link.type?'selected':''}>${esc(type.name)}</option>`).join('')}</select></label><button type="button" data-remove>Remove</button></div><label>Display name <span class="scope-links-hint">(optional)</span><input data-label value="${esc(link.label||'')}" placeholder="Use document title or link type"></label><div data-target></div>`;
+    const node=document.createElement('div');node.dataset.linkCard=link.id||crypto.randomUUID();node.className='scope-link-row';
+    node._link=link;node._kind=link.kind || s.data.types.find(type=>type.id===link.type)?.kind || 'external';
+    node.innerHTML=`<div class="scope-link-row-head"><button type="button" class="scope-link-row-toggle" data-edit-link aria-expanded="false" aria-controls="scope-link-fields-${esc(node.dataset.linkCard)}"><span data-row-icon>${icon({...link,kind:node._kind})}</span><span data-row-label></span><small data-row-service></small></button><button type="button" class="scope-link-remove" data-remove aria-label="Remove link" title="Remove link">×</button></div><div class="scope-link-fields" data-link-fields id="scope-link-fields-${esc(node.dataset.linkCard)}" hidden><label>Display name <span class="scope-links-hint">(optional)</span><input data-label maxlength="200" value="${esc(link.label||'')}" placeholder="Use the document title or site name"></label><div data-target></div><button type="button" data-done-link>Done</button></div>`;
     s.dialog.querySelector('[data-link-cards]').append(node);
     node.querySelector('[data-remove]').onclick=()=>{node.remove();s.dirty=true;};
-    const type=node.querySelector('[data-type]');
-    type.onchange=()=>target(s,node,link);
+    node.querySelector('[data-edit-link]').onclick=()=>setCardOpen(node,node.querySelector('[data-link-fields]').hidden);
+    node.querySelector('[data-done-link]').onclick=()=>{
+      if(validateCard(node)&&!node._targetLoading&&!node._targetError)setCardOpen(node,false);
+    };
+    node.querySelector('[data-label]').oninput=()=>updateCard(node);
+    updateCard(node);
     void target(s,node,link);
+    if(!link.id)setCardOpen(node,true);
+  }
+  function setCardOpen(node, open) {
+    node.querySelector('[data-link-fields]').hidden=!open;
+    node.querySelector('[data-edit-link]').setAttribute('aria-expanded',String(open));
+    node.classList.toggle('is-editing',open);
+    if(open)(node.querySelector('[data-url]') || node.querySelector('[data-label]')).focus();
+    else node.querySelector('[data-edit-link]').focus();
+  }
+  function validateCard(node) {
+    for(const input of node.querySelectorAll('[data-label],[data-url]')) {
+      if(!input.checkValidity()) {setCardOpen(node,true);input.reportValidity();return false;}
+    }
+    return true;
+  }
+  function updateCard(node) {
+    const original=node._link,url=node.querySelector('[data-url]')?.value.trim() ?? original.url;
+    const service=serviceFor({url,...(url===original.url ? {type:original.type,type_name:original.type_name} : {})});
+    const doc=node._documentTitle || original.title || 'Choose an internal document';
+    const text=node.querySelector('[data-label]').value.trim() || (node._kind==='internal' ? doc : service?.name || url || 'New link');
+    node.querySelector('[data-row-label]').textContent=text;
+    node.querySelector('[data-row-service]').textContent=node._kind==='internal' ? node._documentDestination || 'Internal document' : service?.name || 'Link';
+    node.querySelector('[data-row-icon]').innerHTML=icon({kind:node._kind,url,type:service?.id});
+    node.querySelector('[data-edit-link]').title=node._kind==='internal' ? doc : url || 'Paste a URL';
+    node.querySelector('[data-remove]').setAttribute('aria-label','Remove '+text);
   }
   function documentMatches(doc, query) {
     const text=`${doc.title} ${doc.search_text || ''}`.toLocaleLowerCase();
@@ -206,8 +267,17 @@
     const valid=()=>editor===s&&node.isConnected&&node._targetToken===token;
     const host=node.querySelector('[data-target]');
     node._externalUrl=host.querySelector('[data-url]')?.value ?? node._externalUrl ?? link.url ?? '';
-    const internal=s.data.types.find(row=>row.id===node.querySelector('[data-type]').value)?.kind==='internal';
-    if(!internal) {host.innerHTML=`<label>URL<input data-url type="url" value="${esc(node._externalUrl)}" placeholder="https://…" required></label>`;return;}
+    const internal=node._kind==='internal';
+    if(!internal) {
+      host.innerHTML=`<label>URL<input data-url type="url" value="${esc(node._externalUrl)}" placeholder="https://…" required maxlength="4096"></label>`;
+      const input=host.querySelector('[data-url]');
+      input.oninput=()=>{
+        input.setCustomValidity('');
+        if(input.value.trim())try{if(!['http:','https:'].includes(new URL(input.value.trim()).protocol))input.setCustomValidity('Use a full http or https URL.');}catch(_){input.setCustomValidity('Use a full http or https URL.');}
+        updateCard(node);
+      };
+      input.oninput();return;
+    }
     node._targetLoading=true;
     host.innerHTML='<p class="scope-links-hint">Loading internal documents…</p>';
     try {
@@ -241,6 +311,9 @@
         host.querySelector('[data-document-destination]').textContent=chosen ? (selected.tabId ? 'Tab · '+(tab?.name || 'Unavailable tab') : 'Whole document') : 'Link its whole content or a specific tab';
         host.querySelector('[data-change-document]').textContent=chosen?'Change':'Choose document';
         finish.disabled=!chosen||node._targetLoading||!!node._targetError;
+        node._documentTitle=chosen ? chosen.title+(selected.tabId&&tab ? ' / '+tab.name : '') : '';
+        node._documentDestination=host.querySelector('[data-document-destination]').textContent;
+        updateCard(node);
       };
       function renderDocuments() {
         const matches=s.documents.documents.filter(doc=>documentMatches(doc,search.value));
@@ -304,7 +377,7 @@
       // Keep saved links compact; open the browser for new or unavailable targets.
       picker.hidden=!!doc();host.querySelector('[data-change-document]').setAttribute('aria-expanded',String(!picker.hidden));
       await loadTabs();
-      if(node._targetError)showPicker(true);
+      if(node._targetError){setCardOpen(node,true);showPicker(true);}
     }catch(error){if(valid()&&error.name!=='AbortError'){node._targetError=error.message;node._targetLoading=false;host.textContent=error.message;}}
   }
   function dropTarget(target) {
@@ -330,5 +403,5 @@
     } catch (error) { if (typeof explorerToast === 'function') explorerToast(error.message,true); }
   }, true);
   document.addEventListener('dragend', clearDrop);
-  window.LabScopeLinks={mount,edit,label,tabs,documentMatches,openDocument,openForTerminal,addDocument,terminals,matchesTerminal};
+  window.LabScopeLinks={mount,edit,label,serviceFor,tabs,documentMatches,openDocument,openForTerminal,addDocument,terminals,matchesTerminal};
 })();

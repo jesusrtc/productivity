@@ -217,7 +217,8 @@ def _internal_scope_link(link, request, record_rows=None):
 
 def _present_scope_links(data, types, request):
     from lab import assistant_records as records, paths
-    types_by_id = {row['id']: row for row in types}
+    from core.link_services import EXTERNAL_TYPES
+    types_by_id = {row['id']: row for row in [*EXTERNAL_TYPES, *types]}
     rows = None
     if any(link.get('kind') == 'internal' for link in data['links']):
         root = paths.assistant_root()
@@ -248,9 +249,10 @@ def update_scope_links(body: ScopeLinksBody, request: Request):
     from urllib.parse import urlsplit
     from uuid import uuid4
     from lab import scope_links, assistant_records as records, paths
+    from core.link_services import EXTERNAL_TYPES, infer
     root = _scope_link_root(body.path, request)
     types = lab_settings.load(auth.request_root(request))['scopeLinkTypes']
-    by_id = {row['id']: row for row in types}
+    by_id = {row['id']: row for row in [*EXTERNAL_TYPES, *types]}
     if len(body.links) > 100:
         raise HTTPException(400, 'A scope can have at most 100 links')
     normalized = []
@@ -258,7 +260,11 @@ def update_scope_links(body: ScopeLinksBody, request: Request):
     record_rows = None
     try:
         for link in body.links:
+            automatic = link.get('kind') == 'external' or ('url' in link and link.get('type') is None)
             link_type = by_id.get(link.get('type')) if isinstance(link.get('type'), str) else None
+            if automatic:
+                service = infer(str(link.get('url') or '').strip())
+                link_type = {'id': service['id'] if service else 'url', 'kind': 'external'}
             if link_type is None:
                 raise ValueError('Choose an allowed link type, or add it in Settings')
             identifier = str(link.get('id') or uuid4())

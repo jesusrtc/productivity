@@ -1,0 +1,255 @@
+[
+  {
+    "id": "google-sheets",
+    "name": "Google Sheets",
+    "domains": [
+      "sheets.google.com"
+    ],
+    "rules": [
+      {
+        "domain": "docs.google.com",
+        "path": "/spreadsheets"
+      }
+    ],
+    "host_labels": [],
+    "aliases": [
+      "spreadsheet",
+      "spreadsheet-google",
+      "google-spreadsheet"
+    ],
+    "icon": "google-sheets.png"
+  },
+  {
+    "id": "google-slides",
+    "name": "Google Slides",
+    "domains": [
+      "slides.google.com"
+    ],
+    "rules": [
+      {
+        "domain": "docs.google.com",
+        "path": "/presentation"
+      }
+    ],
+    "host_labels": [],
+    "aliases": [],
+    "icon": "google-slides.png"
+  },
+  {
+    "id": "google-forms",
+    "name": "Google Forms",
+    "domains": [
+      "forms.google.com",
+      "forms.gle"
+    ],
+    "rules": [
+      {
+        "domain": "docs.google.com",
+        "path": "/forms"
+      }
+    ],
+    "host_labels": [],
+    "aliases": [],
+    "icon": "google-forms.png"
+  },
+  {
+    "id": "google-docs",
+    "name": "Google Docs",
+    "domains": [
+      "docs.google.com"
+    ],
+    "rules": [],
+    "host_labels": [],
+    "aliases": [
+      "google-doc",
+      "google-document"
+    ],
+    "icon": "google-docs.png"
+  },
+  {
+    "id": "google-drive",
+    "name": "Google Drive",
+    "domains": [
+      "drive.google.com"
+    ],
+    "rules": [],
+    "host_labels": [],
+    "aliases": [],
+    "icon": "google-drive.svg"
+  },
+  {
+    "id": "slack",
+    "name": "Slack",
+    "domains": [
+      "slack.com",
+      "slack-gov.com"
+    ],
+    "rules": [],
+    "host_labels": [],
+    "aliases": [],
+    "icon": "slack.svg"
+  },
+  {
+    "id": "confluence",
+    "name": "Confluence",
+    "domains": [
+      "confluence.atlassian.com"
+    ],
+    "rules": [
+      {
+        "domain": "atlassian.net",
+        "path": "/wiki"
+      }
+    ],
+    "host_labels": [
+      "confluence"
+    ],
+    "aliases": [],
+    "icon": "confluence.svg"
+  },
+  {
+    "id": "jira",
+    "name": "Jira",
+    "domains": [
+      "atlassian.net",
+      "jira.com"
+    ],
+    "rules": [],
+    "host_labels": [
+      "jira"
+    ],
+    "aliases": [
+      "jira-tickets",
+      "jira-ticket"
+    ],
+    "icon": "jira.svg"
+  },
+  {
+    "id": "grafana",
+    "name": "Grafana",
+    "domains": [
+      "grafana.com",
+      "grafana.net"
+    ],
+    "rules": [],
+    "host_labels": [
+      "grafana"
+    ],
+    "aliases": [],
+    "icon": "grafana.svg"
+  },
+  {
+    "id": "github",
+    "name": "GitHub",
+    "domains": [
+      "github.com",
+      "github.dev"
+    ],
+    "rules": [],
+    "host_labels": [
+      "github"
+    ],
+    "aliases": [],
+    "icon": "github.svg",
+    "monochrome": true
+  },
+  {
+    "id": "gitlab",
+    "name": "GitLab",
+    "domains": [
+      "gitlab.com"
+    ],
+    "rules": [],
+    "host_labels": [
+      "gitlab"
+    ],
+    "aliases": [],
+    "icon": "gitlab.svg"
+  },
+  {
+    "id": "notion",
+    "name": "Notion",
+    "domains": [
+      "notion.so",
+      "notion.site"
+    ],
+    "rules": [],
+    "host_labels": [],
+    "aliases": [],
+    "icon": "notion.svg",
+    "monochrome": true
+  },
+  {
+    "id": "figma",
+    "name": "Figma",
+    "domains": [
+      "figma.com"
+    ],
+    "rules": [],
+    "host_labels": [],
+    "aliases": [],
+    "icon": "figma.svg"
+  },
+  {
+    "id": "linear",
+    "name": "Linear",
+    "domains": [
+      "linear.app"
+    ],
+    "rules": [],
+    "host_labels": [],
+    "aliases": [],
+    "icon": "linear.svg",
+    "monochrome": true
+  },
+  {
+    "id": "trello",
+    "name": "Trello",
+    "domains": [
+      "trello.com"
+    ],
+    "rules": [],
+    "host_labels": [],
+    "aliases": [],
+    "icon": "trello.svg"
+  },
+  {
+    "id": "bitbucket",
+    "name": "Bitbucket",
+    "domains": [
+      "bitbucket.org"
+    ],
+    "rules": [],
+    "host_labels": [
+      "bitbucket"
+    ],
+    "aliases": [],
+    "icon": "bitbucket.svg"
+  },
+  {
+    "id": "youtube",
+    "name": "YouTube",
+    "domains": [
+      "youtube.com",
+      "youtu.be"
+    ],
+    "rules": [],
+    "host_labels": [],
+    "aliases": [],
+    "icon": "youtube.svg"
+  },
+  {
+    "id": "teams",
+    "name": "Microsoft Teams",
+    "domains": [
+      "teams.microsoft.com",
+      "teams.live.com"
+    ],
+    "rules": [],
+    "host_labels": [],
+    "aliases": [
+      "microsoft-teams"
+    ],
+    "icon": "teams.svg"
+  }
+]

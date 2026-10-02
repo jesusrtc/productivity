@@ -49,6 +49,32 @@ def test_exact_scopes_are_independent_and_stale_writes_cannot_lose_links(client,
     assert scope_links.file().is_file()
 
 
+def test_external_urls_infer_services_without_configuring_types(client, monorepo):
+    urls = [
+        ('https://docs.google.com/document/d/example/edit', 'google-docs', 'Google Docs'),
+        ('https://docs.google.com/spreadsheets/d/example/edit', 'google-sheets', 'Google Sheets'),
+        ('https://company.slack.com/archives/C123', 'slack', 'Slack'),
+        ('https://company.atlassian.net/wiki/spaces/ENG', 'confluence', 'Confluence'),
+        ('https://company.atlassian.net/browse/ENG-1', 'jira', 'Jira tickets'),
+        ('https://grafana.company.invalid/d/dashboard', 'grafana', 'Grafana'),
+        ('https://github.com/org/repo/pulls', 'github', 'GitHub'),
+        ('https://example.invalid/article?site=slack.com', 'url', 'Link'),
+    ]
+    before = settings.load(monorepo)['scopeLinkTypes']
+    result = save(client, monorepo, [{'id': str(index), 'url': url} for index, (url, _, _) in enumerate(urls)])
+    assert result.status_code == 200, result.text
+    links = result.json()['links']
+    assert [(row['url'], row['type'], row['type_name']) for row in links] == urls
+    assert settings.load(monorepo)['scopeLinkTypes'] == before
+    # Editing the URL replaces its inferred service, even with an old type.
+    result = save(client, monorepo, [{**links[0], 'kind': 'external', 'url': urls[2][0]}])
+    assert result.status_code == 200, result.text
+    assert result.json()['links'][0]['type'] == 'slack'
+    for url in ['javascript:alert(1)', 'file:///tmp/file', 'https://', 'https://[broken']:
+        assert save(client, monorepo, [{'kind': 'external', 'url': url}]).status_code == 400
+    assert read(client, monorepo)['links'][0]['type'] == 'slack'
+
+
 def test_internal_whole_document_and_specific_tab_follow_identity(client, monorepo, library):
     root, _, note, content, _, _, meeting = library
     tab_id = records.read_document(content)[0]['id']
