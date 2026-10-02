@@ -9,6 +9,7 @@ import click
 # Help and completion still resolve the same command objects through Click.
 _COMMANDS = {
     'workspace': ('workspace', 'workspace_group'),
+    'objective': ('objective', 'objective_group'),
     'assistant': ('assistant', 'assistant_group'),
     'config': ('config', 'config_group'),
     'agents': ('agents', 'agents_group'),

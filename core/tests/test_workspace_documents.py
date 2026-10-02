@@ -28,9 +28,9 @@ def linked_workspace(monorepo, owned_tasks, seed_workspace, monkeypatch):
     def forbidden(*a, **kw):
         raise AssertionError('Document linking must never start/stop a process or send input')
     monkeypatch.setattr(term, '_tmux_command', forbidden)
-    def session(where=root, workspace='__assistant__', logical='claude', legacy=False, agent='claude'):
+    def session(where=root, workspace='__assistant__', logical='claude', legacy=False, agent='claude', cwd=None):
         entry = {'name':logical, 'kind':'claude', 'agent':agent, 'agent_session_id':'kept-conversation',
-                 'cwd':str(root), 'label':'My agent', 'linked_scope':{'root':str(root)},
+                 'cwd':str(cwd or root), 'label':'My agent', 'linked_scope':{'root':str(cwd or root)},
                  'linked_file':{'root':str(root), 'path':'source.md'}}
         term._upsert_workspace_session(where, workspace, entry)
         saved = term._get_workspace_sessions(where, workspace)[-1]
@@ -95,12 +95,15 @@ def test_checkout_document_references_keep_native_terminals_and_original_ownersh
     root, note, live, session = linked_workspace
     original = session()
     link = link_terminal(client, note)
-    native = session(monorepo, 'demo', logical='checkout')
     before = term._get_workspace_sessions(root, '__assistant__')
-    for path in (monorepo/'project', monorepo/'trees/topic'):
+    names = []
+    for index, path in enumerate((monorepo/'project', monorepo/'trees/topic')):
         path.mkdir(parents=True)
+        # A terminal's launch folder is fixed; each checkout gets its own tab.
+        native = session(monorepo, 'demo', logical='checkout-'+str(index), cwd=path)
+        names.append(native)
         response = client.patch('/api/term/sessions/metadata', json={'workspace_id':'demo','vault':'client',
-            'name':'checkout','linked_scope':{'base_root':str(monorepo/'workspaces/demo'),
+            'name':'checkout-'+str(index),'linked_scope':{'base_root':str(monorepo/'workspaces/demo'),
                 'project_root':str(path),'root':str(path)}})
         assert response.status_code == 200, response.text
         data = client.get('/api/scope-links',params={'path':str(path)}).json()
@@ -108,22 +111,23 @@ def test_checkout_document_references_keep_native_terminals_and_original_ownersh
             'links':[{'type':'internal-docs','assistant_root':str(root),'document_id':note.stem}]})
         assert response.status_code == 200, response.text
         rows = client.get('/api/term/sessions?workspace_id=demo&vault=client').json()
-        assert [row['name'] for row in rows] == [native]
-        assert not rows[0].get('document_source') and not rows[0].get('linked_task')
-        assert rows[0]['linked_scope']['root'] == str(path)
-        assert rows[0]['agent_session_id'] == 'kept-conversation'
+        assert [row['name'] for row in rows] == names
+        assert not rows[-1].get('document_source') and not rows[-1].get('linked_task')
+        assert rows[-1]['linked_scope']['root'] == str(path)
+        assert rows[-1]['agent_session_id'] == 'kept-conversation'
         assert client.get('/api/workspace-documents?workspace_id=demo&vault=client').json() == []
         assert term._get_workspace_sessions(root,'__assistant__') == before
     original_link = next(row for row in client.get('/api/term/task-terminals?document_id='+note.stem).json() if row['name'] == original)
     assert original_link['linked_task'] == link
-    assert [row['name'] for row in live] == [original,native]
+    assert [row['name'] for row in live] == [original,*names]
 
 
 @pytest.mark.parametrize('label', [None, 'Planning conversation'])
 def test_shared_terminal_keeps_its_name_and_independent_code_scope(client, linked_workspace, monorepo, label):
     from core.routes import term
     root, note, live, session = linked_workspace
-    name = session()
+    folder = monorepo/'trees/feature'; folder.mkdir(parents=True)
+    name = session(cwd=folder)
     link_document(client, root, note)
     link = link_terminal(client, note)
     metadata = {'workspace_id':'__assistant__', 'vault':'__assistant__', 'name':'claude'}
@@ -151,9 +155,10 @@ def test_shared_terminal_keeps_its_name_and_independent_code_scope(client, linke
     assert row['name'] == name and row['document_source'] == source
     assert term._get_workspace_sessions(monorepo, 'demo') == []
 
-    # Removing only the code association leaves the document and conversation.
-    assert client.patch('/api/term/sessions/metadata', json={**metadata, 'linked_scope':None}).status_code == 200
-    assert shared()['linked_task'] == link and not shared().get('linked_scope')
+    # Clearing a fixed launch folder is rejected without changing the document,
+    # conversation, or the independent display metadata of that folder.
+    assert client.patch('/api/term/sessions/metadata', json={**metadata, 'linked_scope':None}).status_code == 409
+    assert shared()['linked_task'] == link and shared()['linked_scope'] == row['linked_scope']
     assert live[0]['name'] == name
 
 

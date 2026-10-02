@@ -402,7 +402,7 @@ class _KernelSession:
 
 
 _sessions: dict[tuple[str, str], _KernelSession] = {}
-_sessions_guard = threading.Lock()
+_sessions_guard = threading.RLock()
 
 
 def session_name(root: Path, rel_path: str) -> str:
@@ -581,6 +581,19 @@ def relocate_workspace(root: Path, old: Path, new: Path) -> None:
                 "working_dir": rebase(session.handle.working_dir, old, new, root),
             })
             session.process.handle = session.handle
+
+
+def relocate_file(root: Path, old: Path, new: Path) -> None:
+    """Keep an idle notebook's kernel when its owned file is renamed."""
+    with _sessions_guard:
+        root_key = str(root.resolve())
+        for key, session in list(_sessions.items()):
+            if key[0] != root_key or (root / session.rel_path).resolve() != old.resolve():
+                continue
+            relative = new.relative_to(root).as_posix()
+            _sessions.pop(key)
+            session.rel_path = relative
+            _sessions[(root_key, _notebook_identity(root, relative))] = session
 
 
 def shutdown_root(root: Path) -> None:

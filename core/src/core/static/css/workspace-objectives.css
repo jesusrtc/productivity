@@ -1,0 +1,47 @@
+/* Use the native sidebar sizes: scopes 11px, links 12px, files 13px. */
+[data-objectives-sidebar] { margin-bottom:10px; }
+.objective-title { display:flex; align-items:center; justify-content:space-between; font-size:12px; margin-top:12px; }
+.objective-title button { border:0; background:none; color:var(--accent); font:inherit; font-size:16px; padding:0; cursor:pointer; }
+.objective-selectors,.objective-worktrees { display:grid; grid-template-columns:minmax(0,1fr); gap:5px; padding:0 12px 8px; }
+.objective-selector { display:flex; align-items:center; gap:6px; min-width:0; border:1px solid var(--objective-color); border-left:3px solid var(--objective-color); border-radius:7px; background:var(--bg-primary); color:var(--text-secondary); padding:5px 7px; text-align:left; font:11px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; cursor:pointer; }
+.objective-selector.active { color:var(--text-primary); background:color-mix(in srgb,var(--objective-color) 10%,var(--bg-primary)); }
+.objective-selector > span:nth-child(2) { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.objective-selector > span:first-child,.objective-worktree-icon { color:var(--objective-color,var(--sidebar-workspace-color)); }
+.objective-progress { margin-left:auto; flex-shrink:0; font-size:11px; font-variant-numeric:tabular-nums; }
+.objective-progress.track { color:var(--yellow,#e3b341); }.objective-progress.risk { color:#ffa657; }.objective-progress.overdue { color:var(--red,#ff7b72); }.objective-progress.complete { color:var(--green,#3fb950); }
+.objective-resources { display:grid; grid-template-columns:minmax(0,1fr); gap:4px; padding:0 12px; }
+.objective-resource-group { min-width:0; }
+.objective-resource-head,.objective-subtab-row { display:flex; gap:3px; min-width:0; align-items:center; }
+.objective-resource { flex:1; min-width:0; width:auto; box-sizing:border-box; }
+.objective-resource span:last-child { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.objective-resource.active,.objective-subtab.active { border-color:var(--accent); background:color-mix(in srgb,var(--accent) 12%,var(--bg-secondary)); }
+.objective-tree-toggle,.objective-pin { flex-shrink:0; width:19px; padding:2px; border:0; background:none; color:var(--text-dim); cursor:pointer; font-size:12px; }
+.objective-pin[aria-pressed=true] { color:var(--accent); }
+.objective-subtabs { border-left:1px solid var(--border); margin-left:14px; }
+.objective-subtabs:empty { display:none; }
+.objective-subtab-row { padding-left:calc(5px + var(--objective-tab-depth) * 12px); }
+.objective-subtab { display:flex; flex:1; gap:5px; padding:4px 3px; border:1px solid transparent; border-radius:4px; color:var(--text-secondary); background:transparent; cursor:pointer; text-align:left; font:12px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; min-width:0; }
+.objective-subtab span:last-child { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.objective-subtab span:first-child { color:var(--accent); }
+.objective-tasks { display:flex; width:calc(100% - 24px); margin:10px 12px; }
+.objective-tasks > span:nth-child(2) { flex:1; }
+.sidebar-objective-add { margin:8px 12px; border:1px dashed var(--border); border-radius:5px; background:none; color:var(--accent); cursor:pointer; font-size:12px; padding:5px 8px; }
+.objective-working { padding:16px 20px; font-size:13px; color:var(--text-primary); }
+.objective-working header { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.objective-working h2 { font-size:18px; margin:0; }
+.objective-working button { font-size:12px; color:var(--accent); background:transparent; border:1px solid var(--border); border-radius:4px; padding:4px 7px; cursor:pointer; }
+.objective-purpose,.objective-document-context { font-size:12px; color:var(--text-secondary); }
+.objective-task-progress { display:flex; align-items:center; gap:8px; margin:18px 0 12px; font-size:12px; }
+.objective-task-progress .objective-progress { margin-left:0; }
+.objective-task-row { display:grid; grid-template-columns:16px minmax(0,1fr) 23px 115px 20px; align-items:center; gap:6px; min-height:32px; border-bottom:1px solid var(--border); font-size:12px; }
+.objective-task-row.child { padding-left:22px; }
+.objective-task-row input[type=checkbox] { margin:0; accent-color:var(--accent); }
+.objective-task-row input[type=date] { background:transparent; color:var(--text-secondary); font:11px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; border:0; width:115px; }
+.objective-task-row button { padding:0; border:0; }
+.objective-task-title { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }.objective-task-title.done { color:var(--text-dim); text-decoration:line-through; }
+.objective-document-context { display:flex; align-items:center; gap:8px; margin:12px 0; }
+.objective-document-editor { width:100%; min-height:260px; background:var(--bg-secondary); color:var(--text-primary); border:1px solid var(--border); font:13px/1.6 ui-monospace,SFMono-Regular,monospace; }
+.objective-document-actions { display:flex; gap:8px; margin-top:18px; }
+.objective-dialog { width:min(500px,calc(100vw - 32px)); border:1px solid var(--border); border-radius:8px; background:var(--bg-primary); color:var(--text-primary); padding:20px; font-size:14px; }.objective-dialog::backdrop { background:#0006; }
+.objective-dialog header h2 { margin:0 0 16px; font-size:18px; }.objective-dialog label { display:grid; gap:5px; margin:12px 0; font-size:12px; }.objective-dialog input,.objective-dialog select { color:var(--text-primary); background:var(--bg-secondary); border:1px solid var(--border); border-radius:4px; padding:7px; font:inherit; }.objective-dialog footer { display:flex; gap:8px; justify-content:flex-end; margin-top:16px; }.objective-dialog button { border:1px solid var(--border); border-radius:4px; background:var(--bg-secondary); color:var(--text-primary); padding:5px 10px; font-size:12px; cursor:pointer; }
+.objective-terminal-group { display:flex; flex-direction:column; gap:4px; border:1px solid var(--objective-color); border-radius:5px; padding:4px; }.objective-terminal-heading { color:var(--objective-color); background:none; border:0; text-align:left; font-size:11px; cursor:pointer; }.objective-terminal-worktree { border-left:2px solid var(--objective-color); padding-left:4px; }.objective-terminal-worktree > span { display:block; font-size:10px; color:var(--objective-color); }.objective-terminal-worktree > div { display:flex; flex-wrap:wrap; gap:3px; }

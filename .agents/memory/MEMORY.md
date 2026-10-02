@@ -1,5 +1,9 @@
 # Memory index
 
+- [Workspace objectives own content and reference Assistant](workspace-objectives-own-content-and-reference-assistant.md) — opt-in real workspace registry, owned Markdown/notebooks, original Assistant references and independent terminal resource mappings.
+- [Objective subtabs collapse except pins](objective-subtabs-collapse-except-pins.md) — latest navigation rule replaces five-minute retention; immediate document trees, 1.5-second hover and native text sizes.
+- [Large-projects is Objectives staging](large-projects-is-objectives-staging.md) — authorized simulated fixtures, dedicated shells, preserved user terminals and native latency evidence.
+
 - [Objectives open tasks in the center](objectives-demo-tasks-open-in-center.md) — three selectors atop the sidebar, one Tasks progress item, compact task rows and mandatory document details.
 - [Demo subtabs stay five minutes](objectives-demo-subtabs-stay-five-minutes.md) — 1.5-second hover, individual pinning, standalone subtab views, and browser-only expiry.
 

@@ -175,6 +175,9 @@
         return;
       }
       await api('', {...scope, document_id:doc.document_id, assistant_root:doc.assistant_root});
+      // The workspace reference continues to expose the original document and
+      // its terminals; Objectives adds only the selected problem's reference.
+      await window.LabObjectives?.addAssistant(scope, doc);
       cache.delete(scopeKey(scope));
       const current = bridge?.workspace();
       if (current && scopeKey(current) === scopeKey(scope)) await mount(current, document.getElementById('sidebar'), true);

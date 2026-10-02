@@ -2902,6 +2902,7 @@
   }
 
   function _sidebarWorktreePickerHtml(baseRoot) {
+    if (window.LabObjectives?.active(baseRoot)) return '';
     return `<section class="sidebar-scope-links" data-scope-links="${escAttr(_sidebarScopedRoot(baseRoot))}" aria-label="Folder links"></section>`;
   }
 
@@ -2917,6 +2918,7 @@
   }
 
   function _sidebarFileScopeButtonsHtml(baseRoot) {
+    if (window.LabObjectives?.active(baseRoot)) return window.LabObjectives.sidebarHtml(baseRoot);
     const activePath = _sidebarScopedRoot(baseRoot);
     const scopes = _sidebarVisibleScopes(baseRoot);
     const attachIcon = '<svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="2" y="3" width="16" height="14" rx="2"/><path d="m5 7 3 3-3 3m5 0h5"/></svg>';
@@ -2937,6 +2939,8 @@
   }
 
   function _sidebarVisibleScopes(baseRoot) {
+    const objectiveScopes = window.LabObjectives?.worktrees(baseRoot);
+    if (objectiveScopes) return objectiveScopes;
     const activePath = _sidebarScopedRoot(baseRoot);
     const selected = _sidebarSelectedWorktree(baseRoot);
     const repo = currentWorkspace?.repos?.find(row => row.path === _sidebarWorktreeRepositoryRoot(baseRoot));
@@ -2983,6 +2987,7 @@
 
   function _sidebarRenderScopeButtons() {
     const baseRoot = _sidebarWorktreeBaseRoot();
+    if (window.LabObjectives?.active(baseRoot)) { window.LabObjectives.paint(); return; }
     const host = document.querySelector?.('#sidebar .sidebar-file-scope-buttons');
     if (host && baseRoot) host.outerHTML = _sidebarFileScopeButtonsHtml(baseRoot);
   }
@@ -3033,6 +3038,7 @@
       root: baseRoot,
       select: async row => {
         if (configScope !== _sidebarFileConfigScope || baseRoot !== _sidebarWorktreeBaseRoot()) return;
+        if (window.LabObjectives?.active(baseRoot)) row = await window.LabObjectives.associate(row);
         if (row.path !== baseRoot) _sidebarRememberScope(row);
         _storeSidebarFileConfig();
         await sidebarSelectScope({getAttribute: name => name === 'data-base-root' ? baseRoot : row.path === baseRoot ? '' : row.path});
@@ -3895,14 +3901,17 @@
       document.addEventListener('visibilitychange', () => { if (!document.hidden) _sidebarProjectRefresh(); });
     }
     const generation = ++_sidebarProjectGeneration;
+    const objectiveMode = window.LabObjectives?.active(baseRoot);
     let view = transition ? null : sidebar.querySelector('[data-project-sidebar]');
     if (!view || view.dataset.projectSidebar !== fileRoot
         || !view.querySelector('[data-project-directory="."]')
         || !view.querySelector('[data-project-recent]')
-        || !view.querySelector('.sidebar-recent-selectors')) {
+        || !view.querySelector('.sidebar-recent-selectors')
+        || !!view.querySelector('[data-objectives-sidebar]') !== !!objectiveMode) {
       const markup = '<div class="sidebar-scope-view" data-project-sidebar="' + escAttr(fileRoot) + '">' +
-        '<div class="sidebar-title sidebar-title-with-action"><span>Project</span>' + _sidebarFileConfigCogHtml() + '</div>' +
-        _sidebarRecentSelectorsHtml() + _sidebarFileScopeButtonsHtml(baseRoot) + _sidebarWorktreePickerHtml(baseRoot) +
+        (objectiveMode ? _sidebarFileScopeButtonsHtml(baseRoot) + _sidebarRecentSelectorsHtml()
+          : '<div class="sidebar-title sidebar-title-with-action"><span>Project</span>' + _sidebarFileConfigCogHtml() + '</div>' +
+            _sidebarRecentSelectorsHtml() + _sidebarFileScopeButtonsHtml(baseRoot) + _sidebarWorktreePickerHtml(baseRoot)) +
         '<section data-project-recent></section>' + _sidebarFilesTitle(fileRoot, currentRepo ? 'repo' : 'workspace') +
         '<section data-project-directory="."><div class="sidebar-title">Loading files…</div></section></div>';
       if (transition) {
@@ -4110,7 +4119,7 @@
     if (commit) {
       // A terminal link may have opened a file from the incoming checkout
       // while its sidebar was loading. Keep that newer navigation intact.
-      const keepDocument = _workspaceDocRoot === transition.fileRoot
+      const keepDocument = window.LabObjectives?.ownsCenter(transition.baseRoot) || _workspaceDocRoot === transition.fileRoot
         || _workspaceDocRoot !== transition.documentRoot || _workspaceDocPath !== transition.documentPath;
       if (!keepDocument) {
         _workspaceDocPath = null;
@@ -4131,11 +4140,11 @@
     ++_sidebarProjectGeneration;
     const sidebar = document.getElementById('sidebar'), content = document.getElementById('content');
     _sidebarScopeTransition = {baseRoot, fileRoot:_sidebarScopedRoot(baseRoot), key:_sidebarScopeCacheKey(baseRoot),
-      configScope:_sidebarFileConfigScope, content, documentRoot:_workspaceDocRoot, documentPath:_workspaceDocPath,
+      configScope:_sidebarFileConfigScope, content:window.LabObjectives?.ownsCenter(baseRoot)?null:content, documentRoot:_workspaceDocRoot, documentPath:_workspaceDocPath,
       contentWasInert:content?.inert, view:null, error:null};
     sidebar?.classList.add('sidebar-scope-switching');
     sidebar?.setAttribute('aria-busy', 'true');
-    if (content) { content.inert = true; content.setAttribute('aria-busy', 'true'); }
+    if (_sidebarScopeTransition.content) { content.inert = true; content.setAttribute('aria-busy', 'true'); }
     if (typeof _sidebarRenderScopeButtons === 'function') _sidebarRenderScopeButtons();
   }
 
@@ -4163,7 +4172,7 @@
   for (const type of ['click', 'dblclick', 'dragstart', 'contextmenu']) {
     document.addEventListener(type, event => {
       if (_sidebarScopeTransition && event.target.closest('#sidebar')
-          && !event.target.closest('.sidebar-file-scope-buttons')) {
+          && !event.target.closest('.sidebar-file-scope-buttons,[data-objectives-sidebar]')) {
         event.preventDefault(); event.stopImmediatePropagation();
       }
     }, true);
@@ -4176,7 +4185,7 @@
     const surface = currentRepo ? 'repo' : document.body.classList.contains('self-active')
       ? 'self' : document.body.classList.contains('vault-active') ? 'vault'
       : document.body.classList.contains('assistant-active') ? 'assistant' : 'workspace';
-    return JSON.stringify([surface, baseRoot, folder, worktree, showWorkspaceDotFiles, settings]);
+    return JSON.stringify([surface, baseRoot, folder, worktree, showWorkspaceDotFiles, settings, !!window.LabObjectives?.active(baseRoot)]);
   }
 
   function _sidebarMarkPainted(baseRoot, fileRoot, files) {
@@ -4189,6 +4198,8 @@
   }
 
   function _sidebarMountScopeLinks(baseRoot, fileRoot) {
+    window.LabObjectives?.paint();
+    if (window.LabObjectives?.active(baseRoot)) return;
     if (!window.LabScopeLinks || window.LAB_IS_ADMIN === false) return;
     const configScope = _sidebarFileConfigScope;
     const host = document.querySelector('#sidebar [data-scope-links]');
@@ -8234,7 +8245,7 @@
         );
         const toolbarActionsHtml = `${runtimeBadge}${runAllButtonsHtml}${interruptBtnHtml}${restartBtnHtml}`;
         const notebookListBtnHtml = `<button class="nb-notebook-list" type="button" onclick="openWorkspaceNotebooks({showLauncher:true})" title="Show every notebook in this workspace">☷ All notebooks</button>`;
-        const header = `<div class="nb-notebook-header"><span class="nb-notebook-path">${esc(filepath)}</span>${notebookListBtnHtml}${sessionBadge}<span class="nb-notebook-updated">${updatedLabel}</span></div>`;
+        const header = `<div class="nb-notebook-header"><span class="nb-notebook-path">${esc(filepath)}</span>${window.LabObjectives?.notebookControls(_workspaceDocRoot,filepath)||''}${notebookListBtnHtml}${sessionBadge}<span class="nb-notebook-updated">${updatedLabel}</span></div>`;
         const pendingList = _readPending(relPath);
         const liveByCell = new Map(
           (liveInfo.executions || [])
@@ -9616,6 +9627,7 @@
   }
 
   function showWorkspaceDashboard() {
+    window.LabObjectives?.leave();
     window.AssistantView?.closeInlineDocument();
     if (document.body.classList.contains('assistant-active') && window.AssistantView) {
       window.AssistantView.setSection('documents');
@@ -9642,6 +9654,7 @@
   }
 
   function selectWorkspaceRepo(repoPath) {
+    window.LabObjectives?.leave();
     window.LabScopeLinks?.closeExternal();
     _contextSubView = 'repository';
     currentRepoInWorkspace = currentWorkspace.repos.find(r => r.path === repoPath);
@@ -10265,9 +10278,12 @@
       const dashActive = !activePath && (!isAssistant || (window.AssistantView && window.AssistantView.section() === 'tasks')) ? ' active' : '';
       const dashboardLabel = isAssistant ? 'Tasks' : 'Dashboard';
       const sidebarParts = [];
-      let sbHtml = `<div class="sidebar-overview-row"><a class="sidebar-file${dashActive}" data-dashboard="1" onclick="showWorkspaceDashboard()" style="font-weight:600;padding:8px 16px;font-size:13px"><span class="sidebar-fname">&#x1F4CB; ${dashboardLabel}</span></a>${_sidebarFileConfigCogHtml()}</div>`;
-      sbHtml += _sidebarRecentSelectorsHtml();
+      const objectiveMode = window.LabObjectives?.active(workspacePath);
+      let sbHtml = objectiveMode ? '' : `<div class="sidebar-overview-row"><a class="sidebar-file${dashActive}" data-dashboard="1" onclick="showWorkspaceDashboard()" style="font-weight:600;padding:8px 16px;font-size:13px"><span class="sidebar-fname">&#x1F4CB; ${dashboardLabel}</span></a>${_sidebarFileConfigCogHtml()}</div>`;
+      if (!objectiveMode) sbHtml += window.LabObjectives?.sidebarHtml(workspacePath) || '';
+      if (!objectiveMode) sbHtml += _sidebarRecentSelectorsHtml();
       sbHtml += _sidebarFileScopeButtonsHtml(workspacePath);
+      if (objectiveMode) sbHtml += _sidebarRecentSelectorsHtml();
       sbHtml += _sidebarWorktreePickerHtml(workspacePath);
       sbHtml += symlinkLegendHtml();
       if (pinnedFiles.length) sbHtml += `<div class="sidebar-title">Pinned <span class="sidebar-title-count">${pinnedFiles.length}</span></div>`;
@@ -10307,8 +10323,10 @@
       // hit `ReferenceError: _workspaceTreeScope is not defined` and blow out
       // the whole sidebar via the catch handler.
       const _workspaceTreeScope = 'workspace:' + (currentWorkspace && currentWorkspace.name ? currentWorkspace.name : '') + ':' + fileRoot;
-      sbHtml += '<section data-recent-documents aria-label="Recently opened documents"></section>';
-      sbHtml += '<section data-workspace-documents aria-label="Linked documents"></section>';
+      if (!objectiveMode) {
+        sbHtml += '<section data-recent-documents aria-label="Recently opened documents"></section>';
+        sbHtml += '<section data-workspace-documents aria-label="Linked documents"></section>';
+      }
       sbHtml += _sidebarWorktreeScopeStartHtml(workspacePath);
       sbHtml += _sidebarRecentSectionHtml(recentFiles, activePath, fileRoot, {resolved: true, parts: sidebarParts, offset: sbHtml.length});
       sbHtml += _sidebarFilesTitle(fileRoot);
@@ -10609,6 +10627,8 @@
 
   async function _loadWorkspaceInfo({preserveScroll = false, keepShell = false, backgroundRefresh = false} = {}) {
     if (!currentWorkspace || !currentWorkspace.is_workspace) return;
+    void window.LabObjectives?.load();
+    if (preserveScroll && window.LabObjectives?.ownsCenter(currentWorkspace.path)) return;
     if (!preserveScroll && !keepShell) window.AssistantView?.closeInlineDocument();
     const workspacePath = currentWorkspace.path;
     const sequence = ++_workspaceInfoSequence;
@@ -14062,6 +14082,7 @@
     const borrowed = termSessions.map((session,index) => ({session,index})).filter(row => row.session.document_source);
     if (borrowed.length) html += '<div class="term-document-section"><span class="term-document-section-label" title="Shared through linked documents">Document terminals</span>' + borrowed.map(row => _termSessionPillHtml(row.session,row.index)).join('') + '</div>';
     html += _termNewButtonHtml();
+    html = window.LabObjectives?.terminalHtml(termSessions, (session, index) => _termSessionPillHtml(session, index), _termNewButtonHtml()) ?? html;
     // Unchanged polls must not recreate every tab or dismiss its tooltip.
     if (el._labTabsHtml === html) return;
     el._labTabsHtml = html;
@@ -14127,7 +14148,9 @@
           return;
         }
         _termSelectTab(null);
-        void _termActivateTab(name);
+        const session = termSessions.find(row => row.name === name);
+        const objectiveLink = session && window.LabObjectives?.openForTerminal(session);
+        void _termActivateTab(name, {openDocument:!objectiveLink});
       });
     });
     el.querySelectorAll('[data-divider-options]').forEach(divider => {
@@ -14669,6 +14692,8 @@
   }
 
   function _termScopeColor(scope) {
+    const objectiveColor = window.LabObjectives?.worktreeColor(scope?.root);
+    if (objectiveColor) return objectiveColor;
     const config = scope.config_scope === _sidebarFileConfigScope
       ? _sidebarFileConfig : _loadSidebarFileConfig(scope.config_scope);
     const project = config.folderScopes?.find(row => row.path === scope.project_root);
@@ -16658,6 +16683,7 @@
   // strips the mutually-exclusive body classes; the destination init will
   // assert its own.
   function _swapViewState({preserveHomeTerminal = false} = {}) {
+    window.LabObjectives?.leave();
     // Save the outgoing notebook position while its layout is still intact.
     // Reading cell geometry after shell/tab changes forces an intermediate
     // layout of the page that navigation is about to replace.
@@ -16683,6 +16709,7 @@
   // entry just as ordinary workspace selection does.
   function goToWorkspace(path, opts = {}) {
     if (!path) return;
+    window.LabObjectives?.leave();
     if (!opts.replace) {
       const url = new URL(window.location);
       url.searchParams.set('workspace', path);
@@ -20279,6 +20306,51 @@
 
   // Cerebro view: when URL carries ?view=cerebro, we bypass the
   // workspace/repo init path entirely and render the mdview-style browser.
+  window.LabObjectives?.connect({
+    readyContent: () => ensureMarked(),
+    warmWorktrees: (trees, scope) => {
+      const mode=_sidebarCurrentRecentMode(),minutes=_sidebarFileConfig.recentMinutes;
+      const extensions=_sidebarFileConfig.trackMode==='extensions'?(_sidebarFileConfig.extensions||[]).join(',')||'__no_matches__':'';
+      const current=()=>currentWorkspace?.path===scope.path;
+      const warm=url=>new Promise(resolve=>{
+        const deadline=setTimeout(resolve,5000);
+        ProjectSidebar.read(url,data=>{if(data.entries||data.error){clearTimeout(deadline);resolve();}},current);
+      });
+      return Promise.all(trees.map(t=>{
+        const root=encodeURIComponent(t.path);
+        const directory=warm(`/api/sidebar-directory?path=${root}&directory=.&include_dotfiles=${showWorkspaceDotFiles}`);
+        const recent=mode==='none'?Promise.resolve():warm((mode==='mtime'
+          ?`/api/sidebar-mtime?path=${root}&minutes=${minutes}`:`/api/sidebar-recent-files?repo=${root}&mode=${mode}&cached=true`)
+          +`&sort=${_sidebarCurrentSortMode('recent')}&include_dotfiles=${showWorkspaceDotFiles}&extensions=${encodeURIComponent(extensions)}`);
+        return Promise.all([directory,recent]);
+      }));
+    },
+    context: () => currentWorkspace?.is_workspace && !currentWorkspace.name?.startsWith('__')
+      && !document.body.classList.contains('self-active') && !document.body.classList.contains('assistant-active')
+      ? {workspace_id:currentWorkspace.name,vault:_workspaceVaultId(currentWorkspace),path:currentWorkspace.path} : null,
+    scopeRoot: () => currentWorkspace ? _sidebarScopedRoot(currentWorkspace.path) : null,
+    selectWorktree: row => sidebarSelectScope({getAttribute:name => name==='data-base-root'
+      ? currentWorkspace.path : row.path===currentWorkspace.path ? '' : row.path}),
+    addWorktree: button => sidebarAddScope(button),
+    refreshSidebar: () => currentWorkspace?.is_workspace && _refreshWorkspaceSidebar({preserveScroll:true}),
+    refreshTerminals: () => termRenderSessionList(),
+    prepareCenter: () => {
+      window.AssistantView?.prepareExternalLink();
+      window.LabScopeLinks?.closeExternal();
+      _termCancelPendingLinkedFileOpen();
+      ++_workspaceInfoSequence;
+      _clearNbNavigation();
+      _workspaceDocPath=null;
+      _contextSubView='objectives';
+    },
+    openNotebook: resource => openWorkspaceDoc(resource.path,{root:currentWorkspace.path}),
+    openFile: file => openWorkspaceDoc(file.path,{root:file.root}),
+    openAssistant: resource => window.LabScopeLinks.openDocument(resource,currentWorkspace.path,
+      {terminalScope:{...window.LabTaskTerminalBridge.context(),root:treeRootForObjective()},wholeDocument:!resource.tab_id,inline:true,selectTerminal:false}),
+    openLink: resource => window.LabScopeLinks.openExternal({kind:'external',...resource},currentWorkspace.path),
+    session: name => termSessions.find(row=>row.name===name||row.logical_name===name),
+  });
+  function treeRootForObjective() {return window.LabObjectives?.tree()?.path || currentWorkspace.path;}
   const initialParams = new URLSearchParams(location.search);
   const urlView = initialParams.get('view');
   const urlCerebroPath = initialParams.get('path') || '';

@@ -48,6 +48,7 @@ from core.routes import task as task_route
 from core.routes import term as term_route
 from core.routes import terminal_cleanup as terminal_cleanup_route
 from core.routes import workspace_documents as workspace_documents_route
+from core.routes import objectives as objectives_route
 from core.routes import ui as ui_route
 from core.routes import vault as vault_route
 from core.routes import ws as ws_route
@@ -539,6 +540,7 @@ def create_app() -> FastAPI:
     app.include_router(term_route.router)
     app.include_router(terminal_cleanup_route.router)
     app.include_router(workspace_documents_route.router)
+    app.include_router(objectives_route.router)
     app.include_router(servers_route.router)
     app.include_router(cerebro_route.router)
     app.include_router(ui_route.router)
