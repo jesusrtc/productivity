@@ -67,17 +67,19 @@ assertReading();
 document.getElementById('result').textContent='READY';
 '''
     scripts = '\n'.join('<script>'+(STATIC/path).read_text()+'</script>' for path in [
-        'vendor/marked@12.0.1/marked.min.js', 'vendor/dompurify@3.4.15/purify.min.js',
+        'vendor/marked@12.0.1/marked.min.js', 'vendor/dompurify@3.4.15/purify.min.js', 'vendor/highlightjs@11.9.0/highlight.min.js',
         'js/lib/markdown-content.js', 'vendor/lab-markdown-editor/markdown-editor.min.js'])
     page = tmp_path/'word-editor.html'
     page.write_text('<!doctype html><meta charset="utf-8"><style>:root{--lab-document-font-size:18px;--bg-primary:#0d1117;--bg-secondary:#161b22;--bg-tertiary:#21262d;--text-primary:#e6edf3;--text-secondary:#8b949e;--text-dim:#6e7681;--accent:#58a6ff;--border:#30363d}body{margin:0;padding:28px;background:var(--bg-primary);color:var(--text-primary)}#outside{margin-bottom:24px}'+(STATIC/'css/lab-shell.css').read_text()+'</style><button id="outside">Outside document</button><div class="assistant-note-editor" id="editor"></div><pre id="result">PENDING</pre>'+scripts+'<script>const BASE='+json.dumps(body).replace('</','<\\/')+';</script><script>'+setup+'</script>')
     driver = r'''
 async function evaluate(expression){const result=await send('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(result.exceptionDetails)throw Error(result.exceptionDetails.exception?.description||'Browser check failed');return result.result?.value;}
 async function click(point){await send('Input.dispatchMouseEvent',{type:'mouseMoved',...point});await send('Input.dispatchMouseEvent',{type:'mousePressed',...point,button:'left',clickCount:1});await send('Input.dispatchMouseEvent',{type:'mouseReleased',...point,button:'left',clickCount:1});}
-async function key(key,code,modifiers=0){const windowsVirtualKeyCode=({Enter:13,Tab:9,Escape:27,ArrowDown:40,ArrowUp:38})[key]||key.toUpperCase().charCodeAt(0);await send('Input.dispatchKeyEvent',{type:'keyDown',key,code,modifiers,windowsVirtualKeyCode,...(key==='Enter'?{text:'\r'}:{})});await send('Input.dispatchKeyEvent',{type:'keyUp',key,code,windowsVirtualKeyCode});}
+async function key(key,code,modifiers=0){const windowsVirtualKeyCode=({Enter:13,Tab:9,Escape:27,ArrowDown:40,ArrowUp:38,Backspace:8,Delete:46,Home:36,End:35})[key]||key.toUpperCase().charCodeAt(0);await send('Input.dispatchKeyEvent',{type:'keyDown',key,code,modifiers,windowsVirtualKeyCode,...(key==='Enter'?{text:'\r'}:{})});await send('Input.dispatchKeyEvent',{type:'keyUp',key,code,windowsVirtualKeyCode});}
 async function selectSource(source,from=0,to=source.length){await evaluate(`editor.value=${JSON.stringify(source)};editor.view.dispatch({selection:{anchor:${from},head:${to}},scrollIntoView:true});editor.focus();until(()=>editor.view.hasFocus)`);}
 async function toolbar(label){await evaluate(`new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))`);const point=await evaluate(`(() => {const node=document.querySelector('.lab-live-format-toolbar button[aria-label="'+${JSON.stringify(label)}+'"]');assert(node,'format button');const r=node.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()`);await click(point);}
 async function snapshot(name){const screenshot=await send('Page.captureScreenshot',{format:'png'});await writeFile(screenshotPath.replace('.png','-'+name+'.png'),Buffer.from(screenshot.data,'base64'));}
+// Native type-to-select works in headless macOS; its platform popup ignores CDP arrow keys.
+async function languageKey(letter){await evaluate(`document.querySelector('.lab-live-code-toolbar select').focus()`);await send('Input.dispatchKeyEvent',{type:'keyDown',key:letter,code:'Key'+letter.toUpperCase(),text:letter,windowsVirtualKeyCode:letter.toUpperCase().charCodeAt(0)});await send('Input.dispatchKeyEvent',{type:'keyUp',key:letter,code:'Key'+letter.toUpperCase(),windowsVirtualKeyCode:letter.toUpperCase().charCodeAt(0)});}
 async function word(text,offset=2){
  const point=await evaluate(`(() => {const node=[...editor.view.contentDOM.querySelectorAll('.cm-line')].find(line=>line.textContent.includes(${JSON.stringify(text)}));assert(node,'editable line for '+${JSON.stringify(text)});node.scrollIntoView({block:'center'});const from=editor.value.indexOf(${JSON.stringify(text)}),position=from+${offset};const r=editor.view.coordsAtPos(position);assert(r,'caret coordinates for clicked word');return {x:r.left+1,y:(r.top+r.bottom)/2,position}})()`);
  await click({x:point.x,y:point.y});await evaluate(`until(()=>editor.view.hasFocus)`);
@@ -194,6 +196,52 @@ await evaluate(`assert(editor.value==='/toggle'&&!document.querySelector('.lab-l
 for(const source of ['https://example.org/path','A / fraction','```\n/\n```','`/`']){const at=source==='```\n/\n```'?5:source==='`/`'?2:source.length;await selectSource(source,at,at);await evaluate(`assert(!document.querySelector('.lab-live-slash-menu'),'ordinary slashes and code do not open commands')`);}
 await selectSource('');await send('Input.insertText',{text:'/unknown'});await key('Enter','Enter');
 await evaluate(`assert(editor.value==='/unknown\\n','unknown commands keep normal Enter behavior')`);
+await selectSource('');for(let i=0;i<3;i++)await send('Input.insertText',{text:'`'});
+await evaluate(`assert(editor.value==='\u0060\u0060\u0060\\n\\n\u0060\u0060\u0060\\n\\n','typing the third backtick completes a Markdown container');assert(cursor()===4,'new block starts with caret in its body');assert(document.querySelector('.lab-live-code-toolbar select').value===''&&!visible().includes('\u0060\u0060\u0060'),'new block defaults to None and hides fence syntax')`);
+await send('Input.insertText',{text:'SELECT * from mytable;'});
+await evaluate(`assert(!document.querySelector('.lab-live-code-token'),'None keeps code plain')`);await languageKey('s');
+await evaluate(`assert(editor.value.startsWith('\u0060\u0060\u0060sql\\nSELECT * from mytable;'),'native language dropdown changes only the fence info: '+JSON.stringify(editor.value));assert([...document.querySelectorAll('.lab-live-code-token.hljs-keyword')].some(node=>node.textContent==='SELECT'),'SQL is highlighted while editable');assert(getComputedStyle(document.querySelector('.lab-live-code-token.hljs-keyword')).color!==getComputedStyle(editor.view.contentDOM).color,'SQL keyword has a visible syntax color');assert(document.querySelector('.lab-live-code-framed').getAttribute('spellcheck')==='false','code disables prose spelling marks')`);
+await snapshot('code-sql');
+await languageKey('p');
+await evaluate(`const start=editor.value.indexOf('SELECT'),end=start+'SELECT * from mytable;'.length;editor.view.dispatch({selection:{anchor:start,head:end}});editor.focus()`);
+await send('Input.insertText',{text:'def greet(name):\n    return "Hello " + name'});
+await evaluate(`assert(editor.value.startsWith('\u0060\u0060\u0060python\\n'),'Python dropdown preserves standard Markdown');assert(document.querySelector('.lab-live-code-token.hljs-keyword').textContent==='def'&&document.querySelector('.lab-live-code-token.hljs-string').textContent.includes('Hello'),'Python keywords and strings highlight without changing code')`);
+await snapshot('code-python');
+await evaluate(`document.body.classList.add('light-mode')`);await snapshot('code-python-light');await evaluate(`document.body.classList.remove('light-mode')`);await languageKey('n');
+await evaluate(`assert(editor.value.startsWith('\u0060\u0060\u0060\\n')&&!document.querySelector('.lab-live-code-token'),'None removes language metadata and syntax colors');editor.view.dispatch({selection:{anchor:4}});editor.focus()`);
+const protectedSource=await evaluate(`editor.value`);await key('Backspace','Backspace');
+await evaluate(`assert(editor.value===${JSON.stringify(protectedSource)}&&cursor()===4,'Backspace at the code start cannot remove its opening fence')`);
+await evaluate(`editor.view.dispatch({selection:{anchor:editor.value.lastIndexOf('\\n\u0060\u0060\u0060')}})`);await key('Delete','Delete');
+await evaluate(`assert(editor.value===${JSON.stringify(protectedSource)},'Delete at the code end cannot remove its closing fence')`);
+await evaluate(`editor.view.dispatch({selection:{anchor:0,head:editor.value.length}})`);await key('Backspace','Backspace');
+await evaluate(`assert(editor.value==='\u0060\u0060\u0060\\n\\n\u0060\u0060\u0060'&&document.querySelector('.lab-live-code-toolbar'),'deleting a selected code block clears its content but preserves the container')`);
+await send('Input.insertText',{text:'```'});
+await evaluate(`assert(editor.value==='\u0060\u0060\u0060\u0060\\n\u0060\u0060\u0060\\n\u0060\u0060\u0060\u0060'&&document.querySelectorAll('.lab-live-code-toolbar').length===1,'literal backticks in code extend the outer fences instead of closing the block')`);
+await key('z','KeyZ',4);await evaluate(`assert(editor.value==='\u0060\u0060\u0060\\n\\n\u0060\u0060\u0060','literal fence growth and typing undo together');const data=new DataTransfer();data.setData('text/plain','\u0060\u0060\u0060');editor.view.contentDOM.dispatchEvent(new ClipboardEvent('paste',{clipboardData:data,bubbles:true,cancelable:true}));assert(editor.value==='\u0060\u0060\u0060\u0060\\n\u0060\u0060\u0060\\n\u0060\u0060\u0060\u0060','clipboard paste also extends the code fences')`);
+await evaluate(`new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))`);
+const deleteCode=await evaluate(`(() => {const r=document.querySelector('.lab-live-code-delete').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()`);await click(deleteCode);
+await evaluate(`assert(editor.value===''&&!document.querySelector('.lab-live-code-toolbar'),'Delete button removes the complete block')`);await key('z','KeyZ',4);
+await evaluate(`assert(document.querySelector('.lab-live-code-toolbar')&&editor.value.startsWith('\u0060\u0060\u0060\u0060'),'Undo restores a deleted code block with its controls')`);
+await selectSource('```sql\nSELECT 1;\n```',7,7);await key('ArrowDown','ArrowDown');await send('Input.insertText',{text:'Outside'});
+await evaluate(`assert(editor.value==='\u0060\u0060\u0060sql\\nSELECT 1;\\n\u0060\u0060\u0060\\n\\nOutside','Down from the last code line exits into a normal paragraph');assert(!LabMarkdown.cloneVisible(editor.view.dom).textContent.includes('Language'),'code UI controls never leak into copying')`);
+await key('s','KeyS',4);await evaluate(`assert(saves.at(-1)===editor.value,'code controls continue saving plain Markdown')`);
+await selectSource('```\n```',4,4);await send('Input.insertText',{text:'first'});
+await evaluate(`assert(editor.value==='\u0060\u0060\u0060\\nfirst\\n\u0060\u0060\u0060'&&cursor()===9,'typing in an imported empty block keeps its closing fence on a separate line: '+JSON.stringify({source:editor.value,cursor:cursor()}))`);
+await selectSource('```\n```',4,4);await evaluate(`new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))`);
+const emptyCode=await evaluate(`(() => {const r=document.querySelector('.lab-live-empty-code-body').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()`);await click(emptyCode);await send('Input.insertText',{text:'clicked'});
+await evaluate(`assert(editor.value==='\u0060\u0060\u0060\\nclicked\\n\u0060\u0060\u0060','imported empty blocks expose a clickable editable body')`);
+
+const tableSource='| Purpose | Entry | Evidence or prerequisites |\n| --- | --- |\n| Shared EI browser test | [Nile Forgot](https://example.org/very/long/evidence) | Long evidence text that wraps cleanly inside its column |\n\nAfter table.';
+await selectSource(tableSource,0,0);
+await evaluate(`(() => {const rows=[...document.querySelectorAll('.lab-live-table-row')];assert(rows.length===2&&rows.every(row=>row.querySelectorAll('.lab-live-table-cell').length===3),'mismatched delimiter counts still render all three columns');assert(!visible().includes('| Purpose')&&!visible().includes('---'),'table editing hides structural delimiters');assert(editor.value===${JSON.stringify(tableSource)},'table rendering preserves exact stored Markdown');const header=[...rows[0].querySelectorAll('.lab-live-table-cell')],cells=[...rows[1].querySelectorAll('.lab-live-table-cell')];for(let i=0;i<3;i++){const a=header[i].getBoundingClientRect(),b=cells[i].getBoundingClientRect();assert(Math.abs(a.left-b.left)<1&&Math.abs(a.width-b.width)<1,'table columns align across header and body');assert(Math.abs(a.top-header[0].getBoundingClientRect().top)<1&&Math.abs(b.top-cells[0].getBoundingClientRect().top)<1,'cells share the same visual row');assert(Math.abs(b.height-cells[0].getBoundingClientRect().height)<1,'cell borders span the full wrapped row');assert(b.right<=innerWidth,'long table content stays inside viewport')}const host=document.createElement('div');host.innerHTML=LabMarkdown.render(editor.value);assert(host.querySelectorAll('th').length===3&&host.querySelectorAll('td').length===3&&host.textContent.includes('After table.'),'rendered tables use the same tolerance and retain following content')})()`);
+await snapshot('table');await evaluate(`document.body.classList.add('light-mode')`);await snapshot('table-light');await evaluate(`document.body.classList.remove('light-mode')`);
+await word('Shared');await send('Input.insertText',{text:'X'});
+await evaluate(`assert(editor.value===${JSON.stringify(tableSource.replace('Shared','ShXared'))},'editing a rendered table cell changes only that word')`);
+const emptyTable='| A | B |\n| :--- | ---: |\n| | right |';await selectSource(emptyTable,0,0);
+await evaluate(`assert(document.querySelectorAll('.lab-live-table-cell').length===4,'empty cells keep their column');assert(getComputedStyle(document.querySelectorAll('.lab-live-table-row')[1].querySelectorAll('.lab-live-table-cell')[1]).textAlign==='right','Markdown column alignment is retained')`);
+await evaluate(`new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))`);
+const emptyCell=await evaluate(`(() => {const r=document.querySelectorAll('.lab-live-table-row')[1].querySelector('.lab-live-table-cell').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()`);await click(emptyCell);await send('Input.insertText',{text:'Left'});
+await evaluate(`assert(editor.value.endsWith('| Left| right |'),'clicking an empty cell edits its own Markdown position: '+editor.value)`);
 await evaluate(`reset();editor.view.dispatch({selection:{anchor:0,head:0}});until(()=>!document.querySelector('.lab-live-syntax'))`);
 await evaluate(`assertReading();document.getElementById('result').textContent='PASS'`);
 '''

@@ -34,6 +34,9 @@ const corpus=[
   '', '# Heading\n\n**Bold** and `code` & text < literal.\n',
   '> Quote\n>\n> - List\n> - Second\n\n---\n',
   '| A | B |\n|---|---|\n| C | D |\n\n![alt](images/a.png "title")\n',
+  '| A | B | C |\n| --- | --- |\n| one | two | three |\n\nAfter table.',
+  '| A | B |\n| :--- | ---: | --- |\n| | right |\n',
+  '| Escaped \\| pipe | Other |\n| --- |\n| `code` | **Bold** |\n',
   '```sql\nSELECT 1;\n```\n\n    indented\n',
   '<div class="box">\n\n## In HTML\n\n</div>',
   '[a]: https://example.com\n\n[a] and <https://example.org>',
@@ -52,6 +55,14 @@ const corpus=[
   '<script>"<details";</script>\n\nSafe after sanitizing.',
 ];
 for(const text of corpus)assert.equal(candidate.render(text),reference.render(text),text);
+const malformed='| A | B | C |\n| --- | --- |\n| one | two | three |\n\nAfter table.';
+const table=candidate.render(malformed);
+assert.equal((table.match(/<th>/g)||[]).length,3);
+assert.equal((table.match(/<td>/g)||[]).length,3);
+assert(table.includes('<p>After table.</p>'),'repair must consume the original source length');
+assert(!candidate.render('```md\n'+malformed+'\n```').includes('<table>'),'literal Markdown inside a code fence stays code');
+assert(!candidate.render('    '+malformed.replaceAll('\n','\n    ')).includes('<table>'),'indented code stays code');
+assert.deepEqual(Array.from(candidate.context.LabMarkdown.tableCells('| Escaped \\| pipe | | last |').cells,cell=>cell.text),['Escaped \\| pipe','','last']);
 for(const runtime of [candidate,reference]) {
   runtime.imageOptions=()=>{
     const renderer=new runtime.context.marked.Renderer();

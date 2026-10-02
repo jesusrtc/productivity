@@ -1,5 +1,9 @@
 # Memory index
 
+- [Markdown code blocks have protected UI containers](markdown-code-blocks-have-protected-ui-containers.md) — automatic fences, None/language picker, editable highlighting, UI deletion and native undo.
+- [Markdown tables align editable cells](markdown-tables-align-editable-cells.md) — forgiving separator counts, shared wrapping columns, empty cells and browser caret selection.
+- [Headless macOS select uses native type-to-select](headless-macos-select-uses-native-type-to-select.md) — CDP character input selects real native dropdown options where popup arrow keys are ignored.
+
 - [Workspace terminal folders stay fixed](workspace-terminal-folder-is-fixed.md) — every new launch asks for the workspace or a pinned checkout; cancellation starts nothing, and saved folders cannot be reassigned.
 
 - [Copilot resume clears retained yellow](copilot-resume-clears-retained-yellow.md) — native CLI 1.0.83 fixtures verify tools, final response and shutdown; idle resume explicitly clears abandoned work without green.

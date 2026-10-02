@@ -55,6 +55,19 @@ a collapsed disclosure with its title selected for editing. The menu also
 offers headings, lists, checkboxes, quotes, fenced code, tables, and dividers.
 Each action can be undone in one step.
 
+Type three backticks on an empty line to create a code block immediately.
+The language starts as **None**; use its dropdown to select SQL, Python, or
+another language and see syntax highlighting while editing. Fences stay
+hidden and protected. Backspace or Delete can clear the code, while the
+block's **Delete** button removes its container. Undo restores it. The arrow
+keys at the first or last code line let you move to the surrounding document.
+Code blocks are saved as ordinary Markdown fences with the selected language.
+
+Tables keep their pipe-delimited Markdown source while displaying aligned,
+wrapping cells with a distinct header. Empty cells remain editable. A table
+still renders when its separator row has fewer or more columns than its
+header; Lab does not rewrite the file to repair that mismatch.
+
 ## Copying to Google Docs
 
 The document Copy button, section Copy buttons, and Assistant copy actions

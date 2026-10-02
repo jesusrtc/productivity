@@ -9,6 +9,34 @@
     });
   }
 
+  // Keep source offsets while splitting rows, including empty cells and escaped
+  // pipes. The editor and rendered view use the same column boundaries.
+  function tableCells(source) {
+    const pipes=[];let escaped=false;
+    for(let index=0;index<source.length;index++){
+      if(source[index]==='|'&&!escaped)pipes.push(index);
+      escaped=source[index]==='\\'&&!escaped;
+    }
+    const stops=[-1,...pipes,source.length],cells=[];
+    for(let index=0;index<stops.length-1;index++){
+      const from=stops[index]+1,to=stops[index+1],text=source.slice(from,to);
+      if((index===0||index===stops.length-2)&&pipes.length&&!text.trim())continue;
+      const leading=text.match(/^\s*/)[0].length,trailing=text.match(/\s*$/)[0].length;
+      cells.push({from:from+leading,to:Math.max(from+leading,to-trailing),text:text.trim()});
+    }
+    return {cells,pipes};
+  }
+  const tableTokenizer={table(source){
+    const first=source.indexOf('\n');if(first<0||!source.slice(0,first).includes('|'))return false;
+    const second=source.indexOf('\n',first+1),end=second<0?source.length:second;
+    const header=tableCells(source.slice(0,first)).cells,delimiter=tableCells(source.slice(first+1,end)).cells;
+    if(!delimiter.length||delimiter.some(cell=>!/^:?-{1,}:?$/.test(cell.text))||header.length===delimiter.length)return false;
+    const separator='| '+header.map((_,index)=>delimiter[index]?.text||'---').join(' | ')+' |';
+    const repaired=source.slice(0,first+1)+separator+source.slice(end);
+    const token=window.marked.Tokenizer.prototype.table.call(this,repaired);
+    if(token)token.raw=source.slice(0,token.raw.length-(separator.length-(end-first-1)));
+    return token||false;
+  }};
   let parser, plainParser;
   function render(markdown, options) {
     // Marked calls extension.start on the remaining source for each paragraph.
@@ -18,8 +46,8 @@
     // Custom preprocessing/tokenizing may introduce tags after this check.
     const hasDisclosure = options?.hooks || options?.tokenizer || options?.extensions
       || typeof markdown !== 'string' || /<\/?(?:details|summary)\b/i.test(markdown);
-    if (!hasDisclosure && !plainParser) plainParser = new window.marked.Marked();
-    if (hasDisclosure && !parser) parser = new window.marked.Marked({extensions: [{
+    if (!hasDisclosure && !plainParser) plainParser = new window.marked.Marked({tokenizer:tableTokenizer});
+    if (hasDisclosure && !parser) parser = new window.marked.Marked({tokenizer:tableTokenizer,extensions: [{
       name: 'disclosure',
       level: 'block',
       start(source) { return source.match(/^ {0,3}<\/?(?:details|summary)\b/im)?.index; },
@@ -98,7 +126,7 @@
       clone.append(...Array.from(root.childNodes, node => node.cloneNode(true)));
     }
     // Remove closed parents before flattening open children; never fetch their images.
-    clone.querySelectorAll('details:not([open]), [hidden], button, textarea, input, select, form, script, style, iframe, .view-toggle, .assistant-copy-actions, .markdown-copy-action, #commentInputBox, #commentsMargin')
+    clone.querySelectorAll('details:not([open]), [hidden], button, textarea, input, select, form, script, style, iframe, .view-toggle, .assistant-copy-actions, .markdown-copy-action, .lab-live-code-toolbar, #commentInputBox, #commentsMargin')
       .forEach(node => node.remove());
     Array.from(clone.querySelectorAll('details')).reverse().forEach(details => {
       const summary = details.querySelector(':scope > summary');
@@ -227,5 +255,5 @@
     }
   }
 
-  window.LabMarkdown = {sanitize, render, cloneVisible, copy};
+  window.LabMarkdown = {sanitize, render, cloneVisible, copy, tableCells};
 })();

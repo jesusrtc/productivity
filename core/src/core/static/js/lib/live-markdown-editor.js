@@ -5,6 +5,8 @@ import {defaultKeymap, history, historyKeymap, isolateHistory} from '@codemirror
 import {markdown} from '@codemirror/lang-markdown';
 import {syntaxTree} from '@codemirror/language';
 import {GFM} from '@lezer/markdown';
+import {codeEditing, codeFence, CodeToolbar, decorateCode, exitCode} from './live-markdown-code.js';
+import {editableTables, tableLayout, tableSelection} from './live-markdown-tables.js';
 
 const focused = StateEffect.define();
 const focusState = StateField.define({
@@ -35,6 +37,15 @@ class TaskWidget extends WidgetType {
     input.addEventListener('mousedown',event=>event.preventDefault());
     input.addEventListener('change',()=>{view.dispatch({changes:{from:this.from+1,to:this.from+2,insert:input.checked?'x':' '},selection:{anchor:Math.min(view.state.doc.length,this.from+4)},userEvent:'input'});view.focus();});
     return input;
+  }
+  ignoreEvent() { return true; }
+}
+class EmptyTableCell extends WidgetType {
+  constructor(from,attributes) { super();Object.assign(this,{from,attributes}); }
+  eq(other) { return this.from===other.from&&this.attributes.class===other.attributes.class&&this.attributes.style===other.attributes.style; }
+  toDOM(view) {
+    const cell=document.createElement('span');for(const [name,value] of Object.entries(this.attributes))cell.setAttribute(name,value);
+    cell.textContent='\u200b';cell.addEventListener('mousedown',event=>{event.preventDefault();view.dispatch({selection:{anchor:this.from}});view.focus();});return cell;
   }
   ignoreEvent() { return true; }
 }
@@ -105,7 +116,7 @@ function metadata(state, previous) {
 }
 
 function previewDecorations(state, prepare, previous) {
-  const meta=metadata(state,previous), {body,definitions}=meta, decorations=[], atomic=[], lines=new Map(), opaque=[];
+  const meta=metadata(state,previous), {body,definitions}=meta, decorations=[], atomic=[], lines=new Map(), opaque=[],codeHighlights=new Map();
   const addLine=(from,className,attributes={})=>{
     const start=state.doc.lineAt(from).from, row=lines.get(start)||{classes:new Set(),attributes:{}};
     row.classes.add(className);Object.assign(row.attributes,attributes);lines.set(start,row);
@@ -182,21 +193,39 @@ function previewDecorations(state, prepare, previous) {
     }else if(name==='QuoteMark'){
       addLine(from,'lab-live-quote');syntax(from,to+(body[to]===' '?1:0),intersects(state,from,to));
     }else if(name==='FencedCode'||name==='CodeBlock'){
-      if(name==='FencedCode'&&/^```mermaid\b/.test(raw)&&!intersects(state,from,to)){
-        replace(from,to,new RenderedMarkdown(raw,from,definitions,prepare),true);opaque.push({from,to});return false;
+      if(name==='FencedCode'){
+        const fence=codeFence(state,node);
+        if(fence.language==='mermaid'&&!intersects(state,from,to)){
+          decorations.push(Decoration.widget({widget:new CodeToolbar(fence),block:true,side:-1}).range(from));
+          replace(from,to,new RenderedMarkdown(raw,from,definitions,prepare),true);
+        }else decorateCode(state,fence,{addLine,replace,decorations,cache:codeHighlights,previous:previous?.codeHighlights});
+        return false;
       }
       for(let number=state.doc.lineAt(from).number;number<=state.doc.lineAt(to).number;number++)addLine(state.doc.line(number).from,'lab-live-code-line');
     }else if(name==='CodeMark'&&node.parent.name==='FencedCode'){
       const line=state.doc.lineAt(from), reveal=intersects(state,line.from,line.to);
       addLine(from,'lab-live-boundary'+(reveal?' lab-live-source':''));syntax(line.from,line.to,reveal);
-    }else if(name==='TableHeader'||name==='TableRow'){
-      addLine(from,'lab-live-table-row'+(name==='TableHeader'?' lab-live-table-header':''));
+    }else if(name==='Table'){
+      const {rows,columns,align}=tableLayout(state,node);
+      for(const [index,row] of rows.entries()){
+        addLine(row.node.from,'lab-live-table-row'+(index===0?' lab-live-table-header':'')+(index===rows.length-1?' lab-live-table-last':''),
+          {style:'--lab-table-columns:'+columns,'data-table-row':String(index)});
+        let position=row.node.from;
+        for(const [column,cell] of row.cells.entries()){
+          replace(position,cell.from);position=cell.to;
+          const attributes={class:'lab-live-table-cell'+(column===columns-1?' lab-live-table-cell-end':''),
+            style:'grid-column:'+(column+1)+';grid-row:1;text-align:'+(align[column]||'left'),
+            'data-cell-from':String(cell.from),'data-cell-to':String(cell.to)};
+          if(cell.to>cell.from)decorations.push(Decoration.mark({attributes}).range(cell.from,cell.to));
+          else decorations.push(Decoration.widget({widget:new EmptyTableCell(cell.from,attributes),side:1}).range(cell.from));
+        }
+        replace(position,row.node.to);
+      }
     }else if(name==='TableCell'){
-      decorations.push(Decoration.mark({class:'lab-live-table-cell'}).range(from,to));
+      // Cells are laid out together so every row shares the same columns.
     }else if(name==='TableDelimiter'){
       const whole=node.parent.name==='Table';
-      if(whole)addLine(from,'lab-live-boundary'+(intersects(state,from,to)?' lab-live-source':''));
-      syntax(from,to,intersects(state,from,to));
+      if(whole){addLine(from,'lab-live-table-divider');replace(from,to);}
     }else if(name==='HorizontalRule'){
       if(intersects(state,from,to))syntax(from,to,true);else replace(from,to,new TextWidget('','lab-live-rule'));
     }else if(name==='HTMLBlock'||name==='HTMLTag'){
@@ -210,7 +239,7 @@ function previewDecorations(state, prepare, previous) {
     }
   }});
   for(const [from,row] of lines)decorations.push(Decoration.line({attributes:{...row.attributes,class:[...row.classes].join(' ')}}).range(from));
-  return {decorations:Decoration.set(decorations,true),atomic:Decoration.set(atomic,true),metadata:meta};
+  return {decorations:Decoration.set(decorations,true),atomic:Decoration.set(atomic,true),metadata:{...meta,codeHighlights}};
 }
 
 const formatTypes={'**':'StrongEmphasis','*':'Emphasis','~~':'Strikethrough','`':'InlineCode'};
@@ -385,10 +414,10 @@ window.LabMarkdownEditor = {
       provide:field=>[EditorView.decorations.from(field,value=>value.decorations),EditorView.atomicRanges.of(view=>view.state.field(field).atomic)],
     });
     const view=new EditorView({parent,state:EditorState.create({doc:body,extensions:[
-      focusState,markdown({extensions:[GFM]}),preview,history(),EditorView.lineWrapping,slashState,
+      focusState,markdown({extensions:[GFM,editableTables]}),codeEditing,tableSelection,preview,history(),EditorView.lineWrapping,slashState,
       EditorView.contentAttributes.of({'aria-label':'Current tab Markdown',spellcheck:'true'}),
       showTooltip.compute(['doc','selection',focusState],formattingTooltip),showTooltip.compute([slashState],slashTooltip),
-      keymap.of([{key:'ArrowDown',run:view=>slashKey(view,1)},{key:'ArrowUp',run:view=>slashKey(view,-1)},
+      keymap.of([{key:'ArrowDown',run:view=>slashKey(view,1)||exitCode(view,1)},{key:'ArrowUp',run:view=>slashKey(view,-1)||exitCode(view,-1)},
         {key:'Enter',run:view=>slashKey(view,'accept')},{key:'Escape',run:view=>slashKey(view,'dismiss')},
         {key:'Mod-s',run:()=>{onSave();return true;}},{key:'Mod-b',run:view=>formatSelection(view,'**')},
         {key:'Mod-i',run:view=>formatSelection(view,'*')},{key:'Mod-e',run:view=>formatSelection(view,'`')},
@@ -400,7 +429,7 @@ window.LabMarkdownEditor = {
       EditorView.domEventHandlers({
         focus:(_event,editor)=>{queueMicrotask(()=>{if(!editor.state.field(focusState))editor.dispatch({effects:focused.of(true)});});},
         blur:(_event,editor)=>{queueMicrotask(()=>{
-          if(!editor.hasFocus&&!(editor.dom.contains(document.activeElement)&&document.activeElement?.closest('.lab-live-format-toolbar, .lab-live-slash-menu')))editor.dispatch({effects:focused.of(false)});
+          if(!editor.hasFocus&&!(editor.dom.contains(document.activeElement)&&document.activeElement?.closest('.lab-live-format-toolbar, .lab-live-slash-menu, .lab-live-code-toolbar')))editor.dispatch({effects:focused.of(false)});
         });},
         click:event=>{const link=event.target.closest('a.lab-live-link');if(!link)return false;event.preventDefault();if((event.metaKey||event.ctrlKey)&&link.hasAttribute('href'))window.LabExternalLinks?.open(link.href,{clientOnly:true});return false;},
       }),
