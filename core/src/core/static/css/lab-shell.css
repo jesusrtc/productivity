@@ -3324,7 +3324,7 @@ body.light-mode .lab-live-code-toolbar select { color-scheme:light; }
 .sidebar-scope-link span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sidebar-scope-link:hover { border-color: var(--accent); color: var(--accent); }
 .sidebar-scope-link:disabled { opacity: .5; cursor: default; }
-.scope-link-icon { display:inline-block; flex:0 0 16px; width:16px; height:16px; line-height:16px; text-align:center; background:var(--link-icon) center / contain no-repeat; }
+.scope-link-icon { display:inline-block; flex:0 0 16px; width:16px; height:16px; line-height:16px; text-align:center; background:var(--link-icon,none) center / contain no-repeat; }
 .scope-link-icon[data-link-service="google-docs"] { --link-icon:url("../img/link-icons/google-docs.png"); }
 .scope-link-icon[data-link-service="google-sheets"] { --link-icon:url("../img/link-icons/google-sheets.png"); }
 .scope-link-icon[data-link-service="google-slides"] { --link-icon:url("../img/link-icons/google-slides.png"); }

@@ -5,7 +5,7 @@
   const labels = {claude:'Claude Code',codex:'Codex',copilot:'Copilot',terminal:'Terminal',attach:'Attach tmux session'};
   const globalScope = {key:'global',label:'Global',kind:'global'};
   const sections = scope => scope.kind === 'global'
-    ? [['general','General'],['projects','Projects and worktrees'],['links','Link types'],['appearance','Appearance'],['terminals','Terminal appearance'],['documents','Document terminals']]
+    ? [['general','General'],['projects','Projects and worktrees'],['links','Links and icons'],['appearance','Appearance'],['terminals','Terminal appearance'],['documents','Document terminals']]
     : [['general','Agent'],['terminals','Terminal sessions'],['files','File sidebar']];
   const esc = value => String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   let state = null;
@@ -100,6 +100,7 @@
   function agentOptions(s,supported=Object.keys(s.available)) {return Object.keys(labels).filter(id=>['claude','codex','copilot'].includes(id)).map(id=>[id,labels[id]+(!s.available[id]?' — Not installed':!supported.includes(id)?' — Disabled in vault':''),!s.available[id]||!supported.includes(id)]);}
   async function saveGlobal(patch,s) {
     s.config=await api('/api/settings/global',patch,s.abort.signal);
+    window.LabScopeLinks?.setDomainMappings(s.config.linkDomainMappings);
     bridge()?.settingsSaved(s.config);
   }
   function projects(panel,s) {
@@ -123,9 +124,17 @@
     node.querySelector('[data-add-location]').onclick=()=>{add();s.dirty=true;message('Unsaved changes');};
   }
   function linkTypes(panel,s) {
-    const node=form(panel,`<p class="settings-intro">Choose the link types available on projects, folders, and worktrees. Internal documents open in Lab; external links open in your browser.</p><div data-link-types></div><button type="button" data-add-type>+ Link type</button>`,async()=>{
+    const node=form(panel,`<p class="settings-intro">Link icons are detected from the URL. Map your company’s domains to a service icon, or upload an icon for a custom tool.</p><div data-domain-mappings></div><button type="button" data-add-domain>+ Domain mapping</button><details><summary>Document and legacy link types</summary><p class="settings-hint">Internal documents open in Lab. Existing custom link types keep their saved names; new external links are identified automatically.</p><div data-link-types></div><button type="button" data-add-type>+ Link type</button></details>`,async()=>{
       const scopeLinkTypes=[...node.querySelectorAll('[data-link-type]')].map(card=>({id:card.dataset.linkType,name:card.querySelector('[data-name]').value.trim(),kind:card.querySelector('[data-kind]').value}));
-      await saveGlobal({scopeLinkTypes},s);
+      const linkDomainMappings=[...node.querySelectorAll('[data-domain-mapping]')].map(card=>{
+        if(card._uploading)throw new Error('Wait for the icon upload to finish before saving.');
+        if(card._iconError)throw new Error(card._iconError);
+        const service=card.querySelector('[data-domain-service]').value;
+        if(service==='custom'&&!card._icon)throw new Error('Upload an icon for each custom tool.');
+        return {domain:card.querySelector('[data-domain]').value.trim(),service,name:card.querySelector('[data-tool-name]').value.trim(),includeSubdomains:card.querySelector('[data-subdomains]').checked,...(service==='custom'?{icon:card._icon}:{})};
+      });
+      await saveGlobal({scopeLinkTypes,linkDomainMappings},s);
+      node.querySelectorAll('[data-domain-mapping]').forEach((card,index)=>{card.querySelector('[data-domain]').value=s.config.linkDomainMappings[index].domain;});
     });
     function add(row={id:'link-'+crypto.randomUUID(),name:'',kind:'external'}) {
       const card=document.createElement('div');card.className='settings-folder';card.dataset.linkType=row.id;
@@ -135,6 +144,50 @@
     }
     (s.config.scopeLinkTypes||[]).forEach(add);
     node.querySelector('[data-add-type]').onclick=()=>{add();s.dirty=true;message('Unsaved changes');};
+    function addDomain(row={}) {
+      const card=document.createElement('div');card.className='settings-folder settings-domain-mapping';card.dataset.domainMapping='';card._icon=row.icon||'';card._uploadVersion=0;
+      card.innerHTML=`<div class="settings-domain-heading"><label>Domain<input data-domain value="${esc(row.domain||'')}" placeholder="mygrafana.mycompany.com" required></label><label>Icon<span class="settings-icon-choice"><span data-icon-preview aria-hidden="true"></span><select data-domain-service required><option value="">Choose an icon…</option>${(window.LAB_LINK_SERVICES||[]).map(service=>`<option value="${esc(service.id)}" ${row.service===service.id?'selected':''}>${esc(service.name)}</option>`).join('')}<option value="custom" ${row.service==='custom'?'selected':''}>Custom icon…</option></select></span></label></div><div data-custom-upload hidden><button type="button" class="settings-icon-upload" data-choose-icon>Upload icon</button><input data-upload-icon type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml,image/x-icon,image/vnd.microsoft.icon" hidden><span data-upload-status class="settings-hint"></span><p class="settings-hint">PNG, JPG, WebP, GIF, SVG, or ICO. Images are resized to 64 pixels and stored locally.</p></div>${field('Tool name (optional)',`<input data-tool-name maxlength="80" value="${esc(row.name||'')}" placeholder="Use the service name">`)}<label class="settings-check"><span class="settings-field-copy"><span>Include subdomains</span><small>Also match tools hosted below this domain.</small></span><input type="checkbox" role="switch" data-subdomains ${row.includeSubdomains?'checked':''}></label><button type="button" data-remove-domain>Remove mapping</button>`;
+      node.querySelector('[data-domain-mappings]').append(card);
+      const select=card.querySelector('[data-domain-service]'),status=card.querySelector('[data-upload-status]');
+      const preview=()=>{
+        const custom=select.value==='custom';card.querySelector('[data-custom-upload]').hidden=!custom;
+        const host=card.querySelector('[data-icon-preview]');host.replaceChildren();
+        if(custom&&card._icon){const image=document.createElement('img');image.src=card._icon;image.alt='';host.append(image);}
+        else host.innerHTML=window.LabScopeLinks?.icon({type:select.value})||'';
+        status.textContent=card._icon?'Icon ready':'';
+      };
+      select.onchange=()=>{card._uploadVersion++;card._uploading=false;card._iconError='';status.classList.remove('error');preview();};
+      card.querySelector('[data-choose-icon]').onclick=()=>card.querySelector('[data-upload-icon]').click();
+      card.querySelector('[data-upload-icon]').onchange=async event=>{
+        const file=event.target.files[0];if(!file)return;
+        const version=++card._uploadVersion;card._uploading=true;card._iconError='';status.classList.remove('error');status.textContent='Loading icon…';
+        const current=()=>state===s&&card.isConnected&&card._uploadVersion===version;
+        try {
+          const icon=await prepareIcon(file);
+          if(!current())return;
+          card._icon=icon;preview();s.dirty=true;message('Unsaved changes');
+        }catch(error){if(current()){card._iconError=error.message;status.textContent=error.message;status.classList.add('error');}}
+        finally{if(current())card._uploading=false;event.target.value='';}
+      };
+      card.querySelector('[data-remove-domain]').onclick=()=>{card._uploadVersion++;card.remove();s.dirty=true;message('Unsaved changes');};
+      preview();return card;
+    }
+    (s.config.linkDomainMappings||[]).forEach(addDomain);
+    node.querySelector('[data-add-domain]').onclick=()=>{addDomain().querySelector('[data-domain]').focus();s.dirty=true;message('Unsaved changes');};
+  }
+  async function prepareIcon(file) {
+    if(file.size>2*1024*1024)throw new Error('Choose an icon file smaller than 2 MB.');
+    const url=URL.createObjectURL(file),image=new Image();
+    try {
+      image.src=url;await image.decode();
+      const scale=Math.min(1,64/Math.max(image.naturalWidth,image.naturalHeight));
+      const canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(image.naturalWidth*scale));canvas.height=Math.max(1,Math.round(image.naturalHeight*scale));
+      const context=canvas.getContext('2d');context.drawImage(image,0,0,canvas.width,canvas.height);
+      const icon=canvas.toDataURL('image/png');
+      if(icon.length>90000)throw new Error('Choose a smaller or simpler icon.');
+      return icon;
+    }catch(error){if(error.message.startsWith('Choose'))throw error;throw new Error('Could not read this image. Choose a PNG, JPG, WebP, GIF, SVG, or ICO.');}
+    finally{URL.revokeObjectURL(url);}
   }
   function appearance(panel) {
     const value=readTypography();

@@ -50,6 +50,7 @@ DEFAULTS: dict[str, Any] = {
         {"id": "internal-docs", "name": "Internal docs", "kind": "internal"},
         {"id": "jira", "name": "Jira tickets", "kind": "external"},
     ],
+    "linkDomainMappings": [],
     "documentTerminals": {"enabled": True, "sleepMinutes": 5, "expireHours": 36, "maxRunning": 1},
     "autopilot": {"claude": True, "codex": False, "copilot": False},
 }
@@ -64,6 +65,7 @@ def _load_legacy(root: Path) -> dict[str, Any]:
     merged = {**DEFAULTS, "documentTerminals": dict(DEFAULTS["documentTerminals"])}
     merged["autopilot"] = dict(DEFAULTS["autopilot"])
     merged['scopeLinkTypes'] = [dict(row) for row in DEFAULTS['scopeLinkTypes']]
+    merged['linkDomainMappings'] = []
     p = paths.config_file(root)
     if p.is_file():
         try:
@@ -86,7 +88,7 @@ def _load_legacy(root: Path) -> dict[str, Any]:
                         for agent, on in data[key].items():
                             if agent in VALID_AGENTS and isinstance(on, bool):
                                 merged["autopilot"][agent] = on
-                elif key in {'projectsFolder', 'worktreesFolder', 'projectLocations', 'scopeLinkTypes'}:
+                elif key in {'projectsFolder', 'worktreesFolder', 'projectLocations', 'scopeLinkTypes', 'linkDomainMappings'}:
                     try:
                         merged[key] = _validate(key, data[key])
                     except SettingsError:
@@ -143,6 +145,12 @@ def update_global(root: Path, patch: dict[str, Any]) -> dict[str, Any]:
 
 
 def _validate(key: str, value: Any) -> Any:
+    if key == 'linkDomainMappings':
+        from lab.link_icons import validate_mappings
+        try:
+            return validate_mappings(value)
+        except ValueError as exc:
+            raise SettingsError(str(exc)) from exc
     if key == 'scopeLinkTypes':
         import re
         if not isinstance(value, list) or not 1 <= len(value) <= 50:

@@ -67,6 +67,18 @@ class SettingsPatch(BaseModel):
     worktreesFolder: str | None = None
     projectLocations: list[dict] | None = None
     scopeLinkTypes: list[dict] | None = None
+    linkDomainMappings: list[dict] | None = None
+
+
+def _validate_domain_icons(patch):
+    if 'linkDomainMappings' not in patch:
+        return
+    from core.link_services import SERVICES
+    allowed = {row['id'] for row in SERVICES} | {'custom'}
+    mappings = patch['linkDomainMappings']
+    if isinstance(mappings, list) and any(isinstance(row, dict) and isinstance(row.get('service'), str)
+                                         and row['service'] not in allowed for row in mappings):
+        raise HTTPException(400, 'Choose an icon from the service list or upload a custom icon')
 
 
 @router.post("/api/settings")
@@ -74,7 +86,7 @@ def update_settings(body: SettingsPatch, request: Request) -> dict:
     """Patch one or more settings (validated). Returns the full merged config."""
     root = auth.request_root(request)
     patch = body.model_dump(exclude_unset=True)
-    if {'projectsFolder', 'worktreesFolder', 'projectLocations', 'scopeLinkTypes'} & patch.keys():
+    if {'projectsFolder', 'worktreesFolder', 'projectLocations', 'scopeLinkTypes', 'linkDomainMappings'} & patch.keys():
         auth.require_admin(request)
     if not patch:
         return _with_flags(lab_settings.load(root))
@@ -85,6 +97,7 @@ def update_settings(body: SettingsPatch, request: Request) -> dict:
             detail=f"agent {requested_default!r} is not enabled for this vault",
         )
     try:
+        _validate_domain_icons(patch)
         return _with_flags(lab_settings.update(root, patch))
     except lab_settings.SettingsError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -127,6 +140,7 @@ def update_global_settings(body: SettingsPatch, request: Request) -> dict:
     if agent and agent in _AGENT_BIN and not _agent_available(agent):
         raise HTTPException(400, f'{agent} is not installed on the computer running Lab. Choose an installed agent.')
     try:
+        _validate_domain_icons(patch)
         return _with_flags(lab_settings.update_global(Path(request.app.state.index_cache.root), patch))
     except lab_settings.SettingsError as exc:
         raise HTTPException(400, str(exc)) from exc
@@ -215,9 +229,9 @@ def _internal_scope_link(link, request, record_rows=None):
             'path': target['path'], 'document_kind': assistant_v2.kind(owner)}
 
 
-def _present_scope_links(data, types, request):
+def _present_scope_links(data, types, request, mappings=()):
     from lab import assistant_records as records, paths
-    from core.link_services import EXTERNAL_TYPES
+    from core.link_services import EXTERNAL_TYPES, infer
     types_by_id = {row['id']: row for row in [*EXTERNAL_TYPES, *types]}
     rows = None
     if any(link.get('kind') == 'internal' for link in data['links']):
@@ -227,21 +241,29 @@ def _present_scope_links(data, types, request):
     presented = []
     for link in data['links']:
         row = {**link, 'type_name': types_by_id.get(link['type'], {}).get('name', link['type'])}
+        if link['kind'] == 'external':
+            service = infer(link['url'], mappings)
+            if link.get('auto_type'):
+                row['type'] = service['id'] if service else 'url'
+                row['type_name'] = types_by_id.get(row['type'], {}).get('name', 'Link')
+            if service and service.get('mapped'):
+                row['base_type_name'] = row['type_name']
+                row['type_name'] = service['name']
         if link['kind'] == 'internal':
             try:
                 row.update(_internal_scope_link(link, request, rows))
             except (ValueError, OSError, HTTPException) as exc:
                 row.update(unavailable=True, error=str(getattr(exc, 'detail', exc)))
         presented.append(row)
-    return {**data, 'links': presented, 'types': types}
+    return {**data, 'links': presented, 'types': types, 'linkDomainMappings': list(mappings)}
 
 
 @router.get('/api/scope-links')
 def get_scope_links(path: str, request: Request):
     from lab import scope_links
     root = _scope_link_root(path, request)
-    types = lab_settings.load(auth.request_root(request))['scopeLinkTypes']
-    return _present_scope_links(scope_links.read(root), types, request)
+    config = lab_settings.load(auth.request_root(request))
+    return _present_scope_links(scope_links.read(root), config['scopeLinkTypes'], request, config['linkDomainMappings'])
 
 
 @router.put('/api/scope-links')
@@ -251,7 +273,8 @@ def update_scope_links(body: ScopeLinksBody, request: Request):
     from lab import scope_links, assistant_records as records, paths
     from core.link_services import EXTERNAL_TYPES, infer
     root = _scope_link_root(body.path, request)
-    types = lab_settings.load(auth.request_root(request))['scopeLinkTypes']
+    config = lab_settings.load(auth.request_root(request))
+    types, mappings = config['scopeLinkTypes'], config['linkDomainMappings']
     by_id = {row['id']: row for row in [*EXTERNAL_TYPES, *types]}
     if len(body.links) > 100:
         raise HTTPException(400, 'A scope can have at most 100 links')
@@ -260,10 +283,10 @@ def update_scope_links(body: ScopeLinksBody, request: Request):
     record_rows = None
     try:
         for link in body.links:
-            automatic = link.get('kind') == 'external' or ('url' in link and link.get('type') is None)
+            automatic = link.get('kind') == 'external' or link.get('auto_type') is True or ('url' in link and link.get('type') is None)
             link_type = by_id.get(link.get('type')) if isinstance(link.get('type'), str) else None
             if automatic:
-                service = infer(str(link.get('url') or '').strip())
+                service = infer(str(link.get('url') or '').strip(), mappings)
                 link_type = {'id': service['id'] if service else 'url', 'kind': 'external'}
             if link_type is None:
                 raise ValueError('Choose an allowed link type, or add it in Settings')
@@ -275,6 +298,8 @@ def update_scope_links(body: ScopeLinksBody, request: Request):
             if len(label) > 200:
                 raise ValueError('Link labels must be at most 200 characters')
             row = {'id': identifier, 'type': link_type['id'], 'kind': link_type['kind'], 'label': label}
+            if automatic:
+                row['auto_type'] = True
             if row['kind'] == 'external':
                 url = str(link.get('url') or '').strip()
                 parsed = urlsplit(url)
@@ -289,6 +314,6 @@ def update_scope_links(body: ScopeLinksBody, request: Request):
                 _internal_scope_link(row, request, record_rows)
             normalized.append(row)
         data = scope_links.write(root, normalized, body.expected)
-        return _present_scope_links(data, types, request)
+        return _present_scope_links(data, types, request, mappings)
     except (ValueError, OSError) as exc:
         raise HTTPException(409 if 'changed elsewhere' in str(exc) else 400, str(exc)) from exc

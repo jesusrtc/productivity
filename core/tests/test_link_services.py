@@ -56,3 +56,48 @@ def test_legacy_types_identify_company_hosted_links_but_never_internal_documents
                        + module + '\nprocess.stdout.write(JSON.stringify(' + json.dumps(links)
                        + '.map(link=>window.LabScopeLinks.serviceFor(link)?.id||null)));')
     assert result == ['jira', 'google-docs', None, 'slack']
+
+
+def test_domain_mappings_override_heuristics_and_match_specific_hosts_first():
+    import base64
+    from lab.link_icons import validate_mappings
+    icon='data:image/png;base64,'+base64.b64encode((ROOT/'core/src/core/static/img/link-icons/google-docs.png').read_bytes()).decode()
+    mappings=validate_mappings([
+        {'domain':'mycompany.com','service':'grafana','includeSubdomains':True},
+        {'domain':'chat.mycompany.com','service':'slack'},
+        {'domain':'tool.mycompany.com','service':'custom','name':'Custom console','icon':icon},
+        {'domain':'github.com','service':'notion'},
+    ])
+    cases=[
+        ('https://mygrafana.mycompany.com/d/errors', ['grafana','Grafana',False]),
+        ('https://chat.mycompany.com/archives/C123', ['slack','Slack',False]),
+        ('https://child.chat.mycompany.com/archives/C123', ['grafana','Grafana',False]),
+        ('https://tool.mycompany.com/run', ['url','Custom console',True]),
+        ('https://tool.mycompany.com.evil.test/run', None),
+        ('https://github.com/org/repo', ['notion','Notion',False]),
+        ('https://mycompany.com.evil.test/d/errors', None),
+        ('https://example.test/?next=mygrafana.mycompany.com', None),
+    ]
+    def summarize(service):
+        return [service['id'],service['name'],bool(service.get('iconData'))] if service else None
+    assert [summarize(infer(url,mappings)) for url,_ in cases] == [expected for _,expected in cases]
+    module=(ROOT/'core/src/core/static/js/lib/scope-links.js').read_text()
+    result=_run_node('const document={addEventListener(){},querySelectorAll(){return []}};\nwindow.LAB_LINK_SERVICES='+json.dumps(SERVICES)+';\n'
+                     +module+'\nwindow.LabScopeLinks.setDomainMappings('+json.dumps(mappings)+');\nprocess.stdout.write(JSON.stringify('
+                     +json.dumps(cases)+'.map(([url])=>{const s=window.LabScopeLinks.serviceFor({url},false);return s?[s.id,s.name,!!s.iconData]:null})));')
+    assert result == [expected for _,expected in cases]
+
+
+def test_removed_mapping_does_not_reuse_its_name_as_a_legacy_icon_hint():
+    module=(ROOT/'core/src/core/static/js/lib/scope-links.js').read_text()
+    result=_run_node('const document={addEventListener(){}};window.LAB_LINK_SERVICES='+json.dumps(SERVICES)+';\n'+module+r'''
+const link={kind:'external',type:'url',url:'https://company.test/page',type_name:'Google Docs',base_type_name:'Link'};
+process.stdout.write(JSON.stringify({service:window.LabScopeLinks.serviceFor(link)?.id||null,label:window.LabScopeLinks.label(link)}));
+''')
+    assert result=={'service':None,'label':'Link'}
+
+    result=_run_node('const document={addEventListener(){}};window.LAB_LINK_SERVICES='+json.dumps(SERVICES)+';\n'+module+r'''
+const link={kind:'external',type:'grafana',url:'https://company.test/page',type_name:'Grafana',auto_type:true};
+process.stdout.write(JSON.stringify({service:window.LabScopeLinks.serviceFor(link)?.id||null,label:window.LabScopeLinks.label(link)}));
+''')
+    assert result=={'service':None,'label':'Link'}

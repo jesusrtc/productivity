@@ -7,6 +7,7 @@
   const documentMime = 'application/x-lab-assistant-document';
   const rootKey = path => String(path || '').replace(/\/+$/, '') || '/';
   const services = window.LAB_LINK_SERVICES || [];
+  let domainMappings = [], domainMappingsVersion = 0;
   let editor = null;
   async function api(url, options = {}) {
     const response = await fetch(url, options);
@@ -14,29 +15,47 @@
     if (!response.ok) throw Object.assign(new Error(typeof data.detail === 'string' ? data.detail : 'Could not load links.'),{status:response.status});
     return data;
   }
-  function serviceFor(link, useType = true) {
+  function serviceFor(link, useType = true, mappings = domainMappings) {
     if (link.kind === 'internal') return null;
     try {
       const url = new URL(link.url), host = url.hostname.toLowerCase().replace(/\.$/, ''), path = url.pathname.toLowerCase();
       if (!['http:', 'https:'].includes(url.protocol)) return null;
       const domainMatches = domain => host === domain || host.endsWith('.' + domain);
+      for (const mapping of [...mappings].sort((a,b) => b.domain.length-a.domain.length)) {
+        if (host !== mapping.domain && !(mapping.includeSubdomains && domainMatches(mapping.domain))) continue;
+        if (mapping.service === 'custom') return {id:'url',name:mapping.name || mapping.domain,iconData:mapping.icon,mapped:true};
+        const service = services.find(row => row.id === mapping.service);
+        if (service) return {...service,name:mapping.name || service.name,mapped:true};
+      }
       for (const service of services) {
         if (service.rules.some(rule => domainMatches(rule.domain) && (path === rule.path || path.startsWith(rule.path + '/')))
           || service.domains.some(domainMatches)
           || service.host_labels.some(label => host.split('.').some(part => part === label || part.startsWith(label + '-') || part.endsWith('-' + label)))) return service;
       }
     } catch (_) { /* Unfinished URLs retain the generic link glyph. */ }
-    if (useType) {
-      const names = [link.type, link.type_name].map(value => String(value || '').toLowerCase().replace(/[\s_]+/g, '-'));
+    if (useType && !link.auto_type) {
+      const names = [link.type, link.base_type_name || link.type_name].map(value => String(value || '').toLowerCase().replace(/[\s_]+/g, '-'));
       return services.find(service => names.some(name => name === service.id || name === service.name.toLowerCase().replace(/\s+/g, '-') || service.aliases.includes(name))) || null;
     }
     return null;
   }
   function icon(link) {
     const service = serviceFor(link);
+    if (service?.iconData && /^data:image\/png;base64,[A-Za-z0-9+/]+={0,2}$/.test(service.iconData))
+      return `<span class="scope-link-icon" data-link-custom="true" style="${esc('background-image:url("'+service.iconData+'")')}" aria-hidden="true"></span>`;
     return `<span class="scope-link-icon" ${service ? `data-link-service="${esc(service.id)}"` : ''} aria-hidden="true">${service ? '' : link.kind === 'internal' ? '▤' : '↗'}</span>`;
   }
-  function label(link) { return link.label || link.title || serviceFor(link)?.name || link.type_name || link.url || 'Document'; }
+  function setDomainMappings(mappings) {
+    if (!Array.isArray(mappings) || JSON.stringify(mappings) === JSON.stringify(domainMappings)) return;
+    domainMappings = mappings;domainMappingsVersion++;
+    document.querySelectorAll('[data-scope-links]').forEach(host => {
+      if (host.isConnected && host._scopeLinksCurrent?.() && host._scopeLinksData)
+        render(host,host._scopeLinksData,() => host.isConnected && host._scopeLinksCurrent());
+    });
+    editor?.dialog.querySelectorAll('[data-link-card]').forEach(updateCard);
+  }
+  function typeName(link) { return link.auto_type ? 'Link' : link.base_type_name || link.type_name; }
+  function label(link) { return link.label || link.title || serviceFor(link)?.name || typeName(link) || link.url || 'Document'; }
   function tabs(tree, depth = 0) {
     return (tree?.children || []).flatMap(row => [{id:row.id, title:'· '.repeat(depth) + row.title, name:row.title, depth}, ...tabs(row, depth + 1)]);
   }
@@ -44,7 +63,9 @@
     const saved = cache.get(path);
     if (!fresh && saved && Date.now() - saved.at < 60000) return saved.data;
     if (saved?.pending) return saved.pending;
+    const mappingsVersion = domainMappingsVersion;
     const pending = api('/api/scope-links?path=' + encodeURIComponent(path)).then(data => {
+      if (mappingsVersion === domainMappingsVersion) setDomainMappings(data.linkDomainMappings);
       cache.set(path, {data, at:Date.now()}); return data;
     }).catch(error => { if (cache.get(path)?.pending === pending) cache.delete(path); throw error; });
     cache.set(path, {...saved, pending});
@@ -116,7 +137,7 @@
     });
   }
   function render(host, data, current) {
-    host.innerHTML = `<div class="sidebar-scope-links-head"><span>Links</span><button type="button" data-edit-links aria-label="Edit links for this folder" title="Edit links">+</button></div><div class="sidebar-scope-links-list">${data.links.map((link, index) => `<button type="button" data-scope-link="${index}" class="sidebar-scope-link" ${link.unavailable ? 'disabled' : ''} title="${esc(link.unavailable ? link.error : ((serviceFor(link)?.name || link.type_name) + ' · ' + (link.title || link.url)))}">${icon(link)}<span>${esc(label(link))}</span></button>`).join('')}</div>`;
+    host.innerHTML = `<div class="sidebar-scope-links-head"><span>Links</span><button type="button" data-edit-links aria-label="Edit links for this folder" title="Edit links">+</button></div><div class="sidebar-scope-links-list">${data.links.map((link, index) => `<button type="button" data-scope-link="${index}" class="sidebar-scope-link" ${link.unavailable ? 'disabled' : ''} title="${esc(link.unavailable ? link.error : ((serviceFor(link)?.name || typeName(link)) + ' · ' + (link.title || link.url)))}">${icon(link)}<span>${esc(label(link))}</span></button>`).join('')}</div>`;
     host.querySelector('[data-edit-links]').onclick = () => edit(host.dataset.scopeLinks, host._scopeLinksCurrent, host._scopeLinksScope);
     host.querySelectorAll('[data-scope-link]').forEach(button => button.onclick = async () => {
       if (!current()) return;
@@ -183,7 +204,7 @@
         try {
           const links=[...dialog.querySelectorAll('[data-link-card]')].map(node => {
             if (!validateCard(node)) throw new Error('Complete the highlighted link before saving.');
-            const row={id:node.dataset.linkCard,type:node._link.type,label:node.querySelector('[data-label]').value.trim()};
+            const row={id:node.dataset.linkCard,type:node._link.type,auto_type:node._link.auto_type,label:node.querySelector('[data-label]').value.trim()};
             if (node._kind === 'internal') {
               if(node._targetLoading)throw new Error('Wait for the document and its tabs to load before saving.');
               if(node._targetError)throw new Error(node._targetError);
@@ -239,7 +260,7 @@
   }
   function updateCard(node) {
     const original=node._link,url=node.querySelector('[data-url]')?.value.trim() ?? original.url;
-    const service=serviceFor({url,...(url===original.url ? {type:original.type,type_name:original.type_name} : {})});
+    const service=serviceFor({url,...(url===original.url ? {type:original.type,auto_type:original.auto_type,type_name:original.base_type_name || original.type_name} : {})});
     const doc=node._documentTitle || original.title || 'Choose an internal document';
     const text=node.querySelector('[data-label]').value.trim() || (node._kind==='internal' ? doc : service?.name || url || 'New link');
     node.querySelector('[data-row-label]').textContent=text;
@@ -403,5 +424,5 @@
     } catch (error) { if (typeof explorerToast === 'function') explorerToast(error.message,true); }
   }, true);
   document.addEventListener('dragend', clearDrop);
-  window.LabScopeLinks={mount,edit,label,serviceFor,tabs,documentMatches,openDocument,openForTerminal,addDocument,terminals,matchesTerminal};
+  window.LabScopeLinks={mount,edit,label,serviceFor,icon,setDomainMappings,tabs,documentMatches,openDocument,openForTerminal,addDocument,terminals,matchesTerminal};
 })();
