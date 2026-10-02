@@ -59,11 +59,15 @@ def test_external_link_requires_local_same_origin_session(client, monkeypatch, h
     assert response.status_code == 403
 
 
-def test_external_browser_capability_is_not_cached_between_local_and_remote(client):
+@pytest.mark.parametrize('platform', ['darwin', 'linux'])
+def test_external_browser_capability_is_not_cached_between_local_and_remote(client, monkeypatch, platform):
+    monkeypatch.setattr(ui.sys, 'platform', platform)
     with _browser_client(client) as local, _browser_client(client, "10.0.0.8") as remote:
         for browser, expected in [(local, "true"), (remote, "false"), (local, "true")]:
             html = browser.get("/").text
             assert f"window.LAB_EXTERNAL_BROWSER = {expected};" in html
+            native = expected if platform == 'darwin' else 'false'
+            assert f"window.LAB_NATIVE_BROWSER_REUSE = {native};" in html
             assert "/static/js/lib/external-links.js?v=" in html
 
 
@@ -84,3 +88,35 @@ def test_external_link_requires_login_and_admin(client, monkeypatch):
     assert client.post("/api/ui/open-external", **payload).status_code == 401
     client.post("/api/auth/login", json={"username": "reader", "password": "reader"})
     assert client.post("/api/ui/open-external", **payload).status_code == 403
+
+
+@pytest.mark.parametrize('matched', [True, False])
+def test_external_link_reuses_native_tab_or_opens_default_browser(client, monkeypatch, matched):
+    from core import browser_tabs
+    calls = []
+    url = 'https://example.com/a?one=1&two=2#part'
+    monkeypatch.setattr(ui.sys, 'platform', 'darwin')
+    monkeypatch.setattr(browser_tabs, 'focus_existing', lambda value: calls.append(('focus', value)) or matched)
+    monkeypatch.setattr(ui.subprocess, 'run', lambda argv, **kwargs: calls.append(('open', argv)))
+    with _browser_client(client) as browser:
+        response = browser.post('/api/ui/open-external', json={'url': url, 'reuse_existing': True}, headers={'Origin': 'http://localhost'})
+    assert response.status_code == 200
+    assert response.json() == {'ok': True, 'reused': matched}
+    assert calls == [('focus', url)] + ([] if matched else [('open', ['/usr/bin/open', url])])
+
+
+@pytest.mark.parametrize('error,message', [
+    (subprocess.TimeoutExpired('osascript', 6), 'did not respond'),
+    (subprocess.CalledProcessError(1, 'osascript'), 'Automation'),
+])
+def test_native_tab_automation_failure_does_not_silently_duplicate_tab(client, monkeypatch, error, message):
+    from core import browser_tabs
+    monkeypatch.setattr(ui.sys, 'platform', 'darwin')
+    def unavailable(url):
+        raise error
+    monkeypatch.setattr(browser_tabs, 'focus_existing', unavailable)
+    monkeypatch.setattr(ui.subprocess, 'run', lambda *a, **kw: pytest.fail('Do not silently open a duplicate on automation failure'))
+    with _browser_client(client) as browser:
+        response = browser.post('/api/ui/open-external', json={'url': 'https://example.com', 'reuse_existing': True}, headers={'Origin': 'http://localhost'})
+    assert response.status_code == 503
+    assert message in response.json()['detail']

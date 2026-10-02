@@ -55,10 +55,26 @@ metadata for that exact checkout. Internal links can target an entire document o
 nested tab and use Lab's expanded document layout. Entire-document links open the main content
 even after a different tab was viewed. External links open in the middle panel,
 keeping Files at its chosen visibility and the existing workspace terminal usable.
-The toolbar offers reload, close, and **Open in browser** for sites that block
-embedded views or sign-in; browser opening and modified clicks use the clicking
-client's browser. Repeated clicks retain the embedded app's state, and closing
-restores the content underneath without losing editor or terminal drafts.
+The toolbar offers reload, close, and **Open in browser**. Known public sites
+that block embedding (Slack, GitHub, Teams, Bitbucket, Linear, Notion, and Figma)
+open in the browser directly; Figma's supported embed URLs retain the middle
+panel. Self-hosted domains keep their embedded behavior regardless of their icon.
+For other sites that refuse to connect or sign in, **Always open in browser**
+remembers that origin on this device. Reset that choice in the link editor with
+**Use middle panel again**. Browsers do not reliably report cross-origin iframe
+failures, so this choice remains available throughout the embedded view.
+
+On a local Mac, workspace browser opening calls Lab's backend to focus an existing
+tab in the default browser, preserving the tab's state and signed-in session.
+Chrome, Edge, Brave, Chromium, and Safari are supported; other browsers use the
+regular OS opener. Exact URL matches take priority, with same-document matching
+for generic Google document links. Explicit document tabs, sheet ranges, and
+anchors require exact matches. macOS may request Automation access for the
+process running Lab. Failure offers a fresh browser click instead of silently
+creating a duplicate. Remote clients and modified clicks use the clicking
+client's browser; a server cannot inspect a remote client's tabs. Repeated clicks
+retain an embedded app's state, and closing restores the content underneath
+without losing editor or terminal drafts.
 External service types and icons are inferred from the URL. Use
 **Settings → Global → Links and icons** to map self-hosted domains to a service
 or upload a custom icon. Links belong to the resolved checkout path and follow it across

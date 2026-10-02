@@ -7,6 +7,17 @@
   const documentMime = 'application/x-lab-assistant-document';
   const rootKey = path => String(path || '').replace(/\/+$/, '') || '/';
   const services = window.LAB_LINK_SERVICES || [];
+  // These public web apps prohibit framing. Match actual domains rather than
+  // icons: a self-hosted tool using the same icon may allow embedding.
+  const browserOnlyDomains = ['slack.com', 'github.com', 'teams.microsoft.com', 'bitbucket.org', 'linear.app', 'notion.so', 'figma.com'];
+  const browserOriginsKey = 'lab.scope-links.browser-origins.v1';
+  const browserOrigins = new Set();
+  try {
+    const saved = JSON.parse(localStorage.getItem(browserOriginsKey) || '[]');
+    if (Array.isArray(saved)) for (const value of saved.slice(-100)) {
+      try { const url = new URL(value); if (['http:', 'https:'].includes(url.protocol)) browserOrigins.add(url.origin); } catch (_) {}
+    }
+  } catch (_) { /* The preference remains available for this page without storage. */ }
   let domainMappings = [], domainMappingsVersion = 0;
   let editor = null, externalView = null;
   async function api(url, options = {}) {
@@ -56,6 +67,34 @@
   }
   function typeName(link) { return link.auto_type ? 'Link' : link.base_type_name || link.type_name; }
   function label(link) { return link.label || link.title || serviceFor(link)?.name || typeName(link) || link.url || 'Document'; }
+  const openBrowser = url => window.LabExternalLinks.open(url, {clientOnly:true, reuseTab:true});
+  function browserPreference(value) {
+    try {
+      const url = new URL(value), host = url.hostname.toLowerCase().replace(/\.$/, '');
+      if (!['http:', 'https:'].includes(url.protocol)) return null;
+      const figmaEmbed = host === 'embed.figma.com' || (host === 'figma.com' || host === 'www.figma.com') && (url.pathname === '/embed' || url.pathname.startsWith('/embed/'));
+      return {origin:url.origin, known:!figmaEmbed && browserOnlyDomains.some(domain => host === domain || host.endsWith('.' + domain)), remembered:browserOrigins.has(url.origin)};
+    } catch (_) { return null; }
+  }
+  function setBrowserOrigin(origin, enabled) {
+    if (enabled) { browserOrigins.delete(origin); browserOrigins.add(origin); }
+    else browserOrigins.delete(origin);
+    while (browserOrigins.size > 100) browserOrigins.delete(browserOrigins.values().next().value);
+    try { localStorage.setItem(browserOriginsKey, JSON.stringify([...browserOrigins])); } catch (_) {}
+    document.querySelectorAll('[data-scope-links]').forEach(host => {
+      host.querySelectorAll('[data-scope-link]').forEach(button => {
+        const link = host._scopeLinksData?.links[Number(button.dataset.scopeLink)];
+        if (link) button.title = linkTitle(link);
+      });
+    });
+    editor?.dialog.querySelectorAll('[data-link-card]').forEach(updateCard);
+  }
+  function linkTitle(link) {
+    if (link.unavailable) return link.error;
+    const preference = link.kind === 'external' && browserPreference(link.url);
+    const destination = link.kind === 'external' ? (preference?.known || preference?.remembered ? 'Opens in browser · ' : 'Opens in middle panel · ') : '';
+    return destination + (serviceFor(link)?.name || typeName(link) || 'Link') + ' · ' + (link.title || link.url || label(link));
+  }
   function closeExternal({restoreFocus = false} = {}) {
     const view = externalView;
     if (!view) return;
@@ -81,6 +120,8 @@
     let url;
     try { url = new URL(link.url); } catch { return false; }
     if (!['http:', 'https:'].includes(url.protocol)) return false;
+    const preference = browserPreference(url.href);
+    if (preference.known || preference.remembered) return openBrowser(url.href);
     const content = document.getElementById('content');
     if (!content) return window.LabExternalLinks.open(url.href, {clientOnly:true});
     // Cancel pending document/terminal navigation and flush document drafts.
@@ -92,7 +133,7 @@
     const host = document.createElement('section');
     host.className = 'main workspace-external-host';
     host.setAttribute('aria-label', label(link));
-    host.innerHTML = `<div class="workspace-external-toolbar"><div class="workspace-external-title">${icon(link)}<strong>${esc(label(link))}</strong><span title="${esc(url.href)}">${esc(url.hostname)}</span></div><button type="button" data-reload title="Reload link" aria-label="Reload link">↻</button><button type="button" data-browser title="Open on this device if the site blocks embedded views">Open in browser ↗</button><button type="button" data-close class="workspace-external-close" aria-label="Close link" title="Close link">×</button></div><iframe title="${esc(label(link))}" referrerpolicy="strict-origin-when-cross-origin" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads allow-modals allow-storage-access-by-user-activation" allow="clipboard-read; clipboard-write"></iframe><p class="workspace-external-hint">If this site blocks embedded views or sign-in, use Open in browser.</p>`;
+    host.innerHTML = `<div class="workspace-external-toolbar"><div class="workspace-external-title">${icon(link)}<strong>${esc(label(link))}</strong><span title="${esc(url.href)}">${esc(url.hostname)}</span></div><button type="button" data-reload title="Reload link" aria-label="Reload link">↻</button><button type="button" data-browser title="Open on this device if the site blocks embedded views">Open in browser ↗</button><button type="button" data-close class="workspace-external-close" aria-label="Close link" title="Close link">×</button></div><iframe title="${esc(label(link))}" referrerpolicy="strict-origin-when-cross-origin" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads allow-modals allow-storage-access-by-user-activation" allow="clipboard-read; clipboard-write"></iframe><div class="workspace-external-hint"><span>Refused to connect or sign in? This site may block embedded views.</span><button type="button" data-remember-browser title="Open this site in your browser now and on future clicks">Always open in browser ↗</button></div>`;
     externalView = {host, path, url:link.url, focus:document.activeElement};
     host.querySelector('iframe').src = url.href;
     host.querySelector('[data-reload]').onclick = () => {
@@ -106,7 +147,13 @@
         frame.replaceWith(replacement);
       }
     };
-    host.querySelector('[data-browser]').onclick = () => window.LabExternalLinks.open(url.href, {clientOnly:true});
+    host.querySelector('[data-browser]').onclick = () => openBrowser(url.href);
+    host.querySelector('[data-remember-browser]').onclick = () => {
+      setBrowserOrigin(url.origin, true);
+      void openBrowser(url.href);
+      window.AssistantView?.closeInlineDocument({keepExternalLink:true});
+      closeExternal({restoreFocus:true});
+    };
     host.querySelector('[data-close]').onclick = () => {
       // Also cancel an internal document clicked while it was still loading.
       window.AssistantView?.closeInlineDocument({keepExternalLink:true});
@@ -198,7 +245,7 @@
     });
   }
   function render(host, data, current) {
-    host.innerHTML = `<div class="sidebar-scope-links-head"><span>Links</span><button type="button" data-edit-links aria-label="Edit links for this folder" title="Edit links">+</button></div><div class="sidebar-scope-links-list">${data.links.map((link, index) => `<button type="button" data-scope-link="${index}" class="sidebar-scope-link" ${link.unavailable ? 'disabled' : ''} title="${esc(link.unavailable ? link.error : ((serviceFor(link)?.name || typeName(link)) + ' · ' + (link.title || link.url)))}">${icon(link)}<span>${esc(label(link))}</span></button>`).join('')}</div>`;
+    host.innerHTML = `<div class="sidebar-scope-links-head"><span>Links</span><button type="button" data-edit-links aria-label="Edit links for this folder" title="Edit links">+</button></div><div class="sidebar-scope-links-list">${data.links.map((link, index) => `<button type="button" data-scope-link="${index}" class="sidebar-scope-link" ${link.unavailable ? 'disabled' : ''} title="${esc(linkTitle(link))}">${icon(link)}<span>${esc(label(link))}</span></button>`).join('')}</div>`;
     host.querySelector('[data-edit-links]').onclick = () => edit(host.dataset.scopeLinks, host._scopeLinksCurrent, host._scopeLinksScope);
     host.querySelectorAll('[data-scope-link]').forEach(button => button.onclick = async (event = {}) => {
       if (!current()) return;
@@ -296,7 +343,7 @@
   function card(s, link = {}) {
     const node=document.createElement('div');node.dataset.linkCard=link.id||crypto.randomUUID();node.className='scope-link-row';
     node._link=link;node._kind=link.kind || s.data.types.find(type=>type.id===link.type)?.kind || 'external';
-    node.innerHTML=`<div class="scope-link-row-head"><button type="button" class="scope-link-row-toggle" data-edit-link aria-expanded="false" aria-controls="scope-link-fields-${esc(node.dataset.linkCard)}"><span data-row-icon>${icon({...link,kind:node._kind})}</span><span data-row-label></span><small data-row-service></small></button><button type="button" class="scope-link-remove" data-remove aria-label="Remove link" title="Remove link">×</button></div><div class="scope-link-fields" data-link-fields id="scope-link-fields-${esc(node.dataset.linkCard)}" hidden><label>Display name <span class="scope-links-hint">(optional)</span><input data-label maxlength="200" value="${esc(link.label||'')}" placeholder="Use the document title or site name"></label><div data-target></div><button type="button" data-done-link>Done</button></div>`;
+    node.innerHTML=`<div class="scope-link-row-head"><button type="button" class="scope-link-row-toggle" data-edit-link aria-expanded="false" aria-controls="scope-link-fields-${esc(node.dataset.linkCard)}"><span data-row-icon>${icon({...link,kind:node._kind})}</span><span data-row-label></span><small data-row-service></small></button><button type="button" class="scope-link-remove" data-remove aria-label="Remove link" title="Remove link">×</button></div><div class="scope-link-fields" data-link-fields id="scope-link-fields-${esc(node.dataset.linkCard)}" hidden><label>Display name <span class="scope-links-hint">(optional)</span><input data-label maxlength="200" value="${esc(link.label||'')}" placeholder="Use the document title or site name"></label><div data-target></div><p class="scope-link-browser-preference" data-browser-preference hidden><span data-browser-message></span><button type="button" data-reset-browser>Use middle panel again</button></p><button type="button" data-done-link>Done</button></div>`;
     s.dialog.querySelector('[data-link-cards]').append(node);
     node.querySelector('[data-remove]').onclick=()=>{node.remove();s.dirty=true;};
     node.querySelector('[data-edit-link]').onclick=()=>setCardOpen(node,node.querySelector('[data-link-fields]').hidden);
@@ -304,6 +351,10 @@
       if(validateCard(node)&&!node._targetLoading&&!node._targetError)setCardOpen(node,false);
     };
     node.querySelector('[data-label]').oninput=()=>updateCard(node);
+    node.querySelector('[data-reset-browser]').onclick=()=>{
+      const preference=browserPreference(node.querySelector('[data-url]')?.value.trim());
+      if(preference)setBrowserOrigin(preference.origin,false);
+    };
     updateCard(node);
     void target(s,node,link);
     if(!link.id)setCardOpen(node,true);
@@ -331,6 +382,10 @@
     node.querySelector('[data-row-icon]').innerHTML=icon({kind:node._kind,url,type:service?.id});
     node.querySelector('[data-edit-link]').title=node._kind==='internal' ? doc : url || 'Paste a URL';
     node.querySelector('[data-remove]').setAttribute('aria-label','Remove '+text);
+    const preference=node._kind==='external' && browserPreference(url);
+    node.querySelector('[data-browser-preference]').hidden=!(preference?.known || preference?.remembered);
+    node.querySelector('[data-browser-message]').textContent=preference?.known ? 'This site opens in your browser because it blocks embedded views.' : 'This site is set to open in your browser on this device.';
+    node.querySelector('[data-reset-browser]').hidden=!preference?.remembered || preference.known;
   }
   function documentMatches(doc, query) {
     const text=`${doc.title} ${doc.search_text || ''}`.toLocaleLowerCase();

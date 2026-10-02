@@ -11,10 +11,10 @@
     } catch { return null; }
   }
 
-  function showFallback(url) {
+  function showFallback(url, messageText = 'Could not open your default browser.') {
     const dialog = document.createElement('dialog');
     const message = document.createElement('p');
-    message.textContent = 'Could not open your default browser.';
+    message.textContent = messageText;
     const link = document.createElement('a');
     link.textContent = 'Open link in a browser tab';
     link.href = url;
@@ -30,9 +30,27 @@
     dialog.showModal();
   }
 
-  async function open(value, {clientOnly = false} = {}) {
+  async function open(value, {clientOnly = false, reuseTab = false} = {}) {
     const url = webUrl(value);
     if (!url) return false;
+    // Explicit workspace browser opening can use the local Mac's default
+    // browser tab search. Remote clients keep their ordinary browser opening.
+    if (reuseTab && window.LAB_NATIVE_BROWSER_REUSE) {
+      try {
+        const response = await fetch('/api/ui/open-external', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({url:url.href, reuse_existing:true}),
+        });
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}));
+          throw new Error(data.detail || 'Could not reuse your browser tab.');
+        }
+        return true;
+      } catch (error) {
+        showFallback(url.href, error.message || 'Could not reuse your browser tab.');
+        return false;
+      }
+    }
     // A remote browser must open its own tab, never the server's desktop.
     if (clientOnly || !window.LAB_EXTERNAL_BROWSER) {
       window.open(url.href, '_blank', 'noopener,noreferrer');

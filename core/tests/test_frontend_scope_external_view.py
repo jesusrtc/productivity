@@ -142,6 +142,47 @@ window.WebSocket=class{constructor(){throw Error('External link must not reconne
  LabScopeLinks.openExternal({...external,url:FIX.url+'new',label:'Another dashboard'},'/trees/other');
  assert(!old.isConnected&&frame()!==old&&host().getAttribute('aria-label')==='Another dashboard','next link replaces old frame and title');
  LabScopeLinks.closeExternal();
+ // Known framing blockers open on the client without disrupting the center.
+ button().click();const currentFrame=frame(),beforeTabs=tabs.length;
+ for(const url of ['https://grid-example.enterprise.slack.com/archives/C1', 'https://github.com/org/repo',
+   'https://teams.microsoft.com/v2/', 'https://bitbucket.org/team/repo', 'https://linear.app/team/issue/1',
+   'https://www.notion.so/page', 'https://www.figma.com/design/123']){
+  await LabScopeLinks.openExternal({...external,url},activeRoot);
+  assert(tabs.at(-1)[0]===url&&frame()===currentFrame,'framing blocker opens browser and preserves current document: '+url);
+ }
+ assert(tabs.length===beforeTabs+7,'each known blocker opens exactly once');
+ LabScopeLinks.closeExternal();
+ for(const url of ['https://slack.com.example.test/path', 'https://embed.figma.com/design/123?embed-host=lab', 'https://www.figma.com/embed?url=test']){
+  LabScopeLinks.openExternal({...external,url},activeRoot);
+  assert(frame()?.src===url&&tabs.length===beforeTabs+7,'lookalike domains and supported Figma embeds retain middle panel: '+url);
+  LabScopeLinks.closeExternal();
+ }
+ // The icon/type does not determine framing: self-hosted tools remain embeddable.
+ LabScopeLinks.openExternal({...external,type:'slack'},activeRoot);
+ assert(frame()?.src===FIX.url&&tabs.length===beforeTabs+7,'self-hosted Slack icon does not force browser opening');
+ // Remember a failure for this origin, including its port, and restore the editor.
+ host().querySelector('[data-remember-browser]').click();
+ const preferenceKey='lab.scope-links.browser-origins.v1';
+ assert(!host()&&tabs.at(-1)[0]===FIX.url&&JSON.parse(localStorage.getItem(preferenceKey)).includes(new URL(FIX.url).origin),'remember browser saves origin and closes embedded view');
+ assert(button().title.startsWith('Opens in browser'),'remembered destination is visible on the chip');
+ const count=tabs.length;button().click();
+ assert(tabs.length===count+1&&!host(),'future activation skips refused embedded view');
+ LabScopeLinks.openExternal({...external,url:FIX.url.replace('localhost','127.0.0.1')},activeRoot);
+ assert(frame(),'browser preference is scoped to an origin');LabScopeLinks.closeExternal();
+ // A fresh module/page session reads the saved preference.
+ await new Promise((resolve,reject)=>{const script=document.createElement('script');script.src='/static/js/lib/scope-links.js';script.onload=resolve;script.onerror=reject;document.head.append(script)});
+ await LabScopeLinks.mount(links,()=>activeRoot==='/trees/topic');
+ const restored=tabs.length;button().click();
+ assert(tabs.length===restored+1&&!host(),'saved browser preference survives a new page session');
+ await LabScopeLinks.edit(activeRoot,()=>true);
+ const editor=document.querySelector('.scope-links-dialog'),card=editor.querySelector('[data-link-card="google"]');
+ card.querySelector('[data-edit-link]').click();
+ assert(!card.querySelector('[data-browser-preference]').hidden&&!card.querySelector('[data-reset-browser]').hidden,'editor exposes browser preference and its reset');
+ card.querySelector('[data-reset-browser]').click();
+ assert(card.querySelector('[data-browser-preference]').hidden&&!JSON.parse(localStorage.getItem(preferenceKey)).length,'reset returns site to middle panel');
+ window.confirm=()=>{throw Error('Browser preference must not mark metadata dirty')};
+ editor.querySelector('[data-close]').click();
+ assert(!document.querySelector('.scope-links-dialog')&&!calls.some(c=>c.path==='/api/scope-links'&&c.method==='PUT'),'reset needs no metadata save');
  // Leave the real view mounted for screenshot review.
  button().click();await until(()=>loads>=3);
  document.getElementById('result').textContent='PASS center layout, live embed, reload, drafts, client browser, selection and navigation cancellation';

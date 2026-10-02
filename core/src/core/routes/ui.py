@@ -38,6 +38,11 @@ def can_open_external(request: Request) -> bool:
 
 class ExternalLink(BaseModel):
     url: HttpUrl
+    reuse_existing: bool = False
+
+
+def can_reuse_browser_tabs(request: Request) -> bool:
+    return sys.platform == 'darwin' and can_open_external(request)
 
 
 @router.post("/api/ui/open-external")
@@ -49,6 +54,10 @@ def open_external(body: ExternalLink, request: Request) -> dict:
         raise HTTPException(status_code=403, detail="Browser opening requires the Lab origin")
     url = str(body.url)
     try:
+        if body.reuse_existing and sys.platform == 'darwin':
+            from core import browser_tabs
+            if browser_tabs.focus_existing(url):
+                return {"ok": True, "reused": True}
         if sys.platform == "win32":
             os.startfile(url)
         else:
@@ -58,9 +67,14 @@ def open_external(body: ExternalLink, request: Request) -> dict:
                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
-    except (OSError, subprocess.SubprocessError) as exc:
+    except subprocess.TimeoutExpired as exc:
+        message = "Your browser did not respond to tab automation. Try again or open a new browser tab." if body.reuse_existing and sys.platform == 'darwin' else "Could not open the default browser"
+        raise HTTPException(status_code=503, detail=message) from exc
+    except (OSError, subprocess.SubprocessError, ValueError) as exc:
+        if body.reuse_existing and sys.platform == 'darwin':
+            raise HTTPException(status_code=503, detail="Could not reuse a browser tab. Allow Lab's process to control your browser in macOS Privacy & Security → Automation, or open a new browser tab.") from exc
         raise HTTPException(status_code=503, detail="Could not open the default browser") from exc
-    return {"ok": True}
+    return {"ok": True, "reused": False} if body.reuse_existing else {"ok": True}
 
 
 def _pseudo_tab_ids() -> set[str]:

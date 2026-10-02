@@ -1,5 +1,8 @@
 # Memory index
 
+- [Local Mac links reuse browser tabs](local-mac-links-reuse-browser-tabs.md) — backend adapts Alfred's tab focus behavior for the default Mac browser, with bounded automation and visible failures.
+- [Workspace link framing fallback](workspace-link-framing-fallback.md) — known public framing blockers open in the browser; origin preferences persist and reset in the compact editor.
+
 - [Objectives demo is browser-only](objectives-demo-is-browser-only.md) — Home tab beside Admin, simulated resources and terminals, three focus slots, independent browser state and no data migration.
 
 - [Workspace external links open in the middle panel](workspace-external-links-open-in-center.md) — keep Files and existing terminals available; ordinary clicks embed, modified clicks/browser fallback stay on the client.

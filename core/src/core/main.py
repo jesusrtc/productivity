@@ -712,6 +712,7 @@ def create_app() -> FastAPI:
                 USER=auth.public_user(user),
                 IS_ADMIN=admin,
                 EXTERNAL_BROWSER=external_browser,
+                NATIVE_BROWSER_REUSE=ui_route.can_reuse_browser_tabs(request),
                 ASSET_V=asset_v,
                 LINK_SERVICES=link_services.SERVICES,
                 **state,
