@@ -56,6 +56,11 @@ Drag a resource onto a worktree to scope it to that checkout. It then appears
 only while that checkout is selected. Drag it back into the shared resources
 section to make it objective-wide again.
 
+**Links** uses the same compact, one-line pills as workspace links. Each row
+fits its label up to the sidebar width and shows the locally bundled service
+icon inferred from its URL. Global **Links and icons** domain mappings also
+apply here and update the rows immediately.
+
 ## Tasks and details
 
 The Tasks item shows completed top-level tasks divided by total top-level

@@ -14,6 +14,7 @@
 .objective-resource-group { min-width:0; }
 .objective-resource-head,.objective-subtab-row { display:flex; gap:3px; min-width:0; align-items:center; }
 .objective-resource { flex:1; min-width:0; width:auto; box-sizing:border-box; }
+.objective-link { flex:0 1 auto; }
 .objective-resource span:last-child { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .objective-resource.active,.objective-subtab.active { border-color:var(--accent); background:color-mix(in srgb,var(--accent) 12%,var(--bg-secondary)); }
 .objective-tree-toggle,.objective-pin { flex-shrink:0; width:19px; padding:2px; border:0; background:none; color:var(--text-dim); cursor:pointer; font-size:12px; }

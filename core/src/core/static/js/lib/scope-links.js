@@ -64,6 +64,7 @@
         render(host,host._scopeLinksData,() => host.isConnected && host._scopeLinksCurrent());
     });
     editor?.dialog.querySelectorAll('[data-link-card]').forEach(updateCard);
+    window.LabObjectives?.paint?.();
   }
   function typeName(link) { return link.auto_type ? 'Link' : link.base_type_name || link.type_name; }
   function label(link) { return link.label || link.title || serviceFor(link)?.name || typeName(link) || link.url || 'Document'; }

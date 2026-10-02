@@ -1,5 +1,7 @@
 # Memory index
 
+- [Objective links use native service icons](objective-links-use-native-service-icons.md) — compact content-sized pills with URL-based service icons and live global domain mappings.
+
 - [Sidebar objects paste or associate by drop target](sidebar-object-drops-paste-or-associate.md) — console drops paste source references without Enter; terminal-name and reverse drops associate any Objective sidebar object without changing its launch folder.
 
 - [Workspace objectives use five focus tabs](workspace-objectives-use-five-focus-tabs.md) — All library/search/filters and five vault-style slots replace Overview and left selectors; servers remain.
