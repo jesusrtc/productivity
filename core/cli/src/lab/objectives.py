@@ -121,6 +121,10 @@ def payload(root, workspace_id):
     data = load(root, workspace_id)
     folder = directory(root, workspace_id)
     for objective in data['objectives']:
+        for tree in objective['worktrees']:
+            # Older registries may only store the shortcut path. Match native
+            # sessions launched through either spelling without rewriting it.
+            tree['resolved_path'] = str(Path(tree['path']).resolve())
         for resource in objective['resources']:
             if resource['kind'] not in {'document', 'notebook'}:
                 continue

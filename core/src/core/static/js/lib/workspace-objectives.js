@@ -115,7 +115,22 @@
   function terminalIdentity(t) {return t.session_id||t.name;}
   function terminalObjective(t) {const d=data();if(!d?.enabled)return null;const link=d.terminal_links[terminalIdentity(t)];return d.objectives.find(o=>o.id===link?.objective_id)||d.objectives.find(o=>o.worktrees.some(w=>[w.path,w.resolved_path].includes(t.linked_scope?.root)||[w.path,w.resolved_path].includes(t.cwd)))||d.objectives[0];}
   function terminalHtml(sessions,pill,newButton) {
-    if(!active(context()?.path))return null;const d=data();return d.focused.map(id=>{const o=d.objectives.find(o=>o.id===id);if(!o)return '';const rows=sessions.map((t,index)=>({t,index})).filter(row=>terminalObjective(row.t)?.id===id),groups=new Map();for(const row of rows){const path=row.t.linked_scope?.root||row.t.cwd||context().path;if(!groups.has(path))groups.set(path,[]);groups.get(path).push(row);}return `<section class="objective-terminal-group" style="--objective-color:${esc(o.color)}"><button type="button" class="objective-terminal-heading" data-select-objective="${esc(id)}">${esc(o.name)}</button>${[...groups].map(([path,items])=>{const t=o.worktrees.find(w=>w.path===path||w.resolved_path===path);return `<div class="objective-terminal-worktree" style="--objective-color:${esc(t?.color||o.color)}"><span>${esc(t?.label||(path===context().path?'Objective folder':path.split('/').filter(Boolean).slice(-2).join('/')))}</span><div>${items.map(row=>pill(row.t,row.index)).join('')}</div></div>`;}).join('')}</section>`;}).join('')+newButton;
+    if(!active(context()?.path))return null;
+    const d=data(),rows=sessions.map((t,index)=>({t,index,objective:terminalObjective(t)?.id}));
+    return d.focused.map(id=>{
+      const o=d.objectives.find(o=>o.id===id);if(!o)return '';
+      const groups=new Map();
+      for(const row of rows.filter(row=>row.objective===id)){
+        const root=row.t.linked_scope?.root||row.t.cwd||context().path;
+        const worktree=o.worktrees.find(w=>w.path===root||w.resolved_path===root);
+        const path=worktree?.path||root;
+        if(!groups.has(path))groups.set(path,{worktree,items:[]});
+        groups.get(path).items.push(row);
+      }
+      const terminals=[...groups].map(([path,{worktree,items}])=>
+        `<div class="objective-terminal-worktree" role="group" aria-label="${esc(worktree?.label||(path===context().path?'Objective folder':path.split('/').filter(Boolean).slice(-2).join('/')))}">${items.map(row=>pill(row.t,row.index)).join('')}</div>`).join('');
+      return `<section class="objective-terminal-group" style="--objective-color:${esc(o.color)}"><button type="button" class="objective-terminal-heading" data-select-objective="${esc(id)}" title="${esc(o.name)}">${esc(o.name)}</button><div class="objective-terminal-rows">${terminals}</div></section>`;
+    }).join('')+newButton;
   }
   function openForTerminal(t) {const link=data()?.terminal_links[terminalIdentity(t)],o=terminalObjective(t);if(!o||!link)return false;state().objective=o.id;const resource=o.resources.find(r=>r.id===link.resource_id),w=o.worktrees.find(w=>w.id===resource?.worktree||[w.path,w.resolved_path].includes(link.file?.root||t.linked_scope?.root));if(w){state().tree[o.id]=w.id;if(bridge.scopeRoot?.()!==w.path)bridge.selectWorktree?.(w);}persistView();if(link.resource_id)openResource(link.resource_id,link.tab_id);else if(link.file)bridge.openFile?.(link.file);paint();return true;}
   function handleClick(e) {

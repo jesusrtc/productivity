@@ -101,6 +101,21 @@ def test_owned_rename_keeps_ids_and_task_references_and_unlink_preserves_files(m
     assert (folder/new['path']).is_file()
 
 
+def test_legacy_worktree_paths_resolve_for_terminal_grouping_without_registry_writes(monorepo, objective_workspace):
+    folder, oid = objective_workspace
+    checkout = monorepo/'actual-checkout'; checkout.mkdir()
+    shortcut = monorepo/'shortcut-checkout'; shortcut.symlink_to(checkout, target_is_directory=True)
+    apply(monorepo, oid, 'worktree', path=str(shortcut), label='fix')
+    registry = objectives.registry(monorepo, 'demo')
+    saved = storage.read_json(registry)
+    saved['objectives'][0]['worktrees'][0].pop('resolved_path')
+    storage.write_json(registry, saved)
+    before = registry.read_bytes()
+    tree = objectives.payload(monorepo, 'demo')['objectives'][0]['worktrees'][0]
+    assert tree['path'] == str(shortcut) and tree['resolved_path'] == str(checkout)
+    assert registry.read_bytes() == before
+
+
 def test_invalid_paths_urls_and_document_links_do_not_write(monorepo, objective_workspace):
     folder, oid = objective_workspace
     before = objectives.load(monorepo,'demo')

@@ -77,7 +77,10 @@ objective. A document can also be dropped directly into objective resources.
 The native terminal selector groups sessions by the three focused objectives,
 then by their fixed launch folders/worktrees. Sessions assigned to a parked
 objective reappear when that objective is brought into focus. Existing native
-terminal controls and sessions are reused.
+terminal controls and sessions are reused. Rows stay flat, with a small objective
+name and a thin objective-colored line down the left. Worktree groups use spacing
+rather than extra boxes or headings. Shortcut and real checkout paths share the
+same group.
 
 Drag a resource, subtab or file onto a terminal to associate that working view
 with the session. A terminal can also be dropped onto an objective resource.
