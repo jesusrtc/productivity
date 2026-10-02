@@ -1,8 +1,14 @@
 from .test_frontend_terminal_ui import _js_between, _run_node
 
 
+def _link_helpers():
+    return ('let _termLinkedNavigationSeq = 0;\n'
+            + _js_between('  function _termCancelPendingLinkedFileOpen()', '  function _termNormalizeLinkedRoot(')
+            + _js_between('  function _termLinkContext()', '  function _termSessionsLinkedToContext('))
+
+
 def test_link_transfer_updates_both_tabs_and_ignores_a_late_navigation():
-    helpers = _js_between("  function _termLinkContext()", "  function _termSessionsLinkedToContext(")
+    helpers = _link_helpers()
     result = _run_node(helpers + """
 let workspace = 'home', vault = null, renders = 0;
 const _termActiveWorkspaceId = () => workspace, _termVaultId = () => vault;
@@ -18,11 +24,12 @@ const fetch = async () => {
       session:{name:'first',linked_scope:{root:'/repo'}}}]})};
 };
 (async () => {
+  window.LabTaskTerminalBridge.cancelNavigation();
   await _termPatchLinks(termSessions[1], {});
   const after = JSON.parse(JSON.stringify(termSessions));
   navigate = true;
   await _termPatchLinks(termSessions[1], {});
-  process.stdout.write(JSON.stringify({after, current:termSessions, renders}));
+  process.stdout.write(JSON.stringify({after, current:termSessions, renders, navigation:_termLinkedNavigationSeq}));
 })();
 """)
     assert result["after"][0]["linked_file"] is None
@@ -30,6 +37,7 @@ const fetch = async () => {
     assert result["after"][1]["linked_file"] == {"path": "a.md"}
     assert result["current"] == [{"name": "other"}]
     assert result["renders"] == 1
+    assert result["navigation"] == 1
 
 
 def test_direct_unlink_removes_only_the_selected_association():
@@ -51,7 +59,7 @@ const explorerToast = () => {};
 
 
 def test_folder_reassignment_is_rejected_and_file_link_keeps_shared_terminal_folder():
-    helpers = _js_between("  function _termLinkContext()", "  function _termSessionsLinkedToContext(")
+    helpers = _link_helpers()
     helpers += _js_between("  async function termLinkTarget(", "  async function termUnlinkTarget(")
     result = _run_node(helpers + """
 const _termActiveWorkspaceId = () => 'demo', _termVaultId = () => 'client';

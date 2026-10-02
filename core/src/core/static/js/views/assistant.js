@@ -1327,6 +1327,7 @@
   }
 
   function presentDocument(overlay, inline) {
+    window.LabScopeLinks?.closeExternal();
     const content = document.getElementById('content');
     inline = Boolean(inline && content);
     if (content && !(inline ? state.inlineHost : state.expandedHost)) {
@@ -1353,7 +1354,8 @@
     window.LabDocumentTerminal?.open(detail, state.modalRoot, state.data.root, {inline:true,scope:state.terminalScope});
   }
 
-  function closeDocumentModal(updateHistory = true) {
+  function closeDocumentModal(updateHistory = true, {keepExternalLink = false} = {}) {
+    if (!keepExternalLink) window.LabScopeLinks?.closeExternal();
     document.getElementById('assistantNoteHistory')?.close();
     void flushNoteDraft();
     clearTimeout(state.documentClickTimer);
@@ -2898,7 +2900,11 @@
     bindDocumentLink,
     openLinkedTask,
     closeDocument: closeDocumentModal,
-    closeInlineDocument: () => { if (state.inlineHost || state.expandedHost || state.documentPending || state.documentClickTimer) closeDocumentModal(false); },
+    closeInlineDocument: ({keepExternalLink = false} = {}) => {
+      if (!keepExternalLink) window.LabScopeLinks?.closeExternal();
+      if (state.inlineHost || state.expandedHost || state.documentPending || state.documentClickTimer) closeDocumentModal(false, {keepExternalLink});
+    },
+    prepareExternalLink: () => closeDocumentModal(false, {keepExternalLink:true}),
     navigationGuard: () => { const request = state.modalRequest; return () => request === state.modalRequest; },
     isInlineDocument: () => Boolean(state.inlineHost),
   };

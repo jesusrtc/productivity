@@ -21,7 +21,7 @@ def test_scope_links_ignore_late_reads_and_keep_cached_buttons_clickable():
     module = (ROOT/'core/src/core/static/js/lib/scope-links.js').read_text()
     result = _run_node(r"""
 const replies={},calls=[],opened=[];
-const document={addEventListener(){}};
+const document={addEventListener(){},getElementById:()=>null};
 const window={LabExternalLinks:{open:async (url,options)=>opened.push({url,...options})},
   AssistantView:{openLinkedTask:async(link,options)=>{if(options.isCurrent()){if(options.inline===true)throw Error('scope links must use the regular expanded document');opened.push({id:link.document_id,tab:link.tab_id,whole:options.wholeDocument})}}}};
 const fetch=url=>new Promise(resolve=>replies[decodeURIComponent(url.split('path=')[1])]=data=>resolve({ok:true,json:async()=>data}));
@@ -46,7 +46,7 @@ const host=path=>({dataset:{scopeLinks:path},isConnected:true,paintCount:0,butto
 })().catch(error=>{process.stderr.write(error.stack);process.exitCode=1});
 """)
     assert result == {'oldPaint':0,'newPaint':1,'opened':[
-        {'id':'doc','tab':'tab','whole':False}, {'id':'doc','tab':None,'whole':True}, {'url':'https://new.invalid','clientOnly':True}]}
+        {'id':'doc','tab':'tab','whole':False}, {'id':'doc','tab':None,'whole':True}, {'url':'https://new.invalid/','clientOnly':True}]}
 
 
 @pytest.mark.parametrize('viewport', [1440, 390])

@@ -52,12 +52,16 @@ Saving file preferences preserves scope selections, pins, colors, and usage.
 Active folder/worktree links appear immediately below the controls. **Links +**
 opens the editor; double-clicking a sidebar shortcut or the branch label opens
 metadata for that exact checkout. Internal links can target an entire document or an individual
-nested tab and open inline in Lab. Entire-document links open the main content
-even after a different tab was viewed. External links use the existing default
-browser opener for local sessions; remote sessions open in the user's browser.
-Configure allowed types in **Settings → Global → Link types**. Google Docs,
-Internal docs, and Jira tickets are the defaults; custom types can target either
-destination. Links belong to the resolved checkout path and follow it across
+nested tab and use Lab's expanded document layout. Entire-document links open the main content
+even after a different tab was viewed. External links open in the middle panel,
+keeping Files at its chosen visibility and the existing workspace terminal usable.
+The toolbar offers reload, close, and **Open in browser** for sites that block
+embedded views or sign-in; browser opening and modified clicks use the clicking
+client's browser. Repeated clicks retain the embedded app's state, and closing
+restores the content underneath without losing editor or terminal drafts.
+External service types and icons are inferred from the URL. Use
+**Settings → Global → Links and icons** to map self-hosted domains to a service
+or upload a custom icon. Links belong to the resolved checkout path and follow it across
 workspaces. Internal targets retain library/document/tab IDs and refresh titles
 from the source; missing targets remain visible but disabled.
 

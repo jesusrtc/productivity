@@ -329,6 +329,7 @@
 
   async function selectRepo(workspaceKey, {initialLoad = false, historySettled = false} = {}) {
     if (!workspaceKey) return;
+    window.LabScopeLinks?.closeExternal();
     currentWorkspace = workspacesList.find(p => p.path === workspaceKey)
       || workspacesList.find(p => p.name === workspaceKey);
     if (!currentWorkspace) return;
@@ -2139,6 +2140,7 @@
   }
 
   function switchDiffTab(tab) {
+    window.LabScopeLinks?.closeExternal();
     currentDiffTab = tab;
     document.getElementById('tabUncommitted').classList.toggle('active', tab === 'uncommitted');
     document.getElementById('tabBranch').classList.toggle('active', tab === 'branch');
@@ -4124,6 +4126,7 @@
   }
 
   function _sidebarBeginScopeSwitch(baseRoot) {
+    window.LabScopeLinks?.closeExternal();
     _sidebarEndScopeSwitch();
     ++_sidebarProjectGeneration;
     const sidebar = document.getElementById('sidebar'), content = document.getElementById('content');
@@ -4586,6 +4589,7 @@
 
   async function openWorkspaceFile(filepath) {
     if (!currentRepo) return;
+    window.LabScopeLinks?.closeExternal();
     const fileRoot = _activeRepoFileRoot();
     workspaceOpenFile = filepath;
     workspaceEditMode = false;
@@ -7733,6 +7737,7 @@
 
   async function openWorkspaceNotebooks({showLauncher = false} = {}) {
     if (!currentWorkspace || !currentWorkspace.is_workspace) return;
+    window.LabScopeLinks?.closeExternal();
     const workspacePath = currentWorkspace.path;
     if (!showLauncher && typeof _workspaceDocPath === 'string'
         && _workspaceDocPath.toLowerCase().endsWith('.ipynb')) {
@@ -9635,6 +9640,7 @@
   }
 
   function selectWorkspaceRepo(repoPath) {
+    window.LabScopeLinks?.closeExternal();
     _contextSubView = 'repository';
     currentRepoInWorkspace = currentWorkspace.repos.find(r => r.path === repoPath);
     currentRepo = repoPath;
@@ -11268,6 +11274,7 @@
   }
 
   function _termSelectHomeSection() {
+    window.LabScopeLinks?.closeExternal();
     const name = _termHomeRestoreName();
     // Calling attach even for the mounted session also invalidates any older
     // in-flight section selection; its warm path keeps the connection intact.
@@ -14457,6 +14464,7 @@
   }
 
   window.LabTaskTerminalBridge = {patch:_termPatchLinks, display:session => _termSessionDisplay(session),
+    cancelNavigation:_termCancelPendingLinkedFileOpen,
     context:() => ({workspace_id:_termActiveWorkspaceId(),vault:_termVaultId(),
       session_name:termCurrentWorkspaceId === _termActiveWorkspaceId() ? termCurrentSession : null}),
     show:async (session, options = {}) => {

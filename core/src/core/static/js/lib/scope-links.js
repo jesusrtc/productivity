@@ -8,7 +8,7 @@
   const rootKey = path => String(path || '').replace(/\/+$/, '') || '/';
   const services = window.LAB_LINK_SERVICES || [];
   let domainMappings = [], domainMappingsVersion = 0;
-  let editor = null;
+  let editor = null, externalView = null;
   async function api(url, options = {}) {
     const response = await fetch(url, options);
     const data = await response.json().catch(() => ({}));
@@ -56,6 +56,67 @@
   }
   function typeName(link) { return link.auto_type ? 'Link' : link.base_type_name || link.type_name; }
   function label(link) { return link.label || link.title || serviceFor(link)?.name || typeName(link) || link.url || 'Document'; }
+  function closeExternal({restoreFocus = false} = {}) {
+    const view = externalView;
+    if (!view) return;
+    externalView = null;
+    view?.host.remove();
+    document.body.classList.remove('workspace-external-link');
+    document.querySelectorAll('[data-scope-link][aria-current="page"]').forEach(button => button.removeAttribute('aria-current'));
+    if (restoreFocus && view?.focus?.isConnected) view.focus.focus({preventScroll:true});
+  }
+  function paintExternalSelection() {
+    if (!externalView) return;
+    document.querySelectorAll('[data-scope-links]').forEach(host => {
+      host.querySelectorAll('[data-scope-link]').forEach(button => {
+        const link = host._scopeLinksData?.links[Number(button.dataset.scopeLink)];
+        if (externalView && host.dataset.scopeLinks === externalView.path && link?.kind === 'external' && link.url === externalView.url)
+          button.setAttribute('aria-current', 'page');
+        else button.removeAttribute('aria-current');
+      });
+    });
+  }
+  function openExternal(link, path, {isCurrent = () => true} = {}) {
+    if (!isCurrent()) return false;
+    let url;
+    try { url = new URL(link.url); } catch { return false; }
+    if (!['http:', 'https:'].includes(url.protocol)) return false;
+    const content = document.getElementById('content');
+    if (!content) return window.LabExternalLinks.open(url.href, {clientOnly:true});
+    // Cancel pending document/terminal navigation and flush document drafts.
+    // Keep this frame alive on a repeated click so the embedded app retains state.
+    window.LabTaskTerminalBridge?.cancelNavigation?.();
+    window.AssistantView?.prepareExternalLink();
+    if (externalView?.path === path && externalView.url === link.url) return true;
+    closeExternal();
+    const host = document.createElement('section');
+    host.className = 'main workspace-external-host';
+    host.setAttribute('aria-label', label(link));
+    host.innerHTML = `<div class="workspace-external-toolbar"><div class="workspace-external-title">${icon(link)}<strong>${esc(label(link))}</strong><span title="${esc(url.href)}">${esc(url.hostname)}</span></div><button type="button" data-reload title="Reload link" aria-label="Reload link">↻</button><button type="button" data-browser title="Open on this device if the site blocks embedded views">Open in browser ↗</button><button type="button" data-close class="workspace-external-close" aria-label="Close link" title="Close link">×</button></div><iframe title="${esc(label(link))}" referrerpolicy="strict-origin-when-cross-origin" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads allow-modals allow-storage-access-by-user-activation" allow="clipboard-read; clipboard-write"></iframe><p class="workspace-external-hint">If this site blocks embedded views or sign-in, use Open in browser.</p>`;
+    externalView = {host, path, url:link.url, focus:document.activeElement};
+    host.querySelector('iframe').src = url.href;
+    host.querySelector('[data-reload]').onclick = () => {
+      const frame = host.querySelector('iframe');
+      try { frame.contentWindow.location.reload(); }
+      catch {
+        // Reassigning a cross-origin src with a hash can be only an in-page
+        // navigation. A fresh frame makes the explicit Reload a full load.
+        const replacement = frame.cloneNode();
+        replacement.src = url.href;
+        frame.replaceWith(replacement);
+      }
+    };
+    host.querySelector('[data-browser]').onclick = () => window.LabExternalLinks.open(url.href, {clientOnly:true});
+    host.querySelector('[data-close]').onclick = () => {
+      // Also cancel an internal document clicked while it was still loading.
+      window.AssistantView?.closeInlineDocument({keepExternalLink:true});
+      closeExternal({restoreFocus:true});
+    };
+    content.after(host);
+    document.body.classList.add('workspace-external-link');
+    paintExternalSelection();
+    return true;
+  }
   function tabs(tree, depth = 0) {
     return (tree?.children || []).flatMap(row => [{id:row.id, title:'· '.repeat(depth) + row.title, name:row.title, depth}, ...tabs(row, depth + 1)]);
   }
@@ -139,16 +200,18 @@
   function render(host, data, current) {
     host.innerHTML = `<div class="sidebar-scope-links-head"><span>Links</span><button type="button" data-edit-links aria-label="Edit links for this folder" title="Edit links">+</button></div><div class="sidebar-scope-links-list">${data.links.map((link, index) => `<button type="button" data-scope-link="${index}" class="sidebar-scope-link" ${link.unavailable ? 'disabled' : ''} title="${esc(link.unavailable ? link.error : ((serviceFor(link)?.name || typeName(link)) + ' · ' + (link.title || link.url)))}">${icon(link)}<span>${esc(label(link))}</span></button>`).join('')}</div>`;
     host.querySelector('[data-edit-links]').onclick = () => edit(host.dataset.scopeLinks, host._scopeLinksCurrent, host._scopeLinksScope);
-    host.querySelectorAll('[data-scope-link]').forEach(button => button.onclick = async () => {
+    host.querySelectorAll('[data-scope-link]').forEach(button => button.onclick = async (event = {}) => {
       if (!current()) return;
       const link = data.links[Number(button.dataset.scopeLink)];
       try {
-        // Folder links belong to the clicking client, including SSH-forwarded
-        // loopback sessions where the server's browser is on another desktop.
-        if (link.kind === 'external') await window.LabExternalLinks.open(link.url, {clientOnly:true});
+        if (link.kind === 'external') {
+          if (event.metaKey || event.ctrlKey || event.shiftKey) await window.LabExternalLinks.open(link.url, {clientOnly:true});
+          else await openExternal(link, host.dataset.scopeLinks, {isCurrent:current});
+        }
         else await openDocument(link, host.dataset.scopeLinks, {isCurrent:current});
       } catch (error) { if (current()) window.alert(error.message); }
     });
+    paintExternalSelection();
   }
   async function mount(host, current) {
     if (!host || !current()) return;
@@ -424,5 +487,5 @@
     } catch (error) { if (typeof explorerToast === 'function') explorerToast(error.message,true); }
   }, true);
   document.addEventListener('dragend', clearDrop);
-  window.LabScopeLinks={mount,edit,label,serviceFor,icon,setDomainMappings,tabs,documentMatches,openDocument,openForTerminal,addDocument,terminals,matchesTerminal};
+  window.LabScopeLinks={mount,edit,label,serviceFor,icon,setDomainMappings,tabs,documentMatches,openDocument,openExternal,closeExternal,openForTerminal,addDocument,terminals,matchesTerminal};
 })();

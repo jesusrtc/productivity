@@ -1,5 +1,7 @@
 # Memory index
 
+- [Workspace external links open in the middle panel](workspace-external-links-open-in-center.md) — keep Files and existing terminals available; ordinary clicks embed, modified clicks/browser fallback stay on the client.
+
 - [Self-hosted link domains use client icon mappings](self-hosted-link-domains-use-client-icon-mappings.md) — configurable service/custom icons, optional subdomains, live updates, and local resized PNG uploads.
 
 - [Link rows infer services from URLs](link-rows-infer-services-from-urls.md) — local brand icons, one-line click-to-edit metadata, automatic external types, and preserved internal document/tab targets.
