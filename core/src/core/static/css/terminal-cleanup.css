@@ -27,6 +27,9 @@
 .terminal-cleanup button.terminal-cleanup-danger { color: var(--red); border-color: var(--red); }
 .terminal-cleanup-notice { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.5; }
 .terminal-cleanup-notice:empty { display: none; }
+.terminal-cleanup-tabs { display:flex; gap:4px; flex-shrink:0; overflow-x:auto; padding-bottom:4px; }
+.terminal-cleanup-tabs button { border:0; border-bottom:2px solid transparent; border-radius:0; background:none; white-space:nowrap; color:var(--text-secondary); }
+.terminal-cleanup-tabs button[aria-selected=true] { border-bottom-color:var(--accent); color:var(--accent); }
 .terminal-cleanup-list { overflow-y: auto; min-height: 70px; }
 .terminal-cleanup-list section { border: 1px solid var(--border); border-radius: 8px; margin-bottom: 14px; padding: 14px; }
 .terminal-cleanup-list section:last-child { margin-bottom: 0; }

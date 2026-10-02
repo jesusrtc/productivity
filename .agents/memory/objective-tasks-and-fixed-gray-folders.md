@@ -1,7 +1,9 @@
 # Objective Tasks and fixed gray folders
 
-The user wants Tasks directly below the three Objective selectors. Shared
-documents/notebooks and links follow; then the scope list always starts with
+The user's latest layout places Tasks at the very top of the left sidebar;
+objective selection now lives in the five workspace tabs, replacing the earlier
+three left-column selectors. Shared documents/notebooks and links follow Tasks;
+then the scope list always starts with
 Root (workspace directory) and Objective (selected objective's own directory).
 Both rows are gray because the user does not expect to work directly there.
 Objective changes with the selected objective. Associated worktrees retain

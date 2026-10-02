@@ -2,11 +2,12 @@
 [data-objectives-sidebar] { margin-bottom:10px; }
 .objective-title { display:flex; align-items:center; justify-content:space-between; font-size:12px; margin-top:12px; }
 .objective-title button { border:0; background:none; color:var(--accent); font:inherit; font-size:16px; padding:0; cursor:pointer; }
-.objective-selectors,.objective-worktrees { display:grid; grid-template-columns:minmax(0,1fr); gap:5px; padding:0 12px 8px; }
-.objective-selector { display:flex; align-items:center; gap:6px; min-width:0; border:1px solid var(--objective-color); border-left:3px solid var(--objective-color); border-radius:7px; background:var(--bg-primary); color:var(--text-secondary); padding:5px 7px; text-align:left; font:11px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; cursor:pointer; }
-.objective-selector.active { color:var(--text-primary); background:color-mix(in srgb,var(--objective-color) 10%,var(--bg-primary)); }
-.objective-selector > span:nth-child(2) { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.objective-selector > span:first-child,.objective-worktree-icon { color:var(--objective-color,var(--sidebar-workspace-color)); }
+.objective-worktrees { display:grid; grid-template-columns:minmax(0,1fr); gap:5px; padding:0 12px 8px; }
+.objective-worktree-icon { color:var(--sidebar-workspace-color); }
+.objective-tab { display:inline-flex; align-items:center; flex-shrink:0; max-width:190px; }
+.objective-tab-name { overflow:hidden; text-overflow:ellipsis; }
+.objective-slot-empty { color:var(--text-dim); }
+.objective-drop-target { background:color-mix(in srgb,var(--accent) 15%,var(--bg-primary)); outline:1px dashed var(--accent); outline-offset:-2px; }
 .objective-progress { margin-left:auto; flex-shrink:0; font-size:11px; font-variant-numeric:tabular-nums; }
 .objective-progress.track { color:var(--yellow,#e3b341); }.objective-progress.risk { color:#ffa657; }.objective-progress.overdue { color:var(--red,#ff7b72); }.objective-progress.complete { color:var(--green,#3fb950); }
 .objective-resources { display:grid; grid-template-columns:minmax(0,1fr); gap:4px; padding:0 12px; }
@@ -31,6 +32,15 @@
 .objective-working h2 { font-size:18px; margin:0; }
 .objective-working button { font-size:12px; color:var(--accent); background:transparent; border:1px solid var(--border); border-radius:4px; padding:4px 7px; cursor:pointer; }
 .objective-purpose,.objective-document-context { font-size:12px; color:var(--text-secondary); }
+.objective-library-filters { display:flex; flex-wrap:wrap; gap:12px; margin:20px 0 12px; }
+.objective-library-filters label { display:grid; gap:5px; font-size:12px; color:var(--text-secondary); }
+.objective-library-filters label:first-child { flex:1; min-width:150px; }
+.objective-library-filters input,.objective-library-filters select { border:1px solid var(--border); border-radius:4px; background:var(--bg-secondary); color:var(--text-primary); padding:6px 8px; font:12px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+.objective-library-row { display:flex; align-items:center; gap:12px; padding:12px 0; border-bottom:1px solid var(--border); cursor:grab; }
+.objective-library-row > button[data-library-objective] { display:grid; flex:1; min-width:0; gap:4px; text-align:left; border:0; color:var(--text-primary); padding:0; }
+.objective-library-row strong { font-size:13px; }.objective-library-row button span { font-size:12px; color:var(--text-secondary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.objective-library-dot { width:7px; height:7px; border-radius:50%; background:var(--objective-color); flex-shrink:0; }
+.objective-library-focus { font-size:11px; color:var(--text-secondary); min-width:44px; }
 .objective-task-progress { display:flex; align-items:center; gap:8px; margin:18px 0 12px; font-size:12px; }
 .objective-task-progress .objective-progress { margin-left:0; }
 .objective-task-row { display:grid; grid-template-columns:16px minmax(0,1fr) 23px 115px 20px; align-items:center; gap:6px; min-height:32px; border-bottom:1px solid var(--border); font-size:12px; }

@@ -33,7 +33,7 @@ try {
   const scope=await evaluate(`(({workspace_id,vault})=>({workspace_id,...(vault?{vault}:{})}))(window.LabTaskTerminalBridge.context())`);
   const objectiveUrl='/api/objectives?'+new URLSearchParams(scope);
   const fixture=await evaluate(`fetch(${JSON.stringify(objectiveUrl)}).then(r=>r.json())`);
-  const focused=fixture.focused.map(id=>fixture.objectives.find(o=>o.id===id));
+  const focused=fixture.focused.filter(Boolean).map(id=>fixture.objectives.find(o=>o.id===id)).filter(o=>['Staging · phone recovery','Staging · repository navigation','Staging · release verification'].includes(o.name));
   if(focused.length!==3||focused.some(o=>!o.name.startsWith('Staging ·')))throw new Error('Run the owned staging fixture first');
   async function click(label,selector,ready){
     await until(`!!document.querySelector(${JSON.stringify(selector)})`);
@@ -48,6 +48,7 @@ try {
   const q=JSON.stringify;
   for(let cycle=0;cycle<3;cycle++)for(const o of focused){
     const doc=o.resources.find(r=>r.title==='Incident notes.md'),nb=o.resources.find(r=>r.kind==='notebook'),tab=doc.content.tabs[1];
+    await click(`All objectives ${cycle}`,'[data-all-objectives]',`document.querySelectorAll('.objective-library-row').length===${fixture.objectives.length}`);
     await click(`objective ${o.name} ${cycle}`,`[data-select-objective="${o.id}"]`,
       `document.querySelector('.objective-working h2')?.textContent==='Tasks' && document.querySelector('.objective-purpose')?.textContent.startsWith(${q(o.name)}) && !document.querySelector('#content').inert`);
     await click(`document ${cycle}`,`[data-objective-resource="${doc.id}"]:not([data-objective-tab])`,
@@ -84,9 +85,9 @@ try {
     await click(`unpin subtab ${cycle}`,`[data-pin-tab="${tab.id}"]`,
       `document.querySelector('[data-pin-tab="${tab.id}"]')?.getAttribute('aria-pressed')==='false' || !document.querySelector('[data-pin-tab="${tab.id}"]')`);
   }
-  const fonts=await evaluate(`({selector:getComputedStyle(document.querySelector('.objective-selector')).fontSize,resource:getComputedStyle(document.querySelector('.objective-resource')).fontSize,file:getComputedStyle(document.querySelector('.sidebar-file')).fontSize})`);
-  const layout=await evaluate(`({tasksBelowProjects:document.querySelector('.objective-selectors').nextElementSibling.hasAttribute('data-open-objective-tasks'),roots:[...document.querySelectorAll('[data-objective-root]')].map(n=>({label:n.querySelector('button').textContent.trim(),color:n.style.getPropertyValue('--sidebar-workspace-color')})),terminalBorders:[...document.querySelectorAll('.objective-terminal-group')].map(n=>({top:getComputedStyle(n).borderTopWidth,right:getComputedStyle(n).borderRightWidth,bottom:getComputedStyle(n).borderBottomWidth,left:getComputedStyle(n).borderLeftWidth})),worktreeLabels:document.querySelectorAll('.objective-terminal-worktree > span:not(.sess)').length})`);
-  if(!layout.tasksBelowProjects||layout.roots.length!==2||layout.roots.some(r=>r.color!=='#8b949e')||layout.worktreeLabels||layout.terminalBorders.some(b=>b.top!=='0px'||b.right!=='0px'||b.bottom!=='0px'||b.left!=='2px'))throw Error('Objective layout requirements failed: '+JSON.stringify(layout));
+  const fonts=await evaluate(`({selector:getComputedStyle(document.querySelector('.objective-tab')).fontSize,resource:getComputedStyle(document.querySelector('.objective-resource')).fontSize,file:getComputedStyle(document.querySelector('.sidebar-file')).fontSize})`);
+  const layout=await evaluate(`({tasksAtSidebarTop:document.querySelector('[data-objectives-sidebar]').firstElementChild.hasAttribute('data-open-objective-tasks'),focusSlots:document.querySelectorAll('[data-objective-slot]').length,sidebarSelectors:document.querySelectorAll('.objective-selectors').length,roots:[...document.querySelectorAll('[data-objective-root]')].map(n=>({label:n.querySelector('button').textContent.trim(),color:n.style.getPropertyValue('--sidebar-workspace-color')})),terminalBorders:[...document.querySelectorAll('.objective-terminal-group')].map(n=>({top:getComputedStyle(n).borderTopWidth,right:getComputedStyle(n).borderRightWidth,bottom:getComputedStyle(n).borderBottomWidth,left:getComputedStyle(n).borderLeftWidth})),worktreeLabels:document.querySelectorAll('.objective-terminal-worktree > span:not(.sess)').length})`);
+  if(!layout.tasksAtSidebarTop||layout.focusSlots!==5||layout.sidebarSelectors||layout.roots.length!==2||layout.roots.some(r=>r.color!=='#8b949e')||layout.worktreeLabels||layout.terminalBorders.some(b=>b.top!=='0px'||b.right!=='0px'||b.bottom!=='0px'||b.left!=='2px'))throw Error('Objective layout requirements failed: '+JSON.stringify(layout));
   const network=await evaluate(`performance.getEntriesByType('resource').filter(r=>['/api/objectives','/api/sidebar-directory','/api/sidebar-recent-files'].some(path=>new URL(r.name).pathname===path)).map(r=>({url:new URL(r.name).pathname,ms:r.duration}))`);
   const max=Math.max(...rows.map(r=>r.ms)),failures=rows.filter(r=>r.ms>=200);
   const report={workspace,normalPolling:true,physicalDisplayLatency:false,fonts,layout,clicks:rows,network,errors,maxMs:max,failures:failures.map(r=>({label:r.label,ms:r.ms}))};

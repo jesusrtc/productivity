@@ -1,8 +1,18 @@
 /* Review a server-generated snapshot; never send a broad workspace kill. */
 (function () {
   'use strict';
-  let dialog, list, notice, refreshButton, allButton, closeButton, returnFocus;
-  let groups = [], busy = false;
+  let dialog, list, tabs, notice, refreshButton, allButton, closeButton, returnFocus;
+  let groups = [], busy = false, selected = null;
+  const identity = group => group.workspace_id==='__self__'?'home':JSON.stringify([group.vault,group.workspace_id]);
+  function workspaces() {
+    const known = new Map();
+    for(const group of [...(window.LabTerminalCleanupBridge?.workspaces?.()||[]),...groups])
+      known.set(identity(group),{...group,sessions:group.sessions||[]});
+    const current=window.LabTerminalCleanupBridge?.scope()||{};
+    if(current.workspace_id&&!known.has(identity(current)))known.set(identity(current),{...current,name:current.workspace_id,sessions:[]});
+    return [...known.values()].sort((a,b)=>Number(identity(b)===identity(current))-Number(identity(a)===identity(current))||a.name.localeCompare(b.name));
+  }
+  const selectedGroup = () => workspaces().find(group=>identity(group)===selected);
 
   function element(tag, text, className) {
     const node = document.createElement(tag);
@@ -33,12 +43,15 @@
     notice = element('div', '', 'terminal-cleanup-notice');
     notice.setAttribute('role', 'status');
     notice.setAttribute('aria-live', 'polite');
+    tabs = element('div', undefined, 'terminal-cleanup-tabs');
+    tabs.setAttribute('role', 'tablist');tabs.setAttribute('aria-label','Workspaces');
     list = element('div', undefined, 'terminal-cleanup-list');
+    list.id='terminalCleanupPanel';list.setAttribute('role','tabpanel');
     const footer = element('footer');
     refreshButton = button('Refresh', () => refresh());
-    allButton = button('Kill all inactive', () => kill(groups.flatMap(group => group.sessions)), 'terminal-cleanup-danger');
+    allButton = button('Kill inactive', () => kill(selectedGroup()?.sessions||[]), 'terminal-cleanup-danger');
     footer.append(refreshButton, allButton);
-    dialog.append(header, description, notice, list, footer);
+    dialog.append(header, description, notice, tabs, list, footer);
     dialog.addEventListener('cancel', event => { if (busy) event.preventDefault(); });
     dialog.addEventListener('close', () => { if (returnFocus?.isConnected) returnFocus.focus(); });
     document.body.append(dialog);
@@ -46,18 +59,27 @@
 
   function render() {
     list.replaceChildren();
-    const current = window.LabTerminalCleanupBridge?.scope() || {};
-    const isCurrent = group => group.workspace_id === current.workspace_id
-      && (group.workspace_id === '__self__' || group.vault === current.vault);
-    const sorted = [...groups].sort((a, b) => Number(isCurrent(b)) - Number(isCurrent(a)));
-    for (const group of sorted) {
+    const catalog=workspaces();
+    if(!catalog.some(group=>identity(group)===selected))selected=catalog[0]?identity(catalog[0]):null;
+    tabs.replaceChildren();
+    catalog.forEach((group,index)=>{
+      const active=identity(group)===selected;
+      const tab=button(group.name+' · '+group.sessions.length,()=>{selected=identity(group);render();tabs.children[index]?.focus();});
+      tab.id='terminalCleanupTab'+index;tab.setAttribute('role','tab');tab.setAttribute('aria-selected',String(active));tab.setAttribute('aria-controls',list.id);tab.tabIndex=active?0:-1;tab.disabled=busy;
+      tab.title=group.vault?group.name+' · '+group.vault:group.name;
+      tab.addEventListener('keydown',event=>{
+        const next=event.key==='ArrowRight'?(index+1)%catalog.length:event.key==='ArrowLeft'?(index+catalog.length-1)%catalog.length:event.key==='Home'?0:event.key==='End'?catalog.length-1:null;
+        if(next!==null){event.preventDefault();selected=identity(catalog[next]);render();tabs.children[next]?.focus();}
+      });
+      tabs.append(tab);if(active)list.setAttribute('aria-labelledby',tab.id);
+    });
+    const group=selectedGroup();
+    if(group){
       const section = element('section');
       const header = element('div', undefined, 'terminal-cleanup-group-header');
       const label = group.name + (['__self__', '__assistant__'].includes(group.workspace_id) ? '' : ' · ' + group.vault);
-      const heading = element('h3', label + (isCurrent(group) ? ' · current' : ''));
-      const stop = button(`Kill ${group.sessions.length} inactive`, () => kill(group.sessions), 'terminal-cleanup-danger');
-      stop.disabled = busy;
-      header.append(heading, stop);
+      const heading = element('h3', label);
+      header.append(heading);
       const sessions = element('ul');
       for (const session of group.sessions) {
         const item = element('li');
@@ -72,9 +94,9 @@
       section.append(header, sessions);
       list.append(section);
     }
-    if (!groups.length && !busy) list.append(element('p', 'No inactive sessions older than 7 days.'));
-    const count = groups.reduce((total, group) => total + group.sessions.length, 0);
-    allButton.textContent = `Kill all ${count} inactive`;
+    if (!group?.sessions.length && !busy) list.append(element('p', 'No inactive sessions older than 7 days in this workspace.'));
+    const count = group?.sessions.length||0;
+    allButton.textContent = `Kill ${count} inactive`;
     allButton.disabled = busy || !count;
     refreshButton.disabled = busy;
     closeButton.disabled = busy;
@@ -135,6 +157,7 @@
       ensureDialog();
       if (dialog.open) return;
       returnFocus = document.activeElement;
+      selected=identity(window.LabTerminalCleanupBridge?.scope()||{});
       dialog.showModal();
       closeButton.focus();
       await refresh();

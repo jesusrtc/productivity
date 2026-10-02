@@ -3,6 +3,7 @@
   'use strict';
   const cache = new Map(), views = new Map(), pending = new Map(), queues = new Map(), overlays = new Map(), loadedAt = new Map();
   const resourceMime = 'application/x-lab-objective-resource', documentMime = 'application/x-lab-assistant-document';
+  const objectiveMime = 'application/x-lab-workspace-objective', focusSlots = 5;
   const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const drafts = new Map();
   let bridge, dialog = null, hoverTimer, openView = null, activeDraft = null;
@@ -13,11 +14,11 @@
     const id = key(scope);
     if (!views.has(id)) {
       let saved;try {saved = JSON.parse(localStorage.getItem('lab.objectives.view.v1:' + id));} catch {}
-      views.set(id, {objective:saved?.objective || null, tree:saved?.tree || {}, pins:saved?.pins || {}, revealed:new Set(), selected:null});
+      views.set(id, {objective:saved?.objective || null, view:saved?.view || 'all', tree:saved?.tree || {}, pins:saved?.pins || {}, revealed:new Set(), selected:null});
     }
     return views.get(id);
   }
-  function persistView() {const s=state();try{localStorage.setItem('lab.objectives.view.v1:'+key(context()),JSON.stringify({objective:s.objective,tree:s.tree,pins:s.pins}));}catch{}}
+  function persistView() {const s=state();try{localStorage.setItem('lab.objectives.view.v1:'+key(context()),JSON.stringify({objective:s.objective,view:s.view,tree:s.tree,pins:s.pins}));}catch{}}
   function objective() {const d=data(),s=state();return d?.objectives.find(o=>o.id===s.objective)||d?.objectives.find(o=>d.focused.includes(o.id));}
   function active(path) {return context()?.path===path&&data()?.enabled===true;}
   function complete(task) {return task.children.length?task.children.every(c=>c.done):task.done;}
@@ -46,7 +47,7 @@
     const request=fetch('/api/objectives?'+new URLSearchParams({workspace_id:scope.workspace_id,...(scope.vault?{vault:scope.vault}:{})})).then(async r=>{
       const d=await r.json();if(!r.ok)throw new Error(d.detail||'Could not load objectives');if(d.enabled)await Promise.all([bridge.readyContent?.(),scope.path&&bridge.warmWorktrees?.([{path:scope.path},...d.objectives.filter(o=>d.focused.includes(o.id)).flatMap(o=>[{path:o.path||scope.path+'/objectives/'+o.id},...o.worktrees])],scope)]);const previous=cache.get(id);cache.set(id,d);loadedAt.set(id,Date.now());
       for(const overlay of overlays.get(id)||[])overlay.apply(d);
-      if(key(context())===id){paint();if(previous?.revision!==d.revision){bridge.refreshSidebar?.();bridge.refreshTerminals?.();}}return d;
+      if(key(context())===id){paint();if(previous?.revision!==d.revision){bridge.refreshSidebar?.();bridge.refreshTerminals?.();if(openView?.type==='all')paintLibrary();}if(!previous)bridge.openDefault?.();}return d;
     }).catch(e=>{if(key(context())===id)notify(e.message,true);}).finally(()=>pending.delete(id));pending.set(id,request);return request;
   }
   function notify(text,error=false) {window.explorerToast?.(text,error);}
@@ -60,7 +61,7 @@
       const r=await fetch('/api/objectives',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({workspace_id:scope.workspace_id,vault:scope.vault,expected:cache.get(id)?.revision,action:resolvedAction})});
       const d=await r.json();if(!r.ok)throw new Error(d.detail||'Could not save objective');if(d.enabled)await bridge.readyContent?.();overlays.set(id,(overlays.get(id)||[]).filter(item=>item!==overlay));cache.set(id,d);loadedAt.set(id,Date.now());
       for(const item of overlays.get(id)||[])item.apply(d);
-      if(key(context())===id){paint();bridge.refreshTerminals?.();if(openView?.type==='tasks')renderTasks();}return d;
+      if(key(context())===id){paint();bridge.refreshTerminals?.();if(openView?.type==='tasks')renderTasks();else if(openView?.type==='all')paintLibrary();}return d;
     }).catch(async e=>{overlays.set(id,(overlays.get(id)||[]).filter(item=>item!==overlay));notify(e.message,true);await load(scope,true);throw e;});queues.set(id,next);return next;
   }
   function collapse() {clearTimeout(hoverTimer);state().revealed.clear();}
@@ -75,13 +76,13 @@
       ${rows.length?`<div class="objective-subtabs" role="tree" aria-label="${esc(r.title)} subtabs">${rows.filter(t=>reveal||pins.includes(t.id)).map(t=>`<div class="objective-subtab-row" style="--objective-tab-depth:${t.depth}" role="treeitem" aria-level="${t.depth+1}"><button type="button" class="objective-subtab${state().selected?.resource===r.id&&state().selected.tab===t.id?' active':''}" data-objective-resource="${esc(r.id)}" data-objective-tab="${esc(t.id)}" draggable="true" title="${esc(t.title)}"><span aria-hidden="true">▤</span><span>${esc(t.title)}</span></button><button type="button" class="objective-pin" data-pin-resource="${esc(r.id)}" data-pin-tab="${esc(t.id)}" aria-label="Pin ${esc(t.title)}" aria-pressed="${pins.includes(t.id)}">${pins.includes(t.id)?'◆':'◇'}</button></div>`).join('')}</div>`:''}</div>`;
   }
   function paint() {
+    bridge.refreshTabs?.();
     const scope=context(),host=document.querySelector('[data-objectives-sidebar]');if(!host||!scope)return;
     const d=data();if(!d)return;
     if(!d.enabled){host.innerHTML='<button type="button" class="sidebar-objective-add" data-new-objective>+ Objective</button>';return;}
     const o=objective();if(!o)return;state().objective=o.id;
     const t=tree(o),general=o.resources.filter(r=>!r.worktree),scoped=o.resources.filter(r=>r.worktree&&(r.worktree===t?.id||r.worktree===t?.membership));
-    host.innerHTML=`<div class="sidebar-title objective-title">OBJECTIVES <button type="button" data-focus-objective aria-label="Choose objective">+</button></div><div class="objective-selectors">${d.focused.map(id=>d.objectives.find(o=>o.id===id)).filter(Boolean).map(item=>`<button type="button" class="objective-selector${item.id===o.id?' active':''}" style="--objective-color:${esc(item.color)}" data-select-objective="${esc(item.id)}" aria-pressed="${item.id===o.id}"><span aria-hidden="true">◎</span><span>${esc(item.name)}</span>${badge(item)}</button>`).join('')}</div>
-      <button type="button" class="sidebar-scope-link objective-tasks" data-open-objective-tasks><span aria-hidden="true">☑</span><span>Tasks</span>${badge(o)}</button>
+    host.innerHTML=`<button type="button" class="sidebar-scope-link objective-tasks" data-open-objective-tasks><span aria-hidden="true">☑</span><span>Tasks</span>${badge(o)}</button>
       <div class="sidebar-title objective-title">${esc(o.name)}<button type="button" data-objective-settings aria-label="Objective settings">⚙</button></div>
       <section data-objective-shared><div class="sidebar-title objective-title">Documents & notebooks<button type="button" data-add-resource="document" aria-label="Add objective document">+</button></div><div class="objective-resources">${general.filter(r=>r.kind!=='link').map(r=>resourceRow(o,r)).join('')}</div><div class="sidebar-title objective-title">Links<button type="button" data-add-resource="link" aria-label="Add objective link">+</button></div><div class="objective-resources">${general.filter(r=>r.kind==='link').map(r=>resourceRow(o,r)).join('')}</div>
       </section>
@@ -90,20 +91,44 @@
     host.querySelectorAll('[data-resource-group]').forEach(row=>{row.onmouseenter=()=>{clearTimeout(hoverTimer);const id=row.dataset.resourceGroup;hoverTimer=setTimeout(()=>{if(row.isConnected&&key(context())===key(scope)){state().revealed.add(id);paint();}},1500);};row.onmouseleave=()=>clearTimeout(hoverTimer);});
   }
   function selectObjective(id) {
-    const o=data()?.objectives.find(o=>o.id===id);if(!o)return;collapse();state().objective=id;state().selected=null;persistView();paint();renderTasks();bridge.refreshTerminals?.();
+    const o=data()?.objectives.find(o=>o.id===id);if(!o)return;collapse();state().objective=id;state().view='objective';state().selected=null;persistView();paint();renderTasks();bridge.refreshTerminals?.();
     const t=tree(o)||{path:context().path,kind:'folder'};if(bridge.scopeRoot?.()!==t.path)bridge.selectWorktree?.(t);
   }
-  function showCenter(type) {releaseDraft();bridge.prepareCenter?.();openView={type,scope:key(context()),objective:objective().id};return document.getElementById('content');}
+  function tabsHtml(path,working=true) {
+    if(context()?.path!==path)return '';
+    const d=data(),s=state(),all=working&&s.view==='all';
+    return `<button type="button" class="repo-tab vault-context-tab objective-tab${all?' active':''}" data-all-objectives aria-pressed="${all}">All</button>`+
+      Array.from({length:focusSlots},(_,slot)=>{
+        const o=d?.objectives.find(o=>o.id===d.focused[slot]),selected=!!(working&&!all&&o&&o.id===objective()?.id);
+        return `<button type="button" class="repo-tab vault-context-tab objective-tab${o?'':' objective-slot-empty'}${selected?' active':''}" style="--vault-color:${esc(o?.color||'#8b949e')}" data-objective-slot="${slot}" ${o?`data-select-objective="${esc(o.id)}" draggable="true"`:''} aria-pressed="${selected}" aria-label="Slot ${slot+1}${o?': '+esc(o.name):': choose an objective'}" title="${o?esc(o.name):'Drop an objective here or click to choose'}"><span class="vault-mark" aria-hidden="true"></span><span class="objective-tab-name">${esc(o?.name||'Slot '+(slot+1))}</span></button>`;
+      }).join('');
+  }
+  function showAll() {
+    if(!data()){const scope=key(context());void load().then(result=>{if(result&&key(context())===scope)showAll();});return;}
+    state().view='all';state().selected=null;collapse();persistView();
+    const host=showCenter('all');
+    host.innerHTML=`<section class="objective-working objective-library"><header><h2>All objectives</h2><button type="button" data-new-objective>+ Objective</button></header><p class="objective-purpose">Drag an objective into one of the five tabs above. Replacing a slot keeps the previous objective here.</p><div class="objective-library-filters"><label>Search<input type="search" data-objective-search placeholder="Name or outcome" value="${esc(state().query||'')}"></label><label>Focus<select data-objective-filter><option value="all">All objectives</option><option value="focused">In focus</option><option value="parked">Parked</option></select></label><label>Tasks<select data-objective-status-filter><option value="all">Any status</option><option value="track">On track</option><option value="risk">At risk</option><option value="overdue">Past due</option><option value="complete">Complete</option></select></label></div><div class="objective-library-list"></div></section>`;
+    host.querySelector('[data-objective-filter]').value=state().filter||'all';host.querySelector('[data-objective-status-filter]').value=state().statusFilter||'all';
+    paintLibrary();paint();
+  }
+  function paintLibrary() {
+    const host=document.querySelector('.objective-library-list');if(!host||openView?.scope!==key(context()))return;
+    const d=data(),s=state(),query=(s.query||'').trim().toLocaleLowerCase();
+    const rows=d.objectives.filter(o=>(!query||(o.name+' '+o.purpose).toLocaleLowerCase().includes(query))&&(!s.filter||s.filter==='all'||d.focused.includes(o.id)===(s.filter==='focused'))&&(!s.statusFilter||s.statusFilter==='all'||progress(o).status===s.statusFilter));
+    host.innerHTML=rows.map(o=>`<div class="objective-library-row" data-drag-objective="${esc(o.id)}" draggable="true" style="--objective-color:${esc(o.color)}"><span class="objective-library-dot" aria-hidden="true"></span><button type="button" data-library-objective="${esc(o.id)}"><strong>${esc(o.name)}</strong><span>${esc(o.purpose)}</span></button>${badge(o)}<span class="objective-library-focus">${d.focused.includes(o.id)?'Slot '+(d.focused.indexOf(o.id)+1):'Parked'}</span><button type="button" data-place-objective="${esc(o.id)}" aria-label="Choose focus slot for ${esc(o.name)}">Focus…</button></div>`).join('')||'<p>No objectives match. Create one or change the filters.</p>';
+  }
+  function showCenter(type) {releaseDraft();bridge.prepareCenter?.();openView={type,scope:key(context()),objective:objective()?.id};return document.getElementById('content');}
   function taskRow(task,parent=null) {
     const done=parent?task.done:complete(task);return `<div class="objective-task-row${parent?' child':''}" data-task-id="${esc(task.id)}"><input type="checkbox" aria-label="Complete ${esc(task.title)}" data-task-done="${esc(task.id)}" ${done?'checked':''}><span class="objective-task-title${done?' done':''}">${esc(task.title)}</span><button type="button" data-task-document="${esc(task.id)}" aria-label="Open details for ${esc(task.title)}">▤</button><input type="date" aria-label="Due date for ${esc(task.title)}" data-task-due="${esc(task.id)}" value="${esc(task.due||'')}" title="${parent&&!task.due?'Inherits '+(parent.due||'parent deadline'):'Due date'}"><button type="button" data-add-subtask="${esc(task.id)}" ${parent?'hidden':''} aria-label="Add subtask to ${esc(task.title)}">+</button></div>`;
   }
   function renderTasks() {
-    const o=objective();if(!o)return;const host=showCenter('tasks'),p=progress(o);state().selected=null;
+    const o=objective();if(!o)return;state().view='objective';persistView();const host=showCenter('tasks'),p=progress(o);state().selected=null;
     host.innerHTML=`<section class="objective-working"><header><h2>Tasks</h2><button type="button" data-new-objective-task>+ Task</button></header><p class="objective-purpose">${esc(o.name)} · ${esc(o.purpose)}</p><div class="objective-task-progress">${badge(o)}<span>${esc(p.label)}</span></div><div class="objective-task-list">${o.tasks.map(t=>taskRow(t)+t.children.map(c=>taskRow(c,t)).join('')).join('')||'<p>No tasks yet. Add a task and its details document will be created with it.</p>'}</div></section>`;
     paint();
   }
   function openResource(resourceId,tabId=null) {
     const o=objective(),r=o?.resources.find(r=>r.id===resourceId);if(!r)return;
+    state().view='objective';persistView();
     releaseDraft();
     collapse();state().selected={resource:resourceId,tab:tabId};if(r.content?.tabs?.length)state().revealed.add(resourceId);paint();
     openView={type:r.kind,scope:key(context()),objective:o.id,resource:r.id,tab:tabId};
@@ -193,8 +218,18 @@
     dialog?.remove();const node=document.createElement('dialog');node.className='objective-dialog';node.innerHTML=`<form><header><h2>${esc(title)}</h2></header>${fields}<footer><button type="button" data-cancel>Cancel</button><button type="submit">Save</button></footer><p role="status"></p></form>`;document.body.append(node);dialog=node;node.showModal();node.querySelector('[data-cancel]').onclick=()=>{node.close();node.remove();};node.querySelector('form').onsubmit=async e=>{e.preventDefault();const button=node.querySelector('[type=submit]');button.disabled=true;try{await submit(new FormData(e.target));node.close();node.remove();}catch(error){node.querySelector('[role=status]').textContent=error.message;button.disabled=false;}};return node;
   }
   const input=(label,name,value='',type='text',required=true)=>`<label>${esc(label)}<input name="${name}" type="${type}" value="${esc(value)}" ${required?'required':''}></label>`;
-  function newObjective() {const d=data();form('New objective',input('Name','name')+input('Outcome','purpose','','text',false)+(d.objectives.length?'':'<label><span><input name="import_existing" type="checkbox" checked> Bring current workspace worktrees, files and links</span></label>')+(d.focused.length===3?`<label>Replace focus slot<select name="replace">${d.focused.map(id=>`<option value="${esc(id)}">${esc(d.objectives.find(o=>o.id===id).name)}</option>`).join('')}</select></label>`:''),async values=>{const result=await change({type:'create',name:values.get('name'),purpose:values.get('purpose'),replace:values.get('replace'),import_existing:values.has('import_existing')});selectObjective(result.objectives.at(-1).id);bridge.refreshSidebar?.();});}
-  function focusDialog() {const d=data();form('Bring an objective into focus',`<label>Objective<select name="objective"><option value="new">Create a new objective</option>${d.objectives.filter(o=>!d.focused.includes(o.id)).map(o=>`<option value="${esc(o.id)}">${esc(o.name)}</option>`).join('')}</select></label>`+(d.focused.length===3?`<label>Replace focus slot<select name="replace">${d.focused.map(id=>`<option value="${esc(id)}">${esc(d.objectives.find(o=>o.id===id).name)}</option>`).join('')}</select></label>`:''),async values=>{if(values.get('objective')==='new'){setTimeout(newObjective,0);return;}await change({type:'focus',objective_id:values.get('objective'),replace:values.get('replace')});selectObjective(values.get('objective'));});}
+  function newObjective(slot=null) {const d=data();if(!d){const scope=key(context());void load().then(result=>{if(result&&key(context())===scope)newObjective(slot);});return;}form('New objective',input('Name','name')+input('Outcome','purpose','','text',false)+(d.objectives.length?'':'<label><span><input name="import_existing" type="checkbox" checked> Bring current workspace worktrees, files and links</span></label>')+(d.focused.filter(Boolean).length===focusSlots?`<label>Replace focus slot<select name="replace">${d.focused.map(id=>`<option value="${esc(id)}">${esc(d.objectives.find(o=>o.id===id).name)}</option>`).join('')}</select></label>`:''),async values=>{const result=await change({type:'create',name:values.get('name'),purpose:values.get('purpose'),replace:values.get('replace'),slot,import_existing:values.has('import_existing')});selectObjective(result.objectives.at(-1).id);bridge.refreshSidebar?.();});}
+  function focusDialog(objectiveId=null,slot=null) {
+    const d=data();form('Choose an objective and focus slot',`<label>Objective<select name="objective">${d.objectives.map(o=>`<option value="${esc(o.id)}">${esc(o.name)}</option>`).join('')}</select></label><label>Slot<select name="slot">${Array.from({length:focusSlots},(_,i)=>`<option value="${i}">Slot ${i+1} · ${esc(d.objectives.find(o=>o.id===d.focused[i])?.name||'Empty')}</option>`).join('')}</select></label>`,async values=>{
+      await placeObjective(values.get('objective'),Number(values.get('slot')));
+    });
+    if(objectiveId)dialog.querySelector('[name=objective]').value=objectiveId;
+    dialog.querySelector('[name=slot]').value=String(slot??Array.from({length:focusSlots},(_,i)=>i).find(i=>!d.focused[i])??0);
+  }
+  async function placeObjective(id,slot) {
+    const scope=key(context());await change({type:'focus',objective_id:id,slot});
+    if(scope===key(context()))selectObjective(id);
+  }
   function addResource(kind='document') {form('Add objective resource',`<label>Type<select name="kind"><option value="document">Markdown document</option><option value="notebook">Notebook</option><option value="link">Link</option><option value="file">Existing workspace file</option></select></label>`+input('Name','title')+input('URL (links only)','url','','text',false)+input('Workspace-relative path (existing files only)','path','','text',false),async values=>{const result=await change({type:'resource',objective_id:objective().id,kind:values.get('kind'),title:values.get('title'),url:values.get('url'),path:values.get('path')});openResource(result.objectives.find(o=>o.id===objective().id).resources.at(-1).id);});dialog.querySelector('[name=kind]').value=kind;}
   function addTask(parentId=null) {const o=objective();form(parentId?'New subtask':'New task',input('Task','title')+input('Due date','due','','date',false),async values=>{await change({type:'task',objective_id:o.id,parent_id:parentId,title:values.get('title'),due:values.get('due')});renderTasks();});}
   function associate(row) {return change({type:'worktree',objective_id:objective().id,path:row.path,label:row.label||row.name||row.path.split('/').pop(),repo:row.projectPath||row.path,branch:row.branch,kind:row.kind||'worktree'}).then(d=>{const o=d.objectives.find(o=>o.id===objective().id);state().tree[o.id]=o.worktrees.at(-1).id;persistView();return o.worktrees.at(-1);});}
@@ -218,12 +253,16 @@
       return `<section class="objective-terminal-group" style="--objective-color:${esc(o.color)}"><button type="button" class="objective-terminal-heading" data-select-objective="${esc(id)}" title="${esc(o.name)}">${esc(o.name)}</button><div class="objective-terminal-rows">${terminals}</div></section>`;
     }).join('')+newButton;
   }
-  function openForTerminal(t) {const link=data()?.terminal_links[terminalIdentity(t)],o=terminalObjective(t);if(!o||!link)return false;state().objective=o.id;const resource=o.resources.find(r=>r.id===link.resource_id),w=o.worktrees.find(w=>w.id===resource?.worktree||[w.path,w.resolved_path].includes(link.file?.root||t.linked_scope?.root));if(w){state().tree[o.id]=w.id;if(bridge.scopeRoot?.()!==w.path)bridge.selectWorktree?.(w);}persistView();if(link.resource_id)openResource(link.resource_id,link.tab_id);else if(link.file)bridge.openFile?.(link.file);paint();return true;}
+  function openForTerminal(t) {const link=data()?.terminal_links[terminalIdentity(t)],o=terminalObjective(t);if(!o||!link)return false;state().objective=o.id;state().view='objective';const resource=o.resources.find(r=>r.id===link.resource_id),w=o.worktrees.find(w=>w.id===resource?.worktree||[w.path,w.resolved_path].includes(link.file?.root||t.linked_scope?.root));if(w){state().tree[o.id]=w.id;if(bridge.scopeRoot?.()!==w.path)bridge.selectWorktree?.(w);}persistView();if(link.resource_id)openResource(link.resource_id,link.tab_id);else if(link.file)bridge.openFile?.(link.file);paint();return true;}
   function handleClick(e) {
-    const host=e.target.closest?.('[data-objectives-sidebar],.objective-working,.objective-dialog,.objective-terminal-group,[data-objective-notebook-controls]');
+    const host=e.target.closest?.('[data-objectives-sidebar],.objective-working,.objective-dialog,.objective-terminal-group,[data-objective-notebook-controls],.repo-tabs');
     if(!host)return;
     const node=e.target.closest('button,input');if(!node)return;
     if(node.dataset.selectObjective){selectObjective(node.dataset.selectObjective);return;}
+    if(node.hasAttribute('data-all-objectives')){showAll();return;}
+    if(node.hasAttribute('data-objective-slot')){data()?.objectives.length?focusDialog(null,Number(node.dataset.objectiveSlot)):newObjective(Number(node.dataset.objectiveSlot));return;}
+    if(node.dataset.libraryObjective){data().focused.includes(node.dataset.libraryObjective)?selectObjective(node.dataset.libraryObjective):focusDialog(node.dataset.libraryObjective);return;}
+    if(node.dataset.placeObjective){focusDialog(node.dataset.placeObjective);return;}
     if(node.hasAttribute('data-new-objective')){newObjective();return;}
     if(node.hasAttribute('data-focus-objective')){focusDialog();return;}
     if(node.hasAttribute('data-open-objective-tasks')){collapse();renderTasks();return;}
@@ -245,14 +284,27 @@
   document.addEventListener('click',handleClick);
   document.addEventListener('click',event=>{
     if(active(context()?.path)&&event.target.closest?.('#sidebar,.repo-tabs,#termSessionList')
-      &&!event.target.closest('[data-objectives-sidebar]')){
-      releaseDraft();collapse();state().selected=null;paint();
+      &&!event.target.closest('[data-objectives-sidebar],.objective-tab')){
+      releaseDraft();collapse();state().selected=null;if(event.target.closest('[data-open-file],#termSessionList .sess')){state().view='objective';persistView();}paint();
     }
   },true);
+  document.addEventListener('input',event=>{
+    const node=event.target;if(!node.matches('[data-objective-search],[data-objective-filter],[data-objective-status-filter]'))return;
+    state()[node.hasAttribute('data-objective-search')?'query':node.hasAttribute('data-objective-filter')?'filter':'statusFilter']=node.value;paintLibrary();
+  });
   document.addEventListener('change',e=>{const node=e.target;if(!node.matches('[data-task-done],[data-task-due]'))return;const o=objective(),id=node.dataset.taskDone||node.dataset.taskDue,patch=node.dataset.taskDone?{done:node.checked}:{due:node.value};change({type:'task-update',objective_id:o.id,task_id:id,...patch},{optimistic:d=>{const t=d.objectives.find(item=>item.id===o.id).tasks.flatMap(t=>[t,...t.children]).find(t=>t.id===id);Object.assign(t,patch);if('done'in patch)t.children.forEach(c=>c.done=patch.done);}}).catch(()=>{});});
-  document.addEventListener('dragstart',e=>{const row=e.target.closest?.('[data-objective-resource]');if(row)e.dataTransfer.setData(resourceMime,JSON.stringify({objective_id:objective().id,resource_id:row.dataset.objectiveResource,tab_id:row.dataset.objectiveTab||null}));});
+  document.addEventListener('dragstart',e=>{
+    const project=e.target.closest?.('[data-drag-objective],.objective-tab[data-select-objective]');
+    if(project){e.dataTransfer.setData(objectiveMime,JSON.stringify({scope:key(context()),objective_id:project.dataset.dragObjective||project.dataset.selectObjective}));e.dataTransfer.effectAllowed='move';return;}
+    const row=e.target.closest?.('[data-objective-resource]');if(row)e.dataTransfer.setData(resourceMime,JSON.stringify({objective_id:objective().id,resource_id:row.dataset.objectiveResource,tab_id:row.dataset.objectiveTab||null}));
+  });
+  document.addEventListener('dragover',e=>{const slot=e.target.closest?.('[data-objective-slot]');if(slot&&e.dataTransfer.types.includes(objectiveMime)){e.preventDefault();e.dataTransfer.dropEffect='move';slot.classList.add('objective-drop-target');}},true);
+  document.addEventListener('dragleave',e=>e.target.closest?.('[data-objective-slot]')?.classList.remove('objective-drop-target'));
+  document.addEventListener('dragend',()=>document.querySelectorAll('.objective-drop-target').forEach(n=>n.classList.remove('objective-drop-target')));
   document.addEventListener('dragover',e=>{if(!active(context()?.path))return;const target=e.target.closest?.('[data-objective-resource],[data-objective-root],[data-objective-worktree],[data-objective-shared],#termSessionList .sess');if(target&&[resourceMime,documentMime,'application/x-lab-file-path','application/x-lab-terminal'].some(m=>e.dataTransfer.types.includes(m))){e.preventDefault();e.dataTransfer.dropEffect='link';}},true);
   document.addEventListener('drop',e=>{
+    const project=e.dataTransfer.getData(objectiveMime),slot=e.target.closest?.('[data-objective-slot]');
+    if(project&&slot){e.preventDefault();e.stopImmediatePropagation();slot.classList.remove('objective-drop-target');try{const item=JSON.parse(project);if(item.scope!==key(context()))throw new Error('Choose an objective in this workspace');void placeObjective(item.objective_id,Number(slot.dataset.objectiveSlot)).catch(()=>{});}catch(error){notify(error.message,true);}return;}
     if(!active(context()?.path))return;const target=e.target.closest?.('[data-objective-resource],[data-objective-root],[data-objective-worktree],[data-objective-shared],#termSessionList .sess');if(!target)return;
     const raw=e.dataTransfer.getData(resourceMime),assistant=e.dataTransfer.getData(documentMime),file=e.dataTransfer.getData('application/x-lab-file-path'),terminal=e.dataTransfer.getData('application/x-lab-terminal');if(!raw&&!assistant&&!file&&!terminal)return;e.preventDefault();e.stopImmediatePropagation();
     try{if(raw){const item=JSON.parse(raw);if(item.objective_id!==objective().id)throw new Error('Choose a resource in this objective');if(target.classList.contains('sess')){const t=bridge.session?.(target.dataset.name);change({type:'terminal',objective_id:item.objective_id,session_id:terminalIdentity(t),source:t.document_source,resource_id:item.resource_id,tab_id:item.tab_id}).catch(()=>{});}else change({type:'scope',...item,worktree:target.dataset.objectiveWorktree||null}).catch(()=>{});}
@@ -261,7 +313,8 @@
       else if(terminal&&target.dataset.objectiveResource){const t=bridge.session?.(terminal);if(!t)throw new Error('Choose a terminal in this workspace');change({type:'terminal',objective_id:objective().id,session_id:terminalIdentity(t),source:t.document_source,resource_id:target.dataset.objectiveResource,tab_id:target.dataset.objectiveTab||null}).catch(()=>{});}
     }catch(error){notify(error.message,true);}
   },true);
-  window.LabObjectives={connect(adapter){bridge=adapter;},load,active,sidebarHtml,paint,worktrees,tree,associate,terminalHtml,openForTerminal,collapse,progress,complete,change,selectObjective,renderTasks,
+  window.LabObjectives={connect(adapter){bridge=adapter;},load,active,sidebarHtml,paint,worktrees,tree,associate,terminalHtml,openForTerminal,collapse,progress,complete,change,selectObjective,renderTasks,tabsHtml,showAll,
+    openCurrent(){state().view==='objective'&&objective()?selectObjective(objective().id):showAll();},
     openOwnedFile(root,path){
       if(!active(context()?.path))return false;
       const scope=context(),full=root.replace(/\/$/,'')+'/'+path;

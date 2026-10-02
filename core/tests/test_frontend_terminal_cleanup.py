@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "core/src/core/static/js/lib/terminal-cleanup.js"
 
 
-@pytest.mark.parametrize("action", ["cancel", "group", "all", "error"])
+@pytest.mark.parametrize("action", ["cancel", "current", "other", "error"])
 def test_cleanup_modal_reviews_names_and_sends_only_confirmed_snapshot(action):
     node = shutil.which("node")
     if not node:
@@ -34,7 +34,7 @@ const a = session('one', 'demo'), b = session('two', 'elsewhere');
 const data = {groups:[{id:'a', name:'Demo', workspace_id:'demo', vault:'v', sessions:[a]},
   {id:'b', name:'Elsewhere', workspace_id:'elsewhere', vault:'v', sessions:[b]}], warnings:[]};
 globalThis.window = {confirm: message => { confirmations.push(message); return ACTION !== 'cancel'; },
-  LabTerminalCleanupBridge: {scope:()=>({workspace_id:'demo',vault:'v'}), stopped:async rows=>{stopped.push(...rows);}}};
+  LabTerminalCleanupBridge: {scope:()=>({workspace_id:'demo',vault:'v'}), workspaces:()=>[{workspace_id:'empty',vault:'v',name:'Empty'}], stopped:async rows=>{stopped.push(...rows);}}};
 globalThis.fetch = async (url, options) => {
   requests.push({url,...options});
   if (!options) return {ok:true,json:async()=>data};
@@ -48,11 +48,22 @@ function walk(node) { return [node,...node.children.flatMap(walk)]; }
 (async () => {
   await window.LabTerminalCleanup.open();
   const dialog = document.body.children[0];
-  const visible = walk(dialog).map(n=>n.textContent).filter(Boolean);
-  if (!visible.includes('lab-one') || !visible.includes('lab-two')) throw Error('Missing exact session names');
+  let visible = walk(dialog).map(n=>n.textContent).filter(Boolean);
+  if (!visible.includes('lab-one') || visible.includes('lab-two')) throw Error('Selected workspace only');
   if (!visible.includes('Name <one>')) throw Error('Label not rendered safely as text');
+  const tabs=walk(dialog).filter(n=>n.role==='tab');
+  if(tabs.length!==3||tabs.filter(n=>n['aria-selected']==='true').length!==1)throw Error('Workspace tabs');
+  await tabs.find(n=>n.textContent.startsWith('Empty')).click();
+  if(!walk(dialog).some(n=>n.textContent==='No inactive sessions older than 7 days in this workspace.'))throw Error('Empty workspace');
+  if(!walk(dialog).find(n=>n.textContent==='Kill 0 inactive').disabled)throw Error('Empty cleanup disabled');
+  await walk(dialog).find(n=>n.role==='tab'&&n.textContent.startsWith('Demo')).click();
+  if(ACTION==='other'){
+    await tabs.find(n=>n.textContent.startsWith('Elsewhere')).click();
+    visible=walk(dialog).map(n=>n.textContent).filter(Boolean);
+    if(!visible.includes('lab-two')||visible.includes('lab-one'))throw Error('Other workspace only');
+  }
   const buttons = walk(dialog).filter(n=>n.tag==='button');
-  const target = ACTION === 'all' ? buttons.find(b=>b.textContent==='Kill all 2 inactive') : buttons.find(b=>b.textContent==='Kill 1 inactive');
+  const target = buttons.find(b=>b.textContent==='Kill 1 inactive');
   await target.click();
   console.log(JSON.stringify({requests,confirmations,stopped,visible:walk(dialog).map(n=>n.textContent).filter(Boolean)}));
 })().catch(e=>{console.error(e);process.exit(1);});
@@ -61,28 +72,29 @@ function walk(node) { return [node,...node.children.flatMap(walk)]; }
                             capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
     data = json.loads(result.stdout)
-    assert "lab-one" in data["confirmations"][0]
+    assert ("lab-two" if action == "other" else "lab-one") in data["confirmations"][0]
+    assert ("lab-one" if action == "other" else "lab-two") not in data["confirmations"][0]
     posts = [r for r in data["requests"] if r.get("method") == "POST"]
     if action == "cancel":
         assert posts == []
         assert data["stopped"] == []
     else:
         assert len(posts) == 1
-        assert json.loads(posts[0]["body"]) == {"candidates": ["one", "two"] if action == "all" else ["one"]}
+        assert json.loads(posts[0]["body"]) == {"candidates": ["two"] if action == "other" else ["one"]}
         if action == "error":
             assert not data["stopped"]
             assert any("Server unavailable" in text for text in data["visible"])
         else:
-            assert len(data["stopped"]) == (2 if action == "all" else 1)
+            assert len(data["stopped"]) == 1
 
 
-def test_cleanup_button_is_next_to_logs_in_home_and_other_scopes():
+def test_cleanup_button_is_next_to_global_logs_in_header():
     source = (ROOT / "core/src/core/static/js/lab-app.js").read_text()
-    lines = source.splitlines()
-    buttons = [i for i, line in enumerate(lines) if 'class="repo-tab terminal-cleanup-tab"' in line]
-    assert len(buttons) == 2
-    for index in buttons:
-        assert 'home-logs-tab' in lines[index - 1]
+    assert 'class="repo-tab terminal-cleanup-tab"' not in source
+    assert 'class="repo-tab home-logs-tab' not in source
     html = (ROOT / "core/src/core/templates/index.html").read_text()
+    lines = html.splitlines()
+    index=next(i for i,line in enumerate(lines) if 'id="globalCleanupBtn"' in line)
+    assert 'id="globalLogsBtn"' in lines[index-1]
     assert '/static/js/lib/terminal-cleanup.js?v=' in html
     assert '/static/css/terminal-cleanup.css?v=' in html

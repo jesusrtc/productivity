@@ -46,10 +46,10 @@ window.fetch=async(url,options={})=>{
 };
 window.read=()=>realFetch('/api/objectives?workspace_id=demo').then(r=>r.json());
 window.resource=data=>data.objectives[0].resources[0];
-LabObjectives.connect({context:()=>({workspace_id:'demo',path:FIX.folder}),readyContent:()=>Promise.resolve(),prepareCenter:()=>{},selectWorktree:()=>{}});
+LabObjectives.connect({context:()=>({workspace_id:'demo',path:FIX.folder}),refreshTabs:()=>document.getElementById('tabs').innerHTML=LabObjectives.tabsHtml(FIX.folder),readyContent:()=>Promise.resolve(),prepareCenter:()=>{},selectWorktree:()=>{}});
 (async()=>{await LabObjectives.load();LabObjectives.selectObjective(FIX.oid);document.getElementById('result').textContent='READY'})().catch(e=>document.getElementById('result').textContent=e.stack);
 '''
-    page = '<!doctype html><meta charset="utf-8"><style>'+ (STATIC/'css/lab-shell.css').read_text()+(STATIC/'css/workspace-objectives.css').read_text()+'</style><div id="sidebar"><section data-objectives-sidebar></section></div><main id="content"></main><pre id="result">PENDING</pre>'+scripts+'<script>const FIX='+json.dumps(fixture)+';</script><script>'+setup+'</script>'
+    page = '<!doctype html><meta charset="utf-8"><style>'+ (STATIC/'css/lab-shell.css').read_text()+(STATIC/'css/workspace-objectives.css').read_text()+'</style><div class="repo-tabs" id="tabs"></div><div id="sidebar"><section data-objectives-sidebar></section></div><main id="content"></main><pre id="result">PENDING</pre>'+scripts+'<script>const FIX='+json.dumps(fixture)+';</script><script>'+setup+'</script>'
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args): pass
         def do_GET(self):
@@ -81,7 +81,7 @@ const fs=require('node:fs');
  for(let i=0;i<200;i++){if(await evaluate('!!window.until'))break;await new Promise(r=>setTimeout(r,20));}
  await evaluate(`until(()=>document.getElementById('result').textContent==='READY')`);
  await click('[data-objective-resource]');
- await evaluate(`assert(editor()&&document.querySelector('.cm-content strong')?.textContent==='Bold','live editor on open');assert(getComputedStyle(editor().view.dom).fontSize==='13px','native text size');assert(document.querySelector('.objective-selectors').nextElementSibling.hasAttribute('data-open-objective-tasks'),'Tasks below projects');assert(document.querySelectorAll('[data-objective-root]').length===2,'two fixed roots');assert(document.querySelectorAll('.objective-document [role=tablist]').length===0,'tabs outside content')`);
+ await evaluate(`assert(editor()&&document.querySelector('.cm-content strong')?.textContent==='Bold','live editor on open');assert(getComputedStyle(editor().view.dom).fontSize==='13px','native text size');assert(document.querySelector('[data-objectives-sidebar]').firstElementChild.hasAttribute('data-open-objective-tasks'),'Tasks at sidebar top');assert(document.querySelectorAll('[data-objective-root]').length===2,'two fixed roots');assert(document.querySelectorAll('[data-objective-slot]').length===5&&document.querySelector('[data-all-objectives]'),'All and five top slots');assert(!document.querySelector('.objective-selectors'),'no duplicate sidebar selectors');assert(document.querySelectorAll('.objective-document [role=tablist]').length===0,'tabs outside content')`);
  await type('\nFirst submitted edit.');
  await evaluate('window.hold=true');await click('[data-save-objective-document]');
  await evaluate('until(()=>window.release)');
@@ -97,6 +97,14 @@ const fs=require('node:fs');
  await evaluate(`(async()=>{await until(()=>document.querySelector('.objective-document-status').classList.contains('error'));assert(editor().value.includes('Retained conflicting draft.'),'conflict retains draft');assert(!resource(await read()).content.tabs[0].body.includes('Retained conflicting draft.'),'conflict never overwrites')})()`);
  await click('[data-revert-objective-document]');
  await evaluate(`(async()=>{await until(()=>editor().value.includes('Concurrent edit.')&&!document.querySelector('.objective-document-status').classList.contains('error'));assert(resource(await read()).content.tabs[1].body==='Sibling source','recovery keeps sibling')})()`);
+ await click('[data-all-objectives]');await click('[data-objective-search]');
+ await send('Input.insertText',{text:'does-not-exist'});
+ await evaluate(`assert(!document.querySelector('.objective-library-row')&&document.querySelector('.objective-library-list').textContent.includes('No objectives match'),'native search filters rows');document.querySelector('[data-objective-search]').select()`);
+ await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Backspace',code:'Backspace',windowsVirtualKeyCode:8});
+ await send('Input.dispatchKeyEvent',{type:'keyUp',key:'Backspace',code:'Backspace',windowsVirtualKeyCode:8});
+ await evaluate(`assert(document.querySelectorAll('.objective-library-row').length===1,'clearing search restores rows')`);
+ await click('[data-objective-slot="4"]');await click('.objective-dialog [type=submit]');
+ await evaluate(`(async()=>{await until(async()=>{const d=await read();return d.focused[4]===FIX.oid&&!d.focused[0]});assert(document.querySelector('[data-objective-slot="4"]').dataset.selectObjective===FIX.oid,'empty slot assigns exact position');assert(document.querySelector('.objective-working h2').textContent==='Tasks','slot opens tasks');assert(resource(await read()).content.tabs[1].body==='Sibling source','slot changes keep document')})()`);
  ws.close();console.log('PASS');
 })().catch(error=>{console.error(error.stack);process.exit(1)});
 '''

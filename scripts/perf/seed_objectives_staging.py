@@ -44,13 +44,13 @@ def seed():
     if any(o['name'] == 'Staging · phone recovery' for o in state['objectives']):
         print(json.dumps({'fixture': 'existing', 'objectives': len(state['objectives'])}))
         return
-    names = ['phone recovery', 'repository navigation', 'release verification', 'parked investigation']
+    names = ['phone recovery', 'repository navigation', 'release verification', 'parked investigation', 'documentation review', 'follow-up investigation']
     repos = repo_names
     ids = []
     for i, name in enumerate(names):
         state = apply({'type': 'create', 'name': 'Staging · ' + name,
                        'purpose': 'Simulated UI data for objectives, documents, tasks and terminals.',
-                       'replace': ids[0] if i == 3 else None})
+                       'replace': ids[0] if i == 5 else None})
         o = state['objectives'][-1]; ids.append(o['id'])
         for repo in repos[i*2:i*2+2]:
             tree = registered[repo]
@@ -70,14 +70,14 @@ def seed():
                'title':'Verification results','body':'# Verification results\n\nRecord successful checks here.'})
         apply({'type':'resource','objective_id':o['id'],'kind':'notebook','title':'Volume analysis'})
         apply({'type':'resource','objective_id':o['id'],'kind':'link','title':'PRs for this objective','url':'https://github.com/jesusrtc/productivity/pulls'})
-        due = date.today() + timedelta(days=[7,2,-1,10][i])
+        due = date.today() + timedelta(days=[7,2,-1,10,14,20][i])
         for title in ['Reproduce the issue','Verify the fix','Record the evidence']:
             state = apply({'type':'task','objective_id':o['id'],'title':title,'due':due.isoformat()})
         task = state['objectives'][-1]['tasks'][0]
         apply({'type':'task','objective_id':o['id'],'parent_id':task['id'],'title':'Inspect malformed input'})
         state = apply({'type':'task','objective_id':o['id'],'parent_id':task['id'],'title':'Compare the happy path'})
         apply({'type':'task-update','objective_id':o['id'],'task_id':task['id'],'done':True})
-    state = apply({'type':'focus','objective_id':ids[0],'replace':ids[3]})
+    state = apply({'type':'focus','objective_id':ids[0],'replace':ids[5]})
     print(json.dumps({'fixture':'created','objectives':len(state['objectives']),
                       'focused':len(state['focused']),'worktrees':sum(len(o['worktrees']) for o in state['objectives'])}))
 

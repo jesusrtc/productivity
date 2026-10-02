@@ -7535,8 +7535,6 @@
     const isVault = document.body.classList.contains('vault-active');
     document.body.classList.toggle('objectives-demo-active', isSelf && _contextSubView === 'objectives-demo' && !_workspaceDocPath);
     const proxyOpen = typeof _workspaceDocPath === 'string' && _workspaceDocPath.startsWith('__proxy__/');
-    const notebookOpen = _contextSubView === 'notebooks'
-      || (typeof _workspaceDocPath === 'string' && _workspaceDocPath.toLowerCase().endsWith('.ipynb'));
     const overviewActive = _contextSubView === 'overview' && !_workspaceDocPath && !currentRepo && !proxyOpen;
     const codeSearchActive = _contextSubView === 'code-search';
 
@@ -7553,14 +7551,10 @@
         const action = active ? 'vaultShowOverview()' : `goToVault(${JSON.stringify(vault.id)})`;
         html += `<button class="repo-tab vault-context-tab${active ? ' active' : ''}" style="--vault-color:${escAttr(vault.color || '#8b949e')}" onclick="${escAttr(action)}"><span class="vault-mark"></span>${esc(vault.name || vault.id)}</button>`;
       }
-      if (LAB_IS_ADMIN) html += `<button class="repo-tab home-logs-tab${isSelf && _contextSubView === 'logs' ? ' active' : ''}" onclick="goToLogs()">&#x2637; Logs</button>`;
-      if (LAB_IS_ADMIN) html += `<button class="repo-tab terminal-cleanup-tab" onclick="LabTerminalCleanup.open()" title="Review terminal sessions inactive for more than 7 days">&#x232B; Cleanup</button>`;
       if (LAB_IS_ADMIN) html += `<button class="repo-tab${isSelf && _contextSubView === 'admin' ? ' active' : ''}" onclick="${isSelf ? 'selfShowAdmin()' : "goToProductivity({subview:'admin'})"}">&#x2699; Admin</button>`;
       if (LAB_IS_ADMIN) html += `<button class="repo-tab objectives-demo-tab${isSelf && _contextSubView === 'objectives-demo' ? ' active' : ''}" onclick="${isSelf ? 'selfShowObjectivesDemo()' : "goToProductivity({subview:'objectives-demo'})"}">&#x25CE; Objectives demo</button>`;
     } else if (currentWorkspace.is_workspace) {
-      html += `<button class="repo-tab${overviewActive ? ' active' : ''}" onclick="showWorkspaceDashboard()" style="font-weight:600">&#x1F4CB; Overview</button>`;
-      if (LAB_IS_ADMIN) html += `<button class="repo-tab${codeSearchActive ? ' active' : ''}" onclick="showScopedCodeSearch()">&#x1F50D; Code Search</button>`;
-      html += `<button class="repo-tab${notebookOpen ? ' active' : ''}" onclick="openWorkspaceNotebooks()" title="Lab Jupyter notebooks — no server configuration required">&#x25C9; Jupyter</button>`;
+      html += window.LabObjectives?.tabsHtml(currentWorkspace.path,!proxyOpen && !currentRepo) || '';
     }
 
     // One tab per declared server (workspace.json proxies) — clicking it opens
@@ -7580,10 +7574,6 @@
       });
     }
 
-    if (LAB_IS_ADMIN && !isSelf && !isVault) {
-      html += `<button class="repo-tab home-logs-tab" onclick="goToLogs()">&#x2637; Logs</button>`;
-      html += `<button class="repo-tab terminal-cleanup-tab" onclick="LabTerminalCleanup.open()" title="Review terminal sessions inactive for more than 7 days">&#x232B; Cleanup</button>`;
-    }
     const keepAliveOn = document.body.classList.contains('keep-alive');
     const keepAliveTitle = keepAliveOn
       ? 'Keep Alive is on — turn it off'
@@ -7744,7 +7734,7 @@
       </div>
       ${notebooks.length
         ? `<div style="display:flex;flex-direction:column;gap:9px">${cards}</div>`
-        : `<div style="border:1px dashed var(--border);border-radius:8px;padding:36px;text-align:center;color:var(--text-dim)">No .ipynb files in <strong style="color:var(--text-secondary)">${esc(workspaceName)}</strong> yet.<div style="font-size:12px;margin-top:7px">A notebook created in another workspace appears in that workspace's Jupyter tab.</div><button type="button" onclick="openNewNotebookDialog()" style="margin-top:14px;background:var(--bg-tertiary);color:var(--text-primary);border:1px solid var(--border);border-radius:6px;padding:7px 12px;cursor:pointer">Create the first notebook here</button></div>`}
+        : `<div style="border:1px dashed var(--border);border-radius:8px;padding:36px;text-align:center;color:var(--text-dim)">No .ipynb files in <strong style="color:var(--text-secondary)">${esc(workspaceName)}</strong> yet.<div style="font-size:12px;margin-top:7px">A notebook created in another workspace appears in that workspace's Files list.</div><button type="button" onclick="openNewNotebookDialog()" style="margin-top:14px;background:var(--bg-tertiary);color:var(--text-primary);border:1px solid var(--border);border-radius:6px;padding:7px 12px;cursor:pointer">Create the first notebook here</button></div>`}
     </div>`;
   }
 
@@ -9628,6 +9618,9 @@
   }
 
   function showWorkspaceDashboard() {
+    if(currentWorkspace?.is_workspace && window.LabObjectives && !currentWorkspace.name?.startsWith('__')) {
+      window.LabObjectives.showAll();return;
+    }
     window.LabObjectives?.leave();
     window.AssistantView?.closeInlineDocument();
     if (document.body.classList.contains('assistant-active') && window.AssistantView) {
@@ -10629,7 +10622,9 @@
   async function _loadWorkspaceInfo({preserveScroll = false, keepShell = false, backgroundRefresh = false} = {}) {
     if (!currentWorkspace || !currentWorkspace.is_workspace) return;
     void window.LabObjectives?.load();
-    if (preserveScroll && window.LabObjectives?.ownsCenter(currentWorkspace.path)) return;
+    // Startup reconciliation and file polls must not replace a newer
+    // Objective library, task view or editor with the retired dashboard.
+    if (window.LabObjectives?.ownsCenter(currentWorkspace.path)) return;
     if (!preserveScroll && !keepShell) window.AssistantView?.closeInlineDocument();
     const workspacePath = currentWorkspace.path;
     const sequence = ++_workspaceInfoSequence;
@@ -15486,6 +15481,8 @@
   const _termKillAllPending = new Set();
   window.LabTerminalCleanupBridge = {
     scope: () => ({workspace_id: _termActiveWorkspaceId(), vault: _termVaultId()}),
+    workspaces: () => [{id:'home',workspace_id:SELF_WORKSPACE_ID,name:'Home',vault:null},
+      ...(workspaceTabsAll || []).map(w=>({workspace_id:w.name,vault:_workspaceVaultId(w),name:_workspaceDisplayName(w)}))],
     async stopped(rows) {
       const activeWorkspace = _termActiveWorkspaceId();
       const activeVault = _termVaultId();
@@ -20308,6 +20305,8 @@
   // Cerebro view: when URL carries ?view=cerebro, we bypass the
   // workspace/repo init path entirely and render the mdview-style browser.
   window.LabObjectives?.connect({
+    refreshTabs: () => renderRepoTabs(),
+    openDefault: () => {if(_contextSubView==='overview'&&!_workspaceDocPath&&!currentRepo)window.LabObjectives.openCurrent();},
     readyContent: () => Promise.all([ensureMarked(),window.ensureLiveMarkdownEditor?.().catch(()=>{})]),
     warmWorktrees: (trees, scope) => {
       const mode=_sidebarCurrentRecentMode(),minutes=_sidebarFileConfig.recentMinutes;
@@ -20345,7 +20344,12 @@
       ++_workspaceInfoSequence;
       _clearNbNavigation();
       _workspaceDocPath=null;
+      _workspaceDocRoot=null;
+      currentRepo=null;currentRepoInWorkspace=null;_repoFileRoot=null;
+      if(currentWorkspace)setLastWorkspaceDoc(currentWorkspace.path,null);
       _contextSubView='objectives';
+      document.getElementById('diffTabs').style.display='none';document.body.classList.remove('has-diff-tabs');
+      _sidebarApplyForView();
     },
     openNotebook: resource => openWorkspaceDoc(resource.path,{root:currentWorkspace.path}),
     openFile: file => openWorkspaceDoc(file.path,{root:file.root}),

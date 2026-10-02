@@ -140,3 +140,38 @@ These results retain the first-run miss rather than implying a universal
 sidebar projection cache. [Sanitized samples from both runs](objectives-refinement-2026-10-02.json)
 include clock validity and the verified gray roots, Tasks position and left-only
 terminal borders.
+
+## Follow-up: All and five workspace focus tabs
+
+Workspace navigation now shows All and five vault-style objective slots.
+The sidebar's selector list was removed and Tasks is its first item. All lists
+focused and parked objectives, with name/outcome search and focus/task-status
+filters. Actual UI drags filled an empty fourth slot, replaced the fifth slot
+with a sixth simulated objective, brought the previous fifth objective back,
+and swapped two filled slots in both directions. All original resource, task,
+worktree and terminal-link projections remained identical during these focus
+changes; the fifth and sixth fixtures are independent simulated content. Five
+focused project colors were distinct. All remained visible across normal polls
+after fixing a startup reconciliation that could restore the old dashboard.
+
+Workspace Overview, Code Search, Jupyter, Logs and Cleanup tabs are removed.
+Configured server tabs retain their existing renderer. Global Logs/Cleanup are
+adjacent header controls. Cleanup was opened read-only: its workspace tabs
+included empty workspaces, opened on the current one and supported keyboard
+navigation. No cleanup kill button was pressed and no user terminal received
+input.
+
+Checks passed: **12 Objective backend tests**, the real-API/native-editor test
+including native search and exact fifth-slot assignment, **22 cleanup tests**,
+and **71 frontend notebook/navigation/logging/cleanup/sidebar/server tests**.
+An older notebook CSS assertion searched the entire stylesheet and incorrectly
+matched another component's `margin-bottom:22px`; it now checks only the
+notebook toolbar. Chrome process tests ran with their required permissions.
+
+The expanded native probe retained **117 clicks**, including nine All-library
+opens. **116 were below 200 ms**; the first Assistant subtab took **285.0 ms**.
+No browser exceptions occurred. All/top-slot layout, Tasks-first sidebar,
+gray roots and flat terminal rails passed. This is measured evidence for the
+listed interactions, not a universal latency guarantee.
+[All sanitized five-tab samples](objectives-five-tabs-2026-10-02.json) retain the
+first-use miss and every validated input clock.

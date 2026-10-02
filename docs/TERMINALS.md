@@ -5,6 +5,19 @@ PTY and WebSocket. The browser's input/output path is unchanged by socket
 rotation: once attached, terminal bytes continue to travel directly between
 the PTY and WebSocket event loop.
 
+## Inactive terminal cleanup
+
+The global **Cleanup** button sits beside **Logs** in the header. Its modal has
+a tab for each known workspace, initially selecting the current one, and shows
+that workspace's sessions with no recorded activity/access for more than seven
+days. Workspaces with no eligible sessions still have a tab. Arrow keys and
+Home/End navigate the tabs.
+
+The kill button applies only to the selected workspace's displayed candidates.
+Confirmation shows the exact session names; the server rechecks their identity
+and inactivity before stopping them. Connected terminals, working/waiting
+agents and managed servers are excluded. Saved conversations remain available.
+
 ## Workspace renames and session identity
 
 Rename a workspace from the secondary-click menu on either its vault row or

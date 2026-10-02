@@ -21,7 +21,10 @@ PALETTES = [
     ['#58a6ff', '#ff7b72', '#3fb950', '#d29922'],
     ['#bc8cff', '#e3b341', '#56d6c0', '#ff9bce'],
     ['#ffa657', '#f778ba', '#a9d14c', '#238a97'],
+    ['#39c5cf', '#d67ad2', '#e5a07c', '#85c56a'],
+    ['#8b9dff', '#e87f91', '#a6be4f', '#58b9a6'],
 ]
+FOCUS_SLOTS = 5
 _DOCUMENT_CACHE = {}
 
 
@@ -86,6 +89,49 @@ def _color(data, objective):
         if color not in used:
             return color
     raise ValueError('No unused worktree colors remain')
+
+
+def _palette(data):
+    used = {color for item in data['objectives'] for color in
+            [*item['palette'], *(tree['color'] for tree in item['worktrees'])]}
+    for palette in PALETTES:
+        if not used.intersection(palette):
+            return palette[:]
+    import colorsys
+    for seed in range(1000):
+        palette = ['#%02x%02x%02x' % tuple(round(n * 255) for n in
+                   colorsys.hsv_to_rgb(((seed * 37.1 + step * 90) % 360) / 360, .5, .88))
+                   for step in range(4)]
+        if not used.intersection(palette):
+            return palette
+    raise ValueError('No unused objective colors remain')
+
+
+def _focus(data, objective, action):
+    focused = data['focused']
+    slot = action.get('slot')
+    if slot is not None:
+        if type(slot) is not int or not 0 <= slot < FOCUS_SLOTS:
+            raise ValueError('Choose a focus slot from 1 to 5')
+    elif objective['id'] in focused:
+        return
+    elif action.get('replace') in focused and action.get('replace'):
+        slot = focused.index(action['replace'])
+    else:
+        slot = next((i for i in range(FOCUS_SLOTS) if i >= len(focused) or not focused[i]), None)
+        if slot is None:
+            raise ValueError('Choose which of the five focus slots to replace')
+    focused.extend([None] * max(0, slot + 1 - len(focused)))
+    previous = focused.index(objective['id']) if objective['id'] in focused else None
+    if previous is not None:
+        focused[previous] = focused[slot]
+    focused[slot] = objective['id']
+    # Old three-slot registries may have reused a parked project's palette.
+    # Keep checkout colors; reserve a distinct project palette when refocused.
+    if any(item['id'] != objective['id'] and item['id'] in focused
+           and item['color'] == objective['color'] for item in data['objectives']):
+        objective['palette'] = _palette(data)
+        objective['color'] = objective['palette'][0]
 
 
 def _owned_path(folder, resource):
@@ -226,17 +272,11 @@ def mutate(root, workspace_id, action, expected=None):
                 raise ValueError('An objective workspace supports up to 100 saved objectives')
             objective = {'id': identifier(), 'name': _text(action.get('name'), limit=80),
                          'purpose': str(action.get('purpose', ''))[:4096], 'worktrees': [], 'resources': [], 'tasks': [],
-                         'palette': PALETTES[len(data['objectives']) % 3][:]}
+                         'palette': _palette(data)}
             objective['color'] = objective['palette'][0]
             data['objectives'].append(objective)
             data['enabled'] = True
-            if len(data['focused']) < 3:
-                data['focused'].append(objective['id'])
-            else:
-                slot = action.get('replace')
-                if slot not in data['focused']:
-                    raise ValueError('Choose which of the three focus slots to replace')
-                data['focused'][data['focused'].index(slot)] = objective['id']
+            _focus(data, objective, action)
             (folder / 'objectives' / objective['id']).mkdir(parents=True, exist_ok=True)
             if action.get('import_existing'):
                 from lab import scope_links
@@ -272,13 +312,7 @@ def mutate(root, workspace_id, action, expected=None):
         elif objective is None:
             raise ValueError('Objective not found')
         elif operation == 'focus':
-            if objective['id'] not in data['focused']:
-                if len(data['focused']) < 3:
-                    data['focused'].append(objective['id'])
-                elif action.get('replace') in data['focused']:
-                    data['focused'][data['focused'].index(action['replace'])] = objective['id']
-                else:
-                    raise ValueError('Choose a focus slot to replace')
+            _focus(data, objective, action)
         elif operation == 'settings':
             objective['name'] = _text(action.get('name', objective['name']), limit=80)
             objective['purpose'] = str(action.get('purpose', objective['purpose']))[:4096]

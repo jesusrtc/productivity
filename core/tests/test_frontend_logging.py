@@ -376,7 +376,8 @@ def test_consolidated_logs_have_a_home_section() -> None:
     assert "function goToLogs" in lab_app
     assert "subview: 'logs'" in lab_app
     assert "function selfShowLogs" in lab_app
-    assert lab_app.index("home-logs-tab") < lab_app.index("&#x2699; Admin")
+    assert 'id="globalLogsBtn"' in index_html
+    assert 'onclick="goToLogs()"' in index_html
     admin = lab_app[lab_app.index("function selfShowAdmin()"):lab_app.index("window.selfShowAdmin")]
     assert "adminLogOutput" not in admin
     assert "window.goToLogs = goToLogs" in lab_app

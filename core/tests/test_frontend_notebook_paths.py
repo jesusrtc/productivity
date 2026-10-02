@@ -193,7 +193,7 @@ def test_cold_workspace_hydration_does_not_stomp_a_remembered_notebook() -> None
     assert "showWorkspaceInfo({keepShell: !remembered});" not in source
 
 
-def test_builtin_jupyter_tab_needs_no_server_proxy_configuration() -> None:
+def test_embedded_notebooks_need_no_server_proxy_configuration() -> None:
     source = LAB_APP.read_text(encoding="utf-8")
     css = LAB_SHELL_CSS.read_text(encoding="utf-8")
     helpers = _js_between(
@@ -214,10 +214,10 @@ process.stdout.write(JSON.stringify(entries.map(entry => entry.path)));
     )
 
     assert result == ["research/newer.IPYNB", "notebooks/older.ipynb"]
-    assert 'onclick="openWorkspaceNotebooks()"' in source
-    assert "Lab Jupyter notebooks — no server configuration required" in source
+    render = _js_between('function renderRepoTabs()', 'function showScopedCodeSearch()')
+    assert "openWorkspaceNotebooks" not in render
     assert "Notebooks are scoped to this workspace" in source
-    assert "A notebook created in another workspace appears in that workspace's Jupyter tab" in source
+    assert "A notebook created in another workspace appears in that workspace's Files list" in source
     assert "Create the first notebook here" in source
     assert 'onclick="openWorkspaceNotebooks({showLauncher:true})"' in source
     assert "☷ All notebooks" in source
@@ -409,7 +409,7 @@ process.stdout.write(JSON.stringify({
     notebook_toolbar_css = css[css.index("  .nb-jump-controls {"):css.index("  .nb-runtime-dialog {")]
     assert "right:24px" not in notebook_toolbar_css
     assert ".nb-jump-controls-spacer" in css
-    assert "bottom:22px" not in css
+    assert "bottom:22px" not in notebook_toolbar_css
     assert ".nb-container.nb-code-hidden" in css
     assert ".nb-jump-controls .nb-jump-running" in css
     assert ".nb-container.nb-code-hidden .nb-cell-del { display:none; }" not in css

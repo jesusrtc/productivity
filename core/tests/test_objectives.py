@@ -47,16 +47,16 @@ def test_tasks_always_have_details_and_nested_subtabs_preserve_siblings(monorepo
     assert all(c['done'] for c in data['objectives'][0]['tasks'][0]['children'])
 
 
-def test_three_focus_slots_keep_parked_objective_data_and_reject_stale_writes(monorepo, objective_workspace):
+def test_five_focus_slots_keep_parked_objective_data_and_reject_stale_writes(monorepo, objective_workspace):
     folder, first = objective_workspace
-    for name in ['Two','Three']:
+    for name in ['Two','Three','Four','Five']:
         objectives.mutate(monorepo, 'demo', {'type':'create','name':name})
     before = objectives.load(monorepo, 'demo')
     with pytest.raises(ValueError, match='focus slots'):
-        objectives.mutate(monorepo, 'demo', {'type':'create','name':'Four'})
+        objectives.mutate(monorepo, 'demo', {'type':'create','name':'Six'})
     assert objectives.load(monorepo, 'demo') == before
-    data = objectives.mutate(monorepo, 'demo', {'type':'create','name':'Four','replace':first})
-    assert len(data['focused']) == 3 and len(data['objectives']) == 4 and first not in data['focused']
+    data = objectives.mutate(monorepo, 'demo', {'type':'create','name':'Six','replace':first})
+    assert len(data['focused']) == 5 and len(data['objectives']) == 6 and first not in data['focused']
     last = data['focused'][0]
     data = apply(monorepo, first, 'focus', replace=last)
     assert first in data['focused'] and last not in data['focused']
@@ -67,20 +67,42 @@ def test_three_focus_slots_keep_parked_objective_data_and_reject_stale_writes(mo
 def test_worktree_membership_and_reserved_colors_are_unique(monorepo, objective_workspace):
     _, first = objective_workspace
     ids = [first]
-    for name in ['Two','Three']:
+    for name in ['Two','Three','Four','Five']:
         ids.append(objectives.mutate(monorepo, 'demo', {'type':'create','name':name})['objectives'][-1]['id'])
     for i, oid in enumerate(ids):
         for j in range(4):
             tree = monorepo/f'tree-{i}-{j}'; tree.mkdir()
             data = apply(monorepo, oid, 'worktree', path=str(tree), label=tree.name)
     colors = [t['color'] for o in data['objectives'] for t in o['worktrees']]
-    assert len(colors) == len(set(colors)) == 12
+    assert len(colors) == len(set(colors)) == 20
     with pytest.raises(ValueError, match='already belongs'):
         apply(monorepo, ids[1], 'worktree', path=str(monorepo/'tree-0-0'))
     data = apply(monorepo, first, 'resource', title='Proposal', kind='link', url='https://example.com')
     r = data['objectives'][0]['resources'][0]
     with pytest.raises(ValueError, match='belong'):
         apply(monorepo, first, 'scope', resource_id=r['id'], worktree=data['objectives'][1]['worktrees'][0]['id'])
+
+
+def test_focus_drop_targets_exact_slot_swaps_and_keeps_parked_content(monorepo, objective_workspace):
+    _, first = objective_workspace
+    second = objectives.mutate(monorepo, 'demo', {'type':'create','name':'Second'})['objectives'][-1]['id']
+    data = apply(monorepo, second, 'focus', slot=4)
+    assert data['focused'] == [first, None, None, None, second]
+    data = apply(monorepo, first, 'focus', slot=4)
+    assert data['focused'] == [second, None, None, None, first]
+    data = apply(monorepo, second, 'resource', title='Retained', kind='document', body='Keep me')
+    resource = data['objectives'][1]['resources'][0]
+    third = objectives.mutate(monorepo, 'demo', {'type':'create','name':'Third','slot':0})['objectives'][-1]['id']
+    data = objectives.payload(monorepo, 'demo')
+    assert data['focused'] == [third, None, None, None, first]
+    assert data['objectives'][1]['resources'][0]['content']['body'] == 'Keep me'
+    for invalid in [-1, 5, True, '1']:
+        before = objectives.load(monorepo, 'demo')
+        with pytest.raises(ValueError, match='slot'):
+            apply(monorepo, second, 'focus', slot=invalid)
+        assert objectives.load(monorepo, 'demo') == before
+    apply(monorepo, second, 'focus', slot=1)
+    assert len({o['color'] for o in objectives.payload(monorepo, 'demo')['objectives']}) == 3
 
 
 def test_owned_rename_keeps_ids_and_task_references_and_unlink_preserves_files(monorepo, objective_workspace):

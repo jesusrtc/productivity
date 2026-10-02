@@ -1,5 +1,7 @@
 # Memory index
 
+- [Workspace objectives use five focus tabs](workspace-objectives-use-five-focus-tabs.md) — All library/search/filters and five vault-style slots replace Overview and left selectors; servers remain.
+- [Global Cleanup uses workspace tabs](global-cleanup-uses-workspace-tabs.md) — beside global Logs; per-workspace review including empty tabs, with kills limited to the selected workspace.
 - [Objective Tasks and fixed gray folders](objective-tasks-and-fixed-gray-folders.md) — Tasks below selectors; gray workspace Root and changing Objective directory precede worktrees.
 - [Objective documents use the native inline editor](objective-documents-use-native-inline-editor.md) — existing slash commands, left-menu tabs, idle/outgoing saves and retained drafts with sibling-safe conflicts.
 - [Objective terminal groups use flat native rows](objective-terminal-groups-use-flat-native-rows.md) — small headers, one project-colored rail, spacing between worktrees and canonical checkout grouping.

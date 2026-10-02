@@ -201,6 +201,8 @@ window.ensureLiveMarkdownEditor = (function () {
   <span class="branch" id="branchLabel"></span>
   {% if IS_ADMIN %}<button type="button" class="theme-toggle" id="resourcesBtn" onclick="LabResources.open()" title="Host usage and Lab processes" aria-label="Resources">Resources</button>{% endif %}
   {% if IS_ADMIN %}<button class="theme-toggle framework-update-btn" id="updateRestartBtn" onclick="labUpdateAndRestart()" title="Pull origin/main, then restart Lab" aria-label="Update and restart Lab"><span class="framework-update-icon" aria-hidden="true">↻</span></button>{% endif %}
+  {% if IS_ADMIN %}<button type="button" class="theme-toggle" id="globalLogsBtn" onclick="goToLogs()" title="Logs across workspaces">Logs</button>{% endif %}
+  {% if IS_ADMIN %}<button type="button" class="theme-toggle" id="globalCleanupBtn" onclick="LabTerminalCleanup.open()" title="Review inactive terminals by workspace">Cleanup</button>{% endif %}
   {% if IS_ADMIN %}<button class="theme-toggle" id="settingsBtn" onclick="openSettings()" title="Settings (⌘,)" aria-label="Settings" style="font-size:15px;line-height:1;padding:4px 10px">⚙</button>{% endif %}
   <div class="auth-user" title="Signed in as {{ USER.username }}">
     <span class="auth-user-name">{{ USER.name }}</span>

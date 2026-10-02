@@ -13,19 +13,33 @@ workspace worktrees, files and links** imports references to existing content.
 The source files and links keep their ownership. Existing workspaces retain
 their usual sidebar until they opt in.
 
-Up to three objectives appear at the top of the left column. Click one to open
-its tasks in the middle working area. The **+** beside Objectives creates or
-brings back an objective; when three are focused, choose which slot to replace.
-The parked objective retains its documents, tasks, worktrees and terminals.
+The workspace tab bar starts with **All**, followed by **five objective slots**.
+Filled slots show an objective's name and colored dot, using the vault-tab
+style. Click one to open its tasks in the middle working area. Empty slots
+remain available as drop targets and open the objective/slot chooser on click.
+Objective selectors no longer occupy the left sidebar.
+
+**All** lists every saved objective in the workspace. Search by name or outcome,
+filter to focused/parked objectives, or filter by task status. **+ Objective**
+creates an objective; when five are focused, choose the slot to replace. Drag a
+row from All onto a tab to fill that exact slot. Dropping a parked objective on
+an occupied slot replaces it; dragging between filled tabs swaps them. Parked
+objectives retain their documents, tasks, worktrees and terminal associations.
+**Focus…** provides the same assignment without dragging. The selected All or
+objective view survives reload; startup reconciliation and file polls preserve
+the newer working view.
+
+Workspace Overview, Code Search, Jupyter, Logs and Cleanup tabs are removed.
+Declared server tabs remain. Notebooks open from their resources or Files.
+Global **Logs** and **Cleanup** sit together in the header.
 
 The sidebar order is:
 
-1. Focused objective selectors.
-2. The Tasks item and its completion/status badge.
-3. Shared documents, notebooks and links.
-4. Fixed gray **Root** and **Objective** folders, then all associated worktrees.
-5. Resources scoped to the selected folder or worktree.
-6. The native recently updated files and Files tree for that selection.
+1. The Tasks item and its completion/status badge.
+2. Shared documents, notebooks and links.
+3. Fixed gray **Root** and **Objective** folders, then all associated worktrees.
+4. Resources scoped to the selected folder or worktree.
+5. The native recently updated files and Files tree for that selection.
 
 **Root** always opens the workspace directory. **Objective** opens the selected
 objective's own directory and changes when another objective is selected.
@@ -92,7 +106,7 @@ objective. A document can also be dropped directly into objective resources.
 
 ## Terminals
 
-The native terminal selector groups sessions by the three focused objectives,
+The native terminal selector groups sessions by the five focused objectives,
 then by their fixed launch folders/worktrees. Sessions assigned to a parked
 objective reappear when that objective is brought into focus. Existing native
 terminal controls and sessions are reused. Rows stay flat, with a small objective
@@ -112,7 +126,10 @@ The version-1 registry is `<workspace>/.lab/objectives.json`. Owned content
 lives under `<workspace>/objectives/<objective-id>/` as ordinary Markdown and
 notebook files. Markdown uses the existing embedded subtab format with stable
 IDs. Assistant resources store references. Existing-file resources store their
-folder and relative path. Terminal mappings use stable session UUIDs.
+folder and relative path. Terminal mappings use stable session UUIDs. The
+existing `focused` array holds ordered objective IDs; empty slots can contain
+`null`. Focus mutations accept a zero-based `slot` from 0 to 4. Older three-slot
+registries remain readable without a migration.
 
 Objective mutations use Lab's workspace lease and atomic writers. Browser
 writes include the registry revision; document edits also include the content
