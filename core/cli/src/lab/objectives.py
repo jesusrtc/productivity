@@ -121,6 +121,7 @@ def payload(root, workspace_id):
     data = load(root, workspace_id)
     folder = directory(root, workspace_id)
     for objective in data['objectives']:
+        objective['path'] = str(folder / 'objectives' / objective['id'])
         for tree in objective['worktrees']:
             # Older registries may only store the shortcut path. Match native
             # sessions launched through either spelling without rewriting it.
@@ -173,7 +174,7 @@ def _resource(folder, objective, action):
             _write_document(folder, item, action.get('body', ''))
     elif kind == 'file':
         file_root = Path(action.get('file_root') or folder).resolve()
-        if file_root not in [folder.resolve(), *(Path(t['path']).resolve() for t in objective['worktrees'])]:
+        if file_root not in [folder.resolve(), (folder/'objectives'/objective['id']).resolve(), *(Path(t['path']).resolve() for t in objective['worktrees'])]:
             raise ValueError('File folder must belong to this objective')
         target = (file_root / str(action.get('path', ''))).resolve()
         if not target.is_relative_to(file_root) or not target.is_file():
@@ -236,6 +237,7 @@ def mutate(root, workspace_id, action, expected=None):
                 if slot not in data['focused']:
                     raise ValueError('Choose which of the three focus slots to replace')
                 data['focused'][data['focused'].index(slot)] = objective['id']
+            (folder / 'objectives' / objective['id']).mkdir(parents=True, exist_ok=True)
             if action.get('import_existing'):
                 from lab import scope_links
                 metadata = storage.read_json(paths.workspace_file(root, workspace_id))
@@ -395,7 +397,7 @@ def mutate(root, workspace_id, action, expected=None):
                     raise ValueError('Subtab not found')
             linked_file = action.get('file')
             if linked_file:
-                allowed = [folder.resolve(), *(Path(t['path']).resolve() for t in objective['worktrees'])]
+                allowed = [folder.resolve(), (folder/'objectives'/objective['id']).resolve(), *(Path(t['path']).resolve() for t in objective['worktrees'])]
                 file_root = Path(linked_file.get('root', '')).resolve()
                 if file_root not in allowed:
                     raise ValueError('File folder must belong to this objective')

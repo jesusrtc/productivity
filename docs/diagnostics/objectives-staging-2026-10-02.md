@@ -101,3 +101,42 @@ The wrapper resolves the server URL through `scripts/lab-url.sh`; its temporary
 authentication stays in the subprocess environment. The fixture and three
 dedicated sessions are left available for interactive review. The Home demo
 continues to use separate browser-only data.
+
+## Follow-up: flat terminals, fixed folders and live editing
+
+Terminal rows now retain their native pills, grouped by objective and canonical
+checkout, with a small project header and one thin colored left rail. Worktree
+boundaries use spacing; project boxes and visible worktree headings are removed.
+Legacy shortcut paths resolve to their real checkout without rewriting the
+saved registry. Tasks moved directly below the objective selectors. Fixed gray
+Root and Objective rows open the workspace and selected objective directories;
+the Objective path changes when another objective is selected. An existing
+explicit Root association is deduplicated while keeping its scoped resources.
+
+Owned Markdown opens directly in the existing live editor, including from the
+native Files tree. Native formatting and slash commands work; `/fold` created
+a foldable block in an owned staging document. Save during ongoing typing,
+outgoing navigation saves, child-only edits and external conflict recovery were
+checked against the real server. Linked original Assistant documents retained
+their native editor and source ownership while their inner tab rail/drawer were
+hidden for this Objective presentation. No original Assistant content was edited.
+
+The Objective backend suite passed **11 tests**. The new real-API/native-editor
+regression passed: it holds a parent save response, types newer parent and
+child content, checks both saved bodies and the untouched sibling, waits for
+ten-second idle autosave, and recovers from a rejected concurrent edit. Existing
+live-editor, formatted-editor, scope-link and terminal-navigation suites passed
+**10 tests**. JavaScript syntax, Python compilation and whitespace checks passed.
+
+The expanded probe adds nine workspace Root and nine Objective-folder clicks,
+and document readiness requires the mounted editable native editor. Two fresh
+Chrome runs each retained **108 samples**. The first had one Assistant subtab
+sample at **242.3 ms**; its other 107 clicks were below 200 ms. Its layout
+assertion mistakenly counted native `SPAN.sess` pills as worktree headings;
+the selector was corrected without changing application code. The repeat had
+all 108 clicks below 200 ms, maximum **130.2 ms**, and no browser exceptions.
+These results retain the first-run miss rather than implying a universal
+200 ms guarantee. Both runs used normal polling and the same bounded native
+sidebar projection cache. [Sanitized samples from both runs](objectives-refinement-2026-10-02.json)
+include clock validity and the verified gray roots, Tasks position and left-only
+terminal borders.

@@ -16,6 +16,7 @@ def objective_workspace(monorepo, seed_workspace):
     folder = seed_workspace()
     before = {name:(folder/name).read_bytes() for name in ['workspace.json','tasks.json']}
     data = objectives.mutate(monorepo, 'demo', {'type':'create','name':'Phone recovery'})
+    assert Path(data['objectives'][0]['path']).is_dir()
     yield folder, data['objectives'][0]['id']
     assert {name:(folder/name).read_bytes() for name in before} == before
 
@@ -142,6 +143,13 @@ def test_terminal_resource_links_never_change_session_metadata(client, monorepo,
     body = {'workspace_id':'demo','action':{'type':'terminal','objective_id':oid,'session_id':saved['session_id'],'resource_id':rid}}
     assert client.post('/api/objectives',json=body).status_code == 200
     assert term._get_workspace_sessions(monorepo,'demo') == [saved]
+    notebook=data['objectives'][0]['resources'][0]
+    body['action'].pop('resource_id')
+    body['action']['file']={'root':str(folder/'objectives'/oid),'path':Path(notebook['path']).name}
+    response=client.post('/api/objectives',json=body)
+    assert response.status_code==200,response.text
+    assert response.json()['terminal_links'][saved['session_id']]['file']['path']==Path(notebook['path']).name
+    assert term._get_workspace_sessions(monorepo,'demo') == [saved]
     body['action']['session_id'] = 'a-terminal-in-another-workspace'
     assert client.post('/api/objectives',json=body).status_code == 400
     assert term._get_workspace_sessions(monorepo,'demo') == [saved]
@@ -158,7 +166,7 @@ def test_existing_workspace_import_copies_references_not_assistant_content(monor
     o=data['objectives'][0]
     assert o['worktrees'][0]['path'] == str(tree)
     assert [r['kind'] for r in o['resources']] == ['assistant','file']
-    assert doc.read_text() == '# Original' and not (folder/'objectives').exists()
+    assert doc.read_text() == '# Original' and not list((folder/'objectives').rglob('*.md'))
     assert (folder/'workspace.json').read_bytes() == original and (folder/'.lab/document-links.json').read_bytes() == reference
 
 
@@ -193,7 +201,7 @@ def test_assistant_references_expose_subtabs_without_editing_originals(client, m
     assert response.status_code == 200,response.text
     r=response.json()['objectives'][0]['resources'][0]
     assert r['kind']=='assistant' and r['title']=='Guide' and r['content']['tabs']
-    assert note.read_bytes()==original and not (folder/'objectives').exists()
+    assert note.read_bytes()==original and not list((folder/'objectives').rglob('*.md'))
     response=client.get('/api/objectives?workspace_id=objective-demo')
     assert response.status_code==200 and note.read_bytes()==original
 

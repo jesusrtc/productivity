@@ -1,5 +1,7 @@
 # Memory index
 
+- [Objective Tasks and fixed gray folders](objective-tasks-and-fixed-gray-folders.md) — Tasks below selectors; gray workspace Root and changing Objective directory precede worktrees.
+- [Objective documents use the native inline editor](objective-documents-use-native-inline-editor.md) — existing slash commands, left-menu tabs, idle/outgoing saves and retained drafts with sibling-safe conflicts.
 - [Objective terminal groups use flat native rows](objective-terminal-groups-use-flat-native-rows.md) — small headers, one project-colored rail, spacing between worktrees and canonical checkout grouping.
 
 - [Workspace objectives own content and reference Assistant](workspace-objectives-own-content-and-reference-assistant.md) — opt-in real workspace registry, owned Markdown/notebooks, original Assistant references and independent terminal resource mappings.

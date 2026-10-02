@@ -1122,7 +1122,7 @@
     };
     overlay.querySelector('#assistantExpandDocument').onclick = expandDocument;
     overlay.querySelector('#assistantModalDocument').addEventListener('click', event => {
-      if (!state.inlineHost || !overlay.classList.contains('active') || event.button !== 0 || !event.metaKey
+      if (!state.inlineHost || !overlay.classList.contains('active') || overlay.classList.contains('assistant-external-tabs') || event.button !== 0 || !event.metaKey
           || event.target.closest('textarea, input')) return;
       event.preventDefault();
       event.stopPropagation();
@@ -1326,7 +1326,7 @@
     observer.observe(body);
   }
 
-  function presentDocument(overlay, inline) {
+  function presentDocument(overlay, inline, externalTabs = false) {
     window.LabScopeLinks?.closeExternal();
     const content = document.getElementById('content');
     inline = Boolean(inline && content);
@@ -1345,7 +1345,8 @@
     document.body.classList.toggle('assistant-expanded-document', Boolean(!inline && content));
     overlay.classList.toggle('assistant-document-inline', inline);
     overlay.classList.toggle('assistant-document-expanded', Boolean(!inline && content));
-    overlay.querySelector('#assistantExpandDocument').hidden = !inline;
+    overlay.classList.toggle('assistant-external-tabs', Boolean(inline && externalTabs));
+    overlay.querySelector('#assistantExpandDocument').hidden = !inline || externalTabs;
     setDocumentTabsOpen(false);
   }
 
@@ -1468,7 +1469,7 @@
       state.terminalScope = options.terminalScope || null;
       state.modalCurrent = detail; state.modalMeetingPart = 'summary';
       state.modalIndex = showIndex;
-      presentDocument(overlay, inline);
+      presentDocument(overlay, inline, options.externalTabs);
       await renderModal(focusHeading);
       if (isCurrent()) {
         overlay.classList.add('active');
@@ -1484,7 +1485,7 @@
     } catch (error) {
       if (!isCurrent()) return;
       if (!wasOpen) {
-        presentDocument(overlay, inline);
+        presentDocument(overlay, inline, options.externalTabs);
         document.getElementById('assistantModalDocument').replaceChildren();
         document.getElementById('assistantDocumentNav').replaceChildren();
         renderTabsRail();
@@ -1516,7 +1517,7 @@
       window.LabWorkspaceDocuments?.updateDocuments(data);
       // Render over the current workspace without navigating its page or terminal.
       return openDocumentModal(documentKind(row),row.path + (link.tab_id ? '#tab=' + encodeURIComponent(link.tab_id) : ''),'',{
-        linkedTask:link, inline:Boolean(options.inline), isCurrent:options.isCurrent,
+        linkedTask:link, inline:Boolean(options.inline), externalTabs:Boolean(options.externalTabs), isCurrent:options.isCurrent,
         wholeDocument:Boolean(options.wholeDocument),terminalScope:options.terminalScope,
       });
     } finally {

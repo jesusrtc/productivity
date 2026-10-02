@@ -8657,6 +8657,7 @@
 
   async function openWorkspaceDoc(filepath, {preserveScroll = false, root = null} = {}) {
     if (!currentWorkspace) return;
+    if (!preserveScroll && window.LabObjectives?.openOwnedFile(root || currentWorkspace.path, filepath)) return;
     // A poll or index event may arrive after the editor opens. Refreshes must
     // not reset its state or replace the draft; explicit navigation still can.
     if (preserveScroll && _workspaceDocEditing) return;
@@ -20307,7 +20308,7 @@
   // Cerebro view: when URL carries ?view=cerebro, we bypass the
   // workspace/repo init path entirely and render the mdview-style browser.
   window.LabObjectives?.connect({
-    readyContent: () => ensureMarked(),
+    readyContent: () => Promise.all([ensureMarked(),window.ensureLiveMarkdownEditor?.().catch(()=>{})]),
     warmWorktrees: (trees, scope) => {
       const mode=_sidebarCurrentRecentMode(),minutes=_sidebarFileConfig.recentMinutes;
       const extensions=_sidebarFileConfig.trackMode==='extensions'?(_sidebarFileConfig.extensions||[]).join(',')||'__no_matches__':'';
@@ -20329,8 +20330,11 @@
       && !document.body.classList.contains('self-active') && !document.body.classList.contains('assistant-active')
       ? {workspace_id:currentWorkspace.name,vault:_workspaceVaultId(currentWorkspace),path:currentWorkspace.path} : null,
     scopeRoot: () => currentWorkspace ? _sidebarScopedRoot(currentWorkspace.path) : null,
-    selectWorktree: row => sidebarSelectScope({getAttribute:name => name==='data-base-root'
-      ? currentWorkspace.path : row.path===currentWorkspace.path ? '' : row.path}),
+    selectWorktree: row => {
+      if(row.path!==currentWorkspace.path)_sidebarRememberScope({...row,projectPath:row.repo||row.path});
+      return sidebarSelectScope({getAttribute:name => name==='data-base-root'
+        ? currentWorkspace.path : row.path===currentWorkspace.path ? '' : row.path});
+    },
     addWorktree: button => sidebarAddScope(button),
     refreshSidebar: () => currentWorkspace?.is_workspace && _refreshWorkspaceSidebar({preserveScroll:true}),
     refreshTerminals: () => termRenderSessionList(),
@@ -20346,7 +20350,7 @@
     openNotebook: resource => openWorkspaceDoc(resource.path,{root:currentWorkspace.path}),
     openFile: file => openWorkspaceDoc(file.path,{root:file.root}),
     openAssistant: resource => window.LabScopeLinks.openDocument(resource,currentWorkspace.path,
-      {terminalScope:{...window.LabTaskTerminalBridge.context(),root:treeRootForObjective()},wholeDocument:!resource.tab_id,inline:true,selectTerminal:false}),
+      {terminalScope:{...window.LabTaskTerminalBridge.context(),root:treeRootForObjective()},wholeDocument:!resource.tab_id,inline:true,externalTabs:true,selectTerminal:false}),
     openLink: resource => window.LabScopeLinks.openExternal({kind:'external',...resource},currentWorkspace.path),
     session: name => termSessions.find(row=>row.name===name||row.logical_name===name),
   });

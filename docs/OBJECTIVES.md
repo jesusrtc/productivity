@@ -21,10 +21,16 @@ The parked objective retains its documents, tasks, worktrees and terminals.
 The sidebar order is:
 
 1. Focused objective selectors.
-2. Shared documents, notebooks and links, then one Tasks item.
-3. All worktrees associated with the selected objective.
-4. Resources scoped to the selected worktree.
-5. The native recently updated files and Files tree for that worktree.
+2. The Tasks item and its completion/status badge.
+3. Shared documents, notebooks and links.
+4. Fixed gray **Root** and **Objective** folders, then all associated worktrees.
+5. Resources scoped to the selected folder or worktree.
+6. The native recently updated files and Files tree for that selection.
+
+**Root** always opens the workspace directory. **Objective** opens the selected
+objective's own directory and changes when another objective is selected.
+Both remain gray rather than taking a reserved worktree color. Creating an
+objective creates its directory, including when it has no resources yet.
 
 The **+** beside Worktrees uses the existing folder/worktree chooser, including
 its create-worktree action. Association makes the worktree visible without
@@ -54,8 +60,18 @@ independent working view. Editing one subtab preserves its siblings.
 ## Documents, subtabs and notebooks
 
 The Documents & notebooks **+** creates Markdown documents or `.ipynb` files,
-or links an existing workspace file. Owned documents support Edit, Save,
-Rename and new subtabs. Notebook resources use the native cell editor, output
+or links an existing workspace file. Owned documents support Rename and new
+subtabs. They open directly in the existing live Markdown editor:
+click formatted text to edit it in place, type `/` for commands, or use the
+editor's formatting shortcuts. **Save** and Cmd/Ctrl-S save immediately;
+autosave runs after ten seconds without typing, and navigation saves the
+outgoing draft. **Revert** loads the current saved version of that tab.
+Unsaved drafts and editor undo remain available when switching between tabs.
+Conflicts retain the draft and halt automatic retries until the user saves or
+reverts; editing a subtab preserves its sibling content. Opening an owned
+Markdown file from Files uses the same editor.
+
+Notebook resources use the native cell editor, output
 viewer, runtime controls and live execution path. Rename is available in the
 notebook header. A running notebook must finish before it can be renamed; an
 idle rename preserves the live kernel and its variables.
@@ -64,7 +80,9 @@ Click a document to reveal its nested subtab tree immediately. Hovering over
 the document for 1.5 seconds also reveals it. Click a subtab to open it as its
 own document view. Navigating to another sidebar item collapses the unpinned
 subtabs; individually pinned subtabs remain visible and survive browser reloads.
-Selected objectives, worktrees and pins are browser-local preferences.
+Document subtabs live in the left menu, including for linked Assistant views;
+there is no second tab rail inside the working area. Selected objectives,
+worktrees and pins are browser-local preferences.
 
 Assistant documents remain references to their original document IDs and
 locations. Their original renderer, editing behavior, tasks and terminals

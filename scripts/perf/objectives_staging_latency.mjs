@@ -51,7 +51,7 @@ try {
     await click(`objective ${o.name} ${cycle}`,`[data-select-objective="${o.id}"]`,
       `document.querySelector('.objective-working h2')?.textContent==='Tasks' && document.querySelector('.objective-purpose')?.textContent.startsWith(${q(o.name)}) && !document.querySelector('#content').inert`);
     await click(`document ${cycle}`,`[data-objective-resource="${doc.id}"]:not([data-objective-tab])`,
-      `document.querySelector('.objective-working h2')?.textContent===${q(doc.title)} && document.querySelector('.workspace-doc-body')?.textContent.includes('simulated staging content') && document.querySelectorAll('[data-resource-group="${doc.id}"] [data-objective-tab]').length===3`);
+      `document.querySelector('.objective-working h2')?.textContent===${q(doc.title)} && document.querySelector('.workspace-doc-body .cm-content[contenteditable=true]') && document.querySelector('.workspace-doc-body')?.textContent.includes('simulated staging content') && document.querySelectorAll('[data-resource-group="${doc.id}"] [data-objective-tab]').length===3`);
     await click(`nested subtab ${cycle}`,`[data-objective-tab="${tab.id}"]`,
       `document.querySelector('.objective-working h2')?.textContent===${q(tab.title)} && document.querySelector('.workspace-doc-body')?.textContent.includes('Preserve country code')`);
     await click(`pin subtab ${cycle}`,`[data-pin-tab="${tab.id}"]`,
@@ -62,6 +62,10 @@ try {
     await click(`task checkbox ${cycle}`,`[data-task-done="${task.id}"]`,
       `document.querySelector('[data-task-done="${task.id}"]')?.checked===${!checked}`);
     await until(`fetch(${q(objectiveUrl)}).then(r=>r.json()).then(d=>d.objectives.find(o=>o.id===${q(o.id)}).tasks.find(t=>t.id===${q(task.id)}).done===${!checked})`);
+    await click(`workspace Root final files ${cycle}`,'[data-select-worktree="workspace-root"]',
+      `document.querySelector('[data-select-worktree="workspace-root"]')?.getAttribute('aria-pressed')==='true' && document.querySelector('[data-new-file-root]')?.dataset.newFileRoot===${q(workspace)} && document.querySelector('#sidebar .sidebar-file[data-open-file]') && !document.querySelector('#sidebar').classList.contains('sidebar-scope-switching')`);
+    await click(`Objective folder final files ${cycle}`,'[data-select-worktree="objective-root"]',
+      `document.querySelector('[data-select-worktree="objective-root"]')?.getAttribute('aria-pressed')==='true' && document.querySelector('[data-new-file-root]')?.dataset.newFileRoot===${q(o.path)} && document.querySelector('#sidebar .sidebar-file[data-open-file]') && !document.querySelector('#sidebar').classList.contains('sidebar-scope-switching')`);
     if(o.worktrees[1])await click(`worktree final files ${cycle}`,`[data-select-worktree="${o.worktrees[1].id}"]`,
       `document.querySelector('[data-select-worktree="${o.worktrees[1].id}"]')?.getAttribute('aria-pressed')==='true' && document.querySelector('[data-project-sidebar]')?.dataset.projectSidebar===${q(o.worktrees[1].path)} && document.querySelector('[data-project-directory="."] [data-project-entry]') && !document.querySelector('#sidebar').classList.contains('sidebar-scope-switching')`);
     await click(`notebook final cells ${cycle}`,`[data-objective-resource="${nb.id}"]`,
@@ -81,9 +85,11 @@ try {
       `document.querySelector('[data-pin-tab="${tab.id}"]')?.getAttribute('aria-pressed')==='false' || !document.querySelector('[data-pin-tab="${tab.id}"]')`);
   }
   const fonts=await evaluate(`({selector:getComputedStyle(document.querySelector('.objective-selector')).fontSize,resource:getComputedStyle(document.querySelector('.objective-resource')).fontSize,file:getComputedStyle(document.querySelector('.sidebar-file')).fontSize})`);
+  const layout=await evaluate(`({tasksBelowProjects:document.querySelector('.objective-selectors').nextElementSibling.hasAttribute('data-open-objective-tasks'),roots:[...document.querySelectorAll('[data-objective-root]')].map(n=>({label:n.querySelector('button').textContent.trim(),color:n.style.getPropertyValue('--sidebar-workspace-color')})),terminalBorders:[...document.querySelectorAll('.objective-terminal-group')].map(n=>({top:getComputedStyle(n).borderTopWidth,right:getComputedStyle(n).borderRightWidth,bottom:getComputedStyle(n).borderBottomWidth,left:getComputedStyle(n).borderLeftWidth})),worktreeLabels:document.querySelectorAll('.objective-terminal-worktree > span:not(.sess)').length})`);
+  if(!layout.tasksBelowProjects||layout.roots.length!==2||layout.roots.some(r=>r.color!=='#8b949e')||layout.worktreeLabels||layout.terminalBorders.some(b=>b.top!=='0px'||b.right!=='0px'||b.bottom!=='0px'||b.left!=='2px'))throw Error('Objective layout requirements failed: '+JSON.stringify(layout));
   const network=await evaluate(`performance.getEntriesByType('resource').filter(r=>['/api/objectives','/api/sidebar-directory','/api/sidebar-recent-files'].some(path=>new URL(r.name).pathname===path)).map(r=>({url:new URL(r.name).pathname,ms:r.duration}))`);
   const max=Math.max(...rows.map(r=>r.ms)),failures=rows.filter(r=>r.ms>=200);
-  const report={workspace,normalPolling:true,physicalDisplayLatency:false,fonts,clicks:rows,network,errors,maxMs:max,failures:failures.map(r=>({label:r.label,ms:r.ms}))};
+  const report={workspace,normalPolling:true,physicalDisplayLatency:false,fonts,layout,clicks:rows,network,errors,maxMs:max,failures:failures.map(r=>({label:r.label,ms:r.ms}))};
   await writeFile(output,JSON.stringify(report,null,2)+'\n');
   console.log(JSON.stringify({samples:rows.length,maxMs:max,over200ms:failures.length,errors,fonts,report:output}));
   if(failures.length||errors.length)process.exitCode=1;

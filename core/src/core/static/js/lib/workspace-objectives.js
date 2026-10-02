@@ -4,7 +4,8 @@
   const cache = new Map(), views = new Map(), pending = new Map(), queues = new Map(), overlays = new Map(), loadedAt = new Map();
   const resourceMime = 'application/x-lab-objective-resource', documentMime = 'application/x-lab-assistant-document';
   const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  let bridge, dialog = null, hoverTimer, openView = null;
+  const drafts = new Map();
+  let bridge, dialog = null, hoverTimer, openView = null, activeDraft = null;
   const key = scope => (scope?.vault || '') + '::' + scope?.workspace_id;
   const context = () => bridge?.context?.();
   const data = () => cache.get(key(context()));
@@ -27,8 +28,15 @@
     return {done,total:o.tasks.length,status,label:{complete:'All complete',overdue:'Past due',risk:'At risk · due within 2 days',track:o.tasks.length?'On track':'No tasks yet'}[status]};
   }
   function badge(o) {const p=progress(o);return `<span class="objective-progress ${p.status}" title="${esc(p.label)}" aria-label="${p.done} of ${p.total} tasks complete · ${esc(p.label)}">${p.done}/${p.total}</span>`;}
-  function worktrees(path) {if(!active(path))return null;return (objective()?.worktrees||[]).map(t=>({...t,projectPath:t.repo}));}
-  function tree(o=objective()) {return o?.worktrees.find(t=>t.id===state().tree[o.id])||o?.worktrees[0];}
+  function scopeRows(o=objective()) {
+    if(!o)return [];
+    const root=context()?.path,folder=o.path||root+'/objectives/'+o.id;
+    return [{id:'workspace-root',label:'Root',path:root,repo:root,kind:'folder',color:'#8b949e',fixed:true,membership:o.worktrees.find(t=>t.path===root)?.id},
+      {id:'objective-root',label:'Objective',path:folder,repo:root,kind:'folder',color:'#8b949e',fixed:true,membership:o.worktrees.find(t=>t.path===folder)?.id},
+      ...o.worktrees.filter(t=>t.path!==root&&t.path!==folder)];
+  }
+  function worktrees(path) {if(!active(path))return null;return scopeRows().map(t=>({...t,projectPath:t.repo}));}
+  function tree(o=objective()) {return o?(scopeRows(o).find(t=>t.id===state().tree[o.id])||scopeRows(o)[0]):null;}
   function sidebarHtml(path) {return context()?.path===path?'<section data-objectives-sidebar aria-label="Workspace objectives"></section>':'';}
   async function load(scope=context(), fresh=false) {
     if(!scope?.workspace_id||scope.workspace_id.startsWith('__'))return;
@@ -36,7 +44,7 @@
     if(cache.has(id)&&!fresh){paint();if(Date.now()-(loadedAt.get(id)||0)<2000)return cache.get(id);}
     if(pending.has(id))return pending.get(id);
     const request=fetch('/api/objectives?'+new URLSearchParams({workspace_id:scope.workspace_id,...(scope.vault?{vault:scope.vault}:{})})).then(async r=>{
-      const d=await r.json();if(!r.ok)throw new Error(d.detail||'Could not load objectives');if(d.enabled)await Promise.all([bridge.readyContent?.(),scope.path&&bridge.warmWorktrees?.(d.objectives.filter(o=>d.focused.includes(o.id)).flatMap(o=>o.worktrees),scope)]);const previous=cache.get(id);cache.set(id,d);loadedAt.set(id,Date.now());
+      const d=await r.json();if(!r.ok)throw new Error(d.detail||'Could not load objectives');if(d.enabled)await Promise.all([bridge.readyContent?.(),scope.path&&bridge.warmWorktrees?.([{path:scope.path},...d.objectives.filter(o=>d.focused.includes(o.id)).flatMap(o=>[{path:o.path||scope.path+'/objectives/'+o.id},...o.worktrees])],scope)]);const previous=cache.get(id);cache.set(id,d);loadedAt.set(id,Date.now());
       for(const overlay of overlays.get(id)||[])overlay.apply(d);
       if(key(context())===id){paint();if(previous?.revision!==d.revision){bridge.refreshSidebar?.();bridge.refreshTerminals?.();}}return d;
     }).catch(e=>{if(key(context())===id)notify(e.message,true);}).finally(()=>pending.delete(id));pending.set(id,request);return request;
@@ -48,7 +56,8 @@
     if(overlay){overlays.set(id,[...(overlays.get(id)||[]),overlay]);overlay.apply(cache.get(id));paint();if(openView?.type==='tasks')renderTasks();}
     const previous=queues.get(id)||Promise.resolve();
     const next=previous.catch(()=>{}).then(async()=>{
-      const r=await fetch('/api/objectives',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({workspace_id:scope.workspace_id,vault:scope.vault,expected:cache.get(id)?.revision,action})});
+      const resolvedAction=typeof action==='function'?action(cache.get(id)):action;
+      const r=await fetch('/api/objectives',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({workspace_id:scope.workspace_id,vault:scope.vault,expected:cache.get(id)?.revision,action:resolvedAction})});
       const d=await r.json();if(!r.ok)throw new Error(d.detail||'Could not save objective');if(d.enabled)await bridge.readyContent?.();overlays.set(id,(overlays.get(id)||[]).filter(item=>item!==overlay));cache.set(id,d);loadedAt.set(id,Date.now());
       for(const item of overlays.get(id)||[])item.apply(d);
       if(key(context())===id){paint();bridge.refreshTerminals?.();if(openView?.type==='tasks')renderTasks();}return d;
@@ -70,20 +79,21 @@
     const d=data();if(!d)return;
     if(!d.enabled){host.innerHTML='<button type="button" class="sidebar-objective-add" data-new-objective>+ Objective</button>';return;}
     const o=objective();if(!o)return;state().objective=o.id;
-    const t=tree(o),general=o.resources.filter(r=>!r.worktree),scoped=o.resources.filter(r=>r.worktree&&r.worktree===t?.id);
+    const t=tree(o),general=o.resources.filter(r=>!r.worktree),scoped=o.resources.filter(r=>r.worktree&&(r.worktree===t?.id||r.worktree===t?.membership));
     host.innerHTML=`<div class="sidebar-title objective-title">OBJECTIVES <button type="button" data-focus-objective aria-label="Choose objective">+</button></div><div class="objective-selectors">${d.focused.map(id=>d.objectives.find(o=>o.id===id)).filter(Boolean).map(item=>`<button type="button" class="objective-selector${item.id===o.id?' active':''}" style="--objective-color:${esc(item.color)}" data-select-objective="${esc(item.id)}" aria-pressed="${item.id===o.id}"><span aria-hidden="true">◎</span><span>${esc(item.name)}</span>${badge(item)}</button>`).join('')}</div>
+      <button type="button" class="sidebar-scope-link objective-tasks" data-open-objective-tasks><span aria-hidden="true">☑</span><span>Tasks</span>${badge(o)}</button>
       <div class="sidebar-title objective-title">${esc(o.name)}<button type="button" data-objective-settings aria-label="Objective settings">⚙</button></div>
       <section data-objective-shared><div class="sidebar-title objective-title">Documents & notebooks<button type="button" data-add-resource="document" aria-label="Add objective document">+</button></div><div class="objective-resources">${general.filter(r=>r.kind!=='link').map(r=>resourceRow(o,r)).join('')}</div><div class="sidebar-title objective-title">Links<button type="button" data-add-resource="link" aria-label="Add objective link">+</button></div><div class="objective-resources">${general.filter(r=>r.kind==='link').map(r=>resourceRow(o,r)).join('')}</div>
-      <button type="button" class="sidebar-scope-link objective-tasks" data-open-objective-tasks><span aria-hidden="true">☑</span><span>Tasks</span>${badge(o)}</button></section>
-      <div class="sidebar-title objective-title">Worktrees<button type="button" data-associate-worktree aria-label="Associate worktree">+</button></div><div class="objective-worktrees">${o.worktrees.map(item=>`<div class="sidebar-scope-chip${item.id===t?.id?' active':''}" style="--sidebar-workspace-color:${esc(item.color)}" data-objective-worktree="${esc(item.id)}"><span class="objective-worktree-icon" aria-hidden="true">⑂</span><button type="button" class="sidebar-file-scope-button" data-select-worktree="${esc(item.id)}" aria-pressed="${item.id===t?.id}" title="${esc(item.path)}"><span>${esc(item.label)}</span></button><span class="sidebar-scope-tag">${esc(item.kind==='folder'?'Folder':'Worktree')}</span></div>`).join('')}</div>
-      ${scoped.length?`<div class="sidebar-title">For this worktree</div><div class="objective-resources">${scoped.map(r=>resourceRow(o,r)).join('')}</div>`:''}`;
+      </section>
+      <div class="sidebar-title objective-title">Worktrees<button type="button" data-associate-worktree aria-label="Associate worktree">+</button></div><div class="objective-worktrees">${scopeRows(o).map(item=>`<div class="sidebar-scope-chip${item.id===t?.id?' active':''}" style="--sidebar-workspace-color:${esc(item.color)}" ${item.fixed?'data-objective-root':'data-objective-worktree'}="${esc(item.id)}"><span class="objective-worktree-icon" aria-hidden="true">${item.fixed?'⌂':'⑂'}</span><button type="button" class="sidebar-file-scope-button" data-select-worktree="${esc(item.id)}" aria-pressed="${item.id===t?.id}" title="${esc(item.path)}"><span>${esc(item.label)}</span></button><span class="sidebar-scope-tag">${esc(item.kind==='folder'?'Folder':'Worktree')}</span></div>`).join('')}</div>
+      ${scoped.length?`<div class="sidebar-title">For this ${t?.kind==='folder'?'folder':'worktree'}</div><div class="objective-resources">${scoped.map(r=>resourceRow(o,r)).join('')}</div>`:''}`;
     host.querySelectorAll('[data-resource-group]').forEach(row=>{row.onmouseenter=()=>{clearTimeout(hoverTimer);const id=row.dataset.resourceGroup;hoverTimer=setTimeout(()=>{if(row.isConnected&&key(context())===key(scope)){state().revealed.add(id);paint();}},1500);};row.onmouseleave=()=>clearTimeout(hoverTimer);});
   }
   function selectObjective(id) {
     const o=data()?.objectives.find(o=>o.id===id);if(!o)return;collapse();state().objective=id;state().selected=null;persistView();paint();renderTasks();bridge.refreshTerminals?.();
     const t=tree(o)||{path:context().path,kind:'folder'};if(bridge.scopeRoot?.()!==t.path)bridge.selectWorktree?.(t);
   }
-  function showCenter(type) {bridge.prepareCenter?.();openView={type,scope:key(context()),objective:objective().id};return document.getElementById('content');}
+  function showCenter(type) {releaseDraft();bridge.prepareCenter?.();openView={type,scope:key(context()),objective:objective().id};return document.getElementById('content');}
   function taskRow(task,parent=null) {
     const done=parent?task.done:complete(task);return `<div class="objective-task-row${parent?' child':''}" data-task-id="${esc(task.id)}"><input type="checkbox" aria-label="Complete ${esc(task.title)}" data-task-done="${esc(task.id)}" ${done?'checked':''}><span class="objective-task-title${done?' done':''}">${esc(task.title)}</span><button type="button" data-task-document="${esc(task.id)}" aria-label="Open details for ${esc(task.title)}">▤</button><input type="date" aria-label="Due date for ${esc(task.title)}" data-task-due="${esc(task.id)}" value="${esc(task.due||'')}" title="${parent&&!task.due?'Inherits '+(parent.due||'parent deadline'):'Due date'}"><button type="button" data-add-subtask="${esc(task.id)}" ${parent?'hidden':''} aria-label="Add subtask to ${esc(task.title)}">+</button></div>`;
   }
@@ -94,6 +104,7 @@
   }
   function openResource(resourceId,tabId=null) {
     const o=objective(),r=o?.resources.find(r=>r.id===resourceId);if(!r)return;
+    releaseDraft();
     collapse();state().selected={resource:resourceId,tab:tabId};if(r.content?.tabs?.length)state().revealed.add(resourceId);paint();
     openView={type:r.kind,scope:key(context()),objective:o.id,resource:r.id,tab:tabId};
     if(r.kind==='assistant'){bridge.openAssistant?.({...r,tab_id:tabId||r.tab_id});return;}
@@ -101,7 +112,82 @@
     if(r.kind==='notebook'){bridge.openNotebook?.(r);return;}
     if(r.kind==='file'){bridge.openFile?.({root:r.file_root,path:r.path});return;}
     const tab=r.content?.tabs?.find(t=>t.id===tabId),body=tab?.body??r.content?.body??'',host=showCenter('document');openView.resource=r.id;openView.tab=tabId;
-    host.innerHTML=`<section class="objective-working objective-document"><header><h2>${esc(tab?.title||r.title)}</h2><button type="button" data-rename-objective-resource="${esc(r.id)}">Rename</button></header><div class="objective-document-context"><button type="button" data-open-objective-tasks>← Tasks</button><span>${esc(o.name)}${tab?' / '+esc(r.title):''}</span></div><article class="workspace-doc-body markdown-body">${window.LabMarkdown.render(body)}</article><div class="objective-document-actions"><button type="button" data-edit-objective-document>Edit</button>${!tabId?`<button type="button" data-add-objective-subtab="${esc(r.id)}">+ Subtab</button>`:''}</div></section>`;
+    host.innerHTML=`<section class="objective-working objective-document"><header><h2>${esc(tab?.title||r.title)}</h2><button type="button" data-rename-objective-resource="${esc(r.id)}">Rename</button></header><div class="objective-document-context"><button type="button" data-open-objective-tasks>← Tasks</button><span>${esc(o.name)}${tab?' / '+esc(r.title):''}</span></div><article class="workspace-doc-body markdown-body"></article><div class="objective-document-actions"><button type="button" data-save-objective-document>Save</button><button type="button" data-revert-objective-document>Revert</button>${!tabId?`<button type="button" data-add-objective-subtab="${esc(r.id)}">+ Subtab</button>`:''}<span class="objective-document-status" role="status" aria-live="polite"></span></div></section>`;
+    mountDraft(o,r,tabId,body,host.querySelector('article'));
+  }
+  const dirtyDraft=draft=>draft.body!==draft.base;
+  function draftResource(draft,value=cache.get(key(draft.scope))) {return value?.objectives.find(o=>o.id===draft.objective)?.resources.find(r=>r.id===draft.resource);}
+  function draftBody(resource,tab) {return tab?resource?.content?.tabs.find(t=>t.id===tab)?.body:resource?.content?.body;}
+  function draftControls(draft) {
+    if(activeDraft!==draft||!draft.node.isConnected)return;
+    const host=draft.node.closest('.objective-document'),status=host.querySelector('.objective-document-status');
+    host.querySelector('[data-save-objective-document]').disabled=!dirtyDraft(draft)||draft.saving;
+    host.querySelector('[data-revert-objective-document]').disabled=draft.saving;
+    status.textContent=draft.error||(draft.saving?'Saving…':dirtyDraft(draft)?'Unsaved · saves after 10s idle':draft.saved?'Saved at '+new Date(draft.saved).toLocaleTimeString():'Click to edit · / for commands');
+    status.classList.toggle('error',!!draft.error);
+  }
+  function scheduleDraft(draft) {
+    clearTimeout(draft.timer);
+    if(activeDraft!==draft||!dirtyDraft(draft)||draft.error)return;
+    draft.timer=setTimeout(()=>void saveDraft(draft),Math.max(0,(draft.edited||Date.now())+10000-Date.now()));
+  }
+  function saveDraft(draft,manual=false) {
+    if(!draft)return Promise.resolve();
+    if(draft.saving)return draft.pending;
+    if(!dirtyDraft(draft)||draft.error&&!manual)return Promise.resolve();
+    const body=draft.body,base=draft.base;
+    clearTimeout(draft.timer);draft.saving=true;draft.error='';draftControls(draft);
+    draft.pending=change(value=>{
+      const resource=draftResource(draft,value);
+      if(draftBody(resource,draft.tab)!==base)throw new Error('Document changed elsewhere. Your draft is still here; Revert loads the saved version.');
+      return {type:'document',objective_id:draft.objective,resource_id:draft.resource,tab_id:draft.tab,
+        document_revision:resource.content.revision,body};
+    },{scope:draft.scope}).then(()=>{draft.base=body;draft.saved=Date.now();}).catch(error=>{draft.error=error.message;}).finally(()=>{
+      draft.saving=false;draftControls(draft);scheduleDraft(draft);
+    });
+    return draft.pending;
+  }
+  function releaseDraft() {
+    const draft=activeDraft;if(!draft)return;
+    activeDraft=null;clearTimeout(draft.timer);
+    // Navigation paints immediately. Capture the outgoing body and retain a
+    // newer draft even when its preceding save has not finished yet.
+    void (async()=>{if(draft.saving)await draft.pending;await saveDraft(draft);})();
+  }
+  function mountDraft(o,r,tab,body,host) {
+    const scope={...context()},id=JSON.stringify([key(scope),o.id,r.id,tab]);
+    let draft=drafts.get(id);
+    if(!draft){
+      const node=document.createElement('div');node.className='assistant-note-editor objective-note-editor';
+      draft={scope,objective:o.id,resource:r.id,tab,base:body,body,node};drafts.set(id,draft);
+    }else if(!dirtyDraft(draft)&&!draft.saving&&draft.base!==body){
+      draft.base=draft.body=body;draft.syncing=true;if(draft.input)draft.input.value=body;draft.syncing=false;
+    }
+    activeDraft=draft;host.replaceChildren(draft.node);
+    const mount=()=>{
+      if(activeDraft!==draft||!draft.node.isConnected||draft.input)return;
+      draft.node.replaceChildren();
+      draft.input=window.LabMarkdownEditor.create(draft.node,{body:draft.body,
+        onChange:text=>{if(draft.syncing)return;draft.body=text;draft.edited=Date.now();draftControls(draft);scheduleDraft(draft);},
+        onSave:()=>saveDraft(draft,true)});
+      draftControls(draft);
+    };
+    if(window.LabMarkdownEditor)mount();
+    else{
+      draft.node.innerHTML=window.LabMarkdown.render(draft.body);
+      window.ensureLiveMarkdownEditor().then(mount).catch(error=>{draft.error=error.message;draftControls(draft);});
+    }
+    draftControls(draft);scheduleDraft(draft);
+    for(const [entry,value] of drafts){
+      if(drafts.size<=32)break;
+      if(value!==activeDraft&&!value.saving&&!dirtyDraft(value)){value.input?.destroy();drafts.delete(entry);}
+    }
+  }
+  async function revertDraft(draft) {
+    if(!draft||draft.saving)return;
+    clearTimeout(draft.timer);await load(draft.scope,true);
+    const body=draftBody(draftResource(draft),draft.tab);if(typeof body!=='string')return;
+    draft.base=draft.body=body;draft.error='';draft.syncing=true;if(draft.input)draft.input.value=body;draft.syncing=false;draftControls(draft);
   }
   function form(title,fields,submit) {
     dialog?.remove();const node=document.createElement('dialog');node.className='objective-dialog';node.innerHTML=`<form><header><h2>${esc(title)}</h2></header>${fields}<footer><button type="button" data-cancel>Cancel</button><button type="submit">Save</button></footer><p role="status"></p></form>`;document.body.append(node);dialog=node;node.showModal();node.querySelector('[data-cancel]').onclick=()=>{node.close();node.remove();};node.querySelector('form').onsubmit=async e=>{e.preventDefault();const button=node.querySelector('[type=submit]');button.disabled=true;try{await submit(new FormData(e.target));node.close();node.remove();}catch(error){node.querySelector('[role=status]').textContent=error.message;button.disabled=false;}};return node;
@@ -135,7 +221,7 @@
   function openForTerminal(t) {const link=data()?.terminal_links[terminalIdentity(t)],o=terminalObjective(t);if(!o||!link)return false;state().objective=o.id;const resource=o.resources.find(r=>r.id===link.resource_id),w=o.worktrees.find(w=>w.id===resource?.worktree||[w.path,w.resolved_path].includes(link.file?.root||t.linked_scope?.root));if(w){state().tree[o.id]=w.id;if(bridge.scopeRoot?.()!==w.path)bridge.selectWorktree?.(w);}persistView();if(link.resource_id)openResource(link.resource_id,link.tab_id);else if(link.file)bridge.openFile?.(link.file);paint();return true;}
   function handleClick(e) {
     const host=e.target.closest?.('[data-objectives-sidebar],.objective-working,.objective-dialog,.objective-terminal-group,[data-objective-notebook-controls]');
-    if(!host){if(active(context()?.path)&&e.target.closest?.('#sidebar,.repo-tabs,#termSessionList')){collapse();state().selected=null;paint();}return;}
+    if(!host)return;
     const node=e.target.closest('button,input');if(!node)return;
     if(node.dataset.selectObjective){selectObjective(node.dataset.selectObjective);return;}
     if(node.hasAttribute('data-new-objective')){newObjective();return;}
@@ -144,7 +230,7 @@
     if(node.dataset.objectiveResource){openResource(node.dataset.objectiveResource,node.dataset.objectiveTab||null);return;}
     if(node.dataset.revealResource){const id=node.dataset.revealResource;if(state().revealed.has(id))state().revealed.delete(id);else state().revealed.add(id);paint();return;}
     if(node.dataset.pinResource){const id=node.dataset.pinResource,tab=node.dataset.pinTab,pins=state().pins[id]||[];state().pins[id]=pins.includes(tab)?pins.filter(t=>t!==tab):[...pins,tab];persistView();paint();return;}
-    if(node.dataset.selectWorktree){const o=objective(),t=o.worktrees.find(t=>t.id===node.dataset.selectWorktree);collapse();state().tree[o.id]=t.id;persistView();paint();bridge.selectWorktree?.(t);return;}
+    if(node.dataset.selectWorktree){const o=objective(),t=scopeRows(o).find(t=>t.id===node.dataset.selectWorktree);collapse();state().tree[o.id]=t.id;persistView();paint();bridge.selectWorktree?.(t);return;}
     if(node.hasAttribute('data-associate-worktree')){collapse();bridge.addWorktree?.(node);return;}
     if(node.dataset.addResource){addResource(node.dataset.addResource);return;}
     if(node.hasAttribute('data-new-objective-task')){addTask();return;}
@@ -153,18 +239,21 @@
     if(node.hasAttribute('data-objective-settings')){const o=objective();form('Objective settings',input('Name','name',o.name)+input('Outcome','purpose',o.purpose,'text',false),v=>change({type:'settings',objective_id:o.id,name:v.get('name'),purpose:v.get('purpose')}));return;}
     if(node.dataset.renameObjectiveResource){const r=objective().resources.find(r=>r.id===node.dataset.renameObjectiveResource),tab=r.kind==='document'&&openView?.resource===r.id?openView.tab:null;form(tab?'Rename subtab':'Rename resource',input('Name','title',r.content?.tabs?.find(t=>t.id===tab)?.title||r.title),async v=>{await change({type:'rename',objective_id:objective().id,resource_id:r.id,tab_id:tab,title:v.get('title')});openResource(r.id,tab);});return;}
     if(node.dataset.addObjectiveSubtab){form('New document subtab',input('Name','title'),async v=>{await change({type:'subtab',objective_id:objective().id,resource_id:node.dataset.addObjectiveSubtab,title:v.get('title'),body:''});openResource(node.dataset.addObjectiveSubtab);});return;}
-    if(node.hasAttribute('data-edit-objective-document')){
-      const o=objective(),r=o.resources.find(r=>r.id===openView.resource),tab=r.content.tabs.find(t=>t.id===openView.tab),article=host.querySelector('article'),body=tab?.body??r.content.body;
-      article.innerHTML='<textarea class="objective-document-editor" aria-label="Document content"></textarea><button type="button" data-save-objective-document>Save</button>';article.querySelector('textarea').value=body;return;
-    }
-    if(node.hasAttribute('data-save-objective-document')){const r=objective().resources.find(r=>r.id===openView.resource),tab=openView.tab,text=host.querySelector('textarea').value;node.disabled=true;change({type:'document',objective_id:objective().id,resource_id:r.id,tab_id:tab,document_revision:r.content.revision,body:text}).then(()=>openResource(r.id,tab)).catch(()=>node.disabled=false);}
+    if(node.hasAttribute('data-save-objective-document'))void saveDraft(activeDraft,true);
+    if(node.hasAttribute('data-revert-objective-document'))void revertDraft(activeDraft);
   }
   document.addEventListener('click',handleClick);
+  document.addEventListener('click',event=>{
+    if(active(context()?.path)&&event.target.closest?.('#sidebar,.repo-tabs,#termSessionList')
+      &&!event.target.closest('[data-objectives-sidebar]')){
+      releaseDraft();collapse();state().selected=null;paint();
+    }
+  },true);
   document.addEventListener('change',e=>{const node=e.target;if(!node.matches('[data-task-done],[data-task-due]'))return;const o=objective(),id=node.dataset.taskDone||node.dataset.taskDue,patch=node.dataset.taskDone?{done:node.checked}:{due:node.value};change({type:'task-update',objective_id:o.id,task_id:id,...patch},{optimistic:d=>{const t=d.objectives.find(item=>item.id===o.id).tasks.flatMap(t=>[t,...t.children]).find(t=>t.id===id);Object.assign(t,patch);if('done'in patch)t.children.forEach(c=>c.done=patch.done);}}).catch(()=>{});});
   document.addEventListener('dragstart',e=>{const row=e.target.closest?.('[data-objective-resource]');if(row)e.dataTransfer.setData(resourceMime,JSON.stringify({objective_id:objective().id,resource_id:row.dataset.objectiveResource,tab_id:row.dataset.objectiveTab||null}));});
-  document.addEventListener('dragover',e=>{if(!active(context()?.path))return;const target=e.target.closest?.('[data-objective-resource],[data-objective-worktree],[data-objective-shared],#termSessionList .sess');if(target&&[resourceMime,documentMime,'application/x-lab-file-path','application/x-lab-terminal'].some(m=>e.dataTransfer.types.includes(m))){e.preventDefault();e.dataTransfer.dropEffect='link';}},true);
+  document.addEventListener('dragover',e=>{if(!active(context()?.path))return;const target=e.target.closest?.('[data-objective-resource],[data-objective-root],[data-objective-worktree],[data-objective-shared],#termSessionList .sess');if(target&&[resourceMime,documentMime,'application/x-lab-file-path','application/x-lab-terminal'].some(m=>e.dataTransfer.types.includes(m))){e.preventDefault();e.dataTransfer.dropEffect='link';}},true);
   document.addEventListener('drop',e=>{
-    if(!active(context()?.path))return;const target=e.target.closest?.('[data-objective-resource],[data-objective-worktree],[data-objective-shared],#termSessionList .sess');if(!target)return;
+    if(!active(context()?.path))return;const target=e.target.closest?.('[data-objective-resource],[data-objective-root],[data-objective-worktree],[data-objective-shared],#termSessionList .sess');if(!target)return;
     const raw=e.dataTransfer.getData(resourceMime),assistant=e.dataTransfer.getData(documentMime),file=e.dataTransfer.getData('application/x-lab-file-path'),terminal=e.dataTransfer.getData('application/x-lab-terminal');if(!raw&&!assistant&&!file&&!terminal)return;e.preventDefault();e.stopImmediatePropagation();
     try{if(raw){const item=JSON.parse(raw);if(item.objective_id!==objective().id)throw new Error('Choose a resource in this objective');if(target.classList.contains('sess')){const t=bridge.session?.(target.dataset.name);change({type:'terminal',objective_id:item.objective_id,session_id:terminalIdentity(t),source:t.document_source,resource_id:item.resource_id,tab_id:item.tab_id}).catch(()=>{});}else change({type:'scope',...item,worktree:target.dataset.objectiveWorktree||null}).catch(()=>{});}
       else if(assistant){const ref=JSON.parse(assistant),o=objective();change({type:'resource',objective_id:o.id,kind:'assistant',title:ref.title||'Assistant document',document_id:ref.document_id,assistant_root:ref.assistant_root,worktree:target.dataset.objectiveWorktree||null}).then(d=>{if(target.classList.contains('sess'))return change({type:'terminal',objective_id:o.id,session_id:terminalIdentity(bridge.session(target.dataset.name)),source:bridge.session(target.dataset.name).document_source,resource_id:d.objectives.find(item=>item.id===o.id).resources.at(-1).id});}).catch(()=>{});}
@@ -173,9 +262,16 @@
     }catch(error){notify(error.message,true);}
   },true);
   window.LabObjectives={connect(adapter){bridge=adapter;},load,active,sidebarHtml,paint,worktrees,tree,associate,terminalHtml,openForTerminal,collapse,progress,complete,change,selectObjective,renderTasks,
+    openOwnedFile(root,path){
+      if(!active(context()?.path))return false;
+      const scope=context(),full=root.replace(/\/$/,'')+'/'+path;
+      const resource=objective()?.resources.find(r=>r.kind==='document'&&scope.path+'/'+r.path===full);
+      if(!resource)return false;openResource(resource.id);return true;
+    },
     async addAssistant(scope,reference){const d=await load(scope);if(!d?.enabled)return false;const o=d.objectives.find(o=>o.id===state(scope).objective)||d.objectives.find(o=>d.focused.includes(o.id));if(!o)return false;if(!o.resources.some(r=>r.kind==='assistant'&&r.document_id===reference.document_id&&r.assistant_root===reference.assistant_root))await change({type:'resource',objective_id:o.id,kind:'assistant',title:reference.title||'Assistant document',...reference},{scope});return true;},
-    worktreeColor(path){return active(context()?.path)?data()?.objectives.flatMap(o=>o.worktrees).find(t=>t.path===path||t.resolved_path===path)?.color:null;},
+    worktreeColor(path){return active(context()?.path)?scopeRows().find(t=>t.fixed&&t.path===path)?.color||data()?.objectives.flatMap(o=>o.worktrees).find(t=>t.path===path||t.resolved_path===path)?.color:null;},
     notebookControls(root,path){const r=objective()?.resources.find(r=>r.kind==='notebook'&&r.path===path&&context()?.path===root);return r?`<span data-objective-notebook-controls><button type="button" data-rename-objective-resource="${esc(r.id)}">Rename</button></span>`:'';},
     ownsCenter(path){return context()?.path===path&&openView?.scope===key(context())&&!!(document.querySelector('#content .objective-working')||state().selected);},
-    leave(){if(context()){collapse();state().selected=null;}openView=null;dialog?.remove();dialog=null;clearTimeout(hoverTimer);}};
+    leave(){releaseDraft();if(context()){collapse();state().selected=null;}openView=null;dialog?.remove();dialog=null;clearTimeout(hoverTimer);}};
+  window.addEventListener('beforeunload',event=>{if([...drafts.values()].some(dirtyDraft)){event.preventDefault();event.returnValue='';}});
 })();
