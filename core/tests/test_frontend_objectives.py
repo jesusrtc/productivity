@@ -31,7 +31,7 @@ def test_objective_inline_editor_serializes_sibling_saves_and_retains_conflicts(
     for filename, body in [('copied.ipynb', '{"cells":[],"metadata":{},"nbformat":4,"nbformat_minor":5}'), ('query.sql', 'SELECT 1;')]:
         (folder/filename).write_text(body)
         data = objectives.mutate(monorepo, 'demo', {'type':'resource','objective_id':oid,'kind':'file','title':filename,'path':filename})
-    for kind, title, extra in [('notebook','Analysis',{}),('link','External',{'url':'https://example.com/a?one=1&two=2#section'})]:
+    for kind, title, extra in [('notebook','Analysis',{}),('link','External',{'url':'https://example.com/a?one=1&two=2#section','metadata':{'Owner':'Team','Count':3,'Tags':['a','b']}})]:
         data = objectives.mutate(monorepo, 'demo', {'type':'resource','objective_id':oid,'kind':kind,'title':title,**extra})
     file = folder/'existing file.py';file.write_text('print(1)\n')
     data = objectives.mutate(monorepo, 'demo', {'type':'resource','objective_id':oid,'kind':'file','title':'Existing file','path':file.name})
@@ -64,6 +64,7 @@ window.resource=data=>data.objectives[0].resources[0];
 const pasted=[],termXterm={paste:text=>pasted.push(text),focus(){}},termWS={readyState:1};
 const _termDragState=null,workspaceTabsDragId=null;
 const notices=[],opened=[];let scopeRoot=FIX.folder;
+window.LabExternalLinks={open:(url,options)=>{opened.push({url,options});return Promise.resolve(true)}};
 window.explorerToast=(message,error)=>{if(error)throw Error(message);notices.push(message)};
 document.getElementById('termBody').addEventListener('drop',_termHandleDrop);
 document.addEventListener('dragstart',event=>{if(event.isTrusted&&!event.target.closest('[data-drag-objective]')){window.nativeDrag={effect:event.dataTransfer.effectAllowed,reference:event.dataTransfer.getData('application/x-lab-reference')};event.preventDefault()}});
@@ -82,7 +83,9 @@ window.checkLink=async(selector,expected)=>{
  document.querySelector('#termSessionList .sess').dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:transfer}));
  await until(async()=>{const link=(await read()).terminal_links[FIX.session.session_id];return link&&Object.entries(expected).every(([key,value])=>JSON.stringify(link[key])===JSON.stringify(value))});
  assert(pasted.length===count,'association never writes terminal input');
- await LabObjectives.load(undefined,true);assert(LabObjectives.openForTerminal(FIX.session),'linked terminal opens target');
+ await LabObjectives.load(undefined,true);const browserCount=opened.filter(item=>item.url).length;assert(LabObjectives.openForTerminal(FIX.session),'linked terminal opens target');
+ const target=(await read()).objectives[0].resources.find(r=>r.id===expected.resource_id);
+ if(target?.kind==='link'){assert(document.querySelector('.objective-link-details')&&opened.filter(item=>item.url).length===browserCount,'linked terminal opens metadata without opening the URL');document.querySelector('[data-open-objective-link]').click();}
 };
 LabObjectives.connect({fileIcon:fileIconHtml,context:()=>({workspace_id:'demo',path:FIX.folder}),refreshTabs:()=>document.getElementById('tabs').innerHTML=LabObjectives.tabsHtml(FIX.folder),readyContent:()=>window.awaitAssets?.()||Promise.resolve(),prepareCenter:()=>{},scopeRoot:()=>scopeRoot,selectWorktree:row=>{scopeRoot=row.path},session:name=>name===FIX.session.name?FIX.session:null,openLink:link=>opened.push({url:link.url}),openFile:file=>opened.push({file}),openNotebook:r=>opened.push({notebook:r.path}),openFolder:folder=>opened.push({folder})});
 (async()=>{await LabObjectives.load();LabObjectives.selectObjective(FIX.oid);document.getElementById('result').textContent='READY'})().catch(e=>document.getElementById('result').textContent=e.stack);
@@ -115,7 +118,7 @@ const fs=require('node:fs');
  await new Promise(r=>ws.addEventListener('open',r,{once:true}));
  const send=(method,params={})=>new Promise((resolve,reject)=>{const id=++sequence;pending.set(id,{resolve,reject});ws.send(JSON.stringify({id,method,params}))});
  async function evaluate(expression){const r=await send('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:true});if(r.exceptionDetails)throw Error(r.exceptionDetails.exception?.description||'Browser assertion');return r.result.value;}
- async function click(selector){const p=await evaluate(`(()=>{const n=document.querySelector(${JSON.stringify(selector)});assert(n,'click target');n.scrollIntoView({block:'center'});const r=n.getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2}})()`);await send('Input.dispatchMouseEvent',{type:'mousePressed',...p,button:'left',clickCount:1});await send('Input.dispatchMouseEvent',{type:'mouseReleased',...p,button:'left',clickCount:1});}
+ async function click(selector,modifiers=0){const p=await evaluate(`(()=>{const n=document.querySelector(${JSON.stringify(selector)});assert(n,'click target');n.scrollIntoView({block:'center'});const r=n.getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2}})()`);await send('Input.dispatchMouseEvent',{type:'mousePressed',...p,button:'left',clickCount:1,modifiers});await send('Input.dispatchMouseEvent',{type:'mouseReleased',...p,button:'left',clickCount:1,modifiers});}
  async function type(text){await evaluate('editor().view.dispatch({selection:{anchor:editor().value.length},scrollIntoView:true});editor().focus()');await send('Input.insertText',{text});}
  await send('Page.navigate',{url:process.argv[2]});
  for(let i=0;i<200;i++){if(await evaluate('!!window.until'))break;await new Promise(r=>setTimeout(r,20));}
@@ -200,6 +203,53 @@ const fs=require('node:fs');
  await evaluate(`until(()=>document.querySelectorAll('.objective-switch-menu [data-select-objective]').length===5)`);
  await click('.objective-switch-menu button:nth-child(2)');
  await evaluate(`assert(document.querySelector('.objective-working h2').textContent==='Tasks'&&!document.querySelector('.objective-switch-menu'),'hover choice switches objective and closes menu');assert(document.querySelector('[data-current-objective]').style.getPropertyValue('--vault-color')==='#bc8cff','selected second slot color')`);
+ await evaluate(`document.getElementById('sidebar').style.display='';LabObjectives.selectObjective(FIX.oid)`);
+ const linkId=await evaluate(`(async()=>{const d=await read();return d.objectives[0].resources.find(r=>r.kind==='link').id})()`);
+ const linkSelector='[data-objectives-sidebar] [data-objective-resource="'+linkId+'"]';
+ await click(linkSelector);
+ await evaluate(`assert(document.querySelector('.objective-link-details')&&!document.querySelector('#content iframe'),'regular clicks show link details');assert(document.querySelector('[data-objective-link-field="url"]').value==='https://example.com/a?one=1&two=2#section','stored URL is editable')`);
+ async function fill(selector,text){await click(selector);await evaluate(`document.querySelector(${JSON.stringify(selector)}).select()`);await send('Input.insertText',{text});}
+ await fill('[data-objective-link-field="title"]','Updated reference');
+ await fill('[data-objective-link-field="url"]','https://example.com/updated?tab=main');
+ await fill('[data-objective-link-field="tldr"]','Why this link matters.');
+ await click('[data-add-link-property]');
+ await fill('.objective-link-property:last-child [data-link-property-name]','Status');
+ await fill('.objective-link-property:last-child [data-link-property-value]','In review');
+ await evaluate(`LabObjectives.renderTasks()`);await click(linkSelector);
+ await evaluate(`assert(document.querySelector('[data-objective-link-field="tldr"]').value==='Why this link matters.'&&document.querySelector('.objective-link-property:last-child [data-link-property-value]').value==='In review','navigation retains unsaved link fields and properties')`);
+ await click('[data-open-objective-link]');
+ await evaluate(`assert(opened.at(-1).url==='https://example.com/updated?tab=main','Open uses the valid edited URL')`);
+ await click('[data-save-objective-link]');
+ await evaluate(`(async()=>{await until(async()=>{const r=(await read()).objectives[0].resources.find(r=>r.id==='${linkId}');return r.title==='Updated reference'&&r.tldr==='Why this link matters.'});const r=(await read()).objectives[0].resources.find(r=>r.id==='${linkId}');assert(r.metadata.Status==='In review'&&r.metadata.Count===3&&JSON.stringify(r.metadata.Tags)==='["a","b"]','editable properties preserve unchanged JSON metadata');assert(document.querySelector('[data-link-details-title]').textContent==='Updated reference','saved title rendered')})()`);
+ await evaluate(`LabObjectives.renderTasks()`);
+ await click(linkSelector,4);
+ await evaluate(`assert(document.querySelector('.objective-working h2').textContent==='Tasks','Cmd click leaves center unchanged');assert(opened.at(-1).url==='https://example.com/updated?tab=main'&&opened.at(-1).options.clientOnly,'Cmd click opens URL directly')`);
+ await click(linkSelector);await click('[data-add-objective-sublink]');
+ await fill('.objective-dialog [name=title]','Overview tab');
+ await fill('.objective-dialog [name=url]','https://example.com/updated?tab=overview');
+ await click('.objective-dialog [type=submit]');
+ const subId=await evaluate(`(async()=>{await until(async()=>!!(await read()).objectives[0].resources.find(r=>r.id==='${linkId}').sublinks?.length);return (await read()).objectives[0].resources.find(r=>r.id==='${linkId}').sublinks[0].id})()`);
+ const parentHover=await evaluate(`(()=>{const n=document.querySelector('${linkSelector}');n.scrollIntoView({block:'center'});const r=n.getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2}})()`);
+ await send('Input.dispatchMouseEvent',{type:'mouseMoved',...parentHover});
+ await new Promise(r=>setTimeout(r,500));
+ await evaluate(`assert(!document.querySelector('[data-objectives-sidebar] [data-objective-sublink]'),'sublinks wait for one-second hover')`);
+ await evaluate(`until(()=>document.querySelector('[data-objectives-sidebar] [data-objective-sublink]'))`);
+ const childSelector='[data-objectives-sidebar] [data-objective-sublink="'+subId+'"]';
+ await click(childSelector);
+ await evaluate(`assert(document.querySelector('[data-link-details-title]').textContent==='Overview tab'&&document.querySelector('[data-objective-link-field="url"]').value==='https://example.com/updated?tab=overview','child opens its own details')`);
+ await fill('[data-objective-link-field="tldr"]','Tab-specific context');await click('[data-save-objective-link]');
+ await evaluate(`(async()=>{await until(async()=>(await read()).objectives[0].resources.find(r=>r.id==='${linkId}').sublinks[0].tldr==='Tab-specific context');checkDrag('${childSelector}','https://example.com/updated?tab=overview');await checkLink('${childSelector}',{resource_id:'${linkId}',sub_link_id:'${subId}'});assert(document.querySelector('[data-link-details-title]').textContent==='Overview tab','terminal target reopens exact sublink')})()`);
+ await fill('[data-objective-link-field="url"]','javascript:alert(1)');await click('[data-save-objective-link]');
+ await evaluate(`assert(document.querySelector('[data-link-details-status]').textContent.includes('http or https')&&document.querySelector('[data-objective-link-field="url"]').value==='javascript:alert(1)','invalid URL retains draft and shows error');assert(document.querySelector('[data-open-objective-link]').disabled,'unsafe draft cannot be opened')`);
+ await click('[data-revert-objective-link]');
+ await evaluate(`until(()=>document.querySelector('[data-objective-link-field="url"]').value==='https://example.com/updated?tab=overview')`);
+ await click('[data-open-parent-link]');
+ await fill('[data-objective-link-field="tldr"]','Retained conflicting link draft');
+ await evaluate(`(async()=>{const d=await read();const r=await fetch('/api/objectives',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({workspace_id:'demo',expected:d.revision,action:{type:'link-update',objective_id:FIX.oid,resource_id:'${linkId}',tldr:'Concurrent summary'}})});assert(r.ok,'concurrent link edit');await LabObjectives.load(undefined,true)})()`);
+ await click('[data-save-objective-link]');
+ await evaluate(`until(()=>document.querySelector('[data-link-details-status]').textContent.includes('changed elsewhere'));assert(document.querySelector('[data-objective-link-field="tldr"]').value==='Retained conflicting link draft','poll and conflict keep link draft')`);
+ await click('[data-revert-objective-link]');
+ await evaluate(`until(()=>document.querySelector('[data-objective-link-field="tldr"]').value==='Concurrent summary')`);
  ws.close();console.log('PASS');
 })().catch(error=>{console.error(error.stack);process.exit(1)});
 '''

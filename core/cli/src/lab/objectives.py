@@ -198,6 +198,57 @@ def _write_document(folder, resource, body='', tabs=None):
         _metadata(resource['id'], resource['title']), body, tabs or []))
 
 
+def _sublink_rows(resource):
+    for item in resource.get('sublinks', []):
+        yield item
+        yield from _sublink_rows(item)
+
+
+def _link_fields(action, depth=0, seen=None):
+    result = {}
+    if 'title' in action:
+        result['title'] = _text(action['title'])
+    if 'url' in action:
+        url = _text(action['url'], 'URL', 4096)
+        parsed = urlparse(url)
+        if parsed.scheme not in {'http', 'https'} or not parsed.netloc or any(ord(c) < 32 or ord(c) == 127 for c in url):
+            raise ValueError('Use a full http or https URL')
+        result['url'] = url
+    if 'tldr' in action:
+        text = action['tldr']
+        if not isinstance(text, str) or len(text) > 8192 or '\x00' in text:
+            raise ValueError('TL;DR must be text up to 8192 characters')
+        result['tldr'] = text
+    if 'metadata' in action:
+        metadata = action['metadata']
+        if not isinstance(metadata, dict) or len(metadata) > 50 or any(not isinstance(k, str) or not k.strip() or len(k) > 80 for k in metadata):
+            raise ValueError('Metadata must contain up to 50 named properties')
+        try:
+            encoded = json.dumps(metadata, allow_nan=False)
+        except (TypeError, ValueError, RecursionError) as exc:
+            raise ValueError('Metadata must contain JSON values') from exc
+        if len(encoded) > 16384:
+            raise ValueError('Metadata must be at most 16 KB')
+        result['metadata'] = deepcopy(metadata)
+    if 'sublinks' in action:
+        rows = action['sublinks']
+        if not isinstance(rows, list) or depth >= 4 and rows:
+            raise ValueError('Sublinks support up to four nested levels')
+        seen = set() if seen is None else seen
+        result['sublinks'] = []
+        for row in rows:
+            if not isinstance(row, dict):
+                raise ValueError('Choose a sublink title and URL')
+            sid = row.get('id') or identifier()
+            if not isinstance(sid, str) or not re.fullmatch(r'[A-Za-z0-9_.-]{1,128}', sid) or sid in seen:
+                raise ValueError('Sublink IDs must be unique')
+            seen.add(sid)
+            if len(seen) > 100:
+                raise ValueError('A link supports up to 100 sublinks')
+            result['sublinks'].append({'id': sid, **_link_fields({**row, 'title':row.get('title'), 'url':row.get('url')}, depth+1, seen)})
+    return result
+
+
 def _resource(folder, objective, action):
     kind = action.get('kind', 'document')
     if kind not in {'document', 'notebook', 'assistant', 'link', 'file'}:
@@ -231,9 +282,7 @@ def _resource(folder, objective, action):
             raise ValueError('Choose an existing objective file')
         item.update(file_root=str(file_root), path=target.relative_to(file_root).as_posix())
     elif kind == 'link':
-        item['url'] = _text(action.get('url'), 'URL', 4096)
-        if urlparse(item['url']).scheme not in {'http', 'https'} or not urlparse(item['url']).netloc:
-            raise ValueError('Use a full http or https URL')
+        item.update(_link_fields({**action, 'url': action.get('url')}))
     else:
         item['document_id'] = _text(action.get('document_id'), 'Document ID')
         item['assistant_root'] = _text(action.get('assistant_root'), 'Assistant location', 4096)
@@ -338,6 +387,44 @@ def mutate(root, workspace_id, action, expected=None):
             if tree and not _find(objective['worktrees'], tree):
                 raise ValueError('Worktree must belong to this objective')
             resource['worktree'] = tree
+        elif operation == 'link-update':
+            resource = _find(objective['resources'], action.get('resource_id'))
+            if not resource or resource['kind'] != 'link':
+                raise ValueError('Choose an external link in this objective')
+            target = _find(list(_sublink_rows(resource)), action.get('sub_link_id')) if action.get('sub_link_id') else resource
+            if target is None:
+                raise ValueError('Sublink not found')
+            target.update(_link_fields(action))
+            if 'sublinks' in action:
+                resource.update(_link_fields({'sublinks':resource.get('sublinks', [])}))
+                remaining = {r['id'] for r in _sublink_rows(resource)}
+                for link in data['terminal_links'].values():
+                    if link.get('resource_id') == resource['id'] and link.get('sub_link_id') and link['sub_link_id'] not in remaining:
+                        link.pop('sub_link_id')
+        elif operation == 'link-sublink':
+            resource = _find(objective['resources'], action.get('resource_id'))
+            if not resource or resource['kind'] != 'link':
+                raise ValueError('Choose an external link in this objective')
+            updated = deepcopy(resource)
+            target = _find(list(_sublink_rows(updated)), action.get('parent_id')) if action.get('parent_id') else updated
+            if target is None:
+                raise ValueError('Parent sublink not found')
+            target.setdefault('sublinks', []).append({'id':identifier(), **_link_fields({**action, 'title':action.get('title'), 'url':action.get('url')})})
+            resource.update(_link_fields({'sublinks':updated['sublinks']}))
+        elif operation == 'link-remove-sublink':
+            resource = _find(objective['resources'], action.get('resource_id'))
+            if not resource or resource['kind'] != 'link':
+                raise ValueError('Choose an external link in this objective')
+            target = _find(list(_sublink_rows(resource)), action.get('sub_link_id'))
+            if target is None:
+                raise ValueError('Sublink not found')
+            removed = {target['id'], *(r['id'] for r in _sublink_rows(target))}
+            for parent in [resource, *_sublink_rows(resource)]:
+                if 'sublinks' in parent:
+                    parent['sublinks'] = [r for r in parent['sublinks'] if r['id'] not in removed]
+            for link in data['terminal_links'].values():
+                if link.get('resource_id') == resource['id'] and link.get('sub_link_id') in removed:
+                    link.pop('sub_link_id')
         elif operation == 'rename':
             resource = _find(objective['resources'], action.get('resource_id'))
             if not resource:
@@ -432,6 +519,9 @@ def mutate(root, workspace_id, action, expected=None):
                     raise ValueError('Choose a document subtab')
                 if resource['kind'] == 'document' and not any(t['id'] == action['tab_id'] for t in document(folder, resource)['tabs']):
                     raise ValueError('Subtab not found')
+            if action.get('sub_link_id'):
+                if not resource or resource['kind'] != 'link' or not _find(list(_sublink_rows(resource)), action['sub_link_id']):
+                    raise ValueError('Sublink not found')
             linked_file = action.get('file')
             linked_folder = action.get('folder')
             view = action.get('view')
@@ -461,6 +551,8 @@ def mutate(root, workspace_id, action, expected=None):
                     linked_folder = normalized
             data['terminal_links'][name] = {'objective_id': objective['id'], 'resource_id': action.get('resource_id'),
                                           'tab_id': action.get('tab_id'), 'file': linked_file}
+            if action.get('sub_link_id'):
+                data['terminal_links'][name]['sub_link_id'] = action['sub_link_id']
             if linked_folder:
                 data['terminal_links'][name]['folder'] = linked_folder
             if view:

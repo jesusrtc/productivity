@@ -5,8 +5,8 @@
   const resourceMime = 'application/x-lab-objective-resource', documentMime = 'application/x-lab-assistant-document';
   const objectiveMime = 'application/x-lab-workspace-objective', focusSlots = 5;
   const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  const drafts = new Map();
-  let bridge, dialog = null, hoverTimer, openView = null, activeDraft = null, switchMenu = null, switchTimer;
+  const drafts = new Map(), linkDrafts = new Map();
+  let bridge, dialog = null, hoverTimer, openView = null, activeDraft = null, activeLinkDraft = null, switchMenu = null, switchTimer;
   const key = scope => (scope?.vault || '') + '::' + scope?.workspace_id;
   const context = () => bridge?.context?.();
   const data = () => cache.get(key(context()));
@@ -69,9 +69,11 @@
     const root=resource.document_id||resource.id,rows=resource.content?.tabs||[],children=new Map();rows.forEach(t=>{const parent=t.parent?.id||root;if(!children.has(parent))children.set(parent,[]);children.get(parent).push(t);});
     const result=[],seen=new Set();function visit(id,depth){for(const t of children.get(id)||[]){if(seen.has(t.id))continue;seen.add(t.id);result.push({...t,depth});visit(t.id,depth+1);}}visit(root,0);rows.filter(t=>!seen.has(t.id)).forEach(t=>result.push({...t,depth:0}));return result;
   }
-  function resourceReference(resource,tabId) {
+  function subLinksFor(resource,depth=0) {return (resource?.sublinks||[]).flatMap(row=>[{...row,depth},...subLinksFor(row,depth+1)]);}
+  function linkTarget(resource,subLink) {return subLink?subLinksFor(resource).find(row=>row.id===subLink):resource;}
+  function resourceReference(resource,tabId,subLink) {
     if(!resource||resource.error)return null;
-    if(resource.kind==='link')return resource.url;
+    if(resource.kind==='link')return linkTarget(resource,subLink)?.url;
     const root=resource.kind==='assistant'?resource.assistant_root:resource.kind==='file'?resource.file_root:context()?.path;
     if(!root?.startsWith('/')||!resource.path)return null;
     const path=resource.path.startsWith('/')?resource.path:root.replace(/\/+$/,'')+'/'+resource.path;
@@ -87,16 +89,18 @@
     transfer.effectAllowed='copyLink';return true;
   }
   function resourceRow(o,r) {
-    const selected=state().selected?.resource===r.id&&!state().selected?.tab;
+    const selected=state().selected?.resource===r.id&&!state().selected?.tab&&!state().selected?.subLink;
     const icon=r.kind==='link'?(window.LabScopeLinks?.icon({kind:'external',url:r.url})||'<span aria-hidden="true">↗</span>'):
       (r.kind!=='assistant'&&bridge.fileIcon?.(r.path||r.title))||`<span aria-hidden="true">${r.kind==='notebook'?'▦':'▤'}</span>`;
-    const rows=tabsFor(r),reveal=state().revealed.has(r.id),pins=state().pins[r.id]||[];
+    const rows=r.kind==='link'?subLinksFor(r):tabsFor(r),reveal=state().revealed.has(r.id),pins=state().pins[r.id]||[];
+    if(r.kind==='link')return `<div class="objective-resource-group" data-resource-group="${esc(r.id)}"><div class="objective-resource-head"><button type="button" class="sidebar-scope-link objective-resource objective-link${selected?' active':''}" data-objective-resource="${esc(r.id)}" draggable="true" title="${esc(r.title)}">${icon}<span>${esc(r.title)}</span></button>${rows.length?'<span class="objective-sublinks-marker" aria-hidden="true">'+(reveal?'▾':'▸')+'</span>':''}</div>${reveal&&rows.length?`<div class="objective-subtabs objective-sublinks" role="tree" aria-label="${esc(r.title)} sublinks">${rows.map(row=>`<div class="objective-subtab-row" style="--objective-tab-depth:${row.depth}" role="treeitem" aria-level="${row.depth+1}"><button type="button" class="objective-subtab${state().selected?.resource===r.id&&state().selected?.subLink===row.id?' active':''}" data-objective-resource="${esc(r.id)}" data-objective-sublink="${esc(row.id)}" draggable="true" title="${esc(row.title)}">${window.LabScopeLinks?.icon({kind:'external',url:row.url})||'↗'}<span>${esc(row.title)}</span></button></div>`).join('')}</div>`:''}</div>`;
     return `<div class="objective-resource-group" data-resource-group="${esc(r.id)}"><div class="objective-resource-head"><button type="button" class="sidebar-scope-link objective-resource${r.kind==='link'?' objective-link':''}${selected?' active':''}" data-objective-resource="${esc(r.id)}" draggable="true" title="${esc(r.title)}">${icon}<span>${esc(r.title)}</span></button>${rows.length?`<button type="button" class="objective-tree-toggle" data-reveal-resource="${esc(r.id)}" aria-label="Show subtabs for ${esc(r.title)}" aria-expanded="${reveal}">${reveal?'▾':'▸'}</button>`:''}</div>
       ${rows.length?`<div class="objective-subtabs" role="tree" aria-label="${esc(r.title)} subtabs">${rows.filter(t=>reveal||pins.includes(t.id)).map(t=>`<div class="objective-subtab-row" style="--objective-tab-depth:${t.depth}" role="treeitem" aria-level="${t.depth+1}"><button type="button" class="objective-subtab${state().selected?.resource===r.id&&state().selected.tab===t.id?' active':''}" data-objective-resource="${esc(r.id)}" data-objective-tab="${esc(t.id)}" draggable="true" title="${esc(t.title)}"><span aria-hidden="true">▤</span><span>${esc(t.title)}</span></button><button type="button" class="objective-pin" data-pin-resource="${esc(r.id)}" data-pin-tab="${esc(t.id)}" aria-label="Pin ${esc(t.title)}" aria-pressed="${pins.includes(t.id)}">${pins.includes(t.id)?'◆':'◇'}</button></div>`).join('')}</div>`:''}</div>`;
   }
   function paint() {
     bridge.refreshTabs?.();
     if(switchMenu)paintSwitchMenu();
+    refreshLinkDetails();
     const scope=context(),host=document.querySelector('[data-objectives-sidebar]');if(!host||!scope)return;
     const d=data();if(!d)return;
     if(!d.enabled){host.innerHTML='<button type="button" class="sidebar-objective-add" data-new-objective>+ Objective</button>';return;}
@@ -108,7 +112,7 @@
       </section>
       <div class="sidebar-title objective-title">Worktrees<button type="button" data-associate-worktree aria-label="Associate worktree">+</button></div><div class="objective-worktrees">${scopeRows(o).map(item=>`<div class="sidebar-scope-chip${item.id===t?.id?' active':''}" style="--sidebar-workspace-color:${esc(item.color)}" ${item.fixed?'data-objective-root':'data-objective-worktree'}="${esc(item.id)}"><span class="objective-worktree-icon" aria-hidden="true">${item.fixed?'⌂':'⑂'}</span><button type="button" class="sidebar-file-scope-button" data-select-worktree="${esc(item.id)}" draggable="true" aria-pressed="${item.id===t?.id}" title="${esc(item.path)}"><span>${esc(item.label)}</span></button><span class="sidebar-scope-tag">${esc(item.kind==='folder'?'Folder':'Worktree')}</span></div>`).join('')}</div>
       ${scoped.length?`<div class="sidebar-title">For this ${t?.kind==='folder'?'folder':'worktree'}</div><div class="objective-resources">${scoped.map(r=>resourceRow(o,r)).join('')}</div>`:''}`;
-    host.querySelectorAll('[data-resource-group]').forEach(row=>{row.onmouseenter=()=>{clearTimeout(hoverTimer);const id=row.dataset.resourceGroup;hoverTimer=setTimeout(()=>{if(row.isConnected&&key(context())===key(scope)){state().revealed.add(id);paint();}},1500);};row.onmouseleave=()=>clearTimeout(hoverTimer);});
+    host.querySelectorAll('[data-resource-group]').forEach(row=>{row.onmouseenter=()=>{clearTimeout(hoverTimer);const id=row.dataset.resourceGroup;if(state().revealed.has(id))return;const resource=o.resources.find(r=>r.id===id);hoverTimer=setTimeout(()=>{if(row.isConnected&&key(context())===key(scope)){state().revealed.add(id);paint();}},resource?.kind==='link'?1000:1500);};row.onmouseleave=()=>clearTimeout(hoverTimer);});
   }
   function selectObjective(id) {
     const o=data()?.objectives.find(o=>o.id===id);if(!o)return;closeSwitchMenu();collapse();state().objective=id;state().view='objective';state().selected=null;persistView();paint();renderTasks();bridge.refreshTerminals?.();
@@ -173,19 +177,109 @@
     host.innerHTML=`<section class="objective-working"><header><h2>Tasks</h2><button type="button" data-new-objective-task>+ Task</button></header><p class="objective-purpose">${esc(o.name)} · ${esc(o.purpose)}</p><div class="objective-task-progress">${badge(o)}<span>${esc(p.label)}</span></div><div class="objective-task-list">${o.tasks.map(t=>taskRow(t)+t.children.map(c=>taskRow(c,t)).join('')).join('')||'<p>No tasks yet. Add a task and its details document will be created with it.</p>'}</div></section>`;
     paint();
   }
-  function openResource(resourceId,tabId=null) {
+  function openResource(resourceId,tabId=null,subLink=null) {
     const o=objective(),r=o?.resources.find(r=>r.id===resourceId);if(!r)return;
+    if(r.kind==='link'&&subLink&&!linkTarget(r,subLink))subLink=null;
     state().view='objective';persistView();
     releaseDraft();
-    collapse();state().selected={resource:resourceId,tab:tabId};if(r.content?.tabs?.length)state().revealed.add(resourceId);paint();
+    const wasRevealed=state().revealed.has(resourceId);collapse();state().selected={resource:resourceId,tab:tabId,subLink};if(r.content?.tabs?.length||r.kind==='link'&&wasRevealed)state().revealed.add(resourceId);paint();
     openView={type:r.kind,scope:key(context()),objective:o.id,resource:r.id,tab:tabId};
     if(r.kind==='assistant'){bridge.openAssistant?.({...r,tab_id:tabId||r.tab_id});return;}
-    if(r.kind==='link'){bridge.openLink?.(r);return;}
+    if(r.kind==='link'){if(linkTarget(r,subLink))renderLinkDetails(o,r,subLink);return;}
     if(r.kind==='notebook'){bridge.openNotebook?.(r);return;}
     if(r.kind==='file'){bridge.openFile?.({root:r.file_root,path:r.path});return;}
     const tab=r.content?.tabs?.find(t=>t.id===tabId),body=tab?.body??r.content?.body??'',host=showCenter('document');openView.resource=r.id;openView.tab=tabId;
     host.innerHTML=`<section class="objective-working objective-document"><header><h2>${esc(tab?.title||r.title)}</h2><button type="button" data-rename-objective-resource="${esc(r.id)}">Rename</button></header><div class="objective-document-context"><button type="button" data-open-objective-tasks>← Tasks</button><span>${esc(o.name)}${tab?' / '+esc(r.title):''}</span></div><article class="workspace-doc-body markdown-body"></article><div class="objective-document-actions"><button type="button" data-save-objective-document>Save</button><button type="button" data-revert-objective-document>Revert</button>${!tabId?`<button type="button" data-add-objective-subtab="${esc(r.id)}">+ Subtab</button>`:''}<span class="objective-document-status" role="status" aria-live="polite"></span></div></section>`;
     mountDraft(o,r,tabId,body,host.querySelector('article'));
+  }
+  const linkFields=r=>({title:r.title,url:r.url,tldr:r.tldr||'',metadata:r.metadata||{}});
+  const linkSnapshot=r=>JSON.stringify(linkFields(r));
+  const propertyText=value=>typeof value==='string'?value:JSON.stringify(value);
+  const linkUi=d=>JSON.stringify([d.title,d.url,d.tldr,d.properties]);
+  const dirtyLink=d=>linkUi(d)!==d.baseUi;
+  function resetLinkDraft(d,r) {
+    Object.assign(d,linkFields(r));d.properties=Object.entries(r.metadata||{}).map(([name,value])=>({name,value:propertyText(value),original:value}));
+    d.base=linkSnapshot(r);d.baseUi=linkUi(d);d.error='';
+  }
+  function linkDraftValues(d) {
+    const title=d.title.trim(),url=d.url.trim();if(!title)throw new Error('Give this link a title.');
+    if(!validLinkUrl(url))throw new Error('Use a full http or https URL.');
+    const entries=[],names=new Set();
+    for(const item of d.properties){
+      const name=item.name.trim();if(!name&&!item.value)continue;
+      if(!name)throw new Error('Give each metadata property a name.');
+      if(names.has(name))throw new Error('Metadata property names must be unique.');
+      names.add(name);entries.push([name,item.value===propertyText(item.original)?item.original:item.value]);
+    }
+    return {title,url,tldr:d.tldr,metadata:Object.fromEntries(entries)};
+  }
+  function validLinkUrl(value) {
+    try{const url=new URL(value);return /^https?:\/\//i.test(value)&&['http:','https:'].includes(url.protocol)&&!!url.hostname&&!/[\x00-\x1f\x7f]/.test(value);}catch{return false;}
+  }
+  function openLinkUrl(url) {
+    if(!validLinkUrl(url)){notify('Use a full http or https URL.',true);return;}
+    void window.LabExternalLinks?.open(url,{clientOnly:true,reuseTab:true});
+  }
+  function linkPropertiesHtml(d) {
+    return d.properties.map((p,i)=>`<div class="objective-link-property" data-link-property="${i}"><input aria-label="Property ${i+1} name" data-link-property-name maxlength="80" placeholder="Property" value="${esc(p.name)}"><textarea aria-label="Property ${i+1} value" data-link-property-value rows="1" placeholder="Value">${esc(p.value)}</textarea><button type="button" data-remove-link-property="${i}" aria-label="Remove property ${i+1}">×</button></div>`).join('')||'<p class="objective-purpose">No properties yet.</p>';
+  }
+  function updateLinkHeader(d) {
+    if(activeLinkDraft!==d||!d.node?.isConnected)return;
+    d.node.querySelector('[data-link-details-title]').textContent=d.title||'Link details';
+    d.node.querySelector('[data-link-details-icon]').innerHTML=window.LabScopeLinks?.icon({kind:'external',url:d.url})||'↗';
+    d.node.querySelector('[data-link-details-service]').textContent=window.LabScopeLinks?.serviceFor({kind:'external',url:d.url})?.name||'External link';
+    d.node.querySelector('[data-open-objective-link]').disabled=!validLinkUrl(d.url.trim());
+    d.node.querySelector('[data-save-objective-link]').disabled=!dirtyLink(d)||d.saving;
+    d.node.querySelector('[data-revert-objective-link]').disabled=!!d.saving;
+    const status=d.node.querySelector('[data-link-details-status]');status.textContent=d.error||(d.saving?'Saving…':dirtyLink(d)?'Unsaved changes':d.saved?'Saved':'');status.classList.toggle('error',!!d.error);
+  }
+  function linkChildrenHtml(d,r) {
+    return (r.sublinks||[]).map(row=>`<div class="objective-link-child"><button type="button" data-objective-resource="${esc(d.resource)}" data-objective-sublink="${esc(row.id)}">${window.LabScopeLinks?.icon({kind:'external',url:row.url})||'↗'}<span>${esc(row.title)}</span></button><button type="button" data-remove-objective-sublink="${esc(row.id)}" aria-label="Remove ${esc(row.title)}">×</button></div>`).join('')||'<p class="objective-purpose">No sublinks yet.</p>';
+  }
+  function mountLinkDetails(d,o,r,host) {
+    const resource=o.resources.find(row=>row.id===d.resource),worktree=o.worktrees.find(t=>t.id===resource.worktree);
+    host.innerHTML=`<section class="objective-working objective-link-details"><header><div class="objective-link-heading"><span data-link-details-icon></span><h2 data-link-details-title></h2></div><button type="button" data-open-objective-link>Open ↗</button></header><p class="objective-purpose">${esc(o.name)}</p><form class="objective-link-editor"><label>Title<input data-objective-link-field="title" required maxlength="512" value="${esc(d.title)}"></label><label>URL<input data-objective-link-field="url" type="url" required maxlength="4096" value="${esc(d.url)}"></label><label>TL;DR<textarea data-objective-link-field="tldr" rows="4" maxlength="8192" placeholder="What this link contains and why it matters">${esc(d.tldr)}</textarea></label><section aria-label="Link metadata"><h3>Metadata</h3><dl class="objective-link-context"><dt>Service</dt><dd data-link-details-service></dd><dt>Scope</dt><dd>${esc(worktree?.label||'Shared across this objective')}</dd></dl><div data-link-properties>${linkPropertiesHtml(d)}</div><button type="button" data-add-link-property>+ Property</button></section><div class="objective-document-actions"><button type="submit" data-save-objective-link>Save</button><button type="button" data-revert-objective-link>Revert</button><span class="objective-document-status" data-link-details-status role="status" aria-live="polite"></span></div></form></section>`;
+    d.node=host.querySelector('.objective-link-details');
+    const children=document.createElement('section');children.className='objective-link-children';children.innerHTML=`<h3>Sublinks</h3><div data-link-children>${linkChildrenHtml(d,r)}</div><button type="button" data-add-objective-sublink>+ Sublink</button>`;
+    d.node.querySelector('form').insertBefore(children,d.node.querySelector('.objective-document-actions'));
+    if(d.subLink){const back=document.createElement('button');back.type='button';back.dataset.openParentLink=d.resource;back.textContent='← '+resource.title;d.node.querySelector('.objective-purpose').append(document.createTextNode(' · '),back);}
+    activeLinkDraft=d;updateLinkHeader(d);
+    d.node.querySelector('form').onsubmit=event=>{event.preventDefault();void saveLinkDetails(d);};
+  }
+  function renderLinkDetails(o,r,subLink=null) {
+    const host=showCenter('link');openView.resource=r.id;openView.subLink=subLink;
+    const scope={...context()},id=JSON.stringify([key(scope),o.id,r.id,subLink]),target=linkTarget(r,subLink);let d=linkDrafts.get(id);
+    if(!d){d={scope,objective:o.id,resource:r.id,subLink};resetLinkDraft(d,target);linkDrafts.set(id,d);}
+    else if(!dirtyLink(d)&&!d.saving&&d.base!==linkSnapshot(target))resetLinkDraft(d,target);
+    mountLinkDetails(d,o,target,host);
+    for(const [id,entry] of linkDrafts){if(linkDrafts.size<=32)break;if(entry!==d&&!entry.saving&&!dirtyLink(entry))linkDrafts.delete(id);}
+  }
+  function refreshLinkDetails() {
+    const d=activeLinkDraft;if(!d?.node?.isConnected||key(d.scope)!==key(context()))return;
+    const o=data()?.objectives.find(o=>o.id===d.objective),r=linkTarget(o?.resources.find(r=>r.id===d.resource),d.subLink);if(!r)return;
+    if(!dirtyLink(d)&&!d.saving&&d.base!==linkSnapshot(r)){resetLinkDraft(d,r);mountLinkDetails(d,o,r,document.getElementById('content'));}
+    updateLinkHeader(d);
+    d.node.querySelector('[data-link-children]').innerHTML=linkChildrenHtml(d,r);
+  }
+  function saveLinkDetails(d) {
+    if(!d||d.saving||!dirtyLink(d))return d?.pending;
+    let fields;try{fields=linkDraftValues(d);}catch(error){d.error=error.message;updateLinkHeader(d);return;}
+    const ui=linkUi(d),base=d.base;d.saving=true;d.error='';updateLinkHeader(d);
+    d.pending=change(value=>{
+      const r=linkTarget(value.objectives.find(o=>o.id===d.objective)?.resources.find(r=>r.id===d.resource),d.subLink);
+      if(!r||linkSnapshot(r)!==base)throw new Error('Link changed elsewhere. Your draft is still here; Revert loads the saved version.');
+      return {type:'link-update',objective_id:d.objective,resource_id:d.resource,sub_link_id:d.subLink,...fields};
+    },{scope:d.scope}).then(value=>{
+      const r=linkTarget(value.objectives.find(o=>o.id===d.objective).resources.find(r=>r.id===d.resource),d.subLink);
+      if(linkUi(d)===ui)resetLinkDraft(d,r);else{d.base=linkSnapshot(r);d.baseUi=ui;}
+      d.saved=Date.now();
+    }).catch(error=>{d.error=error.message;}).finally(()=>{d.saving=false;updateLinkHeader(d);});
+    return d.pending;
+  }
+  async function revertLinkDetails(d) {
+    if(!d||d.saving)return;await load(d.scope,true);
+    const o=cache.get(key(d.scope))?.objectives.find(o=>o.id===d.objective),r=linkTarget(o?.resources.find(r=>r.id===d.resource),d.subLink);if(!r)return;
+    resetLinkDraft(d,r);if(activeLinkDraft===d&&d.node?.isConnected)mountLinkDetails(d,o,r,document.getElementById('content'));
   }
   const dirtyDraft=draft=>draft.body!==draft.base;
   function draftResource(draft,value=cache.get(key(draft.scope))) {return value?.objectives.find(o=>o.id===draft.objective)?.resources.find(r=>r.id===draft.resource);}
@@ -220,6 +314,7 @@
     return draft.pending;
   }
   function releaseDraft() {
+    activeLinkDraft=null;
     const draft=activeDraft;if(!draft)return;
     activeDraft=null;clearTimeout(draft.timer);
     // Navigation paints immediately. Capture the outgoing body and retain a
@@ -291,7 +386,9 @@
       if(!data().focused.includes(state().objective)){state().objective=id;persistView();paint();bridge.refreshTerminals?.();}
     }else selectObjective(id);
   }
-  function addResource(kind='document') {form('Add objective resource',`<label>Type<select name="kind"><option value="document">Markdown document</option><option value="notebook">Notebook</option><option value="link">Link</option><option value="file">Existing workspace file</option></select></label>`+input('Name','title')+input('URL (links only)','url','','text',false)+input('Workspace-relative path (existing files only)','path','','text',false),async values=>{const result=await change({type:'resource',objective_id:objective().id,kind:values.get('kind'),title:values.get('title'),url:values.get('url'),path:values.get('path')});openResource(result.objectives.find(o=>o.id===objective().id).resources.at(-1).id);});dialog.querySelector('[name=kind]').value=kind;}
+  function addResource(kind='document') {
+    if(kind==='link'){form('Add link',input('Title','title')+input('URL','url','','url')+'<label>TL;DR<textarea name="tldr" rows="3" maxlength="8192"></textarea></label>',async values=>{const o=objective(),result=await change({type:'resource',objective_id:o.id,kind:'link',title:values.get('title'),url:values.get('url'),tldr:values.get('tldr')});openResource(result.objectives.find(row=>row.id===o.id).resources.at(-1).id);});return;}
+    form('Add objective resource',`<label>Type<select name="kind"><option value="document">Markdown document</option><option value="notebook">Notebook</option><option value="link">Link</option><option value="file">Existing workspace file</option></select></label>`+input('Name','title')+input('URL (links only)','url','','text',false)+input('Workspace-relative path (existing files only)','path','','text',false),async values=>{const result=await change({type:'resource',objective_id:objective().id,kind:values.get('kind'),title:values.get('title'),url:values.get('url'),path:values.get('path')});openResource(result.objectives.find(o=>o.id===objective().id).resources.at(-1).id);});dialog.querySelector('[name=kind]').value=kind;}
   function addTask(parentId=null) {const o=objective();form(parentId?'New subtask':'New task',input('Task','title')+input('Due date','due','','date',false),async values=>{await change({type:'task',objective_id:o.id,parent_id:parentId,title:values.get('title'),due:values.get('due')});renderTasks();});}
   function associate(row) {return change({type:'worktree',objective_id:objective().id,path:row.path,label:row.label||row.name||row.path.split('/').pop(),repo:row.projectPath||row.path,branch:row.branch,kind:row.kind||'worktree'}).then(d=>{const o=d.objectives.find(o=>o.id===objective().id);state().tree[o.id]=o.worktrees.at(-1).id;persistView();return o.worktrees.at(-1);});}
   function terminalIdentity(t) {return t.session_id||t.name;}
@@ -323,11 +420,11 @@
     if(link.view==='tasks'||link.folder){
       state().selected=null;renderTasks();
       if(link.folder){const view=openView,scope=key(context());Promise.resolve(selected).then(()=>{if(openView===view&&key(context())===scope)bridge.openFolder?.(link.folder);});}
-    }else if(link.resource_id)openResource(link.resource_id,link.tab_id);else if(link.file)bridge.openFile?.(link.file);
+    }else if(link.resource_id)openResource(link.resource_id,link.tab_id,link.sub_link_id);else if(link.file)bridge.openFile?.(link.file);
     paint();return true;
   }
   function sidebarTarget(node,o=objective()) {
-    const resource=node.closest?.('[data-objective-resource]');if(resource)return {resource_id:resource.dataset.objectiveResource,tab_id:resource.dataset.objectiveTab||null};
+    const resource=node.closest?.('[data-objective-resource]');if(resource)return {resource_id:resource.dataset.objectiveResource,tab_id:resource.dataset.objectiveTab||null,sub_link_id:resource.dataset.objectiveSublink||null};
     if(node.closest?.('[data-objectives-sidebar] [data-open-objective-tasks]'))return {view:'tasks'};
     const row=node.closest?.('[data-objective-root],[data-objective-worktree]'),tree=scopeRows(o).find(t=>t.id===(row?.dataset.objectiveRoot||row?.dataset.objectiveWorktree));
     return tree?{folder:{root:tree.path,path:'.'}}:null;
@@ -357,7 +454,14 @@
     if(node.hasAttribute('data-new-objective')){newObjective();return;}
     if(node.hasAttribute('data-focus-objective')){focusDialog();return;}
     if(node.hasAttribute('data-open-objective-tasks')){collapse();renderTasks();return;}
-    if(node.dataset.objectiveResource){openResource(node.dataset.objectiveResource,node.dataset.objectiveTab||null);return;}
+    if(node.dataset.objectiveResource){const r=objective()?.resources.find(r=>r.id===node.dataset.objectiveResource),sub=node.dataset.objectiveSublink||null;if(r?.kind==='link'&&(e.metaKey||e.ctrlKey)){e.preventDefault();openLinkUrl(linkTarget(r,sub)?.url);}else openResource(node.dataset.objectiveResource,node.dataset.objectiveTab||null,sub);return;}
+    if(node.dataset.openParentLink){openResource(node.dataset.openParentLink);return;}
+    if(node.hasAttribute('data-add-objective-sublink')){const d=activeLinkDraft;form('Add sublink',input('Title','title')+input('URL','url','','url'),values=>change({type:'link-sublink',objective_id:d.objective,resource_id:d.resource,parent_id:d.subLink,title:values.get('title'),url:values.get('url')},{scope:d.scope}));return;}
+    if(node.dataset.removeObjectiveSublink){const d=activeLinkDraft;void change({type:'link-remove-sublink',objective_id:d.objective,resource_id:d.resource,sub_link_id:node.dataset.removeObjectiveSublink},{scope:d.scope}).catch(()=>{});return;}
+    if(node.hasAttribute('data-open-objective-link')){openLinkUrl(activeLinkDraft.url.trim());return;}
+    if(node.hasAttribute('data-revert-objective-link')){void revertLinkDetails(activeLinkDraft);return;}
+    if(node.hasAttribute('data-add-link-property')){const d=activeLinkDraft;d.properties.push({name:'',value:''});d.node.querySelector('[data-link-properties]').innerHTML=linkPropertiesHtml(d);updateLinkHeader(d);d.node.querySelector('.objective-link-property:last-child input').focus();return;}
+    if(node.hasAttribute('data-remove-link-property')){const d=activeLinkDraft;d.properties.splice(Number(node.dataset.removeLinkProperty),1);d.node.querySelector('[data-link-properties]').innerHTML=linkPropertiesHtml(d);updateLinkHeader(d);return;}
     if(node.dataset.revealResource){const id=node.dataset.revealResource;if(state().revealed.has(id))state().revealed.delete(id);else state().revealed.add(id);paint();return;}
     if(node.dataset.pinResource){const id=node.dataset.pinResource,tab=node.dataset.pinTab,pins=state().pins[id]||[];state().pins[id]=pins.includes(tab)?pins.filter(t=>t!==tab):[...pins,tab];persistView();paint();return;}
     if(node.dataset.selectWorktree){const o=objective(),t=scopeRows(o).find(t=>t.id===node.dataset.selectWorktree);collapse();state().tree[o.id]=t.id;persistView();paint();bridge.selectWorktree?.(t);return;}
@@ -399,7 +503,13 @@
     }
   },true);
   document.addEventListener('input',event=>{
-    const node=event.target;if(!node.matches('[data-objective-search],[data-objective-filter],[data-objective-status-filter]'))return;
+    const node=event.target,d=activeLinkDraft;
+    if(d&&node.closest('.objective-link-details')===d.node){
+      if(node.hasAttribute('data-objective-link-field'))d[node.dataset.objectiveLinkField]=node.value;
+      else if(node.closest('[data-link-property]')){const item=d.properties[Number(node.closest('[data-link-property]').dataset.linkProperty)];item[node.hasAttribute('data-link-property-name')?'name':'value']=node.value;}
+      d.error='';updateLinkHeader(d);return;
+    }
+    if(!node.matches('[data-objective-search],[data-objective-filter],[data-objective-status-filter]'))return;
     state()[node.hasAttribute('data-objective-search')?'query':node.hasAttribute('data-objective-filter')?'filter':'statusFilter']=node.value;paintLibrary();
   });
   document.addEventListener('change',e=>{const node=e.target;if(!node.matches('[data-task-done],[data-task-due]'))return;const o=objective(),id=node.dataset.taskDone||node.dataset.taskDue,patch=node.dataset.taskDone?{done:node.checked}:{due:node.value};change({type:'task-update',objective_id:o.id,task_id:id,...patch},{optimistic:d=>{const t=d.objectives.find(item=>item.id===o.id).tasks.flatMap(t=>[t,...t.children]).find(t=>t.id===id);Object.assign(t,patch);if('done'in patch)t.children.forEach(c=>c.done=patch.done);}}).catch(()=>{});});
@@ -407,7 +517,7 @@
     const project=e.target.closest?.('[data-drag-objective],.objective-tab[data-select-objective]');
     if(project){e.dataTransfer.setData(objectiveMime,JSON.stringify({scope:key(context()),objective_id:project.dataset.dragObjective||project.dataset.selectObjective}));e.dataTransfer.effectAllowed='move';return;}
     const row=e.target.closest?.('[data-objective-resource]'),o=objective();
-    if(row&&o){const resource=o.resources.find(r=>r.id===row.dataset.objectiveResource);if(!dragReference(e.dataTransfer,resourceReference(resource,row.dataset.objectiveTab))) {e.preventDefault();return;}e.dataTransfer.setData(resourceMime,JSON.stringify({scope:key(context()),objective_id:o.id,resource_id:row.dataset.objectiveResource,tab_id:row.dataset.objectiveTab||null}));return;}
+    if(row&&o){const resource=o.resources.find(r=>r.id===row.dataset.objectiveResource);if(!dragReference(e.dataTransfer,resourceReference(resource,row.dataset.objectiveTab,row.dataset.objectiveSublink))) {e.preventDefault();return;}e.dataTransfer.setData(resourceMime,JSON.stringify({scope:key(context()),objective_id:o.id,resource_id:row.dataset.objectiveResource,tab_id:row.dataset.objectiveTab||null,sub_link_id:row.dataset.objectiveSublink||null}));return;}
     const folder=e.target.closest?.('[data-select-worktree]');if(folder){const tree=scopeRows(o).find(t=>t.id===folder.dataset.selectWorktree);if(dragReference(e.dataTransfer,tree?.path))e.dataTransfer.setData(resourceMime,JSON.stringify({scope:key(context()),objective_id:o.id,folder:{root:tree.path,path:'.'}}));return;}
     if(o&&e.target.closest?.('[data-objectives-sidebar] [data-open-objective-tasks]')){
       const documents=[...new Set(o.tasks.map(t=>t.document_id))].map(id=>o.resources.find(r=>r.id===id)),resource=documents[0];
@@ -445,5 +555,6 @@
     notebookControls(root,path){const r=objective()?.resources.find(r=>r.kind==='notebook'&&r.path===path&&context()?.path===root);return r?`<span data-objective-notebook-controls><button type="button" data-rename-objective-resource="${esc(r.id)}">Rename</button></span>`:'';},
     ownsCenter(path){return context()?.path===path&&openView?.scope===key(context())&&!!(document.querySelector('#content .objective-working')||state().selected);},
     leave(){closeSwitchMenu();releaseDraft();if(context()){collapse();state().selected=null;}openView=null;dialog?.remove();dialog=null;clearTimeout(hoverTimer);}};
-  window.addEventListener('beforeunload',event=>{if([...drafts.values()].some(dirtyDraft)){event.preventDefault();event.returnValue='';}});
+  document.addEventListener('keydown',event=>{if(activeLinkDraft?.node?.contains(event.target)&&(event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==='s'){event.preventDefault();void saveLinkDetails(activeLinkDraft);}});
+  window.addEventListener('beforeunload',event=>{if([...drafts.values()].some(dirtyDraft)||[...linkDrafts.values()].some(dirtyLink)){event.preventDefault();event.returnValue='';}});
 })();

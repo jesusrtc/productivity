@@ -228,3 +228,24 @@ custom PNG icons, and the unknown-service arrow. These mapping checks ran only
 in a disposable page's memory and did not save client settings. Shared and
 worktree-scoped resources use the same resource-row renderer, without metadata
 migration or changes to opening/ownership. No staging page exceptions occurred.
+
+## Follow-up: editable link details and nested destinations
+
+All **17 Objective backend/browser tests pass**. The native fixture verifies
+ordinary clicks open editable link details without an iframe, saved title/URL/
+TL;DR and properties persist, and unchanged numeric/array metadata retains its
+JSON type. Cmd-click leaves the current working view in place while dispatching
+the exact URL. Open uses the edited valid URL; invalid URLs disable it. Conflicts
+retain the draft and Revert loads the saved details.
+
+Adding a sublink persists a stable child ID. The sidebar child stays hidden
+before the one-second parent hover delay, then appears beneath the parent.
+Child details save independently; console drags use its URL and terminal
+associations reopen that exact child. Backend checks cover nested additions,
+duplicate/depth rejection, atomic invalid writes, and subtree removal falling
+back to the parent resource association. Legacy links need no migration.
+
+A fresh native `large-projects` staging page opened the existing Sample release
+checklist link: its editable Google Docs details appeared with no iframe and
+no page exceptions. This staging check saved no resource changes, opened no
+external site and sent no terminal input.

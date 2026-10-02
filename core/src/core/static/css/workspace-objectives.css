@@ -22,6 +22,7 @@
 .objective-resource-head,.objective-subtab-row { display:flex; gap:3px; min-width:0; align-items:center; }
 .objective-resource { flex:1; min-width:0; width:auto; box-sizing:border-box; }
 .objective-link { flex:0 1 auto; }
+.objective-sublinks-marker { font-size:11px; color:var(--text-dim); }
 .objective-resource span:last-child { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .objective-resource.active,.objective-subtab.active { border-color:var(--accent); background:color-mix(in srgb,var(--accent) 12%,var(--bg-secondary)); }
 .objective-tree-toggle,.objective-pin { flex-shrink:0; width:19px; padding:2px; border:0; background:none; color:var(--text-dim); cursor:pointer; font-size:12px; }
@@ -68,6 +69,23 @@
 .objective-note-editor { --lab-document-font-size:13px; }
 .objective-document-actions { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin-top:18px; }
 .objective-document-status { font-size:11px; color:var(--text-secondary); }.objective-document-status.error { color:var(--red); }
+.objective-link-heading { display:flex; align-items:center; gap:8px; min-width:0; }
+.objective-link-heading h2 { overflow-wrap:anywhere; }
+.objective-link-editor { display:grid; gap:18px; max-width:800px; margin-top:20px; }
+.objective-link-editor label { display:grid; gap:6px; color:var(--text-secondary); font-size:12px; }
+.objective-link-editor input,.objective-link-editor textarea { box-sizing:border-box; width:100%; min-width:0; border:1px solid var(--border); border-radius:4px; background:var(--bg-secondary); color:var(--text-primary); padding:8px; font:13px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+.objective-link-editor textarea { resize:vertical; line-height:1.5; }
+.objective-link-editor h3 { font-size:13px; font-weight:600; margin:0 0 12px; }
+.objective-link-context { display:grid; grid-template-columns:100px minmax(0,1fr); gap:8px; margin:0 0 14px; font-size:12px; }
+.objective-link-context dt { color:var(--text-secondary); }.objective-link-context dd { margin:0; overflow-wrap:anywhere; }
+.objective-link-property { display:grid; grid-template-columns:minmax(80px,1fr) minmax(100px,2fr) 24px; gap:8px; align-items:start; margin-bottom:8px; }
+.objective-link-property button,.objective-link-child > button:last-child { border:0; color:var(--text-secondary); padding:5px; }
+.objective-link-child { display:flex; gap:8px; margin-bottom:6px; }
+.objective-link-child > button:first-child { display:flex; gap:6px; align-items:center; flex:1; min-width:0; text-align:left; }
+.objective-link-child > button:first-child span:last-child { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.objective-link-details .objective-document-actions { margin-top:0; }
+.objective-link-details button:disabled { cursor:default; opacity:.5; }
+.objective-dialog textarea { font:inherit; color:var(--text-primary); background:var(--bg-secondary); border:1px solid var(--border); border-radius:4px; padding:7px; resize:vertical; }
 .assistant-document-inline.assistant-external-tabs .assistant-modal-body { grid-template-columns:minmax(0,1fr); }
 .assistant-document-inline.assistant-external-tabs :is(.assistant-tabs-rail,.assistant-tabs-drawer) { display:none; }
 .objective-dialog { width:min(500px,calc(100vw - 32px)); border:1px solid var(--border); border-radius:8px; background:var(--bg-primary); color:var(--text-primary); padding:20px; font-size:14px; }.objective-dialog::backdrop { background:#0006; }

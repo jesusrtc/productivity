@@ -69,6 +69,20 @@ fits its label up to the sidebar width and shows the locally bundled service
 icon inferred from its URL. Global **Links and icons** domain mappings also
 apply here and update the rows immediately.
 
+Click a link to open its details in the middle working area. Edit its title,
+URL, TL;DR and named metadata properties, then use **Save** or Cmd/Ctrl-S.
+**Revert** reloads the saved details. Drafts remain available when navigating
+away; a conflicting edit retains your draft. **Open** visits the URL in the
+clicking browser. Cmd/Ctrl-click on a sidebar link opens it directly without
+changing the working area. These controls apply to both shared and scoped links.
+
+Use **+ Sublink** in a link's details to add destinations beneath it, such as
+Google Docs tab URLs. Each sublink has its own title, URL, TL;DR and properties,
+and can contain further sublinks. Hover over the parent sidebar link for one
+second to reveal the indented hierarchy. Clicking a child opens its own details;
+Cmd/Ctrl-click opens its destination directly. Child references can be pasted
+or associated with terminals just like their parent link.
+
 ## Tasks and details
 
 The Tasks item shows completed top-level tasks divided by total top-level
@@ -159,7 +173,11 @@ lives under `<workspace>/objectives/<objective-id>/` as ordinary Markdown and
 notebook files. Markdown uses the existing embedded subtab format with stable
 IDs. Assistant resources store references. Existing-file resources store their
 folder and relative path. Terminal mappings use stable session UUIDs and one
-target: a resource/subtab, file, folder, or `view: "tasks"`. Folder paths are
+target: a resource/subtab/sublink, file, folder, or `view: "tasks"`. External link
+details use optional `tldr`, `metadata` and nested `sublinks` fields. Sublinks
+have stable IDs; terminal mappings use `sub_link_id` to retain the exact target.
+Removing a sublink falls back to its parent resource for associated terminals.
+Existing links remain readable without any migration. Folder paths are
 validated within the objective's workspace, own directory, or associated
 checkout roots, including after resolving symlinks. The
 existing `focused` array holds ordered objective IDs; empty slots can contain

@@ -1,5 +1,8 @@
 # Memory index
 
+- [Objective links open editable details](objective-links-open-editable-details.md) — editable title, URL, TL;DR and properties; explicit Open and direct Cmd/Ctrl-click, retained drafts and conflicts.
+- [Objective link sublinks reveal on hover](objective-link-sublinks-reveal-on-hover.md) — one-second parent hover, nested destinations with stable IDs and exact terminal references.
+
 - [Servers uses global workspace tabs](global-servers-use-workspace-tabs.md) — current-workspace selection, independent scopes and removed workspace strip.
 - [Resources owns reviewed cleanup](resources-owns-reviewed-cleanup.md) — Resources table, All/workspace review and exact individual/bulk targets; supersedes the separate global Cleanup button.
 
