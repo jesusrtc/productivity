@@ -7522,6 +7522,7 @@
     const isSelf = document.body.classList.contains('self-active');
     const isAssistant = document.body.classList.contains('assistant-active');
     const isVault = document.body.classList.contains('vault-active');
+    document.body.classList.toggle('objectives-demo-active', isSelf && _contextSubView === 'objectives-demo' && !_workspaceDocPath);
     const proxyOpen = typeof _workspaceDocPath === 'string' && _workspaceDocPath.startsWith('__proxy__/');
     const notebookOpen = _contextSubView === 'notebooks'
       || (typeof _workspaceDocPath === 'string' && _workspaceDocPath.toLowerCase().endsWith('.ipynb'));
@@ -7544,6 +7545,7 @@
       if (LAB_IS_ADMIN) html += `<button class="repo-tab home-logs-tab${isSelf && _contextSubView === 'logs' ? ' active' : ''}" onclick="goToLogs()">&#x2637; Logs</button>`;
       if (LAB_IS_ADMIN) html += `<button class="repo-tab terminal-cleanup-tab" onclick="LabTerminalCleanup.open()" title="Review terminal sessions inactive for more than 7 days">&#x232B; Cleanup</button>`;
       if (LAB_IS_ADMIN) html += `<button class="repo-tab${isSelf && _contextSubView === 'admin' ? ' active' : ''}" onclick="${isSelf ? 'selfShowAdmin()' : "goToProductivity({subview:'admin'})"}">&#x2699; Admin</button>`;
+      if (LAB_IS_ADMIN) html += `<button class="repo-tab objectives-demo-tab${isSelf && _contextSubView === 'objectives-demo' ? ' active' : ''}" onclick="${isSelf ? 'selfShowObjectivesDemo()' : "goToProductivity({subview:'objectives-demo'})"}">&#x25CE; Objectives demo</button>`;
     } else if (currentWorkspace.is_workspace) {
       html += `<button class="repo-tab${overviewActive ? ' active' : ''}" onclick="showWorkspaceDashboard()" style="font-weight:600">&#x1F4CB; Overview</button>`;
       if (LAB_IS_ADMIN) html += `<button class="repo-tab${codeSearchActive ? ' active' : ''}" onclick="showScopedCodeSearch()">&#x1F50D; Code Search</button>`;
@@ -16667,6 +16669,7 @@
     document.body.classList.remove(
       'cerebro-active', 'self-active', 'assistant-active', 'vault-active',
       'workspace-active', 'has-diff-tabs',
+      'objectives-demo-active',
     );
     currentWorkspace = null;
     currentRepo = null;
@@ -16993,6 +16996,7 @@
     initSelf();
     if (opts.subview === 'logs') selfShowLogs();
     else if (opts.subview === 'admin') selfShowAdmin();
+    else if (opts.subview === 'objectives-demo') selfShowObjectivesDemo();
     else if (opts.subview === 'code-search') showScopedCodeSearch();
   }
 
@@ -18118,7 +18122,7 @@
       if (currentWorkspace !== homeWorkspace || !document.body.classList.contains('self-active')) return;
       selfPopulateSidebar();
       selfRefreshWorkbench();
-      if (!UI_CHECK) termOpenForSelf();
+      if (!UI_CHECK && _contextSubView !== 'objectives-demo') termOpenForSelf();
     });
   }
 
@@ -18318,6 +18322,21 @@
     adminLoadAssistant();
   }
   window.selfShowAdmin = selfShowAdmin;
+
+  function selfShowObjectivesDemo() {
+    if (!LAB_IS_ADMIN) return;
+    _workspaceDocPath = null;
+    currentRepo = null;
+    _contextSubView = 'objectives-demo';
+    const url = new URL(window.location);
+    url.searchParams.set('view', 'productivity');
+    url.searchParams.set('subview', 'objectives-demo');
+    history.replaceState(history.state, '', url.pathname + url.search + url.hash);
+    renderRepoTabs();
+    const content = document.getElementById('content');
+    if (content) window.LabObjectivesDemo.open(content);
+  }
+  window.selfShowObjectivesDemo = selfShowObjectivesDemo;
 
   let _adminAccessVaults = [];
 
@@ -20276,6 +20295,7 @@
     initSelf();
     if (initialParams.get('subview') === 'logs') selfShowLogs();
     else if (initialParams.get('subview') === 'admin') selfShowAdmin();
+    else if (initialParams.get('subview') === 'objectives-demo') selfShowObjectivesDemo();
     else if (initialParams.get('subview') === 'code-search') showScopedCodeSearch();
   } else if (urlView === 'vault') {
     initVaultView(initialParams.get('vault') || currentVaultId);

@@ -1,0 +1,230 @@
+<div id="lab-objectives-proposal" aria-label="Workspace objectives proposal">
+  <style>
+    #lab-objectives-proposal { --ob-bg:#0b1016; --ob-surface:#161b22; --ob-line:#30363d; --ob-text:#e6edf3; --ob-muted:#919ba6; --ob-accent:#58a6ff; color-scheme:dark; color:var(--ob-text); background:var(--ob-bg); font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; border-radius:8px; }
+    #lab-objectives-proposal * { box-sizing:border-box; }
+    #lab-objectives-proposal button, #lab-objectives-proposal input, #lab-objectives-proposal select { font:inherit; }
+    #lab-objectives-proposal button { color:inherit; cursor:pointer; }
+    #lab-objectives-proposal button:disabled { opacity:.5; cursor:default; }
+    #lab-objectives-proposal [hidden] { display:none !important; }
+    #lab-objectives-proposal .ob-shell { padding:12px 16px; border-bottom:1px solid var(--ob-line); display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+    #lab-objectives-proposal .ob-muted { color:var(--ob-muted); }
+    #lab-objectives-proposal .ob-tabs { display:flex; gap:20px; padding:10px 16px; border-bottom:1px solid var(--ob-line); color:var(--ob-muted); }
+    #lab-objectives-proposal .ob-tabs strong { color:var(--ob-accent); border-bottom:2px solid var(--ob-accent); padding-bottom:7px; margin-bottom:-10px; }
+    #lab-objectives-proposal .ob-focus { padding:12px 16px; display:flex; gap:7px; border-bottom:1px solid var(--ob-line); align-items:stretch; }
+    #lab-objectives-proposal .ob-focus-slot { flex:1; min-width:0; display:flex; align-items:center; gap:7px; padding:9px 10px; background:var(--ob-surface); border:1px solid var(--ob-line); border-top:3px solid var(--objective-color); border-radius:6px; text-align:left; }
+    #lab-objectives-proposal .ob-focus-slot[aria-pressed="true"] { background:#203146; border-color:var(--objective-color); }
+    #lab-objectives-proposal .ob-focus-name { min-width:0; flex:1; }
+    #lab-objectives-proposal .ob-focus-name span { display:block; font-size:12px; color:var(--ob-muted); }
+    #lab-objectives-proposal .ob-action { background:transparent; border:1px solid var(--ob-line); border-radius:5px; padding:5px 9px; }
+    #lab-objectives-proposal .ob-quiet { background:none; border:0; padding:3px 4px; color:var(--ob-accent); }
+    #lab-objectives-proposal .ob-action:hover, #lab-objectives-proposal .ob-quiet:hover { background:var(--ob-surface); }
+    #lab-objectives-proposal .ob-layout { display:grid; grid-template-columns:minmax(280px,34%) minmax(0,1fr) 240px; }
+    #lab-objectives-proposal .ob-overview { padding:15px 12px; border-right:1px solid var(--ob-line); min-width:0; }
+    #lab-objectives-proposal .ob-section-heading { display:flex; gap:8px; align-items:center; justify-content:space-between; margin:19px 0 8px; font-size:12px; color:var(--ob-muted); letter-spacing:.05em; }
+    #lab-objectives-proposal .ob-section-heading:first-child { margin-top:0; }
+    #lab-objectives-proposal .ob-list { display:grid; gap:5px; }
+    #lab-objectives-proposal .ob-resource { display:flex; gap:8px; align-items:center; width:100%; background:var(--ob-surface); border:1px solid var(--ob-line); border-radius:6px; min-height:35px; padding:6px 9px; text-align:left; }
+    #lab-objectives-proposal .ob-resource[data-selected="true"] { border-color:var(--ob-accent); background:#192a3d; }
+    #lab-objectives-proposal .ob-resource i, #lab-objectives-proposal svg { flex-shrink:0; width:16px; height:16px; }
+    #lab-objectives-proposal .ob-label { min-width:0; flex:1; overflow-wrap:anywhere; }
+    #lab-objectives-proposal .ob-kind { color:var(--ob-muted); font-size:11px; white-space:nowrap; }
+    #lab-objectives-proposal .ob-task-item { display:flex; gap:7px; align-items:center; }
+    #lab-objectives-proposal .ob-task-item > input { margin:0; accent-color:var(--ob-accent); flex-shrink:0; width:16px; height:16px; }
+    #lab-objectives-proposal .ob-task-item > button { flex:1; min-width:0; }
+    #lab-objectives-proposal .ob-progress { font-size:11px; color:#e3b341; white-space:nowrap; }
+    #lab-objectives-proposal .ob-worktree { display:flex; width:100%; gap:8px; align-items:center; padding:7px 9px; border:1px solid var(--tree-color); border-left:3px solid var(--tree-color); border-radius:6px; background:transparent; text-align:left; }
+    #lab-objectives-proposal .ob-worktree[aria-pressed="true"] { background:color-mix(in srgb,var(--tree-color) 13%,var(--ob-bg)); }
+    #lab-objectives-proposal .ob-worktree > svg { color:var(--tree-color); }
+    #lab-objectives-proposal .ob-drop { outline:2px dashed var(--ob-accent); outline-offset:2px; }
+    #lab-objectives-proposal .ob-filters { display:flex; flex-wrap:wrap; gap:4px; margin:8px 0; }
+    #lab-objectives-proposal .ob-filters button { flex:1; background:var(--ob-surface); border:1px solid var(--ob-line); border-radius:5px; padding:4px 6px; white-space:nowrap; font-size:12px; }
+    #lab-objectives-proposal .ob-filters button[aria-pressed="true"] { border-color:var(--ob-accent); background:#203146; }
+    #lab-objectives-proposal .ob-file { background:transparent; border:0; width:100%; text-align:left; padding:4px 8px; display:flex; gap:8px; align-items:center; }
+    #lab-objectives-proposal .ob-file span { overflow-wrap:anywhere; }
+    #lab-objectives-proposal .ob-reader { padding:18px 20px; min-width:0; }
+    #lab-objectives-proposal .ob-reader-head { display:flex; justify-content:space-between; align-items:flex-start; gap:8px; }
+    #lab-objectives-proposal .ob-reader h2 { font-size:20px; margin:0 0 8px; font-weight:600; overflow-wrap:anywhere; }
+    #lab-objectives-proposal .ob-reader h3 { font-size:15px; margin:23px 0 8px; font-weight:600; }
+    #lab-objectives-proposal .ob-reader p { margin:10px 0; }
+    #lab-objectives-proposal .ob-reader ul { padding-left:20px; }
+    #lab-objectives-proposal .ob-reader li { margin:7px 0; }
+    #lab-objectives-proposal .ob-checklist { display:grid; gap:10px; margin:17px 0; }
+    #lab-objectives-proposal .ob-checklist label { display:flex; align-items:flex-start; gap:9px; }
+    #lab-objectives-proposal .ob-checklist input { margin-top:4px; accent-color:var(--ob-accent); }
+    #lab-objectives-proposal .ob-cell { margin:13px 0; background:var(--ob-surface); border:1px solid var(--ob-line); border-radius:5px; padding:10px; }
+    #lab-objectives-proposal pre { white-space:pre-wrap; overflow-wrap:anywhere; margin:0; color:#a5d6ff; font:12px/1.6 ui-monospace,SFMono-Regular,Consolas,monospace; }
+    #lab-objectives-proposal .ob-output { color:#7ee787; padding:12px 0 0; }
+    #lab-objectives-proposal .ob-visibility { margin:16px 0; display:flex; flex-wrap:wrap; align-items:center; gap:6px; font-size:12px; color:var(--ob-muted); }
+    #lab-objectives-proposal .ob-visibility select { max-width:100%; }
+    #lab-objectives-proposal .ob-terminals { border-left:1px solid var(--ob-line); padding:14px 10px; min-width:0; }
+    #lab-objectives-proposal .ob-terminal-heading { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:6px; margin-bottom:15px; }
+    #lab-objectives-proposal .ob-terminal-heading select { max-width:100%; font-size:11px; }
+    #lab-objectives-proposal .ob-terminal-objective { margin:15px 0 8px; display:flex; gap:7px; align-items:center; }
+    #lab-objectives-proposal .ob-terminal-objective button { border:0; background:none; text-align:left; padding:0; color:var(--objective-color); }
+    #lab-objectives-proposal .ob-terminal-tree { margin:9px 0 4px 8px; color:var(--ob-muted); display:flex; align-items:center; gap:6px; font-size:11px; overflow-wrap:anywhere; }
+    #lab-objectives-proposal .ob-tree-dot { width:7px; height:7px; background:var(--tree-color); border-radius:2px; flex-shrink:0; }
+    #lab-objectives-proposal .ob-terminal { width:calc(100% - 8px); margin:3px 0 3px 8px; padding:6px 7px; display:flex; align-items:center; gap:7px; background:var(--ob-surface); border:1px solid var(--ob-line); border-left:3px solid var(--tree-color); border-radius:5px; text-align:left; font-size:12px; }
+    #lab-objectives-proposal .ob-terminal[aria-pressed="true"] { background:#203146; border-color:var(--tree-color); }
+    #lab-objectives-proposal .ob-status-dot { width:6px; height:6px; border-radius:50%; background:#e3b341; flex-shrink:0; }
+    #lab-objectives-proposal .ob-status-dot.ready { background:#3fb950; }
+    #lab-objectives-proposal .ob-console { border-top:1px solid var(--ob-line); margin-top:18px; padding:12px 2px; }
+    #lab-objectives-proposal .ob-console pre { margin-top:10px; color:var(--ob-muted); }
+    #lab-objectives-proposal .ob-console label { display:block; font-size:12px; color:var(--ob-muted); margin:12px 0 4px; }
+    #lab-objectives-proposal .ob-console input { width:100%; }
+    #lab-objectives-proposal .ob-console-note { margin-top:12px; font-size:11px; color:var(--ob-muted); }
+    #lab-objectives-proposal .ob-message { min-height:32px; border-top:1px solid var(--ob-line); padding:8px 16px; font-size:12px; color:var(--ob-muted); }
+    #lab-objectives-proposal .ob-dialog { padding:14px 16px; border-bottom:1px solid var(--ob-line); background:var(--ob-surface); }
+    #lab-objectives-proposal .ob-dialog form { display:flex; align-items:flex-end; gap:10px; flex-wrap:wrap; }
+    #lab-objectives-proposal .ob-dialog label { display:grid; gap:4px; font-size:12px; }
+    #lab-objectives-proposal input[type="text"], #lab-objectives-proposal select { background:var(--ob-bg); color:var(--ob-text); border:1px solid var(--ob-line); border-radius:4px; padding:5px 7px; min-width:0; }
+    #lab-objectives-proposal .ob-dialog h3 { margin:0 0 12px; font-size:14px; }
+    #lab-objectives-proposal .ob-new-terminal { margin:10px 0; }
+    @media(max-width:920px) {
+      #lab-objectives-proposal .ob-layout { grid-template-columns:minmax(280px,54%) minmax(0,1fr); }
+      #lab-objectives-proposal .ob-reader { grid-row:2; grid-column:1 / -1; border-top:1px solid var(--ob-line); }
+      #lab-objectives-proposal .ob-terminals { border-left:0; }
+    }
+    @media(max-width:560px) {
+      #lab-objectives-proposal .ob-layout { grid-template-columns:minmax(0,1fr); }
+      #lab-objectives-proposal .ob-overview { border-right:0; }
+      #lab-objectives-proposal .ob-terminals { grid-row:3; border-top:1px solid var(--ob-line); }
+      #lab-objectives-proposal .ob-reader { grid-row:2; }
+      #lab-objectives-proposal .ob-focus { flex-wrap:wrap; padding:10px; }
+      #lab-objectives-proposal .ob-focus-slot { flex-basis:calc(33.33% - 7px); padding:7px 6px; font-size:12px; align-items:flex-start; }
+      #lab-objectives-proposal .ob-focus-slot > i, #lab-objectives-proposal .ob-focus-slot > svg { display:none; }
+      #lab-objectives-proposal .ob-focus-name span { font-size:11px; }
+      #lab-objectives-proposal .ob-tabs { font-size:12px; gap:15px; }
+    }
+    @media(pointer:coarse) {
+      #lab-objectives-proposal button { min-height:44px; }
+      #lab-objectives-proposal input, #lab-objectives-proposal select { font-size:16px; }
+    }
+  </style>
+  <div class="ob-shell"><span><strong>Lab</strong> <span class="ob-muted">/ Workspace</span></span><span class="ob-muted">Interface proposal · sample data</span></div>
+  <div class="ob-tabs"><strong>Overview</strong><span>Code Search</span><span>Jupyter</span></div>
+  <nav class="ob-focus" aria-label="Objectives in focus" data-focus></nav>
+  <section class="ob-dialog" data-dialog hidden aria-label="Objective action"></section>
+  <div class="ob-layout">
+    <aside class="ob-overview" aria-label="Objective resources and worktrees" data-overview></aside>
+    <main class="ob-reader" aria-label="Selected resource" data-reader></main>
+    <aside class="ob-terminals" aria-label="Terminals by objective and worktree" data-terminals></aside>
+  </div>
+  <div class="ob-message" aria-live="polite" data-message>SMS recovery · 3 open to-dos · 2 associated worktrees</div>
+  <script>
+    (() => {
+      const root = document.getElementById('lab-objectives-proposal');
+      const find = name => root.querySelector('[data-' + name + ']');
+      const iconNames = {document:'file-text',assistant:'files',notebook:'notebook',link:'external-link',task:'square-check',file:'file-code',folder:'folder'};
+      const objectives = [
+        {id:'sms',name:'SMS recovery',purpose:'Restore reliable phone verification',color:'#58a6ff',selected:'phone-fix',selectedItem:'incident',draft:'',worktrees:[{id:'phone-fix',name:'sdui/fix-phone',repo:'client',color:'#58a6ff'},{id:'checkpoint',name:'checkpoint/verification',repo:'client',color:'#ff7b72'}],items:[
+          {id:'incident',kind:'document',title:'Incident notes',scope:null,body:'Investigate failed phone verification and record the recovery plan.'},
+          {id:'track',kind:'assistant',title:'Investigation — Track 3',scope:null,body:'Linked Assistant document. Its existing content and tasks remain owned by Assistant.'},
+          {id:'volume',kind:'notebook',title:'Verification volume.ipynb',scope:null},
+          {id:'thread',kind:'link',title:'Malformed-phone discussion',scope:null,url:'https://example.com/discussion'},
+          {id:'channel',kind:'link',title:'Incident channel',scope:null,url:'https://example.com/channel'},
+          {id:'ticket',kind:'link',title:'Ticket — Unparseable phone',scope:null,url:'https://example.com/ticket'},
+          {id:'validate',kind:'task',title:'Validate phone parsing',scope:null,checks:[{title:'Reproduce malformed input',done:true},{title:'Verify recovery behavior',done:false},{title:'Record regression coverage',done:false}],detail:'incident'},
+          {id:'rollout',kind:'task',title:'Review rollout results',scope:null,checks:[{title:'Compare verification rates',done:false}],detail:'volume'},
+          {id:'prs',kind:'link',title:'PRs for this branch',scope:'phone-fix',url:'https://example.com/pull-requests'}],recent:['api/phone_parser.py','tests/test_phone_parser.py'],files:['api/','applications/','build/','client/']},
+        {id:'api',name:'API cleanup',purpose:'Simplify the public API',color:'#bc8cff',selected:'api-main',selectedItem:'api-plan',draft:'',worktrees:[{id:'api-main',name:'cleanup/routes',repo:'service',color:'#bc8cff'},{id:'api-tests',name:'cleanup/contract-tests',repo:'service',color:'#e3b341'}],items:[{id:'api-plan',kind:'document',title:'API cleanup plan',scope:null,body:'Review route behavior, remove redundant paths, and document the supported API.'},{id:'api-reference',kind:'link',title:'API reference',scope:null,url:'https://example.com/api'},{id:'api-task',kind:'task',title:'Review compatibility',scope:null,checks:[{title:'List existing consumers',done:true},{title:'Verify current contracts',done:false}],detail:'api-plan'}],recent:['service/routes.py','tests/test_contracts.py'],files:['service/','tests/','README.md']},
+        {id:'latency',name:'Latency study',purpose:'Understand response time',color:'#ffa657',selected:'timing',selectedItem:'measurements',draft:'',worktrees:[{id:'timing',name:'perf/timing',repo:'service',color:'#ffa657'}],items:[{id:'measurements',kind:'notebook',title:'Measurements.ipynb',scope:null},{id:'latency-task',kind:'task',title:'Compare response times',scope:null,checks:[{title:'Capture a baseline',done:true},{title:'Repeat the measurements',done:false}],detail:'measurements'}],recent:['scripts/benchmark.py'],files:['scripts/','results/']},
+        {id:'docs',name:'Documentation',purpose:'Improve onboarding',color:'#39c5cf',selected:'docs-main',selectedItem:'onboarding',draft:'',worktrees:[{id:'docs-main',name:'docs/onboarding',repo:'client',color:'#39c5cf'}],items:[{id:'onboarding',kind:'document',title:'Onboarding guide',scope:null,body:'Document the setup and first useful workflow.'}],recent:['docs/setup.md'],files:['docs/','README.md']}
+      ];
+      const terminals = [{id:'t1',objective:'sms',tree:'phone-fix',name:'Parsing fix',linked:'validate',state:'working',draft:''},{id:'t2',objective:'sms',tree:'phone-fix',name:'Test runner',linked:null,state:'ready',draft:''},{id:'t3',objective:'sms',tree:'checkpoint',name:'Investigation',linked:'incident',state:'idle',draft:''},{id:'t4',objective:'api',tree:'api-main',name:'Route review',linked:'api-plan',state:'working',draft:''},{id:'t5',objective:'api',tree:'api-tests',name:'Contract tests',linked:null,state:'idle',draft:''},{id:'t6',objective:'latency',tree:'timing',name:'Benchmark',linked:'measurements',state:'ready',draft:''},{id:'t7',objective:'docs',tree:'docs-main',name:'Guide edits',linked:'onboarding',state:'idle',draft:''}];
+      const config = {groupResources:false,terminalVisibility:'all'};
+      let focused = ['sms','api','latency'], selected = 'sms', activeTerminal = 't1', serial = 10, recentMode = 'Uncommitted';
+      const objective = () => objectives.find(item => item.id === selected);
+      function element(tag, className, content) { const el=document.createElement(tag); if(className) el.className=className; if(content!==undefined) el.textContent=content; return el; }
+      function icon(name) { const el=element('i'); el.dataset.lucide=name; el.setAttribute('aria-hidden','true'); return el; }
+      function button(label, className, action) { const el=element('button',className,label); el.type='button'; el.onclick=action; return el; }
+      function message(text) { find('message').textContent=text; }
+      function refreshIcons() { if(globalThis.lucide) globalThis.lucide.createIcons({attrs:{width:16,height:16}}); }
+      function todoCount(o) { return o.items.filter(i=>i.kind==='task').reduce((n,i)=>n+i.checks.filter(c=>!c.done).length,0); }
+      function switchObjective(id) { selected=id; const o=objective(); const t=terminals.find(t=>t.objective===id&&t.tree===o.selected)||terminals.find(t=>t.objective===id); activeTerminal=t?t.id:null; find('dialog').hidden=true; render(); message(o.name+' · '+todoCount(o)+' open to-dos · '+o.worktrees.length+' associated worktrees'); }
+      function attachDrop(el, type, action) {
+        el.ondragover=e=>{if(e.dataTransfer.types.includes(type)){e.preventDefault();e.dataTransfer.dropEffect='link';el.classList.add('ob-drop');}};
+        el.ondragleave=()=>el.classList.remove('ob-drop');
+        el.ondrop=e=>{el.classList.remove('ob-drop');const id=e.dataTransfer.getData(type);if(id){e.preventDefault();e.stopPropagation();action(id);}};
+      }
+      function renderFocus() {
+        const host=find('focus'); host.replaceChildren();
+        focused.forEach(id=>{const o=objectives.find(o=>o.id===id);const b=button('', 'ob-focus-slot',()=>switchObjective(id));b.style.setProperty('--objective-color',o.color);b.setAttribute('aria-pressed',id===selected);b.append(icon('target'));const label=element('span','ob-focus-name',o.name);label.append(element('span','',todoCount(o)+' to-dos'));b.append(label);host.append(b);});
+        const add=button('+','ob-action',focusDialog);add.setAttribute('aria-label','Choose another objective');host.append(add);
+      }
+      function heading(host,label,action) {const row=element('div','ob-section-heading');row.append(element('span','',label));if(action){const add=button('+','ob-quiet',action);add.setAttribute('aria-label','Add to '+label.toLowerCase());row.append(add);}host.append(row);}
+      function resourceRow(item,o) {
+        const row=button('','ob-resource',()=>{o.selectedItem=item.id;renderReader();renderOverview();refreshIcons();});row.dataset.item=item.id;row.dataset.selected=o.selectedItem===item.id;row.draggable=true;row.setAttribute('aria-label',item.title+' · '+item.kind);row.dataset.tooltip='Drag onto a worktree to limit visibility';
+        row.ondragstart=e=>{e.dataTransfer.setData('application/x-objective-item',item.id);e.dataTransfer.effectAllowed='link';};
+        row.append(icon(iconNames[item.kind]||'file-text'),element('span','ob-label',item.title));
+        if(item.kind==='task') {const done=item.checks.filter(c=>c.done).length;row.append(element('span','ob-progress',done+'/'+item.checks.length+' done'));}
+        else if(item.kind==='assistant')row.append(element('span','ob-kind','Assistant'));
+        attachDrop(row,'application/x-objective-terminal',id=>{const t=terminals.find(t=>t.id===id);if(t&&t.objective===o.id){t.linked=item.id;renderReader();renderTerminals();message('Linked '+t.name+' to '+item.title+' · launch folder kept');refreshIcons();}else{message('Choose a terminal in '+o.name+' to link this resource');}});
+        if(item.kind!=='task')return row;
+        const wrapper=element('div','ob-task-item'),check=element('input');check.type='checkbox';check.checked=item.checks.every(c=>c.done);check.setAttribute('aria-label','Complete '+item.title);check.onchange=()=>{item.checks.forEach(c=>c.done=check.checked);render();};wrapper.append(check,row);return wrapper;
+      }
+      function listResources(host,items,o) {const list=element('div','ob-list');items.forEach(item=>list.append(resourceRow(item,o)));host.append(list);}
+      function renderOverview() {
+        const host=find('overview'),o=objective();host.replaceChildren();
+        const overviewHeader=element('div','ob-section-heading');overviewHeader.append(element('span','',o.name.toUpperCase()),button('Settings','ob-quiet',settingsDialog));host.append(overviewHeader);
+        const shared=element('section');shared.setAttribute('aria-label','Objective-wide resources');attachDrop(shared,'application/x-objective-item',id=>{const item=o.items.find(i=>i.id===id);if(item){item.scope=null;render();message(item.title+' now appears across '+o.name);}});
+        const general=o.items.filter(i=>!i.scope&&i.kind!=='task'&&i.listed!==false);
+        if(config.groupResources){heading(shared,'DOCUMENTS & LINKS',()=>itemDialog());listResources(shared,general,o);}
+        else {heading(shared,'DOCUMENTS & NOTEBOOKS',()=>itemDialog('document'));listResources(shared,general.filter(i=>i.kind!=='link'),o);heading(shared,'LINKS',()=>itemDialog('link'));listResources(shared,general.filter(i=>i.kind==='link'),o);}
+        heading(shared,'TASKS · '+todoCount(o)+' OPEN TO-DOS',()=>itemDialog('task'));listResources(shared,o.items.filter(i=>i.kind==='task'&&!i.scope),o);host.append(shared);
+        heading(host,'WORKTREES',worktreeDialog);const trees=element('div','ob-list');
+        o.worktrees.forEach(tree=>{const b=button('','ob-worktree',()=>{o.selected=tree.id;render();message(tree.name+' selected · objective resources remain visible');});b.style.setProperty('--tree-color',tree.color);b.setAttribute('aria-pressed',tree.id===o.selected);b.setAttribute('aria-label','Select worktree '+tree.name);b.append(icon('git-branch'),element('span','ob-label',tree.name),element('span','ob-kind',tree.repo));attachDrop(b,'application/x-objective-item',id=>{const item=o.items.find(i=>i.id===id);if(item){item.scope=tree.id;o.selected=tree.id;render();message(item.title+' now appears only when '+tree.name+' is selected');}});trees.append(b);});host.append(trees);
+        const scoped=o.items.filter(i=>i.scope===o.selected&&i.listed!==false);if(scoped.length){heading(host,'FOR THIS WORKTREE',()=>itemDialog('link',o.selected));listResources(host,scoped,o);}
+        heading(host,'RECENTLY UPDATED');const filters=element('div','ob-filters');['15 min','1 hour','24 hours','Uncommitted','vs main'].forEach(mode=>{const b=button(mode,'',()=>{recentMode=mode;renderOverview();refreshIcons();});b.setAttribute('aria-pressed',mode===recentMode);filters.append(b);});host.append(filters);
+        const tree=o.worktrees.find(t=>t.id===o.selected);if(!tree){host.append(element('div','ob-muted','Associate a worktree to browse its files.'));return;}const recent=tree.id==='checkpoint'?['notes/verification.md']:tree.id==='api-tests'?['tests/test_contracts.py']:o.recent;
+        recent.forEach(path=>host.append(fileButton(path,o,tree)));
+        heading(host,'FILES · '+tree.name,()=>itemDialog('document',tree.id));o.files.forEach(path=>host.append(fileButton(path,o,tree)));
+      }
+      function fileButton(path,o,tree) {
+        const getItem=()=>{const id='file-'+tree.id+'-'+path;let item=o.items.find(i=>i.id===id);if(!item){item={id,kind:path.endsWith('/')?'folder':'file',title:path,scope:tree.id,listed:false,body:path.endsWith('/')?'Folder in '+tree.name:'File in '+tree.name};o.items.push(item);}return item;};
+        const b=button('','ob-file',()=>{o.selectedItem=getItem().id;renderReader();refreshIcons();});b.append(icon(path.endsWith('/')?'folder':'file-code'),element('span','',path));b.dataset.tooltip=tree.repo+' / '+tree.name+' / '+path;
+        attachDrop(b,'application/x-objective-terminal',id=>{const t=terminals.find(t=>t.id===id);if(t&&t.objective===o.id){t.linked=getItem().id;renderTerminals();message('Linked '+t.name+' to '+path+' · launch folder kept');refreshIcons();}else message('Choose a terminal in '+o.name+' to link this file');});return b;
+      }
+      function renderReader() {
+        const host=find('reader'),o=objective();const item=o.items.find(i=>i.id===o.selectedItem)||o.items[0];host.replaceChildren();if(!item){host.append(element('p','ob-muted','Choose or create a document, notebook, link, or task.'));return;}
+        const top=element('div','ob-reader-head');top.append(element('h2','',item.title));top.append(button('Rename','ob-quiet',()=>renameDialog(item)));host.append(top);
+        host.append(element('div','ob-muted',o.name+' / '+(item.scope?o.worktrees.find(t=>t.id===item.scope).name:'Objective')));
+        const visibility=element('label','ob-visibility','Visible in '),selector=element('select');selector.setAttribute('aria-label','Resource visibility');[{id:'',name:'Whole objective'},...o.worktrees].forEach(t=>{const opt=element('option','',t.name);opt.value=t.id;selector.append(opt);});selector.value=item.scope||'';selector.onchange=()=>{item.scope=selector.value||null;render();message(item.scope?'Resource scoped to the selected worktree':'Resource visible throughout the objective');};visibility.append(selector);host.append(visibility);
+        if(item.kind==='task') {
+          const done=item.checks.filter(c=>c.done).length;host.append(element('p','',done+' of '+item.checks.length+' to-dos complete'));
+          const checks=element('div','ob-checklist');item.checks.forEach(c=>{const label=element('label'),input=element('input');input.type='checkbox';input.checked=c.done;input.onchange=()=>{c.done=input.checked;render();};label.append(input,element('span','',c.title));checks.append(label);});host.append(checks);
+          const detail=o.items.find(i=>i.id===item.detail);if(detail){host.append(element('h3','','Details'));host.append(button(detail.title,'ob-resource',()=>{o.selectedItem=detail.id;render();}));}
+        } else if(item.kind==='notebook') {
+          const cell=element('div','ob-cell');cell.append(element('div','ob-muted',item.id.startsWith('item-')?'In [ ]':'In [1]'));if(!item.id.startsWith('item-'))cell.append(element('pre','','rates = [0.96, 0.98, 0.99]\nmean_rate = sum(rates) / len(rates)\nprint(f"Mean verification rate: {mean_rate:.1%}")'),element('pre','ob-output','Mean verification rate: 97.7%'));host.append(cell);
+        } else if(item.kind==='link') {host.append(element('p','',item.title),element('p','ob-muted',item.url),element('p','ob-muted','External link preview'));}
+        else {host.append(element('p','',item.body||''));if(item.id==='incident'){host.append(element('h3','','Current work'));const ul=element('ul');['Reproduce the input that fails phone parsing.','Verify that recovery remains available.','Compare verification volume after the change.'].forEach(text=>ul.append(element('li','',text)));host.append(ul);const task=o.items.find(i=>i.id==='validate');host.append(element('h3','','Related task'),button('Validate phone parsing · '+task.checks.filter(c=>c.done).length+'/3 done','ob-resource',()=>{o.selectedItem='validate';render();}));}}
+        const linked=terminals.filter(t=>t.objective===o.id&&t.linked===item.id);if(linked.length){host.append(element('h3','','Linked terminals'));linked.forEach(t=>host.append(button(t.name,'ob-resource',()=>selectTerminal(t))));}
+      }
+      function selectTerminal(t) {selected=t.objective;const o=objective();if(t.tree!=='objective')o.selected=t.tree;if(t.linked&&o.items.some(i=>i.id===t.linked))o.selectedItem=t.linked;activeTerminal=t.id;render();message(t.name+' · '+(t.tree==='objective'?'Objective folder':o.worktrees.find(tree=>tree.id===t.tree).name));}
+      function renderTerminals() {
+        const host=find('terminals');host.replaceChildren();const head=element('div','ob-terminal-heading');head.append(element('strong','','Terminals'));const mode=element('select');mode.setAttribute('aria-label','Visible terminal groups');[['all','3 objectives'],['selected','Selected objective']].forEach(([value,label])=>{const opt=element('option','',label);opt.value=value;mode.append(opt);});mode.value=config.terminalVisibility;mode.onchange=()=>{config.terminalVisibility=mode.value;renderTerminals();refreshIcons();};head.append(mode);host.append(head);
+        focused.filter(id=>config.terminalVisibility==='all'||id===selected).forEach(id=>{const o=objectives.find(o=>o.id===id);const heading=element('div','ob-terminal-objective');heading.style.setProperty('--objective-color',o.color);heading.append(icon('target'),button(o.name,'',()=>switchObjective(id)));host.append(heading);
+          [{id:'objective',name:'Objective folder',color:o.color},...o.worktrees].forEach(tree=>{const group=terminals.filter(t=>t.objective===id&&t.tree===tree.id);if(!group.length)return;const label=element('div','ob-terminal-tree');label.style.setProperty('--tree-color',tree.color);label.append(element('span','ob-tree-dot'),element('span','',tree.name));host.append(label);
+            group.forEach(t=>{const item=o.items.find(i=>i.id===t.linked);const b=button('','ob-terminal',()=>selectTerminal(t));b.style.setProperty('--tree-color',tree.color);b.setAttribute('aria-pressed',t.id===activeTerminal);b.draggable=true;b.setAttribute('aria-label',t.name+' terminal'+(item?' linked to '+item.title:''));b.ondragstart=e=>{e.dataTransfer.setData('application/x-objective-terminal',t.id);e.dataTransfer.effectAllowed='link';};b.append(icon(item?(iconNames[item.kind]||'terminal'):'terminal'),element('span','ob-label',item?item.title:t.name));if(t.state!=='idle'){const dot=element('span','ob-status-dot'+(t.state==='ready'?' ready':''));dot.setAttribute('aria-label',t.state==='ready'?'Ready to review':'Working');b.append(dot);}host.append(b);});
+          });
+        });
+        host.append(button('+ Terminal','ob-action ob-new-terminal',terminalDialog));const t=terminals.find(t=>t.id===activeTerminal);if(t){const console=element('div','ob-console');const folder=t.tree==='objective'?'objectives/'+t.objective:objectives.find(o=>o.id===t.objective).worktrees.find(tree=>tree.id===t.tree).name;console.append(element('strong','',t.name),element('pre','','$ pwd\n…/'+folder+'\n\nSession remains attached.'));const label=element('label','','Unsent prompt'),draft=element('input');draft.type='text';draft.value=t.draft;draft.setAttribute('aria-label','Unsent prompt for '+t.name);draft.oninput=()=>{t.draft=draft.value;};label.append(draft);console.append(label,element('div','ob-console-note','Session preview'));host.append(console);}
+      }
+      function dialog(title) {const host=find('dialog');host.hidden=false;host.replaceChildren(element('h3','',title));const form=element('form');host.append(form);form.append(button('Cancel','ob-quiet',()=>{host.hidden=true;}));return form;}
+      function field(form,labelText,control) {const label=element('label','',labelText);label.append(control);form.insertBefore(label,form.lastChild);return control;}
+      function select(options) {const el=element('select');options.forEach(o=>{const opt=element('option','',o.name);opt.value=o.id;el.append(opt);});return el;}
+      function submit(form,label,action) {const b=button(label,'ob-action');b.type='submit';form.insertBefore(b,form.lastChild);form.onsubmit=e=>{e.preventDefault();action();find('dialog').hidden=true;render();};}
+      function focusDialog() {
+        const available=objectives.filter(o=>!focused.includes(o.id));const form=dialog('Bring an objective into focus');const pick=field(form,'Objective',select([...available,{id:'__new',name:'Create a new objective…'}]));const name=field(form,'New objective name',element('input'));name.type='text';name.parentElement.hidden=true;pick.onchange=()=>{name.parentElement.hidden=pick.value!=='__new';name.required=pick.value==='__new';};const slot=field(form,'Replace focus slot',select(focused.map((id,index)=>({id:String(index),name:objectives.find(o=>o.id===id).name}))));submit(form,'Replace',()=>{const old=focused[Number(slot.value)];let o=objectives.find(o=>o.id===pick.value);if(pick.value==='__new'){o={id:'objective-'+serial++,name:name.value.trim(),purpose:'',color:nextColor(),selected:null,selectedItem:null,draft:'',worktrees:[],items:[],recent:[],files:[]};objectives.push(o);}if(o){focused[Number(slot.value)]=o.id;selected=o.id;activeTerminal=terminals.find(t=>t.objective===o.id)?.id||null;message(o.name+' is in focus · '+objectives.find(o=>o.id===old).name+' sessions keep running');}});
+      }
+      function itemDialog(kind='document',scope=null) {const form=dialog('Add an objective resource');const type=field(form,'Type',select(['document','notebook','task','link'].map(id=>({id,name:id[0].toUpperCase()+id.slice(1)}))));type.value=kind;const input=field(form,'Name',element('input'));input.type='text';input.required=true;const url=field(form,'URL for a link',element('input'));url.type='text';submit(form,'Create',()=>{const o=objective(),k=type.value;let title=input.value.trim();if(k==='notebook'&&!title.endsWith('.ipynb'))title+='.ipynb';const item={id:'item-'+serial++,kind:k,title,scope,body:'',url:url.value,checks:k==='task'?[{title,done:false}]:undefined};o.items.push(item);o.selectedItem=item.id;message('Created '+title+' in '+o.name+' · sample data');});}
+      function renameDialog(item) {const form=dialog('Rename '+item.kind),input=field(form,'Name',element('input'));input.type='text';input.value=item.title;input.required=true;submit(form,'Rename',()=>{item.title=input.value.trim();if(item.kind==='notebook'&&!item.title.endsWith('.ipynb'))item.title+='.ipynb';message('Renamed resource · its links remain intact');});}
+      function nextColor() {const used=new Set(objectives.flatMap(o=>[o.color,...o.worktrees.map(t=>t.color)]));return ['#3fb950','#f778ba','#a9d14c','#d29922','#79c0ff','#ff9bce','#da9dff','#8ddb8c'].find(c=>!used.has(c))||'hsl('+((serial*137.508)%360)+' 66% 65%)';}
+      function worktreeDialog() {const form=dialog('Associate a worktree');const action=field(form,'Action',select([{id:'existing',name:'Bring an existing worktree'},{id:'new',name:'Create a new worktree'}]));const repo=field(form,'Repository',select([{id:'client',name:'client'},{id:'service',name:'service'}]));const name=field(form,'Worktree / branch name',element('input'));name.type='text';name.value='fix/follow-up';name.required=true;submit(form,'Associate',()=>{const o=objective(),tree={id:'tree-'+serial++,name:name.value.trim(),repo:repo.value,color:nextColor()};o.worktrees.push(tree);o.selected=tree.id;message((action.value==='new'?'Created':'Associated')+' '+tree.name+' with '+o.name+' · sample data');});}
+      function terminalDialog() {const o=objective(),form=dialog('New terminal · '+o.name),scope=field(form,'Launch folder',select([{id:'objective',name:'Objective folder'},...o.worktrees]));scope.value=o.selected;submit(form,'Open terminal',()=>{const id='terminal-'+serial++,tree=scope.value;const t={id,objective:o.id,tree,name:'Terminal '+serial,linked:null,state:'idle',draft:''};terminals.push(t);activeTerminal=id;message('Opened terminal preview · launch folder remains fixed');});}
+      function settingsDialog() {const form=dialog('Objective settings'),o=objective(),input=field(form,'Objective name',element('input'));input.type='text';input.value=o.name;input.required=true;submit(form,'Save',()=>{o.name=input.value.trim();message('Objective renamed · files and references remain associated');});}
+      function render() {renderFocus();renderOverview();renderReader();renderTerminals();refreshIcons();}
+      render();
+      if(globalThis.Tweak) {const tweak=new globalThis.Tweak({container:root,onChange:render});tweak.addToggle(config,'groupResources',{label:'Combine documents and links'});tweak.addSelect(config,'terminalVisibility',{label:'Terminal visibility',options:[{value:'all',label:'All three objectives'},{value:'selected',label:'Selected objective'}]});}
+    })();
+  </script>
+</div>

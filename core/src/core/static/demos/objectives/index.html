@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'none'; img-src 'self' data:; base-uri 'none'; form-action 'none'">
+<title>Objectives demo</title>
+<link rel="stylesheet" href="./objectives.css">
+<script src="./objectives.js" defer></script>
+</head>
+<body>
+<div id="lab-objectives-proposal" aria-label="Workspace objectives proposal">
+  <div class="ob-shell"><span><strong>Objectives demo</strong> <span class="ob-muted">/ Simulated workspace</span></span><div class="ob-demo-actions"><span class="ob-muted">Demo data only</span><button type="button" class="ob-action" data-reset>Reset demo</button></div></div>
+
+  <nav class="ob-focus" aria-label="Objectives in focus" data-focus></nav>
+  <section class="ob-dialog" data-dialog hidden aria-label="Objective action"></section>
+  <div class="ob-layout">
+    <aside class="ob-overview" aria-label="Objective resources and worktrees" data-overview></aside>
+    <main class="ob-reader" aria-label="Selected resource" data-reader></main>
+    <aside class="ob-terminals" aria-label="Terminals by objective and worktree" data-terminals></aside>
+  </div>
+  <div class="ob-message" aria-live="polite" data-message>SMS recovery · 3 open to-dos · 2 associated worktrees</div>
+</div>
+
+</body>
+</html>

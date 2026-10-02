@@ -1,5 +1,7 @@
 # Memory index
 
+- [Objectives demo is browser-only](objectives-demo-is-browser-only.md) — Home tab beside Admin, simulated resources and terminals, three focus slots, independent browser state and no data migration.
+
 - [Workspace external links open in the middle panel](workspace-external-links-open-in-center.md) — keep Files and existing terminals available; ordinary clicks embed, modified clicks/browser fallback stay on the client.
 
 - [Self-hosted link domains use client icon mappings](self-hosted-link-domains-use-client-icon-mappings.md) — configurable service/custom icons, optional subdomains, live updates, and local resized PNG uploads.
