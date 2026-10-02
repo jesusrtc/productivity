@@ -56,10 +56,11 @@ def test_five_focus_slots_keep_parked_objective_data_and_reject_stale_writes(mon
         objectives.mutate(monorepo, 'demo', {'type':'create','name':'Six'})
     assert objectives.load(monorepo, 'demo') == before
     data = objectives.mutate(monorepo, 'demo', {'type':'create','name':'Six','replace':first})
-    assert len(data['focused']) == 5 and len(data['objectives']) == 6 and first not in data['focused']
-    last = data['focused'][0]
-    data = apply(monorepo, first, 'focus', replace=last)
-    assert first in data['focused'] and last not in data['focused']
+    parked = before['focused'][-1]
+    assert len(data['focused']) == 5 and len(data['objectives']) == 6 and parked not in data['focused']
+    assert data['focused'][1:] == before['focused'][:4]
+    data = apply(monorepo, parked, 'focus', replace=data['focused'][0])
+    assert data['focused'][0] == parked and len(data['focused']) == 5
     with pytest.raises(ValueError, match='changed elsewhere'):
         objectives.mutate(monorepo, 'demo', {'type':'settings','objective_id':first,'name':'Lost'}, before['revision'])
 
@@ -83,18 +84,18 @@ def test_worktree_membership_and_reserved_colors_are_unique(monorepo, objective_
         apply(monorepo, first, 'scope', resource_id=r['id'], worktree=data['objectives'][1]['worktrees'][0]['id'])
 
 
-def test_focus_drop_targets_exact_slot_swaps_and_keeps_parked_content(monorepo, objective_workspace):
+def test_focus_insert_shifts_slots_and_keeps_parked_content(monorepo, objective_workspace):
     _, first = objective_workspace
     second = objectives.mutate(monorepo, 'demo', {'type':'create','name':'Second'})['objectives'][-1]['id']
     data = apply(monorepo, second, 'focus', slot=4)
     assert data['focused'] == [first, None, None, None, second]
     data = apply(monorepo, first, 'focus', slot=4)
-    assert data['focused'] == [second, None, None, None, first]
+    assert data['focused'] == [None, None, None, second, first]
     data = apply(monorepo, second, 'resource', title='Retained', kind='document', body='Keep me')
     resource = data['objectives'][1]['resources'][0]
     third = objectives.mutate(monorepo, 'demo', {'type':'create','name':'Third','slot':0})['objectives'][-1]['id']
     data = objectives.payload(monorepo, 'demo')
-    assert data['focused'] == [third, None, None, None, first]
+    assert data['focused'] == [third, None, None, second, first]
     assert data['objectives'][1]['resources'][0]['content']['body'] == 'Keep me'
     for invalid in [-1, 5, True, '1']:
         before = objectives.load(monorepo, 'demo')
@@ -103,6 +104,41 @@ def test_focus_drop_targets_exact_slot_swaps_and_keeps_parked_content(monorepo, 
         assert objectives.load(monorepo, 'demo') == before
     apply(monorepo, second, 'focus', slot=1)
     assert len({o['color'] for o in objectives.payload(monorepo, 'demo')['objectives']}) == 3
+
+
+def test_full_slot_insert_reorders_and_colors_follow_position(monorepo, objective_workspace):
+    _, first = objective_workspace
+    ids = [first]
+    for name in ['Two', 'Three', 'Four', 'Five']:
+        ids.append(objectives.mutate(monorepo, 'demo', {'type':'create', 'name':name})['objectives'][-1]['id'])
+    for index, oid in enumerate(ids):
+        for tree_index in range(5):
+            folder = monorepo / f'insert-tree-{index}-{tree_index}'
+            folder.mkdir()
+            apply(monorepo, oid, 'worktree', path=str(folder))
+    data = apply(monorepo, ids[-1], 'resource', kind='document', title='Keep', body='Retained after parking')
+    saved = data['objectives'][-1]['resources'][0]
+    sixth = objectives.mutate(monorepo, 'demo', {'type':'create', 'name':'Six', 'slot':0})['objectives'][-1]['id']
+    data = objectives.payload(monorepo, 'demo')
+    assert data['focused'] == [sixth, *ids[:4]]
+    parked = next(o for o in data['objectives'] if o['id'] == ids[-1])
+    assert parked['resources'][0]['id'] == saved['id']
+    assert parked['resources'][0]['content']['body'] == 'Retained after parking'
+    assert len(parked['worktrees']) == 5 and parked['color'] == '#8b949e'
+    data = apply(monorepo, ids[-1], 'focus', slot=2)
+    assert data['focused'] == [sixth, ids[0], ids[-1], ids[1], ids[2]]
+    data = apply(monorepo, ids[2], 'focus', slot=0)
+    assert data['focused'] == [ids[2], sixth, ids[0], ids[-1], ids[1]]
+    focused = [next(o for o in data['objectives'] if o['id'] == oid) for oid in data['focused']]
+    for slot, objective in enumerate(focused):
+        assert objective['color'] == objectives.PALETTES[slot][0]
+        assert objective['palette'] == objectives.PALETTES[slot]
+        assert [t['color'] for t in objective['worktrees'][:4]] == objectives.PALETTES[slot][:len(objective['worktrees'][:4])]
+    colors = [t['color'] for o in focused for t in o['worktrees']]
+    assert len(colors) == len(set(colors))
+    raw = objectives.registry(monorepo, 'demo').read_bytes()
+    objectives.payload(monorepo, 'demo')
+    assert objectives.registry(monorepo, 'demo').read_bytes() == raw
 
 
 def test_owned_rename_keeps_ids_and_task_references_and_unlink_preserves_files(monorepo, objective_workspace):

@@ -20339,6 +20339,7 @@
   // Cerebro view: when URL carries ?view=cerebro, we bypass the
   // workspace/repo init path entirely and render the mdview-style browser.
   window.LabObjectives?.connect({
+    fileIcon: fileIconHtml,
     refreshTabs: () => renderRepoTabs(),
     openDefault: () => {if(_contextSubView==='overview'&&!_workspaceDocPath&&!currentRepo)window.LabObjectives.openCurrent();},
     readyContent: () => Promise.all([ensureMarked(),window.ensureLiveMarkdownEditor?.().catch(()=>{})]),

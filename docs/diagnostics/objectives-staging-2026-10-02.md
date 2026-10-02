@@ -205,3 +205,26 @@ references, original Assistant ownership, Tasks/folder association, folder
 boundary rejection, and native file/sidebar behavior. The real-API Objective
 fixture also verifies that associations send no terminal input and preserve
 session metadata while retaining its existing editor/save/conflict checks.
+
+## Follow-up: one current tab, ordered slots and shared icons
+
+The current UI has Objectives plus one current-objective tab. Native hover
+shows five numbered choices below the scrolling tab strip. Library slots sit
+above the filters; a native result drag inserts at slot 1, shifts the following
+four objectives and parks the previous fifth. The real-API fixture verifies
+that parking/refocusing retains document siblings and the terminal identity.
+Keyboard menu entry, Escape, selection and slot color changes also pass.
+
+All **14 Objective backend/browser tests pass**. Fixed slot palettes apply to
+objective headers and associated worktrees, including existing registries on
+read. The native staging view shows colored associations and rails only in
+the current objective; other groups keep their colored header and gray rows.
+No terminal input was sent during these checks.
+
+Generic `.ipynb` and `.sql` references use the same file extension icons as
+Files; the browser fixture includes both alongside an owned notebook. Native
+checks confirm service mappings (including an Observe domain mapped to Grafana),
+custom PNG icons, and the unknown-service arrow. These mapping checks ran only
+in a disposable page's memory and did not save client settings. Shared and
+worktree-scoped resources use the same resource-row renderer, without metadata
+migration or changes to opening/ownership. No staging page exceptions occurred.

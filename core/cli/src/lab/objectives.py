@@ -55,7 +55,9 @@ def load(root, workspace_id):
         data = storage.read_json(file)
     else:
         data = {'version': 1, 'enabled': False, 'focused': [], 'objectives': [], 'terminal_links': {}}
-    return {**data, 'revision': revision(data)}
+    saved_revision = revision(data)
+    _slot_colors(data)
+    return {**data, 'revision': saved_revision}
 
 
 def _text(value, name='Name', limit=512):
@@ -78,11 +80,14 @@ def _find(rows, key):
 
 
 def _color(data, objective):
-    used = {tree['color'] for item in data['objectives'] for tree in item['worktrees']}
+    if objective['id'] not in data['focused']:
+        return '#8b949e'
+    used = {tree['color'] for item in data['objectives'] if item['id'] in data['focused'] for tree in item['worktrees']}
     for color in objective['palette']:
         if color not in used:
             return color
-    # Extra worktrees keep globally unique colors; the reserved four are first.
+    # Extra worktrees must not borrow another slot's reserved colors.
+    used.update(color for palette in PALETTES for color in palette)
     for hue in range(0, 360, 37):
         import colorsys
         color = '#%02x%02x%02x' % tuple(round(n * 255) for n in colorsys.hsv_to_rgb(hue / 360, .55, .9))
@@ -91,20 +96,18 @@ def _color(data, objective):
     raise ValueError('No unused worktree colors remain')
 
 
-def _palette(data):
-    used = {color for item in data['objectives'] for color in
-            [*item['palette'], *(tree['color'] for tree in item['worktrees'])]}
-    for palette in PALETTES:
-        if not used.intersection(palette):
-            return palette[:]
-    import colorsys
-    for seed in range(1000):
-        palette = ['#%02x%02x%02x' % tuple(round(n * 255) for n in
-                   colorsys.hsv_to_rgb(((seed * 37.1 + step * 90) % 360) / 360, .5, .88))
-                   for step in range(4)]
-        if not used.intersection(palette):
-            return palette
-    raise ValueError('No unused objective colors remain')
+def _slot_colors(data):
+    for objective in data['objectives']:
+        slot = data['focused'].index(objective['id']) if objective['id'] in data['focused'] else None
+        objective['palette'] = PALETTES[slot][:] if slot is not None else []
+        objective['color'] = objective['palette'][0] if slot is not None else '#8b949e'
+        for tree in objective['worktrees']:
+            tree['color'] = '#8b949e'
+    for objective in data['objectives']:
+        if objective['id'] not in data['focused']:
+            continue
+        for index, tree in enumerate(objective['worktrees']):
+            tree['color'] = objective['palette'][index] if index < len(objective['palette']) else _color(data, objective)
 
 
 def _focus(data, objective, action):
@@ -121,17 +124,17 @@ def _focus(data, objective, action):
         slot = next((i for i in range(FOCUS_SLOTS) if i >= len(focused) or not focused[i]), None)
         if slot is None:
             raise ValueError('Choose which of the five focus slots to replace')
-    focused.extend([None] * max(0, slot + 1 - len(focused)))
-    previous = focused.index(objective['id']) if objective['id'] in focused else None
-    if previous is not None:
-        focused[previous] = focused[slot]
-    focused[slot] = objective['id']
-    # Old three-slot registries may have reused a parked project's palette.
-    # Keep checkout colors; reserve a distinct project palette when refocused.
-    if any(item['id'] != objective['id'] and item['id'] in focused
-           and item['color'] == objective['color'] for item in data['objectives']):
-        objective['palette'] = _palette(data)
-        objective['color'] = objective['palette'][0]
+    if objective['id'] in focused:
+        focused.remove(objective['id'])
+    else:
+        # An available slot absorbs the shift before any focused work is parked.
+        vacancy = next((i for i in range(slot, len(focused)) if not focused[i]), None)
+        if vacancy is not None:
+            focused.pop(vacancy)
+    focused.extend([None] * max(0, slot - len(focused)))
+    focused.insert(slot, objective['id'])
+    del focused[FOCUS_SLOTS:]
+    _slot_colors(data)
 
 
 def _owned_path(folder, resource):
@@ -165,6 +168,7 @@ def document(folder, resource):
 
 def payload(root, workspace_id):
     data = load(root, workspace_id)
+    data['slot_palettes'] = deepcopy(PALETTES)
     folder = directory(root, workspace_id)
     for objective in data['objectives']:
         objective['path'] = str(folder / 'objectives' / objective['id'])
@@ -272,8 +276,7 @@ def mutate(root, workspace_id, action, expected=None):
                 raise ValueError('An objective workspace supports up to 100 saved objectives')
             objective = {'id': identifier(), 'name': _text(action.get('name'), limit=80),
                          'purpose': str(action.get('purpose', ''))[:4096], 'worktrees': [], 'resources': [], 'tasks': [],
-                         'palette': _palette(data)}
-            objective['color'] = objective['palette'][0]
+                         'palette': [], 'color': '#8b949e'}
             data['objectives'].append(objective)
             data['enabled'] = True
             _focus(data, objective, action)

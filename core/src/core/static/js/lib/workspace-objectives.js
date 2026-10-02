@@ -6,7 +6,7 @@
   const objectiveMime = 'application/x-lab-workspace-objective', focusSlots = 5;
   const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const drafts = new Map();
-  let bridge, dialog = null, hoverTimer, openView = null, activeDraft = null;
+  let bridge, dialog = null, hoverTimer, openView = null, activeDraft = null, switchMenu = null, switchTimer;
   const key = scope => (scope?.vault || '') + '::' + scope?.workspace_id;
   const context = () => bridge?.context?.();
   const data = () => cache.get(key(context()));
@@ -88,13 +88,15 @@
   }
   function resourceRow(o,r) {
     const selected=state().selected?.resource===r.id&&!state().selected?.tab;
-    const icon=r.kind==='link'?(window.LabScopeLinks?.icon({kind:'external',url:r.url})||'<span aria-hidden="true">↗</span>'):`<span aria-hidden="true">${r.kind==='notebook'?'▦':'▤'}</span>`;
+    const icon=r.kind==='link'?(window.LabScopeLinks?.icon({kind:'external',url:r.url})||'<span aria-hidden="true">↗</span>'):
+      (r.kind!=='assistant'&&bridge.fileIcon?.(r.path||r.title))||`<span aria-hidden="true">${r.kind==='notebook'?'▦':'▤'}</span>`;
     const rows=tabsFor(r),reveal=state().revealed.has(r.id),pins=state().pins[r.id]||[];
     return `<div class="objective-resource-group" data-resource-group="${esc(r.id)}"><div class="objective-resource-head"><button type="button" class="sidebar-scope-link objective-resource${r.kind==='link'?' objective-link':''}${selected?' active':''}" data-objective-resource="${esc(r.id)}" draggable="true" title="${esc(r.title)}">${icon}<span>${esc(r.title)}</span></button>${rows.length?`<button type="button" class="objective-tree-toggle" data-reveal-resource="${esc(r.id)}" aria-label="Show subtabs for ${esc(r.title)}" aria-expanded="${reveal}">${reveal?'▾':'▸'}</button>`:''}</div>
       ${rows.length?`<div class="objective-subtabs" role="tree" aria-label="${esc(r.title)} subtabs">${rows.filter(t=>reveal||pins.includes(t.id)).map(t=>`<div class="objective-subtab-row" style="--objective-tab-depth:${t.depth}" role="treeitem" aria-level="${t.depth+1}"><button type="button" class="objective-subtab${state().selected?.resource===r.id&&state().selected.tab===t.id?' active':''}" data-objective-resource="${esc(r.id)}" data-objective-tab="${esc(t.id)}" draggable="true" title="${esc(t.title)}"><span aria-hidden="true">▤</span><span>${esc(t.title)}</span></button><button type="button" class="objective-pin" data-pin-resource="${esc(r.id)}" data-pin-tab="${esc(t.id)}" aria-label="Pin ${esc(t.title)}" aria-pressed="${pins.includes(t.id)}">${pins.includes(t.id)?'◆':'◇'}</button></div>`).join('')}</div>`:''}</div>`;
   }
   function paint() {
     bridge.refreshTabs?.();
+    if(switchMenu)paintSwitchMenu();
     const scope=context(),host=document.querySelector('[data-objectives-sidebar]');if(!host||!scope)return;
     const d=data();if(!d)return;
     if(!d.enabled){host.innerHTML='<button type="button" class="sidebar-objective-add" data-new-objective>+ Objective</button>';return;}
@@ -109,29 +111,56 @@
     host.querySelectorAll('[data-resource-group]').forEach(row=>{row.onmouseenter=()=>{clearTimeout(hoverTimer);const id=row.dataset.resourceGroup;hoverTimer=setTimeout(()=>{if(row.isConnected&&key(context())===key(scope)){state().revealed.add(id);paint();}},1500);};row.onmouseleave=()=>clearTimeout(hoverTimer);});
   }
   function selectObjective(id) {
-    const o=data()?.objectives.find(o=>o.id===id);if(!o)return;collapse();state().objective=id;state().view='objective';state().selected=null;persistView();paint();renderTasks();bridge.refreshTerminals?.();
+    const o=data()?.objectives.find(o=>o.id===id);if(!o)return;closeSwitchMenu();collapse();state().objective=id;state().view='objective';state().selected=null;persistView();paint();renderTasks();bridge.refreshTerminals?.();
     const t=tree(o)||{path:context().path,kind:'folder'};if(bridge.scopeRoot?.()!==t.path)bridge.selectWorktree?.(t);
   }
   function tabsHtml(path,working=true) {
     if(context()?.path!==path)return '';
-    const d=data(),s=state(),all=working&&s.view==='all';
-    return `<button type="button" class="repo-tab vault-context-tab objective-tab${all?' active':''}" data-all-objectives aria-pressed="${all}">All</button>`+
-      Array.from({length:focusSlots},(_,slot)=>{
-        const o=d?.objectives.find(o=>o.id===d.focused[slot]),selected=!!(working&&!all&&o&&o.id===objective()?.id);
-        return `<button type="button" class="repo-tab vault-context-tab objective-tab${o?'':' objective-slot-empty'}${selected?' active':''}" style="--vault-color:${esc(o?.color||'#8b949e')}" data-objective-slot="${slot}" ${o?`data-select-objective="${esc(o.id)}" draggable="true"`:''} aria-pressed="${selected}" aria-label="Slot ${slot+1}${o?': '+esc(o.name):': choose an objective'}" title="${o?esc(o.name):'Drop an objective here or click to choose'}"><span class="vault-mark" aria-hidden="true"></span><span class="objective-tab-name">${esc(o?.name||'Slot '+(slot+1))}</span></button>`;
-      }).join('');
+    const s=state(),all=working&&s.view==='all',o=objective(),selected=!!(working&&!all&&o);
+    return `<button type="button" class="repo-tab vault-context-tab objective-tab${all?' active':''}" data-all-objectives aria-pressed="${all}">Objectives</button>`+
+      (o?`<button type="button" class="repo-tab vault-context-tab objective-tab${selected?' active':''}" style="--vault-color:${esc(o.color)}" data-current-objective data-select-objective="${esc(o.id)}" draggable="true" aria-pressed="${selected}" aria-haspopup="menu" aria-expanded="${!!switchMenu}" aria-controls="objective-switch-menu" title="${esc(o.name)}"><span class="vault-mark" aria-hidden="true"></span><span class="objective-tab-name">${esc(o.name)}</span><span class="objective-switch-arrow" data-toggle-objective-switch aria-hidden="true">▾</span></button>`:'');
+  }
+  function closeSwitchMenu() {
+    clearTimeout(switchTimer);switchMenu?.remove();switchMenu=null;
+    document.querySelector('[data-current-objective]')?.setAttribute('aria-expanded','false');
+  }
+  function paintSwitchMenu() {
+    const anchor=document.querySelector('[data-current-objective]'),d=data();if(!anchor||!d||!switchMenu){closeSwitchMenu();return;}
+    const focusedIndex=[...switchMenu.querySelectorAll('button')].indexOf(document.activeElement);
+    switchMenu.innerHTML=Array.from({length:focusSlots},(_,slot)=>{
+      const o=d.objectives.find(o=>o.id===d.focused[slot]),selected=o?.id===objective()?.id;
+      return `<button type="button" role="menuitemradio" aria-checked="${selected}" ${o?`data-select-objective="${esc(o.id)}"`:`data-choose-objective-slot="${slot}"`} style="--vault-color:${esc(o?.color||d.slot_palettes?.[slot]?.[0]||'#8b949e')}"><span class="objective-switch-number">${slot+1}</span><span class="vault-mark" aria-hidden="true"></span><span class="objective-tab-name">${esc(o?.name||'Choose an objective…')}</span></button>`;
+    }).join('');
+    anchor.setAttribute('aria-expanded','true');const box=anchor.getBoundingClientRect();
+    switchMenu.style.left=Math.max(8,Math.min(box.left,window.innerWidth-switchMenu.offsetWidth-8))+'px';
+    const bottom=Math.max(box.bottom,anchor.closest('.repo-tabs')?.getBoundingClientRect().bottom||box.bottom);
+    switchMenu.style.top=Math.min(bottom,window.innerHeight-switchMenu.offsetHeight-8)+'px';
+    if(focusedIndex>=0)switchMenu.querySelectorAll('button')[focusedIndex]?.focus({preventScroll:true});
+  }
+  function showSwitchMenu() {
+    clearTimeout(switchTimer);if(switchMenu)return;
+    if(!document.querySelector('[data-current-objective]'))return;
+    switchMenu=document.createElement('div');switchMenu.id='objective-switch-menu';switchMenu.className='objective-switch-menu';switchMenu.setAttribute('role','menu');switchMenu.setAttribute('aria-label','Focused objectives');
+    document.body.append(switchMenu);paintSwitchMenu();
+  }
+  function focusSlotsHtml() {
+    const d=data();return Array.from({length:focusSlots},(_,slot)=>{
+      const o=d.objectives.find(o=>o.id===d.focused[slot]);
+      return `<button type="button" class="objective-focus-slot${o?'':' objective-slot-empty'}" data-objective-slot="${slot}" ${o?`data-select-objective="${esc(o.id)}" data-drag-objective="${esc(o.id)}" draggable="true"`:''} style="--vault-color:${esc(d.slot_palettes?.[slot]?.[0]||o?.color||'#8b949e')}" title="${o?esc(o.name):'Drop an objective here or click to choose'}"><span class="objective-focus-slot-label">Slot ${slot+1}<span class="vault-mark" aria-hidden="true"></span></span><span class="objective-tab-name">${esc(o?.name||'Drop an objective')}</span></button>`;
+    }).join('');
   }
   function showAll() {
     if(!data()){const scope=key(context());void load().then(result=>{if(result&&key(context())===scope)showAll();});return;}
-    state().view='all';state().selected=null;collapse();persistView();
+    closeSwitchMenu();state().view='all';state().selected=null;collapse();persistView();
     const host=showCenter('all');
-    host.innerHTML=`<section class="objective-working objective-library"><header><h2>All objectives</h2><button type="button" data-new-objective>+ Objective</button></header><p class="objective-purpose">Drag an objective into one of the five tabs above. Replacing a slot keeps the previous objective here.</p><div class="objective-library-filters"><label>Search<input type="search" data-objective-search placeholder="Name or outcome" value="${esc(state().query||'')}"></label><label>Focus<select data-objective-filter><option value="all">All objectives</option><option value="focused">In focus</option><option value="parked">Parked</option></select></label><label>Tasks<select data-objective-status-filter><option value="all">Any status</option><option value="track">On track</option><option value="risk">At risk</option><option value="overdue">Past due</option><option value="complete">Complete</option></select></label></div><div class="objective-library-list"></div></section>`;
+    host.innerHTML=`<section class="objective-working objective-library"><header><h2>All objectives</h2><button type="button" data-new-objective>+ Objective</button></header><section class="objective-focus" aria-label="Focus slots"><h3>Focus slots</h3><div class="objective-focus-slots"></div><p class="objective-purpose">Drop into a slot to insert. Following objectives move down; the fifth returns to the list.</p></section><div class="objective-library-filters"><label>Search<input type="search" data-objective-search placeholder="Name or outcome" value="${esc(state().query||'')}"></label><label>Focus<select data-objective-filter><option value="all">All objectives</option><option value="focused">In focus</option><option value="parked">Parked</option></select></label><label>Tasks<select data-objective-status-filter><option value="all">Any status</option><option value="track">On track</option><option value="risk">At risk</option><option value="overdue">Past due</option><option value="complete">Complete</option></select></label></div><div class="objective-library-list"></div></section>`;
     host.querySelector('[data-objective-filter]').value=state().filter||'all';host.querySelector('[data-objective-status-filter]').value=state().statusFilter||'all';
     paintLibrary();paint();
   }
   function paintLibrary() {
     const host=document.querySelector('.objective-library-list');if(!host||openView?.scope!==key(context()))return;
     const d=data(),s=state(),query=(s.query||'').trim().toLocaleLowerCase();
+    document.querySelector('.objective-focus-slots').innerHTML=focusSlotsHtml();
     const rows=d.objectives.filter(o=>(!query||(o.name+' '+o.purpose).toLocaleLowerCase().includes(query))&&(!s.filter||s.filter==='all'||d.focused.includes(o.id)===(s.filter==='focused'))&&(!s.statusFilter||s.statusFilter==='all'||progress(o).status===s.statusFilter));
     host.innerHTML=rows.map(o=>`<div class="objective-library-row" data-drag-objective="${esc(o.id)}" draggable="true" style="--objective-color:${esc(o.color)}"><span class="objective-library-dot" aria-hidden="true"></span><button type="button" data-library-objective="${esc(o.id)}"><strong>${esc(o.name)}</strong><span>${esc(o.purpose)}</span></button>${badge(o)}<span class="objective-library-focus">${d.focused.includes(o.id)?'Slot '+(d.focused.indexOf(o.id)+1):'Parked'}</span><button type="button" data-place-objective="${esc(o.id)}" aria-label="Choose focus slot for ${esc(o.name)}">Focus…</button></div>`).join('')||'<p>No objectives match. Create one or change the filters.</p>';
   }
@@ -236,9 +265,9 @@
     dialog?.remove();const node=document.createElement('dialog');node.className='objective-dialog';node.innerHTML=`<form><header><h2>${esc(title)}</h2></header>${fields}<footer><button type="button" data-cancel>Cancel</button><button type="submit">Save</button></footer><p role="status"></p></form>`;document.body.append(node);dialog=node;node.showModal();node.querySelector('[data-cancel]').onclick=()=>{node.close();node.remove();};node.querySelector('form').onsubmit=async e=>{e.preventDefault();const button=node.querySelector('[type=submit]');button.disabled=true;try{await submit(new FormData(e.target));node.close();node.remove();}catch(error){node.querySelector('[role=status]').textContent=error.message;button.disabled=false;}};return node;
   }
   const input=(label,name,value='',type='text',required=true)=>`<label>${esc(label)}<input name="${name}" type="${type}" value="${esc(value)}" ${required?'required':''}></label>`;
-  function newObjective(slot=null) {const d=data();if(!d){const scope=key(context());void load().then(result=>{if(result&&key(context())===scope)newObjective(slot);});return;}form('New objective',input('Name','name')+input('Outcome','purpose','','text',false)+(d.objectives.length?'':'<label><span><input name="import_existing" type="checkbox" checked> Bring current workspace worktrees, files and links</span></label>')+(d.focused.filter(Boolean).length===focusSlots?`<label>Replace focus slot<select name="replace">${d.focused.map(id=>`<option value="${esc(id)}">${esc(d.objectives.find(o=>o.id===id).name)}</option>`).join('')}</select></label>`:''),async values=>{const result=await change({type:'create',name:values.get('name'),purpose:values.get('purpose'),replace:values.get('replace'),slot,import_existing:values.has('import_existing')});selectObjective(result.objectives.at(-1).id);bridge.refreshSidebar?.();});}
+  function newObjective(slot=null) {const d=data();if(!d){const scope=key(context());void load().then(result=>{if(result&&key(context())===scope)newObjective(slot);});return;}form('New objective',input('Name','name')+input('Outcome','purpose','','text',false)+(d.objectives.length?'':'<label><span><input name="import_existing" type="checkbox" checked> Bring current workspace worktrees, files and links</span></label>')+(slot===null&&d.focused.filter(Boolean).length===focusSlots?`<label>Insert at<select name="slot">${d.focused.map((id,i)=>`<option value="${i}">Slot ${i+1} · ${esc(d.objectives.find(o=>o.id===id).name)}</option>`).join('')}</select></label>`:''),async values=>{const result=await change({type:'create',name:values.get('name'),purpose:values.get('purpose'),slot:values.has('slot')?Number(values.get('slot')):slot,import_existing:values.has('import_existing')});selectObjective(result.objectives.at(-1).id);bridge.refreshSidebar?.();});}
   function focusDialog(objectiveId=null,slot=null) {
-    const d=data();form('Choose an objective and focus slot',`<label>Objective<select name="objective">${d.objectives.map(o=>`<option value="${esc(o.id)}">${esc(o.name)}</option>`).join('')}</select></label><label>Slot<select name="slot">${Array.from({length:focusSlots},(_,i)=>`<option value="${i}">Slot ${i+1} · ${esc(d.objectives.find(o=>o.id===d.focused[i])?.name||'Empty')}</option>`).join('')}</select></label>`,async values=>{
+    const d=data();form('Insert an objective into focus',`<label>Objective<select name="objective">${d.objectives.map(o=>`<option value="${esc(o.id)}">${esc(o.name)}</option>`).join('')}</select></label><label>Insert at<select name="slot">${Array.from({length:focusSlots},(_,i)=>`<option value="${i}">Slot ${i+1} · ${esc(d.objectives.find(o=>o.id===d.focused[i])?.name||'Empty')}</option>`).join('')}</select></label>`,async values=>{
       await placeObjective(values.get('objective'),Number(values.get('slot')));
     });
     if(objectiveId)dialog.querySelector('[name=objective]').value=objectiveId;
@@ -246,7 +275,10 @@
   }
   async function placeObjective(id,slot) {
     const scope=key(context());await change({type:'focus',objective_id:id,slot});
-    if(scope===key(context()))selectObjective(id);
+    if(scope!==key(context()))return;
+    if(openView?.type==='all'){
+      if(!data().focused.includes(state().objective)){state().objective=id;persistView();paint();bridge.refreshTerminals?.();}
+    }else selectObjective(id);
   }
   function addResource(kind='document') {form('Add objective resource',`<label>Type<select name="kind"><option value="document">Markdown document</option><option value="notebook">Notebook</option><option value="link">Link</option><option value="file">Existing workspace file</option></select></label>`+input('Name','title')+input('URL (links only)','url','','text',false)+input('Workspace-relative path (existing files only)','path','','text',false),async values=>{const result=await change({type:'resource',objective_id:objective().id,kind:values.get('kind'),title:values.get('title'),url:values.get('url'),path:values.get('path')});openResource(result.objectives.find(o=>o.id===objective().id).resources.at(-1).id);});dialog.querySelector('[name=kind]').value=kind;}
   function addTask(parentId=null) {const o=objective();form(parentId?'New subtask':'New task',input('Task','title')+input('Due date','due','','date',false),async values=>{await change({type:'task',objective_id:o.id,parent_id:parentId,title:values.get('title'),due:values.get('due')});renderTasks();});}
@@ -268,7 +300,7 @@
       }
       const terminals=[...groups].map(([path,{worktree,items}])=>
         `<div class="objective-terminal-worktree" role="group" aria-label="${esc(worktree?.label||(path===context().path?'Objective folder':path.split('/').filter(Boolean).slice(-2).join('/')))}">${items.map(row=>pill(row.t,row.index)).join('')}</div>`).join('');
-      return `<section class="objective-terminal-group" style="--objective-color:${esc(o.color)}"><button type="button" class="objective-terminal-heading" data-select-objective="${esc(id)}" title="${esc(o.name)}">${esc(o.name)}</button><div class="objective-terminal-rows">${terminals}</div></section>`;
+      return `<section class="objective-terminal-group" data-objective-active="${id===objective()?.id}" style="--objective-color:${esc(o.color)}"><button type="button" class="objective-terminal-heading" data-select-objective="${esc(id)}" title="${esc(o.name)}">${esc(o.name)}</button><div class="objective-terminal-rows">${terminals}</div></section>`;
     }).join('')+newButton;
   }
   function openForTerminal(t) {
@@ -301,10 +333,12 @@
     if(!root)throw new Error('Choose a file in this objective');return {file:{root,path}};
   }
   function handleClick(e) {
-    const host=e.target.closest?.('[data-objectives-sidebar],.objective-working,.objective-dialog,.objective-terminal-group,[data-objective-notebook-controls],.repo-tabs');
+    const host=e.target.closest?.('[data-objectives-sidebar],.objective-working,.objective-dialog,.objective-terminal-group,[data-objective-notebook-controls],.repo-tabs,.objective-switch-menu');
     if(!host)return;
     const node=e.target.closest('button,input');if(!node)return;
-    if(node.dataset.selectObjective){selectObjective(node.dataset.selectObjective);return;}
+    if(e.target.closest('[data-toggle-objective-switch]')){switchMenu?closeSwitchMenu():showSwitchMenu();return;}
+    if(node.hasAttribute('data-choose-objective-slot')){closeSwitchMenu();showAll();data()?.objectives.length?focusDialog(null,Number(node.dataset.chooseObjectiveSlot)):newObjective(Number(node.dataset.chooseObjectiveSlot));return;}
+    if(node.dataset.selectObjective){const fromMenu=!!node.closest('.objective-switch-menu');selectObjective(node.dataset.selectObjective);if(fromMenu)document.querySelector('[data-current-objective]')?.focus({preventScroll:true});return;}
     if(node.hasAttribute('data-all-objectives')){showAll();return;}
     if(node.hasAttribute('data-objective-slot')){data()?.objectives.length?focusDialog(null,Number(node.dataset.objectiveSlot)):newObjective(Number(node.dataset.objectiveSlot));return;}
     if(node.dataset.libraryObjective){data().focused.includes(node.dataset.libraryObjective)?selectObjective(node.dataset.libraryObjective):focusDialog(node.dataset.libraryObjective);return;}
@@ -328,6 +362,25 @@
     if(node.hasAttribute('data-revert-objective-document'))void revertDraft(activeDraft);
   }
   document.addEventListener('click',handleClick);
+  document.addEventListener('mouseover',event=>{
+    const target=event.target.closest?.('[data-current-objective],.objective-switch-menu');
+    if(target){clearTimeout(switchTimer);if(target.hasAttribute('data-current-objective'))showSwitchMenu();}
+  });
+  document.addEventListener('mouseout',event=>{
+    if(event.target.closest?.('[data-current-objective],.objective-switch-menu')&&!event.relatedTarget?.closest?.('[data-current-objective],.objective-switch-menu')){clearTimeout(switchTimer);switchTimer=setTimeout(closeSwitchMenu,180);}
+  });
+  document.addEventListener('pointerdown',event=>{if(!event.target.closest?.('[data-current-objective],.objective-switch-menu'))closeSwitchMenu();});
+  document.addEventListener('keydown',event=>{
+    const anchor=event.target.closest?.('[data-current-objective]'),menu=event.target.closest?.('.objective-switch-menu');
+    if(event.key==='Escape'&&switchMenu){closeSwitchMenu();document.querySelector('[data-current-objective]')?.focus();event.preventDefault();return;}
+    if(!anchor&&!menu)return;
+    if(['ArrowDown','ArrowUp','Home','End'].includes(event.key)){
+      event.preventDefault();showSwitchMenu();const rows=[...switchMenu.querySelectorAll('button')],current=rows.indexOf(document.activeElement);
+      rows[event.key==='Home'?0:event.key==='End'?rows.length-1:event.key==='ArrowDown'?(current+1)%rows.length:current<0?rows.length-1:(current+rows.length-1)%rows.length]?.focus();
+    }else if(anchor&&event.key==='Escape')closeSwitchMenu();
+  });
+  window.addEventListener('resize',closeSwitchMenu);
+  document.addEventListener('scroll',event=>{if(switchMenu&&event.target.matches?.('.repo-tabs'))closeSwitchMenu();},true);
   document.addEventListener('click',event=>{
     if(active(context()?.path)&&event.target.closest?.('#sidebar,.repo-tabs,#termSessionList')
       &&!event.target.closest('[data-objectives-sidebar],.objective-tab')){
@@ -380,6 +433,6 @@
     worktreeColor(path){return active(context()?.path)?scopeRows().find(t=>t.fixed&&t.path===path)?.color||data()?.objectives.flatMap(o=>o.worktrees).find(t=>t.path===path||t.resolved_path===path)?.color:null;},
     notebookControls(root,path){const r=objective()?.resources.find(r=>r.kind==='notebook'&&r.path===path&&context()?.path===root);return r?`<span data-objective-notebook-controls><button type="button" data-rename-objective-resource="${esc(r.id)}">Rename</button></span>`:'';},
     ownsCenter(path){return context()?.path===path&&openView?.scope===key(context())&&!!(document.querySelector('#content .objective-working')||state().selected);},
-    leave(){releaseDraft();if(context()){collapse();state().selected=null;}openView=null;dialog?.remove();dialog=null;clearTimeout(hoverTimer);}};
+    leave(){closeSwitchMenu();releaseDraft();if(context()){collapse();state().selected=null;}openView=null;dialog?.remove();dialog=null;clearTimeout(hoverTimer);}};
   window.addEventListener('beforeunload',event=>{if([...drafts.values()].some(dirtyDraft)){event.preventDefault();event.returnValue='';}});
 })();

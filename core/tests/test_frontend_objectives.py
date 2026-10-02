@@ -28,6 +28,9 @@ def test_objective_inline_editor_serializes_sibling_saves_and_retains_conflicts(
     resource = data['objectives'][0]['resources'][0]
     checkout = tmp_path/'other checkout';checkout.mkdir()
     data = objectives.mutate(monorepo, 'demo', {'type':'worktree','objective_id':oid,'path':str(checkout),'kind':'folder'})
+    for filename, body in [('copied.ipynb', '{"cells":[],"metadata":{},"nbformat":4,"nbformat_minor":5}'), ('query.sql', 'SELECT 1;')]:
+        (folder/filename).write_text(body)
+        data = objectives.mutate(monorepo, 'demo', {'type':'resource','objective_id':oid,'kind':'file','title':filename,'path':filename})
     for kind, title, extra in [('notebook','Analysis',{}),('link','External',{'url':'https://example.com/a?one=1&two=2#section'})]:
         data = objectives.mutate(monorepo, 'demo', {'type':'resource','objective_id':oid,'kind':kind,'title':title,**extra})
     file = folder/'existing file.py';file.write_text('print(1)\n')
@@ -60,7 +63,7 @@ const _termDragState=null,workspaceTabsDragId=null;
 const notices=[],opened=[];let scopeRoot=FIX.folder;
 window.explorerToast=(message,error)=>{if(error)throw Error(message);notices.push(message)};
 document.getElementById('termBody').addEventListener('drop',_termHandleDrop);
-document.addEventListener('dragstart',event=>{if(event.isTrusted){window.nativeDrag={effect:event.dataTransfer.effectAllowed,reference:event.dataTransfer.getData('application/x-lab-reference')};event.preventDefault()}});
+document.addEventListener('dragstart',event=>{if(event.isTrusted&&!event.target.closest('[data-drag-objective]')){window.nativeDrag={effect:event.dataTransfer.effectAllowed,reference:event.dataTransfer.getData('application/x-lab-reference')};event.preventDefault()}});
 window.checkDrag=(selector,expected)=>{
  const node=document.querySelector(selector),transfer=new DataTransfer();assert(node?.draggable,'draggable '+selector);
  node.dispatchEvent(new DragEvent('dragstart',{bubbles:true,cancelable:true,dataTransfer:transfer}));
@@ -78,12 +81,12 @@ window.checkLink=async(selector,expected)=>{
  assert(pasted.length===count,'association never writes terminal input');
  await LabObjectives.load(undefined,true);assert(LabObjectives.openForTerminal(FIX.session),'linked terminal opens target');
 };
-LabObjectives.connect({context:()=>({workspace_id:'demo',path:FIX.folder}),refreshTabs:()=>document.getElementById('tabs').innerHTML=LabObjectives.tabsHtml(FIX.folder),readyContent:()=>Promise.resolve(),prepareCenter:()=>{},scopeRoot:()=>scopeRoot,selectWorktree:row=>{scopeRoot=row.path},session:name=>name===FIX.session.name?FIX.session:null,openLink:link=>opened.push({url:link.url}),openFile:file=>opened.push({file}),openNotebook:r=>opened.push({notebook:r.path}),openFolder:folder=>opened.push({folder})});
+LabObjectives.connect({fileIcon:fileIconHtml,context:()=>({workspace_id:'demo',path:FIX.folder}),refreshTabs:()=>document.getElementById('tabs').innerHTML=LabObjectives.tabsHtml(FIX.folder),readyContent:()=>Promise.resolve(),prepareCenter:()=>{},scopeRoot:()=>scopeRoot,selectWorktree:row=>{scopeRoot=row.path},session:name=>name===FIX.session.name?FIX.session:null,openLink:link=>opened.push({url:link.url}),openFile:file=>opened.push({file}),openNotebook:r=>opened.push({notebook:r.path}),openFolder:folder=>opened.push({folder})});
 (async()=>{await LabObjectives.load();LabObjectives.selectObjective(FIX.oid);document.getElementById('result').textContent='READY'})().catch(e=>document.getElementById('result').textContent=e.stack);
 '''
     app = (STATIC/'js/lab-app.js').read_text()
-    setup = app[app.index('  function _termDropPaths('):app.index('  function _termReflowSelection(')] + setup
-    page = '<!doctype html><meta charset="utf-8"><style>'+ (STATIC/'css/lab-shell.css').read_text()+(STATIC/'css/workspace-objectives.css').read_text()+'</style><div class="repo-tabs" id="tabs"></div><div id="sidebar"><section data-objectives-sidebar></section></div><main id="content"></main><div id="termSessionList"><button class="sess" data-name="'+saved_session['name']+'">Shell</button></div><div id="termBody"></div><pre id="result">PENDING</pre>'+scripts+'<script>const FIX='+json.dumps(fixture)+';</script><script>'+setup+'</script>'
+    setup = app[app.index('  function fileIconHtml('):app.index('  function buildSidebarTree(')] + app[app.index('  function _termDropPaths('):app.index('  function _termReflowSelection(')] + setup
+    page = '<!doctype html><meta charset="utf-8"><style>'+ (STATIC/'css/lab-shell.css').read_text()+(STATIC/'css/workspace-objectives.css').read_text()+'body{padding-top:90px}</style><div class="repo-tabs" id="tabs"></div><div id="sidebar"><section data-objectives-sidebar></section></div><main id="content"></main><div id="termSessionList"><button class="sess" data-name="'+saved_session['name']+'">Shell</button></div><div id="termBody"></div><pre id="result">PENDING</pre>'+scripts+'<script>const FIX='+json.dumps(fixture)+';</script><script>'+setup+'</script>'
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args): pass
         def do_GET(self):
@@ -104,8 +107,8 @@ const fs=require('node:fs');
 (async()=>{
  const [port]=fs.readFileSync(process.argv[1]+'/DevToolsActivePort','utf8').split('\n');
  const target=await fetch(`http://127.0.0.1:${port}/json/new?about:blank`,{method:'PUT'}).then(r=>r.json());
- const ws=new WebSocket(target.webSocketDebuggerUrl),pending=new Map();let sequence=0;
- ws.onmessage=event=>{const m=JSON.parse(event.data);if(m.id){const p=pending.get(m.id);pending.delete(m.id);m.error?p.reject(Error(m.error.message)):p.resolve(m.result)}};
+ const ws=new WebSocket(target.webSocketDebuggerUrl),pending=new Map();let sequence=0,dragData=null;
+ ws.onmessage=event=>{const m=JSON.parse(event.data);if(m.method==='Input.dragIntercepted')dragData=m.params.data;if(m.id){const p=pending.get(m.id);pending.delete(m.id);m.error?p.reject(Error(m.error.message)):p.resolve(m.result)}};
  await new Promise(r=>ws.addEventListener('open',r,{once:true}));
  const send=(method,params={})=>new Promise((resolve,reject)=>{const id=++sequence;pending.set(id,{resolve,reject});ws.send(JSON.stringify({id,method,params}))});
  async function evaluate(expression){const r=await send('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:true});if(r.exceptionDetails)throw Error(r.exceptionDetails.exception?.description||'Browser assertion');return r.result.value;}
@@ -127,7 +130,7 @@ const fs=require('node:fs');
  await evaluate(`checkDrag('[data-objective-tab="'+FIX.child+'"]',FIX.folder+'/'+FIX.editorPath+'#tab='+FIX.child)`);
  await evaluate(`checkLink('[data-objective-tab="'+FIX.child+'"]',{resource_id:FIX.rid,tab_id:FIX.child})`);
  await click('[data-objective-resource]');
- await evaluate(`assert(editor()&&document.querySelector('.cm-content strong')?.textContent==='Bold','live editor on open');assert(getComputedStyle(editor().view.dom).fontSize==='13px','native text size');assert(document.querySelector('[data-objectives-sidebar]').firstElementChild.hasAttribute('data-open-objective-tasks'),'Tasks at sidebar top');assert(document.querySelectorAll('[data-objective-root]').length===2,'two fixed roots');assert(document.querySelectorAll('[data-objective-slot]').length===5&&document.querySelector('[data-all-objectives]'),'All and five top slots');assert(!document.querySelector('.objective-selectors'),'no duplicate sidebar selectors');assert(document.querySelectorAll('.objective-document [role=tablist]').length===0,'tabs outside content')`);
+ await evaluate(`assert(document.querySelectorAll('.objective-resource .ft-nb').length===2&&document.querySelector('.objective-resource .ft-sql'),'owned and generic notebook / SQL icons follow paths');assert(editor()&&document.querySelector('.cm-content strong')?.textContent==='Bold','live editor on open');assert(getComputedStyle(editor().view.dom).fontSize==='13px','native text size');assert(document.querySelector('[data-objectives-sidebar]').firstElementChild.hasAttribute('data-open-objective-tasks'),'Tasks at sidebar top');assert(document.querySelectorAll('[data-objective-root]').length===2,'two fixed roots');assert(document.querySelectorAll('.repo-tabs .objective-tab').length===2&&document.querySelector('[data-all-objectives]').textContent==='Objectives','Objectives and one current tab');assert(!document.querySelector('.objective-selectors'),'no duplicate sidebar selectors');assert(document.querySelectorAll('.objective-document [role=tablist]').length===0,'tabs outside content')`);
  await type('\nFirst submitted edit.');
  await evaluate('window.hold=true');await click('[data-save-objective-document]');
  await evaluate('until(()=>window.release)');
@@ -143,14 +146,39 @@ const fs=require('node:fs');
  await evaluate(`(async()=>{await until(()=>document.querySelector('.objective-document-status').classList.contains('error'));assert(editor().value.includes('Retained conflicting draft.'),'conflict retains draft');assert(!resource(await read()).content.tabs[0].body.includes('Retained conflicting draft.'),'conflict never overwrites')})()`);
  await click('[data-revert-objective-document]');
  await evaluate(`(async()=>{await until(()=>editor().value.includes('Concurrent edit.')&&!document.querySelector('.objective-document-status').classList.contains('error'));assert(resource(await read()).content.tabs[1].body==='Sibling source','recovery keeps sibling')})()`);
- await click('[data-all-objectives]');await click('[data-objective-search]');
+ await click('[data-all-objectives]');
+ await evaluate(`assert(document.querySelectorAll('.objective-focus-slots [data-objective-slot]').length===5,'five slots in library');document.querySelector('[data-current-objective]').focus()`);
+ await send('Input.dispatchKeyEvent',{type:'keyDown',key:'ArrowDown',code:'ArrowDown',windowsVirtualKeyCode:40});
+ await send('Input.dispatchKeyEvent',{type:'keyUp',key:'ArrowDown',code:'ArrowDown',windowsVirtualKeyCode:40});
+ await evaluate(`assert(document.querySelectorAll('.objective-switch-menu button').length===5,'five dropdown choices');assert(document.activeElement.closest('.objective-switch-menu'),'keyboard enters dropdown');assert(document.querySelector('.objective-switch-menu').getBoundingClientRect().top>=document.querySelector('.repo-tabs').getBoundingClientRect().bottom-4,'menu escapes scrolling tab strip')`);
+ await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
+ await send('Input.dispatchKeyEvent',{type:'keyUp',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
+ await evaluate(`assert(!document.querySelector('.objective-switch-menu')&&document.activeElement.hasAttribute('data-current-objective'),'Escape closes and restores focus')`);
+ await click('[data-objective-search]');
  await send('Input.insertText',{text:'does-not-exist'});
  await evaluate(`assert(!document.querySelector('.objective-library-row')&&document.querySelector('.objective-library-list').textContent.includes('No objectives match'),'native search filters rows');document.querySelector('[data-objective-search]').select()`);
  await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Backspace',code:'Backspace',windowsVirtualKeyCode:8});
  await send('Input.dispatchKeyEvent',{type:'keyUp',key:'Backspace',code:'Backspace',windowsVirtualKeyCode:8});
  await evaluate(`assert(document.querySelectorAll('.objective-library-row').length===1,'clearing search restores rows')`);
  await click('[data-objective-slot="4"]');await click('.objective-dialog [type=submit]');
- await evaluate(`(async()=>{await until(async()=>{const d=await read();return d.focused[4]===FIX.oid&&!d.focused[0]});assert(document.querySelector('[data-objective-slot="4"]').dataset.selectObjective===FIX.oid,'empty slot assigns exact position');assert(document.querySelector('.objective-working h2').textContent==='Tasks','slot opens tasks');assert(resource(await read()).content.tabs[1].body==='Sibling source','slot changes keep document')})()`);
+ await evaluate(`(async()=>{await until(async()=>{const d=await read();return d.focused[4]===FIX.oid&&!d.focused[0]});const d=await read();assert(document.querySelector('[data-objective-slot="4"]').dataset.selectObjective===FIX.oid,'empty slot assigns exact position');assert(document.querySelector('.objective-working h2').textContent==='All objectives','slot placement keeps library open');assert(document.querySelector('[data-current-objective]').style.getPropertyValue('--vault-color')===d.slot_palettes[4][0],'current tab follows slot color');assert(resource(await read()).content.tabs[1].body==='Sibling source','slot changes keep document')})()`);
+ await evaluate(`(async()=>{for(const name of ['Second','Third','Fourth','Fifth','Sixth']){const d=await read(),r=await fetch('/api/objectives',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({workspace_id:'demo',expected:d.revision,action:{type:'create',name,slot:0}})});assert(r.ok,'fixture objective');}const d=await read();window.beforeInsertion=d.focused.slice();await LabObjectives.load(undefined,true);assert(!d.focused.includes(FIX.oid),'fixture parked');document.getElementById('sidebar').style.display='none';window.scrollTo(0,0)})()`);
+ const points=await evaluate(`(()=>{const source=document.querySelector('[data-drag-objective="'+FIX.oid+'"]'),target=document.querySelector('[data-objective-slot="0"]');const a=source.getBoundingClientRect(),b=target.getBoundingClientRect();assert(document.elementFromPoint(b.x+b.width/2,b.y+b.height/2)?.closest('[data-objective-slot]')===target,'visible native drop target '+JSON.stringify({a,b}));return{source:{x:a.x+20,y:a.y+a.height/2},target:{x:b.x+b.width/2,y:b.y+b.height/2}}})()`);
+ await send('Input.setInterceptDrags',{enabled:true});
+ await send('Input.dispatchMouseEvent',{type:'mouseMoved',...points.source});
+ await send('Input.dispatchMouseEvent',{type:'mousePressed',...points.source,button:'left',buttons:1,clickCount:1});
+ await send('Input.dispatchMouseEvent',{type:'mouseMoved',x:points.source.x+25,y:points.source.y,button:'left',buttons:1});
+ for(let i=0;i<100&&!dragData;i++)await new Promise(r=>setTimeout(r,20));
+ if(!dragData?.items.some(item=>item.mimeType==='application/x-lab-workspace-objective'))throw Error('Native objective drag payload');
+ for(const type of ['dragEnter','dragOver','drop'])await send('Input.dispatchDragEvent',{type,...points.target,data:dragData});
+ await send('Input.setInterceptDrags',{enabled:false});
+ await send('Input.dispatchMouseEvent',{type:'mouseReleased',...points.target,button:'left',clickCount:1});
+ await evaluate(`(async()=>{await until(async()=>{const d=await read();return d.focused[0]===FIX.oid});const d=await read();assert(JSON.stringify(d.focused)===JSON.stringify([FIX.oid,...beforeInsertion.slice(0,4)]),'trusted drag inserts and pushes fifth out');assert(document.querySelector('.objective-library'),'native drop keeps library');assert(resource(d).content.tabs[1].body==='Sibling source','parking and refocus keep sibling document');assert(d.objectives[0].worktrees[0].color===d.slot_palettes[0][0],'refocused worktree inherits slot palette')})()`);
+ const hover=await evaluate(`(()=>{const r=document.querySelector('[data-current-objective]').getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2}})()`);
+ await send('Input.dispatchMouseEvent',{type:'mouseMoved',...hover});
+ await evaluate(`until(()=>document.querySelectorAll('.objective-switch-menu [data-select-objective]').length===5)`);
+ await click('.objective-switch-menu button:nth-child(2)');
+ await evaluate(`assert(document.querySelector('.objective-working h2').textContent==='Tasks'&&!document.querySelector('.objective-switch-menu'),'hover choice switches objective and closes menu');assert(document.querySelector('[data-current-objective]').style.getPropertyValue('--vault-color')==='#bc8cff','selected second slot color')`);
  ws.close();console.log('PASS');
 })().catch(error=>{console.error(error.stack);process.exit(1)});
 '''

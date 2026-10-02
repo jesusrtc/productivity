@@ -1,5 +1,9 @@
 # Workspace objectives use All plus five focus tabs
 
+This earlier design is superseded by
+[one current tab and ordered library slots](objective-focus-uses-current-tab-and-ordered-slots.md)
+and [slot-owned colors](objective-colors-belong-to-focus-slots.md).
+
 The user replaced workspace Overview with All and five objective slots in the
 workspace subnavigation. Use the small colored-dot vault-tab appearance and
 objective names. Remove the earlier objective selectors from the sidebar;

@@ -1,10 +1,15 @@
 # Memory index
 
+- [Objective focus uses one current tab and ordered slots](objective-focus-uses-current-tab-and-ordered-slots.md) — hover dropdown, five library slots, insertion shifts and parks the fifth; supersedes separate focus tabs and swaps.
+- [Objective colors belong to focus slots](objective-colors-belong-to-focus-slots.md) — fixed slot palettes recolor moved/shifted objectives and worktrees; parked objectives are gray.
+- [Inactive Objective terminals only color headers](inactive-objective-terminals-only-color-headers.md) — active group keeps worktree colors; other rails and associations are neutral.
+- [Objective resource icons follow file paths](objective-resource-icons-follow-file-paths.md) — reuse Files icons for owned and generic resources, including notebook and SQL references.
+
 - [Objective links use native service icons](objective-links-use-native-service-icons.md) — compact content-sized pills with URL-based service icons and live global domain mappings.
 
 - [Sidebar objects paste or associate by drop target](sidebar-object-drops-paste-or-associate.md) — console drops paste source references without Enter; terminal-name and reverse drops associate any Objective sidebar object without changing its launch folder.
 
-- [Workspace objectives use five focus tabs](workspace-objectives-use-five-focus-tabs.md) — All library/search/filters and five vault-style slots replace Overview and left selectors; servers remain.
+- [Workspace objectives use five focus tabs](workspace-objectives-use-five-focus-tabs.md) — earlier five-tab design, superseded by the current-tab dropdown and ordered library slots above.
 - [Global Cleanup uses workspace tabs](global-cleanup-uses-workspace-tabs.md) — beside global Logs; per-workspace review including empty tabs, with kills limited to the selected workspace.
 - [Objective Tasks and fixed gray folders](objective-tasks-and-fixed-gray-folders.md) — Tasks below selectors; gray workspace Root and changing Objective directory precede worktrees.
 - [Objective documents use the native inline editor](objective-documents-use-native-inline-editor.md) — existing slash commands, left-menu tabs, idle/outgoing saves and retained drafts with sibling-safe conflicts.

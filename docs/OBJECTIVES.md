@@ -13,19 +13,23 @@ workspace worktrees, files and links** imports references to existing content.
 The source files and links keep their ownership. Existing workspaces retain
 their usual sidebar until they opt in.
 
-The workspace tab bar starts with **All**, followed by **five objective slots**.
-Filled slots show an objective's name and colored dot, using the vault-tab
-style. Click one to open its tasks in the middle working area. Empty slots
-remain available as drop targets and open the objective/slot chooser on click.
-Objective selectors no longer occupy the left sidebar.
+The workspace tab bar has **Objectives** and **the current objective**, using
+the vault-tab style. Hover over the current objective to show the five focused
+objectives in a dropdown. Choose one to open its tasks in the middle working
+area. The arrow also opens the dropdown on click; Arrow Up/Down enters it from
+the keyboard and Escape closes it. Declared server tabs remain alongside these.
 
-**All** lists every saved objective in the workspace. Search by name or outcome,
+**Objectives** lists every saved objective in the workspace. Its top section
+contains five numbered focus slots. Search the results by name or outcome,
 filter to focused/parked objectives, or filter by task status. **+ Objective**
-creates an objective; when five are focused, choose the slot to replace. Drag a
-row from All onto a tab to fill that exact slot. Dropping a parked objective on
-an occupied slot replaces it; dragging between filled tabs swaps them. Parked
+creates an objective; when five are focused, choose where to insert it. Drag a
+result onto a slot to insert it at that position. Following objectives move
+down and the previous fifth objective is parked. Moving an already focused
+objective removes its former position and reorders the list without a duplicate.
+Placement keeps the library open for further arranging. Empty slots can also
+be clicked to choose an objective. Parked
 objectives retain their documents, tasks, worktrees and terminal associations.
-**Focus…** provides the same assignment without dragging. The selected All or
+**Focus…** provides the same assignment without dragging. The selected library or
 objective view survives reload; startup reconciliation and file polls preserve
 the newer working view.
 
@@ -49,8 +53,12 @@ objective creates its directory, including when it has no resources yet.
 The **+** beside Worktrees uses the existing folder/worktree chooser, including
 its create-worktree action. Association makes the worktree visible without
 pinning it. A checkout can belong to one objective in this workspace. Each
-objective has four reserved contrasting colors; assigned worktree colors are
-unique across its workspace's objective registry.
+focus slot has a fixed objective color and four reserved contrasting worktree
+colors. An objective and its worktrees adopt the destination slot's palette
+when inserted or moved; shifted objectives also adopt their new slot colors.
+Parked objectives are gray. Extra worktrees receive distinct colors outside the
+reserved palettes. Older registries adopt slot colors on read without rewriting
+their content or order.
 
 Drag a resource onto a worktree to scope it to that checkout. It then appears
 only while that checkout is selected. Drag it back into the shared resources
@@ -95,6 +103,10 @@ viewer, runtime controls and live execution path. Rename is available in the
 notebook header. A running notebook must finish before it can be renamed; an
 idle rename preserves the live kernel and its variables.
 
+Resource icons use the shared Files extension mapping, including Jupyter for
+`.ipynb` and database icons for `.sql`, even when imported as generic file
+references. Assistant references keep their internal document icon.
+
 Click a document to reveal its nested subtab tree immediately. Hovering over
 the document for 1.5 seconds also reveals it. Click a subtab to open it as its
 own document view. Navigating to another sidebar item collapses the unpinned
@@ -115,7 +127,10 @@ The native terminal selector groups sessions by the five focused objectives,
 then by their fixed launch folders/worktrees. Sessions assigned to a parked
 objective reappear when that objective is brought into focus. Existing native
 terminal controls and sessions are reused. Rows stay flat, with a small objective
-name and a thin objective-colored line down the left. Worktree groups use spacing
+name and a thin line down the left. Only the current objective uses its colored
+line and worktree labels/dots; other groups keep a colored header and neutral
+lines and associations. Working/completion indicators retain their status
+colors. Worktree groups use spacing
 rather than extra boxes or headings. Shortcut and real checkout paths share the
 same group.
 

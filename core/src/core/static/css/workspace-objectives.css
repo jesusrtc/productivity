@@ -5,7 +5,14 @@
 .objective-worktrees { display:grid; grid-template-columns:minmax(0,1fr); gap:5px; padding:0 12px 8px; }
 .objective-worktree-icon { color:var(--sidebar-workspace-color); }
 .objective-tab { display:inline-flex; align-items:center; flex-shrink:0; max-width:190px; }
+.objective-tab[data-current-objective] { max-width:360px; }
 .objective-tab-name { overflow:hidden; text-overflow:ellipsis; }
+.objective-switch-arrow { margin-left:5px; color:var(--text-dim); }
+.objective-switch-menu { position:fixed; z-index:1000; width:min(310px,calc(100vw - 16px)); padding:4px; box-sizing:border-box; border:1px solid var(--border); border-radius:6px; background:var(--bg-secondary); box-shadow:0 6px 18px #0005; }
+.objective-switch-menu button { display:flex; align-items:center; gap:8px; width:100%; min-width:0; padding:8px; border:0; border-radius:3px; background:none; color:var(--text-secondary); text-align:left; cursor:pointer; font:12px monospace; }
+.objective-switch-menu button:hover,.objective-switch-menu button:focus-visible,.objective-switch-menu button[aria-checked=true] { background:var(--bg-tertiary); color:var(--text-primary); }
+.objective-switch-menu .vault-mark,.objective-focus-slot .vault-mark { display:block; width:7px; height:7px; flex-shrink:0; border-radius:50%; background:var(--vault-color); }
+.objective-switch-number { font-size:11px; color:var(--text-dim); }
 .objective-slot-empty { color:var(--text-dim); }
 .objective-drop-target { background:color-mix(in srgb,var(--accent) 15%,var(--bg-primary)); outline:1px dashed var(--accent); outline-offset:-2px; }
 .objective-progress { margin-left:auto; flex-shrink:0; font-size:11px; font-variant-numeric:tabular-nums; }
@@ -33,6 +40,13 @@
 .objective-working h2 { font-size:18px; margin:0; }
 .objective-working button { font-size:12px; color:var(--accent); background:transparent; border:1px solid var(--border); border-radius:4px; padding:4px 7px; cursor:pointer; }
 .objective-purpose,.objective-document-context { font-size:12px; color:var(--text-secondary); }
+.objective-focus { margin-top:20px; }
+.objective-focus h3 { margin:0 0 8px; color:var(--text-secondary); font-size:12px; font-weight:normal; }
+.objective-focus-slots { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:8px; }
+.objective-working .objective-focus-slot { display:grid; gap:8px; min-width:0; padding:10px; border-top:2px solid var(--vault-color); text-align:left; color:var(--text-primary); background:var(--bg-secondary); }
+.objective-focus-slot-label { display:flex; align-items:center; justify-content:space-between; gap:5px; color:var(--text-secondary); font-size:11px; }
+.objective-focus-slot .objective-tab-name { white-space:nowrap; }
+.objective-focus-slot[draggable=true] { cursor:grab; }
 .objective-library-filters { display:flex; flex-wrap:wrap; gap:12px; margin:20px 0 12px; }
 .objective-library-filters label { display:grid; gap:5px; font-size:12px; color:var(--text-secondary); }
 .objective-library-filters label:first-child { flex:1; min-width:150px; }
@@ -59,6 +73,8 @@
 .objective-dialog { width:min(500px,calc(100vw - 32px)); border:1px solid var(--border); border-radius:8px; background:var(--bg-primary); color:var(--text-primary); padding:20px; font-size:14px; }.objective-dialog::backdrop { background:#0006; }
 .objective-dialog header h2 { margin:0 0 16px; font-size:18px; }.objective-dialog label { display:grid; gap:5px; margin:12px 0; font-size:12px; }.objective-dialog input,.objective-dialog select { color:var(--text-primary); background:var(--bg-secondary); border:1px solid var(--border); border-radius:4px; padding:7px; font:inherit; }.objective-dialog footer { display:flex; gap:8px; justify-content:flex-end; margin-top:16px; }.objective-dialog button { border:1px solid var(--border); border-radius:4px; background:var(--bg-secondary); color:var(--text-primary); padding:5px 10px; font-size:12px; cursor:pointer; }
 .objective-terminal-group { display:flex; flex-direction:column; gap:4px; min-width:0; flex-shrink:0; border-left:2px solid var(--objective-color); padding-left:5px; }
+.objective-terminal-group[data-objective-active=false] { border-left-color:var(--border); }
+.objective-terminal-group[data-objective-active=false] .term-home-association { --term-association-color:var(--text-secondary) !important; }
 .objective-terminal-heading { display:block; min-width:0; padding:1px 2px; color:var(--objective-color); background:none; border:0; text-align:left; font-size:11px; line-height:1.4; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; cursor:pointer; }
 .objective-terminal-rows,.objective-terminal-worktree { display:flex; flex-direction:column; gap:4px; min-width:0; }
 .objective-terminal-worktree + .objective-terminal-worktree { margin-top:4px; }
