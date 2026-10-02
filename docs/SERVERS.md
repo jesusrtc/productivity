@@ -3,7 +3,7 @@
 Lab has two connected layers for local development servers:
 
 - A workspace-root `servers.json` declares the tabs, proxy destinations, and
-  optional Start/Stop commands shown in the workspace's Servers modal.
+  optional Start/Stop commands shown in the global Servers modal.
 - A conventional Makefile lets Lab supervise a workspace's main dev-server
   process from the dashboard and keep it alive.
 
@@ -35,7 +35,15 @@ and `mode` to `proxy`; `direct` is also supported. Start and stop commands are
 optional, but when present they must be `make` commands. Missing commands leave
 the corresponding modal controls disabled.
 
-The Servers modal reads this file every time it opens. **Create servers.json**
+Open **Servers** in the top bar from any view. Workspace tabs cover the registered
+vaults and select the current workspace on opening. Changing these tabs leaves
+the main workspace open; reads, saves and lifecycle actions use the selected
+workspace and its owning vault. Unsaved edits require a discard confirmation
+before switching tabs. While saving or starting/stopping a server, the tabs are
+disabled. Failed config reads leave editing and saving disabled until a reload
+succeeds.
+
+The Servers modal reads this file on opening or selecting a workspace. **Create servers.json**
 writes a valid empty template (`{"servers": []}`) for an agent to fill. Use
 **Reload file** if the agent edits it while the modal is already open.
 

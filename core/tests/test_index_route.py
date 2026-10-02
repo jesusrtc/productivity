@@ -88,15 +88,15 @@ def test_frontend_declares_cross_vault_navigation_surfaces() -> None:
     assert "_workspaceDisplayName(workspace)" in script
     assert "currentWorkspace.path === workspace.path && currentWorkspace.display_name" in script
     assert "_setWorkspaceDisplayName(workspacePath, workspaceDisplayName)" in script
-    assert "if (!currentWorkspace || currentWorkspace.path !== workspacePath) return;" in script
+    assert "generation !== _proxiesLoadGeneration || workspacePath !== _proxiesWorkspacePath" in script
     assert "/api/vaults/use" not in script
-    server_bar = script[
-        script.index("async function refreshAttrsBar"):
-        script.index("// ─── Proxies modal")
+    server_picker = script[
+        script.index("// Global Servers editor:"):
+        script.index("function _serverConfigUrl")
     ]
-    assert 'data-act="proxies"' in server_bar
+    assert 'proxiesWorkspaceTabs' in server_picker
     for retired_field in ("priority", "due", "loe", "description", "snooze", "hold"):
-        assert retired_field not in server_bar.lower()
+        assert retired_field not in server_picker.lower()
 
 
 def test_get_index_reflects_seeded_workspaces(client, seed_workspace) -> None:

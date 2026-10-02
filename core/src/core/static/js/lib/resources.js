@@ -3,6 +3,8 @@
   'use strict';
   let dialog, summary, list, scans, notice, timestamp, sort, pauseButton, refreshButton;
   let timer, controller, data, busy = false, returnFocus, generation = 0;
+  let cleanup, cleanupButton, cleanupBusy = false, cleanupMode = false, closeButton;
+  let processViews = [];
   const rows = new Map();
   const bytes = value => value >= 1073741824 ? (value / 1073741824).toFixed(1) + ' GB'
     : Math.round(value / 1048576) + ' MB';
@@ -28,7 +30,7 @@
   }
   function schedule() {
     clearTimeout(timer);
-    if (dialog?.open && !document.hidden && !busy) timer = setTimeout(refresh, 3000);
+    if (dialog?.open && !document.hidden && !busy && !cleanupMode) timer = setTimeout(refresh, 3000);
   }
   async function request(path, options = {}) {
     const response = await fetch('/api/resources' + path, options);
@@ -43,7 +45,8 @@
     const header = el('header');
     const title = el('h2', 'Resources');
     title.id = 'labResourcesTitle';
-    header.append(title, button('Close', () => dialog.close()));
+    closeButton = button('Close', () => dialog.close());
+    header.append(title, closeButton);
     const description = el('p', 'Host usage, with processes limited to Lab, its terminals, workspace servers and Jupyter kernels.');
     summary = el('div', undefined, 'resource-summary');
     notice = el('div', '', 'resource-notice');
@@ -57,8 +60,10 @@
     }
     sort.addEventListener('change', () => render(true));
     label.append(sort);
-    refreshButton = button('Refresh', () => refresh());
-    toolbar.append(label, timestamp, refreshButton);
+    cleanupButton = button('Show cleanup candidates', () => showCleanup(!cleanupMode));
+    cleanupButton.setAttribute('aria-pressed', 'false');
+    refreshButton = button('Refresh', () => cleanupMode ? window.LabTerminalCleanup.refresh() : refresh());
+    toolbar.append(label, timestamp, cleanupButton, refreshButton);
     const scroll = el('div', undefined, 'resource-table-scroll');
     const table = el('table');
     const head = el('thead');
@@ -74,19 +79,27 @@
     scanHeader.append(el('h3', 'File scans'), pauseButton);
     scans = el('div');
     scanSection.append(scanHeader, el('p', 'Pause Files-view scans across workspaces until resumed or Lab restarts. Cached listings stay available. Other indexing continues; a scan waiting on disk may take longer to stop.'), scans);
-    dialog.append(header, description, summary, toolbar, notice, scroll, footnote, scanSection);
+    cleanup = el('section', undefined, 'resource-cleanup');
+    cleanup.hidden = true;
+    window.LabTerminalCleanup.mount(cleanup, value => { cleanupBusy = value; render(); });
+    processViews = [label, notice, scroll, footnote, scanSection];
+    dialog.append(header, description, summary, toolbar, notice, scroll, footnote, scanSection, cleanup);
+    dialog.addEventListener('cancel', event => { if (busy || cleanupBusy) event.preventDefault(); });
     dialog.addEventListener('close', () => {
       cancelPoll();
+      window.LabTerminalCleanup.cancel();
       if (returnFocus?.isConnected) returnFocus.focus();
     });
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) cancelPoll();
-      else if (dialog.open) refresh();
+      else if (dialog.open && !cleanupMode) refresh();
     });
     document.body.append(dialog);
   }
   function render(reorder = false) {
-    refreshButton.disabled = busy;
+    refreshButton.disabled = busy || cleanupBusy;
+    cleanupButton.disabled = busy || cleanupBusy;
+    closeButton.disabled = busy || cleanupBusy;
     pauseButton.disabled = busy || !data;
     for (const row of rows.values()) row.querySelectorAll('button').forEach(b => { b.disabled = busy; });
     if (!data) return;
@@ -101,7 +114,8 @@
       card.append(el('span', label), el('strong', value), el('small', detail));
       summary.append(card);
     }
-    timestamp.textContent = 'Updated ' + new Date(data.sampled_at * 1000).toLocaleTimeString();
+    timestamp.textContent = cleanupMode ? 'Inactive for more than 7 days'
+      : 'Updated ' + new Date(data.sampled_at * 1000).toLocaleTimeString();
     const processes = [...data.processes].sort((a, b) => (b[sort.value] || 0) - (a[sort.value] || 0) || b.memory_bytes - a.memory_bytes || a.pid - b.pid);
     const alive = new Set();
     // Keep targets still under the pointer/keyboard while values update.
@@ -140,7 +154,7 @@
     }
   }
   async function refresh() {
-    if (busy || !dialog?.open || document.hidden || controller) return;
+    if (busy || cleanupMode || !dialog?.open || document.hidden || controller) return;
     const current = generation;
     const active = new AbortController(); controller = active;
     // A stalled request must not leave monitoring permanently stuck.
@@ -186,14 +200,33 @@
     if (busy || !data) return;
     if (await mutate('/scans', {paused: !data.files.paused})) await refresh();
   }
+  async function showCleanup(show) {
+    if (busy || cleanupBusy) return;
+    cleanupMode = show;
+    cleanup.hidden = !show;
+    for (const view of processViews) view.hidden = show;
+    cleanupButton.textContent = show ? 'Show all processes' : 'Show cleanup candidates';
+    cleanupButton.setAttribute('aria-pressed', String(show));
+    if (show) {
+      cancelPoll();
+      timestamp.textContent = 'Inactive for more than 7 days';
+      await window.LabTerminalCleanup.show();
+    } else {
+      await refresh();
+    }
+  }
   window.LabResources = {
-    async open() {
+    async open(options = {}) {
       ensureDialog();
-      if (dialog.open) return;
+      if (dialog.open) {
+        if (options.cleanup && !cleanupMode) await showCleanup(true);
+        return;
+      }
       returnFocus = document.activeElement;
       dialog.showModal();
       dialog.querySelector('button').focus();
-      await refresh();
+      await showCleanup(false);
+      if (options.cleanup) await showCleanup(true);
     },
   };
 })();

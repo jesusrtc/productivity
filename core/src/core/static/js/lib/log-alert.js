@@ -108,7 +108,7 @@
     if (button) return button;
     injectStyle();
 
-    button = document.getElementById("labLogAlertButton");
+    button = document.getElementById("globalLogsBtn") || document.getElementById("labLogAlertButton");
     if (!button) {
       button = document.createElement("a");
       button.id = "labLogAlertButton";
@@ -133,8 +133,10 @@
       }
     }
 
+    button.classList.add("lab-log-alert");
     button.href = LOG_URL;
-    if (!button._labLogsClickWired) {
+    // Reuse shell navigation, while supporting a still-running older template.
+    if (!button.hasAttribute("onclick") && !button._labLogsClickWired) {
       button._labLogsClickWired = true;
       button.addEventListener("click", (event) => {
         if (typeof window.goToLogs === "function" && window.location.pathname === "/") {

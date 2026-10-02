@@ -377,7 +377,7 @@ def test_consolidated_logs_have_a_home_section() -> None:
     assert "subview: 'logs'" in lab_app
     assert "function selfShowLogs" in lab_app
     assert 'id="globalLogsBtn"' in index_html
-    assert 'onclick="goToLogs()"' in index_html
+    assert 'document.getElementById("globalLogsBtn")' in (root / "core/src/core/static/js/lib/log-alert.js").read_text()
     admin = lab_app[lab_app.index("function selfShowAdmin()"):lab_app.index("window.selfShowAdmin")]
     assert "adminLogOutput" not in admin
     assert "window.goToLogs = goToLogs" in lab_app

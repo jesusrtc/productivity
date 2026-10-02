@@ -700,6 +700,11 @@
   /* Proxies modal: saved servers are management cards; inputs only appear
      after an explicit Edit action (or while adding a new server). */
   .form-modal.proxies-modal { width: min(920px, 94vw); max-width: 920px; }
+  .proxies-workspace-tabs { display: flex; gap: 6px; overflow-x: auto; padding: 12px 20px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+  .proxies-workspace-tabs button { border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; background: var(--bg-secondary); color: var(--text-secondary); font: inherit; font-size: 12px; white-space: nowrap; cursor: pointer; }
+  .proxies-workspace-tabs button[aria-selected="true"] { border-color: var(--accent); color: var(--accent); background: var(--bg-tertiary); }
+  .proxies-workspace-tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .proxies-workspace-tabs button:disabled { opacity: .5; cursor: wait; }
   .proxies-configbar { display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 7px 9px; border: 1px solid var(--border); border-radius: 7px; background: var(--bg-primary); color: var(--text-secondary); font-size: 11px; }
   .proxies-configbar code { color: var(--accent); }
   .proxies-config-spacer { flex: 1; }
@@ -1237,9 +1242,6 @@
   .nb-jump-controls-spacer { height:24px; margin-bottom:10px; }
   body.has-repo-tabs { --nb-jump-top:124px; }
   body.has-repo-tabs:not(.has-diff-tabs) { --nb-jump-top:84px; }
-  body.workspace-active { --nb-jump-top:128px; }
-  body.workspace-active.has-repo-tabs { --nb-jump-top:164px; }
-  body.workspace-active.has-repo-tabs:not(.has-diff-tabs) { --nb-jump-top:124px; }
   body.term-open:not(.term-collapsed) .nb-jump-controls {
     right:var(--term-width);
   }
@@ -1673,46 +1675,9 @@
   .cmt-popover .cp-row button.secondary:hover { color: var(--text-primary); }
   .cmt-popover .cp-err { color: var(--red); font-size: 11px; margin-top: 4px; min-height: 14px; }
 
-  /* ─── Workspace attributes bar (below top tabs, above repo/diff tabs) ─── */
-  /* The other tool strips (.diff-tabs, .repo-tabs) are all position:fixed
-     with hardcoded top offsets. We join that fixed stack so the bar lives
-     directly under the topbar (48px tall); when visible, we shift the
-     strips below it down by its height and bump the .layout padding-top
-     so content doesn't slide underneath. */
-  .attrs-bar { display: none; align-items: center; gap: 8px; padding: 0 14px;
-               background: var(--bg-secondary); border-bottom: 1px solid var(--border);
-               font-size: 12px; flex-wrap: nowrap; overflow-x: auto;
-               position: fixed; top: 48px; left: 0; right: 0; height: 40px;
-               z-index: 90; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
-  body.workspace-active .attrs-bar { display: flex; }
-  body.cerebro-active .attrs-bar,
-  body.self-active .attrs-bar { display: none; }
-  /* When the attrs-bar is visible it takes the 48–88 slot, so everything
-     below it gets pushed down by 40px. */
-  body.workspace-active .repo-tabs { top: 88px; }
-  body.workspace-active .diff-tabs { top: 88px; }
-  body.workspace-active.has-repo-tabs .diff-tabs { top: 124px; }
-  body.workspace-active .layout { padding-top: 128px; }
-  body.workspace-active.has-repo-tabs .layout { padding-top: 164px; }
-  body.workspace-active.has-repo-tabs:not(.has-diff-tabs) .layout { padding-top: 124px; }
-  /* Keep the sidebar aligned with the shifted diff-tabs. */
-  body.workspace-active .sidebar { top: 128px; }
-  body.workspace-active.has-repo-tabs .sidebar { top: 164px; }
-  body.workspace-active.has-repo-tabs:not(.has-diff-tabs) .sidebar { top: 124px; }
-  /* Same trick for the right-docked terminal panel: in workspace view, the
-     .repo-tabs and .diff-tabs strips sit at top:88px (z-index:80) and
-     span full width, which covers the term-panel's TERMINAL header +
-     session pills (z-index:60). Push the panel below them so the bar is
-     visible — same offsets as .layout's padding-top above. Productivity
-     and Cerebro views hide those strips entirely, so they don't need
-     this and keep the default top:88px. */
-  body.workspace-active .term-panel { top: 128px; }
-  body.workspace-active.has-repo-tabs .term-panel { top: 164px; }
-  body.workspace-active.has-repo-tabs:not(.has-diff-tabs) .term-panel { top: 124px; }
-  .attrs-bar .ab-chip { background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border); padding: 3px 9px; border-radius: 12px; cursor: pointer; font-size: 12px; display: inline-flex; align-items: center; gap: 4px; }
-  .attrs-bar .ab-chip:hover { border-color: var(--accent); }
-  .attrs-bar .ab-chip .v { color: var(--text-primary); }
-  .attrs-bar .ab-spacer { flex: 1; min-width: 10px; }
+  /* Workspace terminals follow the same strips as the content and Files. */
+  body.workspace-active.has-repo-tabs .term-panel { top: 124px; }
+  body.workspace-active.has-repo-tabs:not(.has-diff-tabs) .term-panel { top: 84px; }
 
   /* ─── Productivity framework view ─── */
   body.self-active .diff-tabs { display: none; }
@@ -1722,7 +1687,6 @@
   body.assistant-active .diff-tabs { display: none; }
   body.assistant-active .layout { display: flex; }
   body.assistant-active .repo-tabs { display: flex; }
-  body.assistant-active .attrs-bar { display: none; }
 
   /* ─── Vault view (active-vault management surface) ───
      Same shell as the self view: reuses .layout / #sidebar / #content,
@@ -1731,7 +1695,6 @@
   body.vault-active .layout { display: flex; }
   body.vault-active .diff-tabs { display: none; }
   body.vault-active .repo-tabs { display: flex; }
-  body.vault-active .attrs-bar { display: none; }
   .vault-overview { max-width: 1100px; }
   .vault-ov-grid #vaultWorkspacesCard { grid-column: 1 / -1; }
   .vault-ov-head { margin-bottom: 4px; }
@@ -2319,7 +2282,6 @@
      so the proxied app fills the viewport. Pure CSS toggle; the JS
      wires Esc to flip the class off again. */
   body.proxy-fullscreen .topbar,
-  body.proxy-fullscreen .attrs-bar,
   body.proxy-fullscreen .repo-tabs,
   body.proxy-fullscreen .diff-tabs,
   body.proxy-fullscreen .sidebar,

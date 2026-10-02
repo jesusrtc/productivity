@@ -28,7 +28,6 @@ window.ensureLiveMarkdownEditor = (function () {
 <script src="/static/js/lib/workspace-documents.js?v={{ ASSET_V }}" defer></script>
 <link rel="stylesheet" href="/static/css/workspace-documents.css?v={{ ASSET_V }}">
 <script src="/static/js/lib/terminal-cleanup.js?v={{ ASSET_V }}" defer></script>
-<link rel="stylesheet" href="/static/css/terminal-cleanup.css?v={{ ASSET_V }}">
 <script src="/static/js/views/objectives-demo.js?v={{ ASSET_V }}" defer></script>
 <script src="/static/js/lib/workspace-objectives.js?v={{ ASSET_V }}" defer></script>
 <link rel="stylesheet" href="/static/css/workspace-objectives.css?v={{ ASSET_V }}">
@@ -201,8 +200,8 @@ window.ensureLiveMarkdownEditor = (function () {
   <span class="branch" id="branchLabel"></span>
   {% if IS_ADMIN %}<button type="button" class="theme-toggle" id="resourcesBtn" onclick="LabResources.open()" title="Host usage and Lab processes" aria-label="Resources">Resources</button>{% endif %}
   {% if IS_ADMIN %}<button class="theme-toggle framework-update-btn" id="updateRestartBtn" onclick="labUpdateAndRestart()" title="Pull origin/main, then restart Lab" aria-label="Update and restart Lab"><span class="framework-update-icon" aria-hidden="true">↻</span></button>{% endif %}
-  {% if IS_ADMIN %}<button type="button" class="theme-toggle" id="globalLogsBtn" onclick="goToLogs()" title="Logs across workspaces">Logs</button>{% endif %}
-  {% if IS_ADMIN %}<button type="button" class="theme-toggle" id="globalCleanupBtn" onclick="LabTerminalCleanup.open()" title="Review inactive terminals by workspace">Cleanup</button>{% endif %}
+  {% if IS_ADMIN %}<button type="button" class="theme-toggle" id="globalServersBtn" onclick="openProxiesModal()" title="Manage servers across workspaces">Servers</button>{% endif %}
+  {% if IS_ADMIN %}<button type="button" class="theme-toggle" id="globalLogsBtn" onclick="goToLogs()" title="Logs across workspaces"><span class="lab-log-dot" aria-hidden="true"></span><span class="lab-log-label">Logs</span></button>{% endif %}
   {% if IS_ADMIN %}<button class="theme-toggle" id="settingsBtn" onclick="openSettings()" title="Settings (⌘,)" aria-label="Settings" style="font-size:15px;line-height:1;padding:4px 10px">⚙</button>{% endif %}
   <div class="auth-user" title="Signed in as {{ USER.username }}">
     <span class="auth-user-name">{{ USER.name }}</span>
@@ -228,10 +227,6 @@ window.ensureLiveMarkdownEditor = (function () {
 
 <div class="repo-tabs" id="repoTabs" style="display:none"></div>
 <div class="lid-awake-menu" id="lidAwakeMenu" role="dialog" aria-label="Lid Awake timer"></div>
-
-<!-- Workspace server bar. Workspace planning metadata belongs in workspace files;
-     this strip only exposes the local server controls that need to stay close. -->
-<div class="attrs-bar" id="workspaceAttrsBar"></div>
 
 <div class="diff-tabs" id="diffTabs" {% if INITIAL_VIEW != 'repo' %}style="display:none"{% endif %}>
   <button class="diff-tab" id="tabWorkspace" onclick="switchDiffTab('workspace')">
@@ -687,18 +682,17 @@ window.ensureLiveMarkdownEditor = (function () {
 <div class="modal-overlay" id="proxiesModal" onclick="if(event.target===this)closeProxiesModal()">
   <div class="form-modal proxies-modal" role="dialog" aria-labelledby="proxiesTitle">
     <div class="fm-header">
-      <span class="fm-title" id="proxiesTitle">&#x1F310; Servers — local dev-server proxies</span>
+      <span class="fm-title" id="proxiesTitle">&#x1F310; Servers</span>
       <button class="fm-close" type="button" onclick="closeProxiesModal()" aria-label="Close">&times;</button>
     </div>
-    <form id="proxiesForm" onsubmit="submitProxies(event)">
+    <div id="proxiesWorkspaceTabs" class="proxies-workspace-tabs" role="tablist" aria-label="Workspaces"></div>
+    <form id="proxiesForm" onsubmit="submitProxies(event)" role="tabpanel">
       <div class="fm-body">
         <div class="fm-err" id="proxiesError"></div>
         <p style="color:var(--text-secondary);font-size:12px;margin:0 0 12px">
-          Each server is exposed at
-          <code>/api/proxy/&lt;workspace&gt;/&lt;name&gt;/&hellip;</code> and
-          rendered inline with HMR/WebSocket support. Configure optional
-          <code>make</code> commands to start/restart or stop it here.
-          Use <b>Edit</b> to change connection details or commands.
+          Choose a workspace to manage its local apps. Start or stop a configured
+          server, or use <b>Edit</b> to update its connection details and
+          <code>make</code> commands.
         </p>
         <div class="proxies-configbar">
           <span>Config: <code id="proxiesConfigSource">loading…</code></span>
@@ -810,7 +804,7 @@ window.ensureLiveMarkdownEditor = (function () {
   window.addEventListener('load', function () {
     var loadAlert = function () {
       var s = document.createElement('script');
-      s.src = '/static/js/lib/log-alert.js';
+      s.src = '/static/js/lib/log-alert.js?v={{ ASSET_V }}';
       document.head.appendChild(s);
     };
     setTimeout(loadAlert, 1000);

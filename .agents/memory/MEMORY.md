@@ -1,5 +1,8 @@
 # Memory index
 
+- [Servers uses global workspace tabs](global-servers-use-workspace-tabs.md) — current-workspace selection, independent scopes and removed workspace strip.
+- [Resources owns reviewed cleanup](resources-owns-reviewed-cleanup.md) — Resources table, All/workspace review and exact individual/bulk targets; supersedes the separate global Cleanup button.
+
 - [Shell templates stay with their backend process](shell-template-stays-with-backend-process.md) — avoid new Jinja context contracts in older running Python; retain asset invalidation.
 - [History content is bounded before decoding](history-content-is-bounded-before-decoding.md) — non-UTF-8 companions, temporary byte spooling and aggregate 8 MiB preview limits.
 - [Native browser timeouts use an explicit fallback](native-browser-timeouts-use-explicit-fallback.md) — batched URL reads, serialized probes, brief backoff and a fresh browser click.

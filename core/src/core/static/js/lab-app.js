@@ -361,10 +361,9 @@
       currentRepoInWorkspace = null;
       document.getElementById('diffTabs').style.display = 'none';
       document.body.classList.remove('has-diff-tabs');
-      // A real workspace is active — reveal the attrs bar.
+      // A real workspace is active.
       document.body.classList.add('workspace-active');
       const hydrateWorkspaceChrome = () => {
-        refreshAttrsBar();
         // The workspace shell (or a remembered document) is already painted.
         // Sidebar/dashboard hydration must never replace it with a dashboard
         // loading spinner; showWorkspaceInfo's final race guard will paint the
@@ -17578,78 +17577,7 @@
     _dashPollTimer = setInterval(dashPollTick, 5000);
   }
 
-  // ─── Workspace server bar (below top tabs, above diff tabs) ───
-  // Deliberately narrow: workspace planning metadata belongs in workspace files,
-  // so this chrome only exposes the local-server configuration.
-
-  async function refreshAttrsBar() {
-    const bar = document.getElementById('workspaceAttrsBar');
-    if (!bar) return;
-    if (!currentWorkspace || !currentWorkspace.is_workspace) {
-      bar.innerHTML = '';
-      document.body.classList.remove('workspace-active');
-      return;
-    }
-    const pid = currentWorkspace.name;
-    const workspacePath = currentWorkspace.path;
-
-    // Warm switch: paint synchronously from the last-known workspace record.
-    // Background reconcile re-paints only on change. Cache miss falls
-    // through to the foreground fetch below.
-    const cached = _workspaceAttrsCache.get(workspacePath);
-    if (cached) {
-      _renderAttrsBarFromRecord(bar, pid, cached);
-      Promise.resolve().then(async () => {
-        try {
-          const r = await fetch('/api/workspace-info?path=' + encodeURIComponent(workspacePath));
-          if (!r.ok) return;
-          const fresh = await r.json();
-          const prev = _workspaceAttrsCache.get(workspacePath);
-          _workspaceAttrsCache.set(workspacePath, fresh);
-          if (prev && JSON.stringify(prev) === JSON.stringify(fresh)) return;
-          if (!currentWorkspace || currentWorkspace.path !== workspacePath) return;
-          _renderAttrsBarFromRecord(bar, pid, fresh);
-        } catch {}
-      });
-      return;
-    }
-
-    let p = null;
-    try {
-      const r = await fetch('/api/workspace-info?path=' + encodeURIComponent(workspacePath));
-      if (r.ok) p = await r.json();
-    } catch {}
-    if (!p) { bar.innerHTML = ''; return; }
-    _workspaceAttrsCache.set(workspacePath, p);
-    _renderAttrsBarFromRecord(bar, pid, p);
-  }
-
-  // Extracted from refreshAttrsBar so both the cold and warm-switch
-  // paths share one render. Pure DOM write — no network, no state
-  // mutation. Reads only the server declarations on workspace record `p`.
-  function _renderAttrsBarFromRecord(bar, pid, p) {
-    const proxyCount = Array.isArray(p.proxies) ? p.proxies.length : 0;
-    const proxiesLabel = proxyCount ? `${proxyCount} server${proxyCount === 1 ? '' : 's'}` : 'add server';
-    const proxiesCls = proxyCount ? '' : 'empty';
-
-    bar.innerHTML = `
-      <span class="ab-spacer"></span>
-      <span class="ab-chip" data-act="proxies" title="manage proxied local servers for this workspace">&#x1F310; <span class="v ${proxiesCls}">${escapeHtml(proxiesLabel)}</span></span>
-    `;
-    bar.querySelectorAll('[data-act]').forEach(chip => {
-      chip.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const act = chip.getAttribute('data-act');
-        if (act === 'proxies') openProxiesModal();
-      });
-    });
-  }
-
-  // ─── Proxies modal (manage workspace-root servers.json from the UI) ───
-  // Opened from the attrs-bar "Servers" chip. Saved proxies render as
-  // management cards; fields only become editable after an explicit Edit.
-  // Optional make commands power Start / Restart and Stop controls through
-  // routes/proxy.py. Saving migrates legacy workspace.json proxies to servers.json.
+  // Global Servers editor: each tab owns its config, independent of navigation.
   let _proxiesEscHandler = null;
   let _proxiesRowSeq = 0;
   let _proxiesWorkspacePath = null;
@@ -17657,15 +17585,93 @@
   let _proxiesVaultId = null;
   let _proxiesListDirty = false;
   let _proxiesHasConfigFile = false;
+  let _proxiesBusy = false;
+  let _proxiesConfigReady = false;
+  let _proxiesLoadGeneration = 0;
+  let _proxiesReturnFocus = null;
+
+  function _proxyWorkspaces() {
+    const known = new Map();
+    for (const workspace of [...(workspaceTabsAll || []), ...(workspacesList || []), currentWorkspace]) {
+      if (!workspace?.is_workspace || !workspace.path || workspace.name.startsWith('__')) continue;
+      known.set(workspace.path, workspace);
+    }
+    return [...known.values()].sort((a, b) => _workspaceDisplayName(a).localeCompare(_workspaceDisplayName(b))
+      || String(_workspaceVaultId(a)).localeCompare(String(_workspaceVaultId(b))));
+  }
+
+  function _renderProxyWorkspaceTabs() {
+    const host = document.getElementById('proxiesWorkspaceTabs');
+    if (!host) return;
+    host.replaceChildren();
+    const catalog = _proxyWorkspaces();
+    catalog.forEach((workspace, index) => {
+      const tab = document.createElement('button');
+      tab.type = 'button';
+      const name = _workspaceDisplayName(workspace);
+      const vault = _workspaceVaultId(workspace) || '';
+      const duplicate = catalog.some(other => other.path !== workspace.path && _workspaceDisplayName(other) === name);
+      tab.textContent = name + (duplicate ? ' · ' + vault : '');
+      tab.title = `${name} · ${vault}`;
+      tab.id = 'proxiesWorkspaceTab' + index;
+      tab.setAttribute('role', 'tab');
+      tab.setAttribute('aria-controls', 'proxiesForm');
+      const active = workspace.path === _proxiesWorkspacePath;
+      tab.setAttribute('aria-selected', String(active));
+      tab.tabIndex = active ? 0 : -1;
+      tab.disabled = _proxiesBusy;
+      if (active) document.getElementById('proxiesForm')?.setAttribute('aria-labelledby', tab.id);
+      tab.addEventListener('click', () => selectProxyWorkspace(workspace.path));
+      tab.addEventListener('keydown', async event => {
+        const next = event.key === 'ArrowRight' ? (index + 1) % catalog.length
+          : event.key === 'ArrowLeft' ? (index + catalog.length - 1) % catalog.length
+          : event.key === 'Home' ? 0 : event.key === 'End' ? catalog.length - 1 : null;
+        if (next !== null) {
+          event.preventDefault();
+          if (await selectProxyWorkspace(catalog[next].path)) host.children[next]?.focus();
+        }
+      });
+      host.append(tab);
+    });
+  }
+
+  function _setProxyBusy(busy) {
+    _proxiesBusy = busy;
+    document.querySelectorAll('#proxiesModal button').forEach(button => { button.disabled = busy; });
+    if (!busy) {
+      _syncProxyCreateButton();
+      document.querySelectorAll('#proxiesRows .proxies-card').forEach(_syncProxyRowSummary);
+      for (const id of ['proxiesAddBtn', 'proxiesSaveBtn']) document.getElementById(id).disabled = !_proxiesConfigReady;
+    }
+  }
+
+  async function selectProxyWorkspace(workspacePath) {
+    if (_proxiesBusy) return false;
+    if (workspacePath === _proxiesWorkspacePath) return true;
+    const workspace = _proxyWorkspaces().find(w => w.path === workspacePath);
+    if (!workspace) return false;
+    if (_proxyRowsAreDirty() && !confirm('Discard unsaved server changes and switch workspaces?')) return false;
+    _proxiesWorkspacePath = workspace.path;
+    _proxiesWorkspaceId = workspace.name;
+    _proxiesVaultId = _workspaceVaultId(workspace);
+    _proxiesHasConfigFile = false;
+    _proxiesConfigReady = false;
+    _renderProxiesRows([]);
+    _renderProxyWorkspaceTabs();
+    await reloadProxyConfig(true);
+    return true;
+  }
 
   async function openProxiesModal() {
-    if (!currentWorkspace || !currentWorkspace.is_workspace) return;
     const overlay = document.getElementById('proxiesModal');
-    if (!overlay) return;
-    _proxiesWorkspacePath = currentWorkspace.path;
-    _proxiesWorkspaceId = currentWorkspace.name;
-    _proxiesVaultId = _workspaceVaultId(currentWorkspace);
-    const workspacePath = _proxiesWorkspacePath;
+    if (!overlay || overlay.classList.contains('active')) return;
+    _proxiesReturnFocus = document.activeElement;
+    if (!_proxyWorkspaces().length) await workspaceTabsRefresh();
+    const catalog = _proxyWorkspaces();
+    const workspace = catalog.find(w => w.path === currentWorkspace?.path) || catalog[0];
+    _proxiesWorkspacePath = workspace?.path || null;
+    _proxiesWorkspaceId = workspace?.name || null;
+    _proxiesVaultId = _workspaceVaultId(workspace);
     const err = document.getElementById('proxiesError');
     const addBtn = document.getElementById('proxiesAddBtn');
     const saveBtn = document.getElementById('proxiesSaveBtn');
@@ -17674,15 +17680,26 @@
     if (addBtn) addBtn.disabled = true;
     if (saveBtn) saveBtn.disabled = false;
     _proxiesHasConfigFile = false;
+    _proxiesConfigReady = false;
     if (createBtn) createBtn.disabled = true;
-    const cached = _workspaceSidebarCache.get(currentWorkspace.path);
-    const proxies = (cached && Array.isArray(cached.proxies)) ? cached.proxies : [];
-    _renderProxiesRows(proxies);
+    _renderProxiesRows([]);
+    _renderProxyWorkspaceTabs();
     overlay.classList.add('active');
     _proxiesEscHandler = (ev) => { if (ev.key === 'Escape') closeProxiesModal(); };
     document.addEventListener('keydown', _proxiesEscHandler);
+    overlay.querySelector('[aria-selected="true"]')?.focus();
+    // Reconcile the global catalog even when startup only knew this workspace.
+    void workspaceTabsRefresh().then(() => {
+      if (overlay.classList.contains('active') && !_proxiesBusy) _renderProxyWorkspaceTabs();
+    });
+    if (!workspace) {
+      _setProxyConfigSource('No workspaces available');
+      document.getElementById('proxiesRows').textContent = 'Create a workspace to configure its servers.';
+      if (saveBtn) saveBtn.disabled = true;
+      if (document.getElementById('proxiesReloadBtn')) document.getElementById('proxiesReloadBtn').disabled = true;
+      return;
+    }
     await reloadProxyConfig(true);
-    if (workspacePath === _proxiesWorkspacePath && addBtn) addBtn.disabled = false;
   }
 
   function _serverConfigUrl(endpoint) {
@@ -17703,45 +17720,55 @@
   function _syncProxyCreateButton(busy = false) {
     const button = document.getElementById('proxiesCreateBtn');
     if (!button) return;
-    button.disabled = busy || _proxiesHasConfigFile;
+    button.disabled = busy || !_proxiesConfigReady || _proxiesHasConfigFile;
     button.textContent = _proxiesHasConfigFile ? 'servers.json exists' : '+ Create servers.json';
   }
 
   async function reloadProxyConfig(initialLoad = false) {
-    if (!_proxiesWorkspaceId) return false;
+    if (!_proxiesWorkspaceId || _proxiesBusy) return false;
     if (!initialLoad && _proxyRowsAreDirty() && !confirm('Discard unsaved server changes and reload servers.json?')) return false;
     const workspacePath = _proxiesWorkspacePath;
+    const generation = ++_proxiesLoadGeneration;
+    _proxiesConfigReady = false;
     const err = document.getElementById('proxiesError');
     const reloadBtn = document.getElementById('proxiesReloadBtn');
     if (err) { err.textContent = ''; err.classList.remove('on'); }
     if (reloadBtn) reloadBtn.disabled = true;
+    document.getElementById('proxiesAddBtn').disabled = true;
+    document.getElementById('proxiesSaveBtn').disabled = true;
+    document.querySelectorAll('#proxiesRows button').forEach(button => { button.disabled = true; });
     _syncProxyCreateButton(true);
     _setProxyConfigSource('loading…');
     try {
       const r = await fetch(_serverConfigUrl('/api/server-config'));
       const body = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(body.detail || `GET server-config → ${r.status}`);
-      if (workspacePath !== _proxiesWorkspacePath || workspacePath !== (currentWorkspace && currentWorkspace.path)) return false;
+      if (generation !== _proxiesLoadGeneration || workspacePath !== _proxiesWorkspacePath) return false;
       _renderProxiesRows(Array.isArray(body.servers) ? body.servers : []);
+      _proxiesConfigReady = true;
       _proxiesHasConfigFile = body.source === 'servers.json';
       if (_proxiesHasConfigFile) _setProxyConfigSource('servers.json · automatic');
       else if (body.is_legacy) _setProxyConfigSource(`${body.source} · legacy; Create or Save writes servers.json`);
       else _setProxyConfigSource('No servers.json yet · create the template');
       return true;
     } catch (e) {
+      if (generation !== _proxiesLoadGeneration) return false;
       _setProxyConfigSource('Could not load config');
       if (err) { err.textContent = `Could not refresh servers: ${e.message || e}`; err.classList.add('on'); }
       return false;
     } finally {
-      if (workspacePath === _proxiesWorkspacePath) {
+      if (generation === _proxiesLoadGeneration && workspacePath === _proxiesWorkspacePath) {
         if (reloadBtn) reloadBtn.disabled = false;
+        document.getElementById('proxiesAddBtn').disabled = !_proxiesConfigReady;
+        document.getElementById('proxiesSaveBtn').disabled = !_proxiesConfigReady;
+        if (_proxiesConfigReady) document.querySelectorAll('#proxiesRows .proxies-card').forEach(_syncProxyRowSummary);
         _syncProxyCreateButton(false);
       }
     }
   }
 
   async function createProxyConfigTemplate() {
-    if (!_proxiesWorkspaceId) return;
+    if (!_proxiesWorkspaceId || _proxiesBusy || !_proxiesConfigReady) return;
     const err = document.getElementById('proxiesError');
     const reloadBtn = document.getElementById('proxiesReloadBtn');
     if (err) { err.textContent = ''; err.classList.remove('on'); }
@@ -17755,6 +17782,7 @@
       return;
     }
     if (reloadBtn) reloadBtn.disabled = true;
+    _setProxyBusy(true);
     _syncProxyCreateButton(true);
     _setProxyConfigSource('Creating servers.json…');
     try {
@@ -17774,18 +17802,20 @@
       _setProxyConfigSource('Could not create servers.json');
       if (err) { err.textContent = e.message || String(e); err.classList.add('on'); }
     } finally {
-      if (reloadBtn) reloadBtn.disabled = false;
-      _syncProxyCreateButton(false);
+      _setProxyBusy(false);
     }
   }
 
   function closeProxiesModal() {
+    if (_proxiesBusy) return;
+    ++_proxiesLoadGeneration;
     const overlay = document.getElementById('proxiesModal');
     if (overlay) overlay.classList.remove('active');
     if (_proxiesEscHandler) {
       document.removeEventListener('keydown', _proxiesEscHandler);
       _proxiesEscHandler = null;
     }
+    if (_proxiesReturnFocus?.isConnected) _proxiesReturnFocus.focus();
   }
 
   function _renderProxiesRows(proxies, dirty = false) {
@@ -18011,7 +18041,8 @@
 
   async function proxyServerAction(rowId, action) {
     const row = document.querySelector(`#proxiesRows .proxies-card[data-row-id="${rowId}"]`);
-    if (!row || !_proxiesWorkspaceId) return;
+    if (!row || !_proxiesWorkspaceId || _proxiesBusy || !_proxiesConfigReady) return;
+    _setProxyBusy(true);
     const values = _proxyRowValues(row);
     const status = row.querySelector('.proxies-action-status');
     const buttons = Array.from(row.querySelectorAll('[data-proxy-action]'));
@@ -18027,12 +18058,13 @@
       if (status) { status.textContent = e.message || String(e); status.className = 'proxies-action-status err'; }
     } finally {
       buttons.forEach(btn => btn.classList.remove('busy'));
-      _syncProxyRowSummary(row);
+      _setProxyBusy(false);
     }
   }
 
   async function submitProxies(ev) {
     ev.preventDefault();
+    if (_proxiesBusy || !_proxiesConfigReady) return;
     const err = document.getElementById('proxiesError');
     const saveBtn = document.getElementById('proxiesSaveBtn');
     if (err) { err.textContent = ''; err.classList.remove('on'); }
@@ -18043,6 +18075,7 @@
     }
     if (!_proxiesWorkspacePath) { closeProxiesModal(); return; }
     if (saveBtn) saveBtn.disabled = true;
+    _setProxyBusy(true);
     try {
       const put = await fetch(_serverConfigUrl('/api/server-config'), {
         method: 'PUT',
@@ -18055,15 +18088,15 @@
       }
     } catch (e) {
       if (err) { err.textContent = `Save failed: ${e.message || e}`; err.classList.add('on'); }
-      if (saveBtn) saveBtn.disabled = false;
+      _setProxyBusy(false);
       return;
     }
+    _setProxyBusy(false);
     // Invalidate caches that hold the stale proxies list, then refresh.
     _workspaceSidebarCache.delete(_proxiesWorkspacePath);
     _workspaceAttrsCache.delete(_proxiesWorkspacePath);
     closeProxiesModal();
-    if (typeof refreshAttrsBar === 'function') refreshAttrsBar();
-    if (typeof _refreshWorkspaceSidebar === 'function') _refreshWorkspaceSidebar({preserveScroll: true});
+    if (currentWorkspace?.path === _proxiesWorkspacePath && typeof _refreshWorkspaceSidebar === 'function') _refreshWorkspaceSidebar({preserveScroll: true});
   }
 
   // ─── Client-global Assistant view ───

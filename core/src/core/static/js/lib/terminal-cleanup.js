@@ -1,141 +1,158 @@
-/* Review a server-generated snapshot; never send a broad workspace kill. */
+/* Resources owns this view. Submit only reviewed, server-generated identities. */
 (function () {
   'use strict';
-  let dialog, list, tabs, notice, refreshButton, allButton, closeButton, returnFocus;
-  let groups = [], busy = false, selected = null;
-  const identity = group => group.workspace_id==='__self__'?'home':JSON.stringify([group.vault,group.workspace_id]);
+  let container, list, tabs, notice, allButton, onBusy;
+  let groups = [], busy = false, selected = 'all', generation = 0, controller;
+  const identity = group => group.workspace_id === '__self__' ? 'home'
+    : JSON.stringify([group.vault, group.workspace_id]);
   function workspaces() {
     const known = new Map();
-    for(const group of [...(window.LabTerminalCleanupBridge?.workspaces?.()||[]),...groups])
-      known.set(identity(group),{...group,sessions:group.sessions||[]});
-    const current=window.LabTerminalCleanupBridge?.scope()||{};
-    if(current.workspace_id&&!known.has(identity(current)))known.set(identity(current),{...current,name:current.workspace_id,sessions:[]});
-    return [...known.values()].sort((a,b)=>Number(identity(b)===identity(current))-Number(identity(a)===identity(current))||a.name.localeCompare(b.name));
+    for (const group of [...(window.LabTerminalCleanupBridge?.workspaces?.() || []), ...groups])
+      known.set(identity(group), {...group, sessions: group.sessions || []});
+    const current = window.LabTerminalCleanupBridge?.scope() || {};
+    if (current.workspace_id && !known.has(identity(current)))
+      known.set(identity(current), {...current, name: current.workspace_id, sessions: []});
+    return [...known.values()].sort((a, b) => a.name.localeCompare(b.name)
+      || String(a.vault).localeCompare(String(b.vault)));
   }
-  const selectedGroup = () => workspaces().find(group=>identity(group)===selected);
-
+  const sessions = () => (selected === 'all' ? groups : groups.filter(group => identity(group) === selected))
+    .flatMap(group => group.sessions || []);
   function element(tag, text, className) {
     const node = document.createElement(tag);
     if (text !== undefined) node.textContent = text;
     if (className) node.className = className;
     return node;
   }
-
   function button(text, action, className) {
     const node = element('button', text, className);
     node.type = 'button';
     node.addEventListener('click', action);
     return node;
   }
-
-  function ensureDialog() {
-    if (dialog) return;
-    dialog = element('dialog', undefined, 'terminal-cleanup');
-    dialog.setAttribute('aria-labelledby', 'terminalCleanupTitle');
-    dialog.setAttribute('aria-describedby', 'terminalCleanupDescription');
-    const header = element('header');
-    const title = element('h2', 'Clean up inactive terminals');
-    title.id = 'terminalCleanupTitle';
-    closeButton = button('Close', () => dialog.close());
-    header.append(title, closeButton);
-    const description = element('p', 'Review sessions with no recorded activity or access for more than 7 days. Connected terminals, known working or waiting agents, and managed servers are excluded. Stopping a session closes its tab; saved agent conversations remain.');
-    description.id = 'terminalCleanupDescription';
-    notice = element('div', '', 'terminal-cleanup-notice');
+  function mount(host, busyChanged) {
+    if (container) return;
+    container = host;
+    onBusy = busyChanged;
+    const description = element('p', 'These are the sessions cleanup would kill: no recorded activity or access for more than 7 days. Connected terminals, working or waiting agents, managed servers, and unsent document drafts are excluded. Saved agent conversations remain.');
+    notice = element('div', '', 'resource-notice');
     notice.setAttribute('role', 'status');
     notice.setAttribute('aria-live', 'polite');
-    tabs = element('div', undefined, 'terminal-cleanup-tabs');
-    tabs.setAttribute('role', 'tablist');tabs.setAttribute('aria-label','Workspaces');
-    list = element('div', undefined, 'terminal-cleanup-list');
-    list.id='terminalCleanupPanel';list.setAttribute('role','tabpanel');
-    const footer = element('footer');
-    refreshButton = button('Refresh', () => refresh());
-    allButton = button('Kill inactive', () => kill(selectedGroup()?.sessions||[]), 'terminal-cleanup-danger');
-    footer.append(refreshButton, allButton);
-    dialog.append(header, description, notice, tabs, list, footer);
-    dialog.addEventListener('cancel', event => { if (busy) event.preventDefault(); });
-    dialog.addEventListener('close', () => { if (returnFocus?.isConnected) returnFocus.focus(); });
-    document.body.append(dialog);
+    tabs = element('div', undefined, 'resource-workspace-tabs');
+    tabs.setAttribute('role', 'tablist');
+    tabs.setAttribute('aria-label', 'Cleanup workspaces');
+    const panel = element('div');
+    panel.id = 'resourceCleanupPanel';
+    panel.setAttribute('role', 'tabpanel');
+    const scroll = element('div', undefined, 'resource-table-scroll');
+    const table = element('table');
+    const head = element('thead');
+    const headings = element('tr');
+    for (const text of ['Terminal session', 'Workspace', 'Last activity / access', 'Actions']) headings.append(element('th', text));
+    head.append(headings);
+    list = element('tbody');
+    table.append(head, list);
+    scroll.append(table);
+    allButton = button('Kill 0 inactive', () => kill(sessions()), 'resource-danger');
+    const footer = element('footer', undefined, 'resource-cleanup-actions');
+    footer.append(allButton);
+    panel.append(scroll, footer);
+    container.append(description, notice, tabs, panel);
+    render();
   }
-
   function render() {
-    list.replaceChildren();
-    const catalog=workspaces();
-    if(!catalog.some(group=>identity(group)===selected))selected=catalog[0]?identity(catalog[0]):null;
+    if (!container) return;
+    const catalog = [{name: 'All workspaces', id: 'all', sessions: groups.flatMap(g => g.sessions || [])},
+      ...workspaces().map(group => ({...group, id: identity(group)}))];
+    if (!catalog.some(group => group.id === selected)) selected = 'all';
     tabs.replaceChildren();
-    catalog.forEach((group,index)=>{
-      const active=identity(group)===selected;
-      const tab=button(group.name+' · '+group.sessions.length,()=>{selected=identity(group);render();tabs.children[index]?.focus();});
-      tab.id='terminalCleanupTab'+index;tab.setAttribute('role','tab');tab.setAttribute('aria-selected',String(active));tab.setAttribute('aria-controls',list.id);tab.tabIndex=active?0:-1;tab.disabled=busy;
-      tab.title=group.vault?group.name+' · '+group.vault:group.name;
-      tab.addEventListener('keydown',event=>{
-        const next=event.key==='ArrowRight'?(index+1)%catalog.length:event.key==='ArrowLeft'?(index+catalog.length-1)%catalog.length:event.key==='Home'?0:event.key==='End'?catalog.length-1:null;
-        if(next!==null){event.preventDefault();selected=identity(catalog[next]);render();tabs.children[next]?.focus();}
+    catalog.forEach((group, index) => {
+      const active = group.id === selected;
+      const duplicate = catalog.some(other => other.id !== group.id && other.name === group.name);
+      const tab = button(group.name + (duplicate ? ' · ' + group.vault : '') + ' · ' + group.sessions.length, () => {
+        selected = group.id; render(); tabs.children[index]?.focus();
       });
-      tabs.append(tab);if(active)list.setAttribute('aria-labelledby',tab.id);
+      tab.id = 'resourceCleanupTab' + index;
+      tab.setAttribute('role', 'tab');
+      tab.setAttribute('aria-selected', String(active));
+      tab.setAttribute('aria-controls', 'resourceCleanupPanel');
+      tab.tabIndex = active ? 0 : -1;
+      tab.disabled = busy;
+      tab.title = group.vault ? group.name + ' · ' + group.vault : group.name;
+      tab.addEventListener('keydown', event => {
+        if (busy) return;
+        const next = event.key === 'ArrowRight' ? (index + 1) % catalog.length
+          : event.key === 'ArrowLeft' ? (index + catalog.length - 1) % catalog.length
+          : event.key === 'Home' ? 0 : event.key === 'End' ? catalog.length - 1 : null;
+        if (next !== null) {
+          event.preventDefault(); selected = catalog[next].id; render(); tabs.children[next]?.focus();
+        }
+      });
+      tabs.append(tab);
+      if (active) container.querySelector('[role="tabpanel"]').setAttribute('aria-labelledby', tab.id);
     });
-    const group=selectedGroup();
-    if(group){
-      const section = element('section');
-      const header = element('div', undefined, 'terminal-cleanup-group-header');
-      const label = group.name + (['__self__', '__assistant__'].includes(group.workspace_id) ? '' : ' · ' + group.vault);
-      const heading = element('h3', label);
-      header.append(heading);
-      const sessions = element('ul');
-      for (const session of group.sessions) {
-        const item = element('li');
-        const title = element('strong', session.label || session.logical_name || session.name);
-        const name = element('code', session.name);
-        const age = Math.floor((Date.now() / 1000 - session.last_used) / 86400);
-        const date = new Date(session.last_used * 1000).toLocaleString();
-        const details = element('span', `Inactive ${age} days · Last activity/access ${date}`, 'terminal-cleanup-date');
-        item.append(title, name, details);
-        sessions.append(item);
-      }
-      section.append(header, sessions);
-      list.append(section);
+    list.replaceChildren();
+    const candidates = sessions();
+    for (const session of candidates) {
+      const row = element('tr');
+      const title = element('td');
+      title.append(element('strong', session.label || session.logical_name || session.name), element('small', session.name));
+      const scope = element('td', session.workspace_name || session.workspace_id);
+      if (session.vault) scope.append(element('small', session.vault));
+      const age = Math.floor((Date.now() / 1000 - session.last_used) / 86400);
+      const activity = element('td', new Date(session.last_used * 1000).toLocaleString());
+      activity.append(element('small', `Inactive ${age} days`));
+      const actions = element('td');
+      const stop = button('Kill', () => kill([session]), 'resource-danger');
+      stop.disabled = busy;
+      actions.append(stop);
+      row.append(title, scope, activity, actions);
+      list.append(row);
     }
-    if (!group?.sessions.length && !busy) list.append(element('p', 'No inactive sessions older than 7 days in this workspace.'));
-    const count = group?.sessions.length||0;
-    allButton.textContent = `Kill ${count} inactive`;
-    allButton.disabled = busy || !count;
-    refreshButton.disabled = busy;
-    closeButton.disabled = busy;
+    if (!candidates.length) {
+      const row = element('tr');
+      const empty = element('td', busy ? 'Checking inactive sessions…'
+        : 'No inactive sessions older than 7 days' + (selected === 'all' ? '.' : ' in this workspace.'));
+      empty.colSpan = 4; row.append(empty); list.append(row);
+    }
+    allButton.textContent = `Kill ${candidates.length} inactive`;
+    allButton.disabled = busy || !candidates.length;
     list.setAttribute('aria-busy', String(busy));
   }
-
-  async function request(options) {
+  function setBusy(value) { busy = value; onBusy?.(value); render(); }
+  async function request(options = {}) {
     const response = await fetch('/api/term/cleanup', options);
     const data = await response.json();
     if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Could not inspect terminal sessions.');
     return data;
   }
-
   async function refresh(message = '') {
     if (busy) return;
-    busy = true;
+    const current = ++generation;
+    const active = new AbortController(); controller = active;
+    const timeout = setTimeout(() => active.abort(), 15000);
+    setBusy(true);
     notice.textContent = message || 'Checking terminal sessions across all workspaces…';
-    render();
     try {
-      const data = await request();
+      const data = await request({signal: active.signal});
+      if (current !== generation) return;
       groups = data.groups || [];
       notice.textContent = [message, ...(data.warnings || [])].filter(Boolean).join('\n');
     } catch (error) {
+      if (current !== generation) return;
       groups = [];
-      notice.textContent = [message, error.message].filter(Boolean).join('\n');
+      notice.textContent = [message, error.name === 'AbortError' ? 'Cleanup request timed out. Use Refresh to try again.' : error.message].filter(Boolean).join('\n');
     } finally {
-      busy = false;
-      render();
+      clearTimeout(timeout);
+      if (current === generation) { controller = null; setBusy(false); }
     }
   }
-
-  async function kill(sessions) {
-    if (busy || !sessions.length) return;
-    const captured = [...sessions];
-    const names = captured.map(s => `${s.workspace_name}: ${s.label || s.logical_name}\n  ${s.name}`).join('\n');
+  async function kill(targets) {
+    if (busy || !targets.length) return;
+    const captured = [...targets];
+    const names = captured.map(s => `${s.workspace_name} (${s.vault}): ${s.label || s.logical_name}\n  ${s.name}`).join('\n');
     if (!window.confirm(`Kill these ${captured.length} inactive terminal sessions?\n\n${names}\n\nRunning processes in these sessions will stop and their tabs will stay closed. Saved agent conversations remain. Sessions used since this list was loaded will be skipped.`)) return;
-    busy = true;
+    setBusy(true);
     notice.textContent = 'Rechecking inactivity and stopping confirmed sessions…';
-    render();
     let message;
     try {
       const result = await request({method: 'POST', headers: {'Content-Type': 'application/json'},
@@ -147,20 +164,14 @@
     } catch (error) {
       message = error.message + ' Refresh the list before retrying.';
     } finally {
-      busy = false;
+      groups = []; setBusy(false);
     }
     await refresh(message);
   }
-
   window.LabTerminalCleanup = {
-    async open() {
-      ensureDialog();
-      if (dialog.open) return;
-      returnFocus = document.activeElement;
-      selected=identity(window.LabTerminalCleanupBridge?.scope()||{});
-      dialog.showModal();
-      closeButton.focus();
-      await refresh();
-    },
+    mount, refresh,
+    show() { selected = 'all'; return refresh(); },
+    cancel() { if (controller) { ++generation; controller.abort(); controller = null; setBusy(false); } },
+    open() { return window.LabResources.open({cleanup: true}); },
   };
 })();

@@ -105,7 +105,6 @@ const _workspaceMarkUsed = () => {};
 const workspaceTabsSetOpen = () => {};
 const _workspaceDisplayName = w => w.name;
 const renderRepoTabs = () => {};
-const refreshAttrsBar = () => calls.push('attrs:' + currentWorkspace.name);
 const showWorkspaceInfo = () => calls.push('dashboard:' + currentWorkspace.name);
 const getLastWorkspaceDoc = path => path === '/beta' ? 'docs/review.md' : null;
 const paintWorkspaceShell = () => calls.push('shell:' + currentWorkspace.name);
@@ -131,12 +130,12 @@ const workspaceTabsRender = () => {};
 })();
 ''')
     assert result['firstClick'] == {
-        'calls': ['shell:alpha', 'attrs:alpha', 'dashboard:alpha', 'terminal:alpha'],
+        'calls': ['shell:alpha', 'dashboard:alpha', 'terminal:alpha'],
         'timers': 0,
     }
     assert result['historyReplacements'] == 3
     assert result['remembered'] == {
-        'calls': ['attrs:beta', 'dashboard:beta', 'doc:docs/review.md', 'terminal:beta'],
+        'calls': ['dashboard:beta', 'doc:docs/review.md', 'terminal:beta'],
         'doc': 'docs/review.md', 'timers': 0,
     }
     assert result['initial'] == {'calls': ['shell:alpha'], 'timers': 2}

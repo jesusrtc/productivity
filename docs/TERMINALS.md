@@ -17,13 +17,14 @@ or the running process. See [OBJECTIVES.md](OBJECTIVES.md).
 
 ## Inactive terminal cleanup
 
-The global **Cleanup** button sits beside **Logs** in the header. Its modal has
-a tab for each known workspace, initially selecting the current one, and shows
-that workspace's sessions with no recorded activity/access for more than seven
-days. Workspaces with no eligible sessions still have a tab. Arrow keys and
-Home/End navigate the tabs.
+Open **Resources** in the header and choose **Show cleanup candidates**. The
+Resources table shows sessions with no recorded activity/access for more than
+seven days, initially across **All workspaces**. Tabs narrow the review to one
+workspace, including workspaces with no eligible sessions. Arrow keys and
+Home/End navigate the tabs. **Show all processes** restores resource monitoring.
 
-The kill button applies only to the selected workspace's displayed candidates.
+The bulk kill button applies only to the displayed candidates; each row also
+has an individual Kill button.
 Confirmation shows the exact session names; the server rechecks their identity
 and inactivity before stopping them. Connected terminals, working/waiting
 agents and managed servers are excluded. Saved conversations remain available.

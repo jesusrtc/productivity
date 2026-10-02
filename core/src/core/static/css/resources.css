@@ -6,6 +6,7 @@
   box-shadow: 0 24px 80px #0008; overflow: auto;
 }
 .lab-resources::backdrop { background: #0009; }
+.lab-resources [hidden] { display: none !important; }
 .lab-resources header, .resource-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .lab-resources h2 { margin: 0; font-size: 20px; }
 .lab-resources h3 { margin: 0; font-size: 14px; }
@@ -24,7 +25,7 @@
 .resource-summary strong { display: block; font-size: 26px; font-weight: 600; margin: 7px 0; }
 .resource-toolbar { font-size: 12px; margin-bottom: 12px; }
 .resource-toolbar > span { margin-left: auto; color: var(--text-secondary); }
-.resource-notice { font-size: 12px; color: var(--accent); margin: 8px 0; }
+.resource-notice { font-size: 12px; color: var(--accent); margin: 8px 0; white-space: pre-line; }
 .resource-notice:empty { display: none; }
 .resource-table-scroll { overflow: auto; max-height: 42vh; border: 1px solid var(--border); border-radius: 8px; }
 .lab-resources table { border-collapse: collapse; width: 100%; font-size: 12px; }
@@ -39,6 +40,13 @@
 .resource-scan { margin: 8px 0; font-size: 12px; overflow-wrap: anywhere; }
 .resource-scan small { display: block; color: var(--text-secondary); margin-top: 3px; }
 #resourcesBtn { font-size: 12px; white-space: nowrap; }
+.resource-toolbar button { white-space: nowrap; }
+.resource-toolbar button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+.resource-workspace-tabs { display: flex; gap: 6px; overflow-x: auto; margin: 12px 0; padding: 2px; }
+.resource-workspace-tabs button { white-space: nowrap; }
+.resource-workspace-tabs button[aria-selected="true"] { color: var(--accent); border-color: var(--accent); }
+.resource-cleanup-actions { display: flex; justify-content: flex-end; margin-top: 12px; }
+.resource-cleanup td:nth-child(2), .resource-cleanup td:nth-child(3) { white-space: normal; overflow-wrap: anywhere; }
 @media (max-width: 600px) {
   .lab-resources { padding: 14px; }
   .resource-summary { gap: 6px; }
