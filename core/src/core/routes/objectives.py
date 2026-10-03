@@ -61,7 +61,7 @@ def change(request: Request, body: Action):
             reference = terminal_task_links.validate(request, LinkedTask(
                 document_id=action.get('document_id'), assistant_root=action.get('assistant_root')))
             action = {**action, **reference}
-        if action.get('type') == 'task-asset':
+        if action.get('type') in {'task-asset', 'asset-star', 'asset-bucket'}:
             from core import terminal_task_links
             from core.routes.term import LinkedTask
             from pathlib import Path

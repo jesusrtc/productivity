@@ -1,5 +1,9 @@
 # Memory index
 
+- [Live Objectives use task asset buckets](live-objectives-use-task-asset-buckets.md) — authorized live Unassigned/shared/Tasks/task-assets layout, stars and navigation-only task rows.
+- [Live subtasks inherit Objective and parent context](live-subtasks-inherit-objective-and-parent-context.md) — complete deduplicated context bundles and sidebar-only reverse terminal drops.
+- [Task status and terminal icons are separate](task-status-and-terminal-icons-are-separate.md) — left ⬜ / ✅ status; right asset override by drag only, inherited by tabs and terminals.
+
 - [Objective assets share the shell cache version](objective-assets-share-cache-version.md) — fingerprint Objective/demo files and version all sandbox dependencies for normal reloads.
 
 - [Demo task list is navigation-only](demo-task-list-is-navigation-only.md) — middle task-mode header owns completion/editing; one parent task expands at a time.

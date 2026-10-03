@@ -83,6 +83,17 @@ def _tasks(objective):
     return [task for parent in objective['tasks'] for task in [parent, *parent['children']]]
 
 
+def _asset_target(asset):
+    return {key:value for key,value in asset.items() if key != 'id'}
+
+
+def _prune_assets(objective, remove):
+    for field in ('shared_assets', 'archived_assets', 'asset_shelf'):
+        if field in objective:
+            objective[field] = [asset for asset in objective[field] if not remove(asset)]
+    _prune_task_assets(objective, remove)
+
+
 def _prune_task_assets(objective, remove):
     for task in _tasks(objective):
         assets = task.get('assets', [])
@@ -139,6 +150,44 @@ def _task_asset(folder, objective, action):
             raise ValueError('Sublink not found')
         result['sub_link_id'] = action['sub_link_id']
     return result
+
+
+def _put_asset(objective, field, target, limit=512):
+    rows = objective.setdefault(field, [])
+    existing = next((asset for asset in rows if _asset_target(asset) == target), None)
+    if existing:
+        return existing
+    if len(rows) >= limit:
+        raise ValueError(f'This asset list supports up to {limit} references')
+    asset = {'id':identifier(), **target}
+    rows.append(asset)
+    return asset
+
+
+def _asset_bucket(folder, objective, action):
+    star = action.get('type') == 'asset-star'
+    if star and type(action.get('starred')) is not bool:
+        raise ValueError('Asset star must be a boolean')
+    bucket = 'objective' if star and action['starred'] else 'unassigned' if star else action.get('bucket')
+    if bucket not in {'objective', 'unassigned', 'archive'}:
+        raise ValueError('Choose Objective, Unassigned or Archive')
+    asset = _task_asset(folder, objective, action)
+    if not star and bucket != 'objective' and any(
+        asset.get('resource_id') == task['document_id']
+        and (not asset.get('tab_id') or asset['tab_id'] == task['tab_id'])
+        for task in _tasks(objective)
+    ):
+        raise ValueError('Task details must remain associated with their task')
+    if asset.get('folder'):
+        _put_asset(objective, 'asset_shelf', asset)
+    for field in ('shared_assets',) if star and not action['starred'] else ('shared_assets', 'archived_assets'):
+        objective[field] = [row for row in objective.get(field, []) if _asset_target(row) != asset]
+    if bucket == 'objective':
+        _put_asset(objective, 'shared_assets', asset)
+    elif not star:
+        _prune_task_assets(objective, lambda row: _asset_target(row) == asset)
+        if bucket == 'archive':
+            _put_asset(objective, 'archived_assets', asset)
 
 
 def _color(data, objective):
@@ -234,6 +283,8 @@ def payload(root, workspace_id):
     folder = directory(root, workspace_id)
     for objective in data['objectives']:
         objective['path'] = str(folder / 'objectives' / objective['id'])
+        for field in ('shared_assets', 'archived_assets', 'asset_shelf'):
+            objective.setdefault(field, [])
         for tree in objective['worktrees']:
             # Older registries may only store the shortcut path. Match native
             # sessions launched through either spelling without rewriting it.
@@ -441,6 +492,8 @@ def mutate(root, workspace_id, action, expected=None):
                 'kind': action.get('kind', 'worktree'), 'color': _color(data, objective)})
         elif operation == 'resource':
             _resource(folder, objective, action)
+        elif operation in {'asset-star', 'asset-bucket'}:
+            _asset_bucket(folder, objective, action)
         elif operation == 'scope':
             resource = _find(objective['resources'], action.get('resource_id'))
             if not resource:
@@ -463,7 +516,7 @@ def mutate(root, workspace_id, action, expected=None):
                 for link in data['terminal_links'].values():
                     if link.get('resource_id') == resource['id'] and link.get('sub_link_id') and link['sub_link_id'] not in remaining:
                         link.pop('sub_link_id')
-                _prune_task_assets(objective, lambda a: a.get('resource_id') == resource['id'] and a.get('sub_link_id') and a['sub_link_id'] not in remaining)
+                _prune_assets(objective, lambda a: a.get('resource_id') == resource['id'] and a.get('sub_link_id') and a['sub_link_id'] not in remaining)
         elif operation == 'link-sublink':
             resource = _find(objective['resources'], action.get('resource_id'))
             if not resource or resource['kind'] != 'link':
@@ -488,7 +541,7 @@ def mutate(root, workspace_id, action, expected=None):
             for link in data['terminal_links'].values():
                 if link.get('resource_id') == resource['id'] and link.get('sub_link_id') in removed:
                     link.pop('sub_link_id')
-            _prune_task_assets(objective, lambda a: a.get('resource_id') == resource['id'] and a.get('sub_link_id') in removed)
+            _prune_assets(objective, lambda a: a.get('resource_id') == resource['id'] and a.get('sub_link_id') in removed)
         elif operation == 'rename':
             resource = _find(objective['resources'], action.get('resource_id'))
             if not resource:
@@ -532,13 +585,18 @@ def mutate(root, workspace_id, action, expected=None):
             if task is None:
                 raise ValueError('Task not found')
             if operation == 'task-asset':
+                if 'choose_icon' in action and type(action['choose_icon']) is not bool:
+                    raise ValueError('Icon selection must be a boolean')
                 asset = _task_asset(folder, objective, action)
                 implicit = {'resource_id':task['document_id'], 'tab_id':task['tab_id']}
-                assets = task.get('assets', [])
-                if asset != implicit and not any({k:v for k,v in a.items() if k != 'id'} == asset for a in assets):
-                    if len(assets) >= 128:
-                        raise ValueError('A task supports up to 128 assets')
-                    task.setdefault('assets', []).append({'id':identifier(), **asset})
+                if asset != implicit:
+                    attached = _put_asset(task, 'assets', asset, 128)
+                if asset.get('folder'):
+                    _put_asset(objective, 'asset_shelf', asset)
+                if 'archived_assets' in objective:
+                    objective['archived_assets'] = [row for row in objective['archived_assets'] if _asset_target(row) != asset]
+                if action.get('choose_icon'):
+                    task['icon_asset_id'] = 'details' if asset == implicit else attached['id']
             elif operation == 'task-remove-asset':
                 asset_id = action.get('asset_id')
                 if not _find(task.get('assets', []), asset_id):
@@ -651,7 +709,7 @@ def mutate(root, workspace_id, action, expected=None):
             if any(t['document_id'] == resource_id for p in objective['tasks'] for t in [p, *p['children']]):
                 raise ValueError('A task still needs this document')
             objective['resources'] = [r for r in objective['resources'] if r['id'] != resource_id]
-            _prune_task_assets(objective, lambda a: a.get('resource_id') == resource_id)
+            _prune_assets(objective, lambda a: a.get('resource_id') == resource_id)
             # Preserve owned files so unlinking never destroys user content.
         else:
             raise ValueError('Unsupported objective action')

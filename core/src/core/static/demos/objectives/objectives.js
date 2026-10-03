@@ -142,7 +142,7 @@
         const host=find('focus'),o=objective();host.replaceChildren();
         const all=button('Objectives','ob-nav-tab',showAll);all.setAttribute('aria-pressed',o.view==='all');all.dataset.allObjectives='';
         const task=activeTask(o),current=button('','ob-nav-tab ob-current',()=>switchObjective(o.id));current.style.setProperty('--objective-color',o.color);current.setAttribute('aria-pressed',o.view!=='all');current.setAttribute('aria-haspopup','menu');current.setAttribute('aria-expanded','false');current.dataset.currentObjective='';
-        current.append(task?assetIcon(assetInfo(o,task.iconAsset||detailsRef(task))):element('span','ob-objective-dot'),element('span','ob-label',task?.title||o.name),element('span','ob-muted','▾'));
+        current.append(task?taskGlyph(o,task):element('span','ob-objective-dot'),element('span','ob-label',task?.title||o.name),element('span','ob-muted','▾'));
         const menu=element('div','ob-switch-menu');menu.hidden=true;menu.setAttribute('role','menu');
         Array.from({length:focusSlots},(_,slot)=>{const p=objectives.find(p=>p.id===focused[slot]),b=button('','',()=>p?switchObjective(p.id):focusDialog(slot));b.setAttribute('role','menuitem');b.append(element('span','ob-muted',String(slot+1)),element('span','ob-objective-dot'),element('span','ob-label',p?.name||'Choose objective…'));b.style.setProperty('--objective-color',palettes[slot][0]);menu.append(b);});
         const reveal=()=>{menu.hidden=false;current.setAttribute('aria-expanded','true');};current.onmouseenter=reveal;current.onfocus=reveal;
@@ -175,9 +175,10 @@
         const reference=item.kind==='link'?(tab?.url||item.url):'/demo/'+(tree?tree.repo+'/worktrees/'+tree.name+'/'+item.title:'workspace/'+(item.kind==='assistant'?'assistant/': 'objectives/'+o.id+'/')+item.title)+(tab?'#tab='+encodeURIComponent(tab.id):'');
         return {ref,item,tab,tree,title:tab?item.title+' · '+tab.title:item.title,kind:item.kind,reference};
       }
+      function taskGlyph(o,task) {const info=task.iconAsset&&assetInfo(o,task.iconAsset);if(info&&info.kind!=='task')return assetIcon(info);const glyph=element('span','ob-task-default-icon',taskComplete(task)?'✅':'⬜');glyph.setAttribute('aria-hidden','true');return glyph;}
       function assetIcon(info) {
         if(!info)return icon('file-text');
-        if(info.kind==='task')return assetIcon(assetInfo(info.objective,info.task.iconAsset||detailsRef(info.task)));
+        if(info.kind==='task')return taskGlyph(info.objective,info.task);
         if(info.kind==='link'){let service;try{const host=new URL(info.reference).hostname;service=host.endsWith('slack.com')?'slack':host==='github.com'?'github':host.endsWith('atlassian.net')?'jira':host==='docs.google.com'?'google-docs':host.includes('observe')||host.includes('grafana')?'grafana':null;}catch{}const glyph=element('span','scope-link-icon');glyph.setAttribute('aria-hidden','true');if(service)glyph.dataset.linkService=service;else glyph.textContent='↗';return glyph;}
         const ext=(info.item?.title||'').split('.').pop().toLowerCase(),type=info.kind==='notebook'||ext==='ipynb'?'nb':info.kind==='document'||ext==='md'?'md':ext==='sql'?'sql':null;
         if(type){const glyph=element('span','ft-icon ft-'+type);glyph.setAttribute('aria-hidden','true');return glyph;}
@@ -222,11 +223,11 @@
       function renderBucket(host,o,id,label,refs,add,task) {const section=element('section','ob-bucket');section.dataset.bucket=id;section.setAttribute('aria-label',label);heading(section,label,add);if(id==='unassigned'){const title=section.querySelector('.ob-section-heading span');title.replaceWith(button(label,'ob-bucket-title',()=>showTasks(o)));}const list=element('div','ob-list');refs.forEach(ref=>{if(assetInfo(o,ref))list.append(assetRow(o,ref,task));});if(!refs.length)list.append(element('p','ob-empty',id==='unassigned'?'All assets are assigned.':id==='objective'?'Drop shared context here.':id==='archive'?'Drop assets here to set them aside.':''));section.append(list);attachDrop(section,'application/x-objective-item',ref=>id==='task'?task&&attachAsset(o,task,ref):classifyAsset(o,ref,id));host.append(section);}
       function sidebarTask(o,task,child=false) {
         const line=element('div','ob-sidebar-task'+(child?' child':''));line.dataset.task=task.id;
-        const status=element('span','ob-task-status',taskComplete(task)?'✓':'○');status.dataset.done=taskComplete(task);status.setAttribute('aria-label',taskComplete(task)?'Completed':'Incomplete');
-        const name=button('','ob-task-name',()=>openTask(o,task)),glyph=element('span','ob-task-icon');glyph.dataset.taskIcon=task.id;glyph.title='Drop an asset here to use its icon';glyph.setAttribute('aria-label','Icon for '+task.title);glyph.append(assetIcon(assetInfo(o,task.iconAsset||detailsRef(task))));
+        const status=element('span','ob-task-status',taskComplete(task)?'✅':'⬜');status.dataset.done=taskComplete(task);status.setAttribute('aria-label',taskComplete(task)?'Completed':'Incomplete');
+        const name=button('','ob-task-name',()=>openTask(o,task)),glyph=element('span','ob-task-icon');glyph.dataset.taskIcon=task.id;glyph.title='Drop an asset here to use its icon';glyph.setAttribute('aria-label','Icon for '+task.title);glyph.append(taskGlyph(o,task));
         attachDrop(glyph,'application/x-objective-item',ref=>{const info=assetInfo(o,ref);if(!info||info.task)return;task.iconAsset=ref;attachAsset(o,task,ref);message('Using '+info.title+' icon for '+task.title);});
-        name.append(glyph,element('span','ob-label',task.title));name.setAttribute('aria-pressed',o.activeTask===task.id);if(task.checks?.length)name.setAttribute('aria-expanded',o.expandedTask===task.id);dragAsset(name,o,task.id);
-        line.append(status,name,element('span','ob-muted',String(taskAssetRefs(task).length)));attachDrop(line,'application/x-objective-item',ref=>attachAsset(o,task,ref));terminalDrop(line,o,task.id);return line;
+        name.append(element('span','ob-label',task.title));name.setAttribute('aria-pressed',o.activeTask===task.id);if(task.checks?.length)name.setAttribute('aria-expanded',o.expandedTask===task.id);dragAsset(name,o,task.id);
+        line.append(status,name,element('span','ob-muted',String(taskAssetRefs(task).length)),glyph);dragAsset(glyph,o,task.id);attachDrop(line,'application/x-objective-item',ref=>attachAsset(o,task,ref));terminalDrop(line,o,task.id);return line;
       }
       function resourceTarget(o,ref) {const [id,tabId]=ref.split('::');const item=o.items.find(i=>i.id===id);if(tabId&&!item?.tabs?.some(t=>t.id===tabId))return null;return item?{item,tab:item.tabs?.find(t=>t.id===tabId)}:null;}
       function openResource(o,item,tab=null) {if(item.kind==='task'){openTask(o,item);return;}o.expandedResource=item.tabs?.length?item.id:null;o.view='resource';o.selectedItem=item.id;o.selectedTab=tab?.id||null;if(item.scope)o.selected=item.scope;if(tab&&!o.activeTask)retainTabs(o,item);if(o.activeTask&&tab)o.expandedResource=null;render();}
@@ -272,7 +273,7 @@
         if(o.view==='tasks'){renderTasks(host,o);return;}
         const task=activeTask(o);if(task){
           const close=button('×','ob-close-task',()=>showTasks(o));close.setAttribute('aria-label','Close task mode');
-          const top=element('div','ob-task-mode-head'),title=element('h2'),open=button('','ob-task-mode-title',()=>openTask(o,task));open.append(assetIcon(assetInfo(o,task.iconAsset||detailsRef(task))),element('span','',task.title));title.append(open);
+          const top=element('div','ob-task-mode-head'),title=element('h2'),open=button('','ob-task-mode-title',()=>openTask(o,task));open.append(taskGlyph(o,task),element('span','',task.title));title.append(open);
           const complete=element('label','ob-task-completion'),toggle=element('input');toggle.type='checkbox';toggle.checked=taskComplete(task);toggle.setAttribute('aria-label','Complete '+task.title);toggle.onchange=()=>setTaskComplete(task,toggle.checked);complete.append(toggle,element('span','',toggle.checked?'Completed':'Mark complete'));
           top.append(title,complete,button('Edit task','ob-quiet',()=>taskEditDialog(parentTask(o,task),task)));host.append(close,top);
         }
@@ -377,9 +378,8 @@
         const due=field(form,'Due date',element('input'));due.type='date';due.value=entry.due||'';
         const doc=field(form,'Details document',select(o.items.filter(i=>i.kind==='document').map(i=>({id:i.id,name:i.title}))));doc.value=entry.detail;
         const tab=field(form,'Document subtab',select([]));doc.onchange=()=>{tab.replaceChildren();[{id:'__new',title:'Create a subtab for this task'},...(o.items.find(i=>i.id===doc.value)?.tabs||[])].forEach(t=>{const option=element('option','',t.title);option.value=t.id;tab.append(option);});tab.value=doc.value===entry.detail?entry.tab:'__new';};doc.onchange();
-        const pickIcon=field(form,'Task icon',select(taskContextRefs(o,entry).map(ref=>({id:ref,name:assetInfo(o,ref)?.title||ref}))));pickIcon.value=entry.iconAsset||detailsRef(entry);
         const remove=button(entry===task?'Delete task':'Delete subtask','ob-quiet',()=>{if(entry===task)deleteDialog(task);else {const complete=taskComplete(task);task.checks.splice(task.checks.indexOf(entry),1);if(!task.checks.length)task.done=complete;find('dialog').hidden=true;render();}});form.insertBefore(remove,form.lastChild);
-        submit(form,'Save',()=>{entry.iconAsset=pickIcon.value;const oldTitle=entry.title;entry.title=name.value.trim();entry.due=due.value;entry.detail=doc.value;entry.tab=tab.value==='__new'?null:tab.value;ensureDetails(o,task,entry);const details=o.items.find(i=>i.id===entry.detail).tabs.find(t=>t.id===entry.tab);if(details.title===oldTitle)details.title=entry.title;message('Task details and deadline updated');});
+        submit(form,'Save',()=>{const oldTitle=entry.title;entry.title=name.value.trim();entry.due=due.value;entry.detail=doc.value;entry.tab=tab.value==='__new'?null:tab.value;ensureDetails(o,task,entry);const details=o.items.find(i=>i.id===entry.detail).tabs.find(t=>t.id===entry.tab);if(details.title===oldTitle)details.title=entry.title;message('Task details and deadline updated');});
       }
       function subtabDialog(item) {const form=dialog('New document subtab'),name=field(form,'Subtab name',element('input'));name.type='text';name.required=true;submit(form,'Create',()=>{const tab={id:'tab-'+serial++,title:name.value.trim(),body:'# '+name.value.trim()+'\n\nAdd your notes here.'};item.tabs ||= [];item.tabs.push(tab);const o=objective();o.selectedItem=item.id;o.selectedTab=tab.id;o.view='resource';retainTabs(o,item);message('Created a document subtab · tabs live in the left menu');});}
       function renameSubtabDialog(item,tab) {const form=dialog('Rename document subtab'),name=field(form,'Name',element('input'));name.type='text';name.required=true;name.value=tab.title;submit(form,'Rename',()=>{tab.title=name.value.trim();message('Renamed subtab · task and terminal links remain intact');});}

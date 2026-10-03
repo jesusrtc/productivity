@@ -176,7 +176,7 @@ html,body { padding:0; overflow:hidden; }
 #lab-objectives-proposal .ob-sidebar-tasks .ob-progress { margin-left:auto; }
 #lab-objectives-proposal .ob-sidebar-task { display:flex; gap:6px; min-width:0; align-items:center; padding:3px 0; }
 #lab-objectives-proposal .ob-sidebar-task.child { padding-left:18px; }
-#lab-objectives-proposal .ob-task-status { width:13px; flex:none; text-align:center; color:var(--ob-muted); }
+#lab-objectives-proposal .ob-task-status { font-size:14px; width:18px; flex:none; text-align:center; color:var(--ob-muted); }
 #lab-objectives-proposal .ob-task-status[data-done=true] { color:var(--ob-accent); }
 #lab-objectives-proposal .ob-task-icon { display:grid; place-items:center; width:23px; height:23px; flex:none; border:1px solid transparent; border-radius:4px; }
 #lab-objectives-proposal .ob-task-icon.ob-drop { border-color:var(--ob-accent); background:#234367; }

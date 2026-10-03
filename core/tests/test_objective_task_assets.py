@@ -132,9 +132,13 @@ def test_task_terminal_and_assistant_assets_preserve_original_owners(client, mon
     response = client.post('/api/objectives',json={'workspace_id':'demo','action':action})
     assert response.status_code == 200 and note.read_bytes() == original
     assert response.json()['objectives'][0]['tasks'][0]['assets'][-1]['tab_id'] == action['tab_id']
+    starred = client.post('/api/objectives',json={'workspace_id':'demo','action':{**action,'type':'asset-star','starred':True}})
+    assert starred.status_code == 200 and note.read_bytes() == original
+    assert starred.json()['objectives'][0]['shared_assets'][0]['tab_id'] == action['tab_id']
     before_registry = objectives.registry(monorepo,'demo').read_bytes()
-    response = client.post('/api/objectives',json={'workspace_id':'demo','action':{**action,'tab_id':'missing'}})
-    assert response.status_code == 400 and objectives.registry(monorepo,'demo').read_bytes() == before_registry
+    for operation, fields in [('task-asset',{}),('asset-star',{'starred':True}),('asset-bucket',{'bucket':'archive'})]:
+        response = client.post('/api/objectives',json={'workspace_id':'demo','action':{**action,**fields,'type':operation,'tab_id':'missing'}})
+        assert response.status_code == 400 and objectives.registry(monorepo,'demo').read_bytes() == before_registry
     before = term._get_workspace_sessions(monorepo,'demo')
     action = {'type':'terminal','objective_id':oid,'task_id':task['id'],'session_id':before[0]['session_id']}
     response = client.post('/api/objectives',json={'workspace_id':'demo','action':action})
@@ -145,3 +149,75 @@ def test_task_terminal_and_assistant_assets_preserve_original_owners(client, mon
     apply(monorepo, oid, 'task-update', task_id=task['id'], title='Newer')
     response = client.post('/api/objectives',json={'workspace_id':'demo','expected':stale,'action':action})
     assert response.status_code == 409 and term._get_workspace_sessions(monorepo,'demo') == before
+
+
+def test_shared_stars_and_archive_keep_original_content(monorepo, task_workspace):
+    folder, oid, task = task_workspace
+    data = apply(monorepo, oid, 'resource', kind='notebook', title='Evidence')
+    resource = data['objectives'][0]['resources'][-1]
+    original = (folder/resource['path']).read_bytes()
+    data = apply(monorepo, oid, 'task-asset', task_id=task['id'], resource_id=resource['id'], choose_icon=True)
+    attached = data['objectives'][0]['tasks'][0]['assets'][0]
+    assert data['objectives'][0]['tasks'][0]['icon_asset_id'] == attached['id']
+    data = apply(monorepo, oid, 'asset-star', resource_id=resource['id'], starred=True)
+    assert data['objectives'][0]['shared_assets'][0]['resource_id'] == resource['id']
+    data = apply(monorepo, oid, 'asset-star', resource_id=resource['id'], starred=False)
+    assert data['objectives'][0]['shared_assets'] == []
+    assert data['objectives'][0]['tasks'][0]['assets'] == [attached]
+    apply(monorepo, oid, 'asset-star', resource_id=resource['id'], starred=True)
+    data = apply(monorepo, oid, 'asset-bucket', resource_id=resource['id'], bucket='archive')
+    owner = data['objectives'][0]
+    assert owner['shared_assets'] == [] and owner['tasks'][0]['assets'] == []
+    assert 'icon_asset_id' not in owner['tasks'][0]
+    assert owner['archived_assets'][0]['resource_id'] == resource['id']
+    data = apply(monorepo, oid, 'task-asset', task_id=task['id'], resource_id=resource['id'], choose_icon=True)
+    assert data['objectives'][0]['archived_assets'] == []
+    data = apply(monorepo, oid, 'asset-bucket', resource_id=resource['id'], bucket='unassigned')
+    assert data['objectives'][0]['tasks'][0]['assets'] == []
+    assert (folder/resource['path']).read_bytes() == original
+
+
+def test_shared_exact_tabs_and_folder_references_are_validated(monorepo, task_workspace):
+    folder, oid, task = task_workspace
+    # Legacy registries need no rewrite merely to display the new buckets.
+    before = objectives.registry(monorepo,'demo').read_bytes()
+    owner = objectives.payload(monorepo,'demo')['objectives'][0]
+    assert owner['shared_assets'] == owner['archived_assets'] == owner['asset_shelf'] == []
+    assert objectives.registry(monorepo,'demo').read_bytes() == before
+    apply(monorepo, oid, 'asset-star', resource_id=task['document_id'], tab_id=task['tab_id'], starred=True)
+    for operation, fields in [
+        ('asset-bucket', {'resource_id':task['document_id'],'tab_id':task['tab_id'],'bucket':'archive'}),
+        ('asset-bucket', {'resource_id':task['document_id'],'bucket':'unassigned'}),
+        ('asset-star', {'folder':{'root':str(monorepo),'path':'.'},'starred':True}),
+        ('asset-star', {'resource_id':task['document_id'],'starred':'yes'}),
+        ('task-asset', {'task_id':task['id'],'resource_id':task['document_id'],'choose_icon':'yes'}),
+        ('asset-bucket', {'resource_id':task['document_id'],'bucket':'missing'}),
+    ]:
+        before = objectives.registry(monorepo,'demo').read_bytes()
+        with pytest.raises(ValueError):
+            apply(monorepo, oid, operation, **fields)
+        assert objectives.registry(monorepo,'demo').read_bytes() == before
+    source = folder/'existing.sql';source.write_text('SELECT 1;')
+    data = apply(monorepo, oid, 'asset-star', reference={'kind':'file','title':'Query','file_root':str(folder),'path':source.name}, starred=True)
+    query = data['objectives'][0]['resources'][-1]
+    assert query['kind'] == 'file' and source.read_text() == 'SELECT 1;'
+    data = apply(monorepo, oid, 'asset-star', folder={'root':str(folder),'path':'.'}, starred=True)
+    assert data['objectives'][0]['asset_shelf'][0]['folder']['root'] == str(folder)
+    data = apply(monorepo, oid, 'asset-star', folder={'root':str(folder),'path':'.'}, starred=False)
+    assert any(a.get('resource_id') == query['id'] for a in data['objectives'][0]['shared_assets'])
+    assert data['objectives'][0]['asset_shelf'][0]['folder']['path'] == '.'
+
+
+def test_removing_sublinks_prunes_shared_and_archived_references(monorepo, task_workspace):
+    _, oid, task = task_workspace
+    data = apply(monorepo, oid, 'resource', kind='link', title='Document', url='https://example.com/',
+                 sublinks=[{'title':'One','url':'https://example.com/?tab=one'},{'title':'Two','url':'https://example.com/?tab=two'}])
+    resource = data['objectives'][0]['resources'][-1]
+    first, second = [r['id'] for r in resource['sublinks']]
+    apply(monorepo, oid, 'asset-star', resource_id=resource['id'], sub_link_id=first, starred=True)
+    apply(monorepo, oid, 'asset-bucket', resource_id=resource['id'], sub_link_id=second, bucket='archive')
+    data = apply(monorepo, oid, 'link-remove-sublink', resource_id=resource['id'], sub_link_id=first)
+    assert data['objectives'][0]['shared_assets'] == []
+    assert data['objectives'][0]['archived_assets'][0]['sub_link_id'] == second
+    data = apply(monorepo, oid, 'remove-resource', resource_id=resource['id'])
+    assert data['objectives'][0]['archived_assets'] == []

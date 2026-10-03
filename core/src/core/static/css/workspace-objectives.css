@@ -18,6 +18,30 @@
 .objective-progress { margin-left:auto; flex-shrink:0; font-size:11px; font-variant-numeric:tabular-nums; }
 .objective-progress.track { color:var(--yellow,#e3b341); }.objective-progress.risk { color:#ffa657; }.objective-progress.overdue { color:var(--red,#ff7b72); }.objective-progress.complete { color:var(--green,#3fb950); }
 .objective-resources { display:grid; grid-template-columns:minmax(0,1fr); gap:4px; padding:0 12px; }
+.objective-bucket { margin-bottom:16px; }
+.objective-sidebar-tasks .objective-title { gap:8px; }
+.objective-bucket-label { color:var(--text-secondary) !important; font-size:12px !important; text-transform:uppercase; text-align:left; }
+.objective-bucket-empty { color:var(--text-dim); font-size:11px; margin:5px 0; }
+.objective-asset-line { display:flex; align-items:center; gap:3px; min-width:0; }
+.objective-asset-tools { display:inline-flex; flex-shrink:0; gap:1px; }
+.objective-star,.objective-asset-menu { border:0; background:none; color:var(--text-dim); cursor:pointer; width:18px; padding:2px 0; font-size:13px; }
+.objective-star[aria-pressed=true] { color:var(--yellow,#e3b341); }
+.objective-asset-tools button:hover { color:var(--accent); }
+.objective-sidebar-task-list { padding:0 12px; }
+.objective-sidebar-task { display:flex; gap:5px; align-items:center; min-width:0; min-height:29px; border:1px solid transparent; border-radius:4px; font-size:12px; }
+.objective-sidebar-task.child { margin-left:17px; }
+.objective-sidebar-task.active { border-color:var(--accent); background:color-mix(in srgb,var(--accent) 12%,var(--bg-secondary)); }
+.objective-sidebar-task > button { display:flex; align-items:center; justify-content:center; flex-shrink:0; width:22px; border:0; background:none; padding:3px; cursor:pointer; color:var(--accent); }
+.objective-sidebar-task-title { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding:5px 0; color:var(--text-secondary); text-decoration:none; }
+.objective-sidebar-task-title:hover,.objective-sidebar-task.active .objective-sidebar-task-title { color:var(--text-primary); }
+.objective-sidebar-task-title.done { color:var(--text-dim); }
+.objective-sidebar-task-status { flex-shrink:0; font-size:14px; width:18px; text-align:center; }
+.objective-sidebar-task-count { flex-shrink:0; font-size:10px; color:var(--text-dim); }
+.objective-archive { margin:10px 12px 16px; font-size:11px; color:var(--text-dim); }
+.objective-archive > summary { cursor:pointer; padding:5px 0; }
+.objective-archive .objective-resources { padding:0; }
+[data-native-asset-tools] { display:inline-flex; margin-left:auto; }
+.objective-worktrees .objective-asset-tools { margin-left:auto; }
 .objective-resource-group { min-width:0; }
 .objective-resource-head,.objective-subtab-row { display:flex; gap:3px; min-width:0; align-items:center; }
 .objective-resource { flex:1; min-width:0; width:auto; box-sizing:border-box; }
@@ -41,9 +65,20 @@
 .objective-working h2 { font-size:18px; margin:0; }
 .objective-working button { font-size:12px; color:var(--accent); background:transparent; border:1px solid var(--border); border-radius:4px; padding:4px 7px; cursor:pointer; }
 .objective-task-center { position:relative; }
+.objective-task-mode-spacer { height:64px; }
+.objective-task-mode-head { position:fixed; z-index:80; box-sizing:border-box; padding:6px 48px 6px 8px; background:var(--bg-primary); border-bottom:1px solid var(--border); font-size:12px; }
+.objective-task-mode-title,.objective-task-mode-actions { display:flex; align-items:center; gap:8px; min-width:0; }
+.objective-task-mode-title > a { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:16px; font-weight:600; color:var(--text-primary); text-decoration:none; }
+.objective-task-mode-title label { display:flex; gap:4px; align-items:center; white-space:nowrap; color:var(--text-secondary); font-size:11px; }
+.objective-task-mode-title input { accent-color:var(--accent); }
+.objective-task-mode-head button { border:0; background:none; color:var(--accent); padding:2px 4px; font-size:11px; cursor:pointer; }
+.objective-task-mode-title > button { flex-shrink:0; }
+.objective-task-mode-actions { margin-top:4px; }
+.objective-task-mode-actions > span { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text-dim); font-size:11px; }
+.objective-task-mode-head .objective-task-modes { margin:0; flex-wrap:nowrap; }
 .objective-task-center > .objective-working > header { padding-right:46px; min-height:36px; }
 .objective-task-center .nb-notebook-header { padding-right:60px; }
-.objective-task-center .nb-jump-controls { padding-right:60px; box-sizing:border-box; }
+.objective-task-center .nb-jump-controls { padding-right:60px; box-sizing:border-box; margin-top:64px; }
 .objective-task-center > .objective-task-close { position:fixed; right:auto; z-index:80; display:grid; place-items:center; width:36px; height:36px; padding:0; border:1px solid color-mix(in srgb,var(--red,#ff7b72) 45%,transparent); border-radius:7px; background:color-mix(in srgb,var(--red,#ff7b72) 12%,var(--bg-primary)); color:var(--red,#ff7b72); font-size:25px; line-height:1; cursor:pointer; }
 .objective-task-center > .objective-task-close:hover { border-color:var(--red,#ff7b72); background:color-mix(in srgb,var(--red,#ff7b72) 22%,var(--bg-primary)); }
 .objective-task-close:focus-visible { outline:2px solid var(--red,#ff7b72); outline-offset:3px; }

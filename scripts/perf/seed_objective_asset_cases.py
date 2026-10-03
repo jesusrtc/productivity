@@ -145,11 +145,6 @@ def seed(workspace, execute=False):
         cases.attach(oid, task, resource_id=links[3]['id'])
         if o['worktrees']:
             cases.attach(oid, parent, folder={'root':o['worktrees'][0]['path'],'path':'.'})
-        assets = next(t for t in cases.owner(oid)['tasks'] if t['id'] == parent['id'])['assets']
-        icon = next(a for a in assets if a.get('resource_id') == nb['id'])
-        # Only initialize the chosen icon; reruns preserve manual changes.
-        if not next(t for t in cases.owner(oid)['tasks'] if t['id'] == parent['id']).get('icon_asset_id'):
-            cases.apply(oid, 'task-update', task_id=parent['id'], icon_asset_id=icon['id'])
     assert cases.state['focused'] == original['focused'], 'Staging examples must keep focus order'
     assert cases.state['terminal_links'] == original['terminal_links'], 'Staging examples must keep terminal associations'
     assert hashes == {str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in untouched if p.is_file()}, 'Workspace/task/session metadata changed'
