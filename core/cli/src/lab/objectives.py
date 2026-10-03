@@ -79,6 +79,68 @@ def _find(rows, key):
     return next((row for row in rows if row['id'] == key), None)
 
 
+def _tasks(objective):
+    return [task for parent in objective['tasks'] for task in [parent, *parent['children']]]
+
+
+def _prune_task_assets(objective, remove):
+    for task in _tasks(objective):
+        assets = task.get('assets', [])
+        kept = [asset for asset in assets if not remove(asset)]
+        if len(kept) != len(assets):
+            task['assets'] = kept
+            if task.get('icon_asset_id') not in {'details', *(a['id'] for a in kept)}:
+                task.pop('icon_asset_id', None)
+
+
+def _folder_target(folder, objective, linked):
+    if not isinstance(linked, dict) or not isinstance(linked.get('root'), str) or not isinstance(linked.get('path', ''), str):
+        raise ValueError('Choose a folder in this objective')
+    root = Path(linked['root']).resolve()
+    allowed = [folder.resolve(), (folder/'objectives'/objective['id']).resolve(), *(Path(t['path']).resolve() for t in objective['worktrees'])]
+    target = (root / linked.get('path', '')).resolve()
+    if root not in allowed or not target.is_relative_to(root) or not target.is_dir():
+        raise ValueError('Choose a folder in this objective')
+    return {'root':str(root), 'path':target.relative_to(root).as_posix()}
+
+
+def _task_asset(folder, objective, action):
+    if action.get('folder') is not None:
+        if action.get('resource_id') or action.get('reference') or action.get('tab_id') or action.get('sub_link_id'):
+            raise ValueError('Choose one task asset')
+        return {'folder':_folder_target(folder, objective, action['folder'])}
+    resource = _find(objective['resources'], action.get('resource_id'))
+    reference = action.get('reference')
+    if reference is not None:
+        if action.get('resource_id') or not isinstance(reference, dict) or reference.get('kind') not in {'file','assistant','link'}:
+            raise ValueError('Choose an existing file, document or link')
+        candidate = _resource(folder, objective, reference)
+        fields = {'file':['file_root','path'], 'assistant':['assistant_root','document_id','tab_id'], 'link':['url']}[candidate['kind']]
+        resource = next((r for r in objective['resources'] if r['id'] != candidate['id'] and r['kind'] == candidate['kind']
+                         and all(r.get(field) == candidate.get(field) for field in fields)), candidate)
+        if candidate['kind'] == 'file':
+            target = (Path(candidate['file_root']) / candidate['path']).resolve()
+            resource = next((r for r in objective['resources'] if r['id'] != candidate['id'] and r['kind'] in {'file','document','notebook'}
+                             and (Path(r.get('file_root') or folder) / r['path']).resolve() == target), resource)
+        if resource is not candidate:
+            objective['resources'].remove(candidate)
+    if resource is None:
+        raise ValueError('Task asset not found')
+    result = {'resource_id':resource['id']}
+    tab = action.get('tab_id') or (reference or {}).get('tab_id')
+    if tab:
+        if resource['kind'] not in {'document','assistant'}:
+            raise ValueError('Choose a document subtab')
+        if resource['kind'] == 'document' and not any(t['id'] == tab for t in document(folder, resource)['tabs']):
+            raise ValueError('Subtab not found')
+        result['tab_id'] = _text(tab, 'Subtab ID', 128)
+    if action.get('sub_link_id'):
+        if tab or resource['kind'] != 'link' or not _find(list(_sublink_rows(resource)), action['sub_link_id']):
+            raise ValueError('Sublink not found')
+        result['sub_link_id'] = action['sub_link_id']
+    return result
+
+
 def _color(data, objective):
     if objective['id'] not in data['focused']:
         return '#8b949e'
@@ -401,6 +463,7 @@ def mutate(root, workspace_id, action, expected=None):
                 for link in data['terminal_links'].values():
                     if link.get('resource_id') == resource['id'] and link.get('sub_link_id') and link['sub_link_id'] not in remaining:
                         link.pop('sub_link_id')
+                _prune_task_assets(objective, lambda a: a.get('resource_id') == resource['id'] and a.get('sub_link_id') and a['sub_link_id'] not in remaining)
         elif operation == 'link-sublink':
             resource = _find(objective['resources'], action.get('resource_id'))
             if not resource or resource['kind'] != 'link':
@@ -425,6 +488,7 @@ def mutate(root, workspace_id, action, expected=None):
             for link in data['terminal_links'].values():
                 if link.get('resource_id') == resource['id'] and link.get('sub_link_id') in removed:
                     link.pop('sub_link_id')
+            _prune_task_assets(objective, lambda a: a.get('resource_id') == resource['id'] and a.get('sub_link_id') in removed)
         elif operation == 'rename':
             resource = _find(objective['resources'], action.get('resource_id'))
             if not resource:
@@ -463,10 +527,25 @@ def mutate(root, workspace_id, action, expected=None):
             task = {'id': identifier(), 'title': _text(action.get('title')), 'done': False, 'due': _date(action.get('due')), 'children': []}
             _task_details(folder, objective, task, parent, action.get('document_id') or (parent or {}).get('document_id'))
             (parent['children'] if parent else objective['tasks']).append(task)
-        elif operation == 'task-update':
-            task = next((t for parent in objective['tasks'] for t in [parent, *parent['children']] if t['id'] == action.get('task_id')), None)
+        elif operation in {'task-update', 'task-asset', 'task-remove-asset'}:
+            task = _find(_tasks(objective), action.get('task_id'))
             if task is None:
                 raise ValueError('Task not found')
+            if operation == 'task-asset':
+                asset = _task_asset(folder, objective, action)
+                implicit = {'resource_id':task['document_id'], 'tab_id':task['tab_id']}
+                assets = task.get('assets', [])
+                if asset != implicit and not any({k:v for k,v in a.items() if k != 'id'} == asset for a in assets):
+                    if len(assets) >= 128:
+                        raise ValueError('A task supports up to 128 assets')
+                    task.setdefault('assets', []).append({'id':identifier(), **asset})
+            elif operation == 'task-remove-asset':
+                asset_id = action.get('asset_id')
+                if not _find(task.get('assets', []), asset_id):
+                    raise ValueError('Task asset not found')
+                task['assets'] = [a for a in task['assets'] if a['id'] != asset_id]
+                if task.get('icon_asset_id') == asset_id:
+                    task.pop('icon_asset_id')
             if 'done' in action:
                 if not isinstance(action['done'], bool):
                     raise ValueError('Task completion must be a boolean')
@@ -477,6 +556,11 @@ def mutate(root, workspace_id, action, expected=None):
                 task['due'] = _date(action['due'])
             if 'title' in action:
                 task['title'] = _text(action['title'])
+            if 'icon_asset_id' in action:
+                icon_id = action['icon_asset_id']
+                if icon_id != 'details' and not _find(task.get('assets', []), icon_id):
+                    raise ValueError('Choose an icon from this task’s assets')
+                task['icon_asset_id'] = icon_id
         elif operation == 'document':
             resource = _find(objective['resources'], action.get('resource_id'))
             if not resource or resource['kind'] != 'document':
@@ -525,12 +609,15 @@ def mutate(root, workspace_id, action, expected=None):
             linked_file = action.get('file')
             linked_folder = action.get('folder')
             view = action.get('view')
+            task_id = action.get('task_id')
+            if task_id and not _find(_tasks(objective), task_id):
+                raise ValueError('Task not found')
             if view is not None and view != 'tasks':
                 raise ValueError('Choose an objective view')
             for field in ['file', 'folder']:
                 if action.get(field) is not None and not isinstance(action[field], dict):
                     raise ValueError('Choose a file or folder target')
-            if sum(bool(target) for target in [resource, linked_file, linked_folder, view]) > 1:
+            if sum(bool(target) for target in [resource, linked_file, linked_folder, view, task_id]) > 1:
                 raise ValueError('Choose one terminal target')
             if linked_file or linked_folder:
                 allowed = [folder.resolve(), (folder/'objectives'/objective['id']).resolve(), *(Path(t['path']).resolve() for t in objective['worktrees'])]
@@ -557,11 +644,14 @@ def mutate(root, workspace_id, action, expected=None):
                 data['terminal_links'][name]['folder'] = linked_folder
             if view:
                 data['terminal_links'][name]['view'] = view
+            if task_id:
+                data['terminal_links'][name]['task_id'] = task_id
         elif operation == 'remove-resource':
             resource_id = action.get('resource_id')
             if any(t['document_id'] == resource_id for p in objective['tasks'] for t in [p, *p['children']]):
                 raise ValueError('A task still needs this document')
             objective['resources'] = [r for r in objective['resources'] if r['id'] != resource_id]
+            _prune_task_assets(objective, lambda a: a.get('resource_id') == resource_id)
             # Preserve owned files so unlinking never destroys user content.
         else:
             raise ValueError('Unsupported objective action')

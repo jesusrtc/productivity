@@ -249,3 +249,33 @@ A fresh native `large-projects` staging page opened the existing Sample release
 checklist link: its editable Google Docs details appeared with no iframe and
 no page exceptions. This staging check saved no resource changes, opened no
 external site and sent no terminal input.
+
+## Follow-up: task hyperlinks, assets and focus modes
+
+The Objective suite now covers **22 backend/browser tests**, alongside **103
+terminal UI/completion checks**. Task titles are real hyperlinks, ordinary
+clicks open their required document subtabs, and Focus shows only required
+details and attached assets. Off restores the usual sidebar; Semi restores it
+with highlights in its original order. The native fixture verifies an actual
+notebook-to-task drag using Chrome input and the real API, followed by document,
+file, folder, worktree and URL attachment paths.
+
+Tasks choose an icon from an attached asset. The current working tab and a
+linked terminal inherit it while keeping terminal activity/completion signals.
+Terminal-to-task and task-to-terminal drops retain saved sessions and send no
+input. A console task drop carries all references in one shell-quoted, unsent
+paste: details with its subtab ID, then every attached document/notebook/file,
+folder/worktree and URL. The regression checks the full bundle rather than
+just its first item.
+
+Backend checks cover deduplication, subtask isolation, exact document and link
+children, retained shared/worktree scopes, original Assistant content/ownership,
+folder boundaries, stale writes, detachment and icon fallback. Required details
+cannot be detached. Existing tasks require no registry migration.
+
+A fresh `large-projects` page opened an existing release task into its native
+document editor. Focus hid native Files; Semi restored the Files controls and
+folders plus both fixed roots, highlighting the task's details. Off removed the
+highlights. Controls remain usable at the existing narrow sidebar width, and
+the page raised no exceptions. This staging check saved no resource/task changes
+and sent no input to existing terminals.

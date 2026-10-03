@@ -13934,6 +13934,7 @@
 
   function _termSessionPillHtml(s, index) {
     const display = _termSessionDisplay(s);
+    const objectiveTask = window.LabObjectives?.taskForTerminal(s);
     // Compact/full visibility is CSS-controlled so switching detail never
     // rebuilds or reconnects a terminal. The active header always carries
     // the complete identity, even in compact mode.
@@ -13951,13 +13952,13 @@
     const context = _termSessionContext(s);
     const summary = _termSessionSummary(s);
     const ariaSummary = summary.length > 160 ? `${summary.slice(0, 157).trim()}...` : summary;
-    const ariaLabel = `${display} · ${visual.badge}${working ? ' · Working' : ''}${ready ? ` · ${completion.label}` : ''}${ariaSummary ? ` · ${context.label}: ${ariaSummary}` : ''}`;
+    const ariaLabel = `${display} · ${visual.badge}${objectiveTask ? ' · Task: '+objectiveTask.title : ''}${working ? ' · Working' : ''}${ready ? ` · ${completion.label}` : ''}${ariaSummary ? ` · ${context.label}: ${ariaSummary}` : ''}`;
     const tooltip = _termSessionTooltipPayload(s, [statusTitle, completion?.label, recentTitle].filter(Boolean).join(' · '));
     const linked = String(s.linked_file && s.linked_file.path || '').trim();
     const scope = s.linked_scope;
     const scopeAttrs = scope ? ` style="--term-scope-color:${termSessEsc(_termScopeColor(scope))}" data-linked-scope="${termSessEsc(scope.root)}"` : '';
     return `<span${scopeAttrs} class="sess ${visual.kind}${active}${recent}${dead}" role="tab" aria-label="${termSessEsc(ariaLabel)}" aria-selected="${active ? 'true' : 'false'}" tabindex="${active ? '0' : '-1'}" draggable="true" data-order-token="${termSessEsc(`s:${logical}`)}" data-name="${termSessEsc(s.name)}" data-logical="${termSessEsc(logical)}" data-tooltip="${termSessEsc(tooltip)}">
-      <span class="sess-icon" aria-hidden="true">${visual.icon}</span>
+      <span class="sess-icon" aria-hidden="true"${objectiveTask ? ' title="'+termSessEsc(objectiveTask.title)+'"' : ''}>${objectiveTask?.icon || visual.icon}</span>
       <span class="sess-order" aria-hidden="true">${index + 1}</span>
       ${scope?.worktree && !linked ? '' : `<span class="sess-label${s.label ? ' custom' : ''}">${termSessEsc(display)}</span>`}
       ${_termSessionAssociationHtml(s)}

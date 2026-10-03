@@ -61,6 +61,25 @@ def change(request: Request, body: Action):
             reference = terminal_task_links.validate(request, LinkedTask(
                 document_id=action.get('document_id'), assistant_root=action.get('assistant_root')))
             action = {**action, **reference}
+        if action.get('type') == 'task-asset':
+            from core import terminal_task_links
+            from core.routes.term import LinkedTask
+            from pathlib import Path
+            source = action.get('reference')
+            if source is None and action.get('resource_id'):
+                current = objectives.load(root, body.workspace_id)
+                owner = next((o for o in current['objectives'] if o['id'] == action.get('objective_id')), {})
+                source = next((r for r in owner.get('resources', []) if r['id'] == action['resource_id']), {})
+            if isinstance(source, dict) and source.get('kind') == 'assistant':
+                reference = terminal_task_links.validate(request, LinkedTask(
+                    document_id=source.get('document_id'), assistant_root=source.get('assistant_root')))
+                tab = action.get('tab_id') or source.get('tab_id')
+                if tab:
+                    _, _, tabs = assistant_documents.unpack((Path(reference['assistant_root']) / reference['path']).read_bytes())
+                    if not any(meta['id'] == tab for meta, _ in tabs):
+                        raise ValueError('Subtab not found')
+                if action.get('reference') is not None:
+                    action = {**action, 'reference':{**source, **reference}}
         if action.get('type') == 'terminal':
             from core.routes import term
             sessions = term._get_workspace_sessions(root, body.workspace_id)

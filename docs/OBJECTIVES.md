@@ -17,7 +17,8 @@ The workspace tab bar has **Objectives** and **the current objective**, using
 the vault-tab style. Hover over the current objective to show the five focused
 objectives in a dropdown. Choose one to open its tasks in the middle working
 area. The arrow also opens the dropdown on click; Arrow Up/Down enters it from
-the keyboard and Escape closes it. Declared server tabs remain alongside these.
+the keyboard and Escape closes it. While working on a task, this same tab shows
+the task's title and chosen asset icon; its dropdown still switches objectives.
 
 **Objectives** lists every saved objective in the workspace. Its top section
 contains five numbered focus slots. Search the results by name or outcome,
@@ -34,8 +35,8 @@ objective view survives reload; startup reconciliation and file polls preserve
 the newer working view.
 
 Workspace Overview, Code Search, Jupyter, Logs and Cleanup tabs are removed.
-Declared server tabs remain. Notebooks open from their resources or Files.
-Global **Logs** and **Cleanup** sit together in the header.
+Notebooks open from their resources or Files. Global **Servers**, **Logs** and
+**Resources** remain in the header; cleanup is reviewed inside Resources.
 
 The sidebar order is:
 
@@ -95,8 +96,25 @@ An undated child inherits its parent's deadline.
 Tasks and subtasks occupy one line each in the working area, with a checkbox,
 title, document button and due date. Every new task gets a mandatory details
 subtab in an objective-owned `Tasks.md` document. Subtask details nest beneath
-their parent's subtab. Clicking the document button opens those details as an
+their parent's subtab. Clicking the task title opens those details as an
 independent working view. Editing one subtab preserves its siblings.
+
+Task titles are hyperlinks to their required details document/subtab. Clicking
+a title opens those details and enters **Focus**: the left sidebar shows only
+that task's assets, including its required details. The task control stays at
+the top with **Off · Semi · Focus**. Off restores the usual sidebar, and Semi
+highlights attached assets in their existing order. Returning to Tasks or
+switching objectives exits task focus. The selected mode is browser-local.
+
+Drag documents, document subtabs, notebooks, links, sublinks, files, folders or
+worktrees onto a task row to attach references to them. Assets can also be
+dropped onto the focused task control or its assets dialog. Existing files and
+Assistant documents are linked without copying content. Shared/worktree scopes
+and original ownership remain unchanged. Duplicate drops keep one association.
+Click the task's icon or **assets** control to open its asset list, detach an
+optional asset or choose the task icon from any attached asset. The required
+details document remains attached. A terminal linked to the task inherits this
+icon too.
 
 ## Documents, subtabs and notebooks
 
@@ -166,6 +184,17 @@ objective's entry in `.lab/objectives.json`. Console drops never create an
 association. Ordinary workspace links and file/folder rows also support these
 reference pastes.
 
+Drag a task title or the focused task control onto a terminal name to link that
+terminal to the task. The reverse terminal-to-task-row drop also works. Clicking
+the terminal opens the task's details in Focus mode. Its launch folder, process
+and original Assistant ownership remain intact.
+
+Dropping a task **inside the console** pastes a bundle: its details path with the
+exact subtab ID, followed by every attached asset's path or URL. Worktrees and
+folders retain their own paths, and documents/sublinks retain their selected
+destinations. These references are shell-quoted and pasted on one line without
+Enter, so an agent receives the task and all associated sources together.
+
 ## Storage and commands
 
 The version-1 registry is `<workspace>/.lab/objectives.json`. Owned content
@@ -183,6 +212,11 @@ checkout roots, including after resolving symlinks. The
 existing `focused` array holds ordered objective IDs; empty slots can contain
 `null`. Focus mutations accept a zero-based `slot` from 0 to 4. Older three-slot
 registries remain readable without a migration.
+
+Tasks can have optional `assets` entries with stable IDs targeting resources,
+document subtabs, link children or folders. `icon_asset_id` selects an asset's
+display icon; `details` selects the mandatory task details. Terminal mappings
+can use `task_id` instead of another target. Legacy tasks need no migration.
 
 Objective mutations use Lab's workspace lease and atomic writers. Browser
 writes include the registry revision; document edits also include the content
