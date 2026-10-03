@@ -1,11 +1,14 @@
 # Task status and terminal icons are separate
 
-The user's latest October 3, 2026 icon preference supersedes the intermediate
-bell proposal: show read-only ⬜ / ✅ status on the left of sidebar task rows,
-and the task's chosen asset icon on the right. The right icon is inherited by
-the active tab and linked terminals. Without a saved choice, it also follows
-the task's checkbox status. Attaching or editing assets must not implicitly
-choose their icon. Only dragging an asset onto the task's right icon area
-chooses it and attaches that asset if needed. Keep existing explicit choices;
-detaching the chosen asset restores the default status icon. The same behavior
-applies to the Home demo. The staging seeder must not initialize asset icons.
+The user's final October 3, 2026 clarification supersedes the intermediate
+bell and duplicated checkbox proposals: show read-only ⬜ / ✅ status on the
+left of sidebar task rows. Show the right-side icon only when the task has a
+chosen asset icon; without one, leave it visually empty. Keep an empty drop
+area, revealed on hover/focus, so an asset can still be dragged there.
+The active tab and linked terminals use the chosen asset icon, or the task's
+checkbox status when there is no custom choice. Attaching or editing assets
+must not implicitly choose their icon. Only dragging an asset onto the task's
+right icon area chooses it and attaches that asset if needed. Keep existing
+explicit choices; detaching the chosen asset leaves the sidebar right icon
+empty again. Apply the same behavior to the Home demo. The staging seeder must
+not initialize asset icons.

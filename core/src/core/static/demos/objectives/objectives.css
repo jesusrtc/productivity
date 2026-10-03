@@ -180,6 +180,8 @@ html,body { padding:0; overflow:hidden; }
 #lab-objectives-proposal .ob-task-status[data-done=true] { color:var(--ob-accent); }
 #lab-objectives-proposal .ob-task-icon { display:grid; place-items:center; width:23px; height:23px; flex:none; border:1px solid transparent; border-radius:4px; }
 #lab-objectives-proposal .ob-task-icon.ob-drop { border-color:var(--ob-accent); background:#234367; }
+#lab-objectives-proposal .ob-task-icon:empty { opacity:0; }
+#lab-objectives-proposal .ob-sidebar-task:hover .ob-task-icon:empty,#lab-objectives-proposal .ob-sidebar-task:focus-within .ob-task-icon:empty,#lab-objectives-proposal .ob-task-icon.ob-drop:empty { opacity:1; border-color:var(--ob-line); border-style:dashed; }
 #lab-objectives-proposal .ob-star[aria-pressed=true] { color:#e3b341; }
 #lab-objectives-proposal .ob-bucket-title { border:0; background:none; padding:0; color:inherit; font:inherit; text-align:left; cursor:pointer; }
 #lab-objectives-proposal .ob-bucket-title:hover { color:var(--ob-accent); }

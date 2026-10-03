@@ -32,6 +32,8 @@
 .objective-sidebar-task.child { margin-left:17px; }
 .objective-sidebar-task.active { border-color:var(--accent); background:color-mix(in srgb,var(--accent) 12%,var(--bg-secondary)); }
 .objective-sidebar-task > button { display:flex; align-items:center; justify-content:center; flex-shrink:0; width:22px; border:0; background:none; padding:3px; cursor:pointer; color:var(--accent); }
+.objective-sidebar-task > button:empty { opacity:0; }
+.objective-sidebar-task:hover > button:empty,.objective-sidebar-task:focus-within > button:empty { opacity:1; outline:1px dashed var(--border); }
 .objective-sidebar-task-title { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding:5px 0; color:var(--text-secondary); text-decoration:none; }
 .objective-sidebar-task-title:hover,.objective-sidebar-task.active .objective-sidebar-task-title { color:var(--text-primary); }
 .objective-sidebar-task-title.done { color:var(--text-dim); }

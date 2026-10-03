@@ -175,7 +175,7 @@
         const reference=item.kind==='link'?(tab?.url||item.url):'/demo/'+(tree?tree.repo+'/worktrees/'+tree.name+'/'+item.title:'workspace/'+(item.kind==='assistant'?'assistant/': 'objectives/'+o.id+'/')+item.title)+(tab?'#tab='+encodeURIComponent(tab.id):'');
         return {ref,item,tab,tree,title:tab?item.title+' · '+tab.title:item.title,kind:item.kind,reference};
       }
-      function taskGlyph(o,task) {const info=task.iconAsset&&assetInfo(o,task.iconAsset);if(info&&info.kind!=='task')return assetIcon(info);const glyph=element('span','ob-task-default-icon',taskComplete(task)?'✅':'⬜');glyph.setAttribute('aria-hidden','true');return glyph;}
+      function taskGlyph(o,task,customOnly=false) {const info=task.iconAsset&&assetInfo(o,task.iconAsset);if(info&&info.kind!=='task')return assetIcon(info);if(customOnly)return document.createDocumentFragment();const glyph=element('span','ob-task-default-icon',taskComplete(task)?'✅':'⬜');glyph.setAttribute('aria-hidden','true');return glyph;}
       function assetIcon(info) {
         if(!info)return icon('file-text');
         if(info.kind==='task')return taskGlyph(info.objective,info.task);
@@ -224,7 +224,7 @@
       function sidebarTask(o,task,child=false) {
         const line=element('div','ob-sidebar-task'+(child?' child':''));line.dataset.task=task.id;
         const status=element('span','ob-task-status',taskComplete(task)?'✅':'⬜');status.dataset.done=taskComplete(task);status.setAttribute('aria-label',taskComplete(task)?'Completed':'Incomplete');
-        const name=button('','ob-task-name',()=>openTask(o,task)),glyph=element('span','ob-task-icon');glyph.dataset.taskIcon=task.id;glyph.title='Drop an asset here to use its icon';glyph.setAttribute('aria-label','Icon for '+task.title);glyph.append(taskGlyph(o,task));
+        const name=button('','ob-task-name',()=>openTask(o,task)),glyph=element('span','ob-task-icon');glyph.dataset.taskIcon=task.id;glyph.title='Drop an asset here to use its icon';glyph.setAttribute('aria-label','Icon for '+task.title);glyph.append(taskGlyph(o,task,true));
         attachDrop(glyph,'application/x-objective-item',ref=>{const info=assetInfo(o,ref);if(!info||info.task)return;task.iconAsset=ref;attachAsset(o,task,ref);message('Using '+info.title+' icon for '+task.title);});
         name.append(element('span','ob-label',task.title));name.setAttribute('aria-pressed',o.activeTask===task.id);if(task.checks?.length)name.setAttribute('aria-expanded',o.expandedTask===task.id);dragAsset(name,o,task.id);
         line.append(status,name,element('span','ob-muted',String(taskAssetRefs(task).length)),glyph);dragAsset(glyph,o,task.id);attachDrop(line,'application/x-objective-item',ref=>attachAsset(o,task,ref));terminalDrop(line,o,task.id);return line;

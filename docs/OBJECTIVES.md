@@ -142,7 +142,9 @@ detach optional assets; its mandatory details remain associated.
 
 The left edge of each task row shows **⬜ / ✅** as its read-only status.
 The right edge holds the icon used by its active tab and linked terminals.
-Without a chosen asset, that icon also follows the task's checkbox status.
+Without a chosen asset, the right edge shows no icon. Its empty drop area
+appears on hover or keyboard focus so an asset can still be dragged there.
+The active tab and linked terminals use the task's checkbox status by default.
 Attaching assets and editing task details keep the chosen icon. Only dropping
 an asset onto the task's icon area chooses that asset's icon, attaching it if necessary. The current tab and a terminal
 linked to the task inherit the icon. Existing saved icon choices remain valid;

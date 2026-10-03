@@ -100,7 +100,7 @@
   }
   function sidebarTaskRow(task,parent=null) {
     const done=parent?task.done:complete(task),selected=focusedTask()?.id===task.id;
-    return `<div class="objective-sidebar-task${parent?' child':''}${selected?' active':''}" data-task-id="${esc(task.id)}"><span class="objective-sidebar-task-status" aria-label="${done?'Completed':'Incomplete'}">${done?'✅':'⬜'}</span><a class="objective-sidebar-task-title${done?' done':''}" data-open-task="${esc(task.id)}" href="${esc(taskHref(task))}" draggable="true" title="${esc(task.title)}">${esc(task.title)}</a><span class="objective-sidebar-task-count" title="${taskAssets(task).length} assets">${taskAssets(task).length}</span><button type="button" data-task-icon="${esc(task.id)}" data-open-task="${esc(task.id)}" aria-label="Icon for ${esc(task.title)}" title="Drop an asset here to set the terminal icon" draggable="true">${taskIcon(task)}</button></div>`;
+    return `<div class="objective-sidebar-task${parent?' child':''}${selected?' active':''}" data-task-id="${esc(task.id)}"><span class="objective-sidebar-task-status" aria-label="${done?'Completed':'Incomplete'}">${done?'✅':'⬜'}</span><a class="objective-sidebar-task-title${done?' done':''}" data-open-task="${esc(task.id)}" href="${esc(taskHref(task))}" draggable="true" title="${esc(task.title)}">${esc(task.title)}</a><span class="objective-sidebar-task-count" title="${taskAssets(task).length} assets">${taskAssets(task).length}</span><button type="button" data-task-icon="${esc(task.id)}" data-open-task="${esc(task.id)}" aria-label="Icon for ${esc(task.title)}" title="Drop an asset here to set the terminal icon" draggable="true">${customTaskIcon(task)}</button></div>`;
   }
   function bucketHtml(id,label,assets,add=false) {
     return `<section class="objective-bucket" data-objective-bucket="${id}" aria-label="${label}"><div class="sidebar-title objective-title">${id==='unassigned'?`<button type="button" class="objective-bucket-label" data-show-unassigned>${label}</button>`:`<span>${label}</span>`}${add?'<button type="button" data-add-resource="document" aria-label="Add objective asset">+</button>':''}</div><div class="objective-resources">${assets.map(asset=>assetRow(asset)).join('')||`<p class="objective-bucket-empty">${{unassigned:'All assets are assigned.',objective:'Star an asset to share it across tasks.',task:'Select a task to see its assets.',archive:'Drop assets here to set them aside.'}[id]}</p>`}</div></section>`;
@@ -122,7 +122,8 @@
     if((asset.tab_id||asset.sub_link_id)&&!child&&r.kind!=='assistant')return null;
     return {resource:r,title:child?r.title+' · '+child.title:r.title,icon:resourceIcon(r,asset.sub_link_id),reference:resourceReference(r,asset.tab_id,asset.sub_link_id)};
   }
-  function taskIcon(task,o=objective()) {const asset=taskAssets(task).find(a=>a.id===task.icon_asset_id);return (asset&&assetInfo(asset,o)?.icon)||`<span class="objective-task-default-icon" aria-hidden="true">${complete(task)?'✅':'⬜'}</span>`;}
+  function customTaskIcon(task,o=objective()) {const asset=taskAssets(task).find(a=>a.id===task.icon_asset_id);return (asset&&assetInfo(asset,o)?.icon)||'';}
+  function taskIcon(task,o=objective()) {return customTaskIcon(task,o)||`<span class="objective-task-default-icon" aria-hidden="true">${complete(task)?'✅':'⬜'}</span>`;}
   function associatedAsset(target) {const t=focusedTask();return !!t&&contextAssets(t).some(a=>sameAsset(a,target));}
   function markTaskAssets(host) {
     host.querySelectorAll('[data-objective-resource]').forEach(node=>node.classList.toggle('objective-task-asset-highlight',taskFocus()?.mode==='semi'&&associatedAsset(sidebarTarget(node))));

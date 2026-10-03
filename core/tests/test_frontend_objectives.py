@@ -287,7 +287,7 @@ const fs=require('node:fs');
  await click('.objective-task-row [data-task-assets]');
  await evaluate(`assert(!document.querySelector('[data-pick-task-icon]'),'asset list cannot override task icons on click')`);
  await click('.objective-dialog [type=submit]');await click('.objective-task-title');
- await evaluate(`assert(document.querySelector('.objective-sidebar-task [data-task-icon] .objective-task-default-icon')?.textContent==='⬜'&&document.querySelector('[data-current-objective] .objective-task-default-icon')?.textContent==='⬜','details and ordinary attachments retain the default task checkbox')`);
+ await evaluate(`assert(document.querySelector('.objective-sidebar-task [data-task-icon]')?.childElementCount===0&&document.querySelector('[data-current-objective] .objective-task-default-icon')?.textContent==='⬜','ordinary attachments leave the right task icon empty and retain the tab status icon')`);
  const iconPoints=await evaluate(`(()=>{const source=document.querySelector('[data-objective-bucket=task] [data-objective-resource="${notebookId}"]'),target=document.querySelector('.objective-sidebar-task [data-task-icon]');source.scrollIntoView({block:'nearest'});target.scrollIntoView({block:'nearest'});const a=source.getBoundingClientRect(),b=target.getBoundingClientRect();return{source:{x:a.x+20,y:a.y+a.height/2},target:{x:b.x+b.width/2,y:b.y+b.height/2}}})()`);
  dragData=null;await send('Input.setInterceptDrags',{enabled:true});
  await send('Input.dispatchMouseEvent',{type:'mouseMoved',...iconPoints.source});
