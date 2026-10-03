@@ -176,7 +176,13 @@ html,body { padding:0; overflow:hidden; }
 #lab-objectives-proposal .ob-sidebar-tasks .ob-progress { margin-left:auto; }
 #lab-objectives-proposal .ob-sidebar-task { display:flex; gap:6px; min-width:0; align-items:center; padding:3px 0; }
 #lab-objectives-proposal .ob-sidebar-task.child { padding-left:18px; }
-#lab-objectives-proposal .ob-sidebar-task input { flex:none; width:13px; height:13px; margin:0; accent-color:var(--ob-accent); }
+#lab-objectives-proposal .ob-task-status { width:13px; flex:none; text-align:center; color:var(--ob-muted); }
+#lab-objectives-proposal .ob-task-status[data-done=true] { color:var(--ob-accent); }
+#lab-objectives-proposal .ob-task-icon { display:grid; place-items:center; width:23px; height:23px; flex:none; border:1px solid transparent; border-radius:4px; }
+#lab-objectives-proposal .ob-task-icon.ob-drop { border-color:var(--ob-accent); background:#234367; }
+#lab-objectives-proposal .ob-star[aria-pressed=true] { color:#e3b341; }
+#lab-objectives-proposal .ob-bucket-title { border:0; background:none; padding:0; color:inherit; font:inherit; text-align:left; cursor:pointer; }
+#lab-objectives-proposal .ob-bucket-title:hover { color:var(--ob-accent); }
 #lab-objectives-proposal .ob-task-name { display:flex; gap:6px; flex:1; align-items:center; min-width:0; background:none; border:1px solid transparent; border-radius:4px; padding:5px; text-align:left; color:var(--ob-muted); }
 #lab-objectives-proposal .ob-task-name[aria-pressed=true] { color:var(--ob-text); border-color:var(--ob-accent); background:#192a3d; }
 #lab-objectives-proposal .ob-sidebar-task > .ob-muted { font-size:10px; }
@@ -192,6 +198,11 @@ html,body { padding:0; overflow:hidden; }
 #lab-objectives-proposal .ob-task-title { background:none; border:0; padding:0; color:var(--ob-accent); text-align:left; text-decoration:underline; text-underline-offset:3px; font-size:12px; }
 #lab-objectives-proposal .ob-reader label { display:grid; gap:6px; margin:12px 0; color:var(--ob-muted); font-size:12px; }
 #lab-objectives-proposal .ob-reader input,#lab-objectives-proposal .ob-reader textarea { width:100%; }
+#lab-objectives-proposal .ob-task-mode-head { display:flex; align-items:center; gap:12px; flex-wrap:wrap; padding:0 48px 12px 0; margin-bottom:16px; border-bottom:1px solid var(--ob-line); }
+#lab-objectives-proposal .ob-task-mode-head h2 { width:100%; margin:0; }
+#lab-objectives-proposal .ob-task-mode-title { display:flex; align-items:center; gap:10px; border:0; background:none; padding:0; font:inherit; font-weight:600; color:var(--ob-text); text-align:left; }
+#lab-objectives-proposal .ob-reader .ob-task-completion { display:flex; align-items:center; gap:7px; margin:0; cursor:pointer; }
+#lab-objectives-proposal .ob-task-completion input { width:15px; height:15px; margin:0; accent-color:var(--ob-accent); }
 #lab-objectives-proposal .ob-library-slots { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:8px; }
 #lab-objectives-proposal .ob-library-slot { display:grid; gap:8px; min-width:0; padding:9px; border:1px solid var(--ob-line); border-top:2px solid var(--objective-color); background:var(--ob-surface); text-align:left; font-size:12px; }
 #lab-objectives-proposal .ob-library-slot strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }

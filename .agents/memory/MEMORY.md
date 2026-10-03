@@ -1,5 +1,10 @@
 # Memory index
 
+- [Demo task list is navigation-only](demo-task-list-is-navigation-only.md) — middle task-mode header owns completion/editing; one parent task expands at a time.
+- [Demo subtasks inherit parent context](demo-subtasks-inherit-parent-context.md) — console bundles follow Objective → parent task → subtask with exact references.
+- [Demo asset stars share context](demo-asset-stars-share-context.md) — stars preserve task membership; asset drops choose task icons and Unassigned opens middle tasks.
+- [Demo terminal drops target the sidebar](demo-terminal-drops-target-sidebar.md) — reverse associations accept left-column objects only; middle task rows still accept asset attachments.
+
 - [Objective demo uses asset buckets](objective-demo-uses-asset-buckets.md) — production-like sandbox, Unassigned/Objective/Tasks/selected-task assets and recoverable Archive; complete task context bundles.
 
 - [Objective task mode has a corner close](objective-task-mode-has-corner-close.md) — red upper-right control throughout task mode; returns to Tasks with drafts preserved.

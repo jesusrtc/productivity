@@ -278,8 +278,19 @@ to every task. Clicking a task opens its details and lists its own assets below
 the task list. Documents, subtabs, notebooks, external links, files, folders
 and worktrees all use this reference-based classification.
 
+The left task list is navigation-only: completion and editing live in the
+middle task view. Selecting a task expands only that task's subtasks; selecting
+another collapses the previous group. Task mode keeps the task's name, icon,
+completion control and red corner close visible while browsing its assets.
+Click the task name in that header to return to its details.
+
 Drag an asset onto any task row to attach it. Drop it into Objective to pin it
 as shared context. The **⋯** on an asset also chooses its bucket and task.
+Every asset and individual document subtab has a **☆/★** control that toggles
+shared Objective context without removing its task associations. Drop an
+asset onto a task's icon area to select that icon and attach the asset if
+needed. The current tab and linked terminal inherit the icon. Clicking
+**Unassigned** opens the middle task list, where asset drops attach to tasks.
 Dropping into Unassigned removes optional task associations and shared pins.
 **Archive** keeps sources available for recovery while removing them from
 shared/task context; expand it and move an asset back to recover it. Mandatory
@@ -288,7 +299,11 @@ additional sources without listing every checkout file as unassigned.
 
 Drop a task onto a simulated terminal name to associate it. Drop it inside the
 console to paste shared Objective references plus its required details and
-task-specific assets, with duplicates removed and Archive excluded. No input
+task-specific assets. A subtask includes its parent's details and assets before
+its own, preserving Objective → task → subtask context with duplicates removed
+and Archive excluded. Drag a simulated terminal onto a left-column task,
+document/subtab, file, folder or worktree to associate it; middle-column
+elements reject terminal association drops. No input
 is submitted until **Run simulation**. External-link clicks are simulated;
 Cmd/Ctrl-click shows their editable metadata. **Reset demo** restores the
 sample data. These buckets have not been applied to live workspace registries.
