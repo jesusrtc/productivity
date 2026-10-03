@@ -276,7 +276,8 @@
         renderBucket(host,o,'unassigned','UNASSIGNED',catalog(o).filter(ref=>!o.objectiveAssets.includes(ref)&&!o.archiveAssets.includes(ref)&&!taskEntries(o).some(t=>taskAssetRefs(t).includes(ref))),()=>itemDialog());
         renderBucket(host,o,'objective','OBJECTIVE · PINNED',o.objectiveAssets,settingsDialog);
         const section=element('section','ob-sidebar-tasks');section.dataset.bucket='tasks';heading(section,'TASKS');section.querySelector('.ob-section-heading').append(progressBadge(o));section.append(button('All tasks','ob-quiet',()=>showTasks(o)));
-        o.items.filter(i=>i.kind==='task').forEach(t=>{section.append(sidebarTask(o,t));if(o.expandedTask===t.id)t.checks.forEach(c=>section.append(sidebarTask(o,c,true)));});host.append(section);
+        const tasks=o.items.filter(i=>i.kind==='task'),list=element('div','ob-sidebar-task-list');list.style.setProperty('--ob-task-rows',Math.max(1,tasks.length+Math.max(0,...tasks.map(t=>t.checks.length))));
+        tasks.forEach(t=>{list.append(sidebarTask(o,t));if(o.expandedTask===t.id)t.checks.forEach(c=>list.append(sidebarTask(o,c,true)));});section.append(list);host.append(section);
         const task=activeTask(o);renderBucket(host,o,'task','TASK ASSETS'+(task?' · '+task.title.toUpperCase():''),task?taskAssetRefs(task):[],null,task);
         if(!task)host.querySelector('[data-bucket=task]').append(element('p','ob-empty','Select a task to see its assets.'));
         const archive=element('details','ob-archive');archive.open=o.archiveOpen===true;archive.ontoggle=()=>{o.archiveOpen=archive.open;persist();};const summary=element('summary','','Archive · '+o.archiveAssets.length);archive.append(summary);attachDrop(archive,'application/x-objective-item',ref=>classifyAsset(o,ref,'archive'));renderBucket(archive,o,'archive','ARCHIVED ASSETS',o.archiveAssets);host.append(archive);

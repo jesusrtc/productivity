@@ -152,7 +152,7 @@ html,body { padding:0; overflow:hidden; }
 #lab-objectives-proposal .ob-shell strong { font-weight:600; }
 #lab-objectives-proposal .ob-action { font-size:12px; padding:4px 7px; }
 #lab-objectives-proposal .ob-focus { position:relative; top:auto; display:flex; gap:8px; padding:0 12px; margin:0; border-bottom:1px solid var(--ob-line); font:12px ui-monospace,SFMono-Regular,monospace; z-index:30; }
-#lab-objectives-proposal .ob-nav-tab { display:flex; align-items:center; gap:8px; padding:10px 8px; margin:0; border:0; border-bottom:2px solid transparent; background:transparent; color:var(--ob-muted); min-width:0; max-width:360px; }
+#lab-objectives-proposal .ob-nav-tab { display:flex; align-items:center; gap:8px; height:40px; padding:10px 8px; margin:0; border:0; border-bottom:2px solid transparent; background:transparent; color:var(--ob-muted); min-width:0; max-width:360px; }
 #lab-objectives-proposal .ob-nav-tab[aria-pressed=true] { color:var(--ob-accent); border-bottom-color:var(--ob-accent); }
 #lab-objectives-proposal .ob-objective-dot { display:block; width:7px; height:7px; background:var(--objective-color); border-radius:50%; flex-shrink:0; }
 #lab-objectives-proposal .ob-switch-menu { position:absolute; top:100%; left:115px; width:310px; max-width:calc(100vw - 130px); padding:4px; border:1px solid var(--ob-line); border-radius:6px; background:var(--ob-surface); box-shadow:0 6px 18px #0005; }
@@ -174,6 +174,7 @@ html,body { padding:0; overflow:hidden; }
 #lab-objectives-proposal .ob-sidebar-tasks { margin-top:14px; border-top:1px solid var(--ob-line); padding-top:12px; }
 #lab-objectives-proposal .ob-sidebar-tasks .ob-section-heading { margin:0 0 4px; }
 #lab-objectives-proposal .ob-sidebar-tasks .ob-progress { margin-left:auto; }
+#lab-objectives-proposal .ob-sidebar-task-list { display:grid; grid-auto-rows:38px; align-content:start; min-height:calc(var(--ob-task-rows) * 38px); }
 #lab-objectives-proposal .ob-sidebar-task { display:flex; gap:6px; min-width:0; align-items:center; padding:3px 0; }
 #lab-objectives-proposal .ob-sidebar-task.child { padding-left:18px; }
 #lab-objectives-proposal .ob-task-status { font-size:14px; width:18px; flex:none; text-align:center; color:var(--ob-muted); }

@@ -1,5 +1,7 @@
 # Memory index
 
+- [Task assets stay put across subtasks](task-assets-stay-put-across-subtasks.md) — reserve the largest child group so task clicks keep the asset section at a fixed position.
+
 - [Task agent drops use scoped prompts](task-agent-drops-use-scoped-prompts.md) — Context/parent/This task labels, typed references and explicit current-task scope; unsent paste.
 
 - [Live Objectives use task asset buckets](live-objectives-use-task-asset-buckets.md) — authorized live Unassigned/shared/Tasks/task-assets layout, stars and navigation-only task rows.

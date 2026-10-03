@@ -331,7 +331,9 @@ and worktrees all use this reference-based classification.
 
 The left task list is navigation-only: completion and editing live in the
 middle task view. Selecting a task expands only that task's subtasks; selecting
-another collapses the previous group. Task mode keeps the task's name, icon,
+another collapses the previous group. The live and demo lists reserve space
+for the largest subtask group in the Objective, so **Task assets** stays at the
+same position while navigating tasks, subtasks or closing task mode. Task mode keeps the task's name, icon,
 completion control and red corner close visible while browsing its assets.
 Click the task name in that header to return to its details.
 
