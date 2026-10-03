@@ -44,7 +44,7 @@ def test_objective_assets_invalidate_shell_and_sandbox(monorepo, tmp_path, monke
     monkeypatch.setattr(main, '_INDEX_TEMPLATE_CHECK_INTERVAL_S', 0)
     monkeypatch.setenv('LAB_WORKSPACE_WATCHER', 'off')
     assets = (
-        'js/lib/workspace-objectives.js', 'css/workspace-objectives.css',
+        'js/lib/task-context.js', 'js/lib/workspace-objectives.js', 'css/workspace-objectives.css',
         'js/views/objectives-demo.js', 'css/objectives-demo.css',
         'demos/objectives/index.html', 'demos/objectives/objectives.js',
         'demos/objectives/objectives.css',
@@ -71,6 +71,6 @@ def test_objective_assets_invalidate_shell_and_sandbox(monorepo, tmp_path, monke
         assert sandbox.status_code == 200
         assert sandbox.headers['cache-control'] == 'no-cache'
         requests = re.findall(r'(?:src|href)="([^"]+)"', sandbox.text)
-        assert len(requests) == 7
+        assert len(requests) == 8
         assert all(url.endswith('?v=' + current) for url in requests)
         assert any('lab-markdown-editor/markdown-editor.min.js' in url for url in requests)

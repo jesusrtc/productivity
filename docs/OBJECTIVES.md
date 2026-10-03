@@ -224,13 +224,21 @@ terminal to the task. The reverse terminal-to-task-row drop also works in the le
 the terminal opens the task's details in Focus mode. Its launch folder, process
 and original Assistant ownership remain intact.
 
-Dropping a task **inside the console** pastes a bundle: shared Objective
-references, then the parent task's details and assets for a subtask, followed by
-the selected task's exact details subtab and assets. Duplicate references are
-removed and Archive is excluded. Worktrees and
-folders retain their own paths, and documents/sublinks retain their selected
-destinations. These references are shell-quoted and pasted on one line without
-Enter, so an agent receives the task and all associated sources together.
+Dropping a task **inside the console** pastes an unsent prompt. **Context:**
+identifies the Objective and its shared assets, then each parent task's details
+and assets. **This task:** identifies the selected task and its exact details
+subtab and assets. Every reference has a title and type, such as task
+specification, notebook, SQL file, link, document tab or worktree. Exact paths,
+tabs and sublinks are preserved; repeated references use the same `[R#]` label
+and Archive is excluded.
+
+The prompt directs the agent to work only on the selected task. Objective and
+parent references are background context, read-only unless also attached to
+the selected task. Changes stay within its references and explicitly linked
+worktrees/folders, preserving parent and sibling specifications. Agent editors
+receive the readable multiline prompt through bracketed paste; consoles that
+do not support it receive one line to avoid accidental submission. No Enter
+is sent. Ordinary asset drops keep their existing shell-quoted reference paste.
 
 ## Storage and commands
 
@@ -342,9 +350,10 @@ task details cannot be detached or archived. **Files & worktrees** supplies
 additional sources without listing every checkout file as unassigned.
 
 Drop a task onto a simulated terminal name to associate it. Drop it inside the
-console to paste shared Objective references plus its required details and
-task-specific assets. A subtask includes its parent's details and assets before
-its own, preserving Objective → task → subtask context with duplicates removed
+console to paste the same scoped **Context:** / **This task:** prompt as the
+live console, with shared Objective references, parent details/assets and the
+selected task's specification and assets. Reference types and exact sources
+remain explicit, with repeated sources linked by `[R#]` labels
 and Archive excluded. Drag a simulated terminal onto a left-column task,
 document/subtab, file, folder or worktree to associate it; middle-column
 elements reject terminal association drops. No input

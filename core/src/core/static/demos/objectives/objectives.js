@@ -133,7 +133,7 @@
         const accepts=m=>m!=='application/x-objective-terminal'||!!el.closest('.ob-overview');
         el.ondragover=e=>{if([...handlers.keys()].some(m=>accepts(m)&&e.dataTransfer.types.includes(m))){e.preventDefault();e.stopPropagation();e.dataTransfer.dropEffect=e.dataTransfer.types.includes('application/x-objective-id')?'move':'link';el.classList.add('ob-drop');}};
         el.ondragleave=()=>el.classList.remove('ob-drop');
-        el.ondrop=e=>{el.classList.remove('ob-drop');for(const [mime,run] of handlers){if(!accepts(mime))continue;const ref=e.dataTransfer.getData(mime);if(!ref)continue;e.preventDefault();e.stopPropagation();const source=e.dataTransfer.getData('application/x-objective-source');if(source&&source!==objective().id){message('Choose an asset in the current objective.');return;}run(ref);return;}};
+        el.ondrop=e=>{el.classList.remove('ob-drop');for(const [mime,run] of handlers){if(!accepts(mime))continue;const ref=e.dataTransfer.getData(mime);if(!ref)continue;e.preventDefault();e.stopPropagation();const source=e.dataTransfer.getData('application/x-objective-source');if(source&&source!==objective().id){message('Choose an asset in the current objective.');return;}run(ref,e.dataTransfer);return;}};
       }
       function applySlotColors() {objectives.forEach(o=>{const slot=focused.indexOf(o.id);o.palette=palettes[slot]||[];o.color=o.palette[0]||'#8b949e';o.worktrees.forEach((t,i)=>{t.color=o.palette[i%4]||'#8b949e';});});}
       function insertObjective(id,slot) {focused=focused.filter(ref=>ref!==id);focused.splice(slot,0,id);focused=focused.slice(0,focusSlots);applySlotColors();render();message('Inserted into slot '+(slot+1)+' · the fifth objective returns to the library.');}
@@ -185,8 +185,28 @@
         return icon(info.kind==='worktree'?'git-branch':iconNames[info.kind]||'file-text');
       }
       function catalog(o) {return [...new Set(['folder::root','folder::objective',...o.worktrees.map(t=>'worktree::'+t.id),...o.items.filter(i=>i.kind!=='task'&&i.listed!==false&&!i.taskDocument).map(i=>i.id),...o.assetShelf,...o.objectiveAssets,...o.archiveAssets,...taskEntries(o).flatMap(t=>t.assets||[])])].filter(ref=>assetInfo(o,ref));}
-      function taskReferences(o,task) {return [...new Set(taskContextRefs(o,task).map(ref=>assetInfo(o,ref)?.reference).filter(Boolean))];}
-      function dragAsset(node,o,ref) {node.draggable=true;node.ondragstart=e=>{const info=assetInfo(o,ref),refs=info?.task?taskReferences(o,info.task):[info?.reference].filter(Boolean);if(!refs.length){e.preventDefault();return;}e.dataTransfer.setData('application/x-objective-item',ref);e.dataTransfer.setData('application/x-objective-source',o.id);e.dataTransfer.setData('application/x-lab-reference',JSON.stringify(refs));e.dataTransfer.setData('text/plain',refs.join('\n'));e.dataTransfer.effectAllowed='copyLink';};node.ondragend=()=>root.querySelectorAll('.ob-drop').forEach(n=>n.classList.remove('ob-drop'));}
+      function taskContext(o,task) {
+        const parent=parentTask(o,task);
+        function assets(refs,owner) {return refs.filter(ref=>!o.archiveAssets.includes(ref)).map(ref=>{
+          const info=assetInfo(o,ref),path=info?.item?.title||'';
+          const type=owner&&ref===detailsRef(owner)?'Task specification':info?.kind==='worktree'?'Worktree':info?.kind==='folder'?'Folder':
+            info?.kind==='link'?(info.tab?'Sublink':'Link'):info?.kind==='assistant'?(info.tab?'Assistant document tab':'Assistant document'):
+            info?.tab?'Document tab':info?.kind==='notebook'||/\.ipynb$/i.test(path)?'Notebook':info?.kind==='document'||/\.md$/i.test(path)?'Document':/\.sql$/i.test(path)?'SQL file':'File';
+          return {title:info?.title||'',type,reference:info?.reference};
+        });}
+        return {version:1,objective:{title:o.name,purpose:o.purpose||'',assets:assets(o.objectiveAssets)},parents:parent&&parent!==task?[{title:parent.title,assets:assets(taskAssetRefs(parent),parent)}]:[],task:{title:task.title,assets:assets(taskAssetRefs(task),task)}};
+      }
+      function dragAsset(node,o,ref) {node.draggable=true;node.ondragstart=e=>{
+        try{
+          const info=assetInfo(o,ref),payload=info?.task?taskContext(o,info.task):null,refs=payload?LabTaskContext.references(payload):[info?.reference].filter(Boolean);
+          if(!refs.length){e.preventDefault();return;}
+          e.dataTransfer.setData('application/x-objective-item',ref);e.dataTransfer.setData('application/x-objective-source',o.id);
+          e.dataTransfer.setData('application/x-lab-reference',JSON.stringify(refs));
+          if(payload)e.dataTransfer.setData(LabTaskContext.mime,JSON.stringify(payload));
+          e.dataTransfer.setData('text/plain',payload?LabTaskContext.format(payload):refs.join('\n'));e.dataTransfer.effectAllowed='copyLink';
+        }catch{e.preventDefault();message('Some task references are unavailable. Check the task assets.');}
+      };node.ondragend=()=>root.querySelectorAll('.ob-drop').forEach(n=>n.classList.remove('ob-drop'));}
+
       function openTask(o,entry) {const doc=o.items.find(i=>i.id===entry.detail),tab=doc?.tabs.find(t=>t.id===entry.tab);if(!doc||!tab)return;o.activeTask=entry.id;o.expandedTask=parentTask(o,entry)?.id||null;openResource(o,doc,tab);}
       function attachAsset(o,task,ref) {const info=assetInfo(o,ref);if(!info||info.task){message('Drop a document, link, file, folder or worktree onto a task.');return;}task.assets ||= [];if(!taskAssetRefs(task).includes(ref))task.assets.push(ref);o.archiveAssets=o.archiveAssets.filter(r=>r!==ref);if(!o.assetShelf.includes(ref))o.assetShelf.push(ref);render();message(info.title+' attached to '+task.title);}
       function classifyAsset(o,ref,bucket,task) {
@@ -345,8 +365,17 @@
             b.append(info?assetIcon(info):icon('terminal'),element('span','ob-label',info?.title||t.name));const dot=element('span','ob-status-dot'+(t.state==='ready'?' ready':t.state==='idle'?' idle':''));dot.setAttribute('aria-label',t.state==='ready'?'Ready to review':t.state==='working'?'Working':'Idle');b.append(dot);group.append(b);});});
         });
         rail.append(button('+ New','ob-action ob-new-terminal',terminalDialog));
-        const t=terminals.find(t=>t.id===activeTerminal);if(t){const o=objectives.find(o=>o.id===t.objective),console=element('div','ob-console');console.dataset.console=t.id;const tree=o.worktrees.find(w=>w.id===t.tree),folder=tree?'/demo/'+tree.repo+'/worktrees/'+tree.name:'/demo/workspace/objectives/'+o.id;console.append(element('strong','',t.name),element('p','ob-muted',folder),element('pre','ob-console-log',(t.logs||[]).join('\n\n')));const label=element('label','','Command or prompt'),draft=element('textarea','ob-editor');draft.value=t.draft;draft.setAttribute('aria-label','Unsent prompt for '+t.name);draft.oninput=()=>{t.draft=draft.value;persist();};label.append(draft);console.append(label,button('Run simulation','ob-action',()=>runCommand(t)),element('div','ob-console-note','Drop an asset to paste its reference. Drop a task for shared + task context. Nothing is submitted until Run simulation.'));
-          attachDrop(console,'application/x-objective-item',ref=>{const info=assetInfo(objective(),ref),refs=info?.task?taskReferences(objective(),info.task):[info?.reference].filter(Boolean);if(!refs.length)return;const quote=value=>"'"+value.replace(/'/g,"'\"'\"'")+"'";t.draft=(t.draft?t.draft+' ':'')+refs.map(quote).join(' ');renderTerminals();persist();message('Pasted '+refs.length+' context references · unsent');});
+        const t=terminals.find(t=>t.id===activeTerminal);if(t){const o=objectives.find(o=>o.id===t.objective),console=element('div','ob-console');console.dataset.console=t.id;const tree=o.worktrees.find(w=>w.id===t.tree),folder=tree?'/demo/'+tree.repo+'/worktrees/'+tree.name:'/demo/workspace/objectives/'+o.id;console.append(element('strong','',t.name),element('p','ob-muted',folder),element('pre','ob-console-log',(t.logs||[]).join('\n\n')));const label=element('label','','Command or prompt'),draft=element('textarea','ob-editor');draft.value=t.draft;draft.setAttribute('aria-label','Unsent prompt for '+t.name);draft.oninput=()=>{t.draft=draft.value;persist();};label.append(draft);console.append(label,button('Run simulation','ob-action',()=>runCommand(t)),element('div','ob-console-note','Drop an asset to paste its reference. Drop a task for a prompt with Objective, parent and current-task context. Nothing is submitted until Run simulation.'));
+          attachDrop(console,'application/x-objective-item',(ref,transfer)=>{
+            try{
+              const info=assetInfo(objective(),ref),payload=info?.task?JSON.parse(transfer.getData(LabTaskContext.mime)):null,refs=payload?LabTaskContext.references(payload):[info?.reference].filter(Boolean);
+              if(!refs.length)return;
+              const quote=value=>"'"+value.replace(/'/g,"'\"'\"'")+"'",prompt=payload?LabTaskContext.format(payload):refs.map(quote).join(' ');
+              t.draft=(t.draft?t.draft+(payload?'\n\n':' '):'')+prompt;
+              renderTerminals();persist();message(payload?'Pasted task prompt with labelled context · unsent':'Pasted '+refs.length+' references · unsent');
+            }catch{message('Could not read the complete task context. Drag the task again.');}
+          });
+
           if(t.linked)console.append(button('Unlink item','ob-quiet',()=>{t.linked=null;t.linkedTab=null;render();}));surface.append(console);}
       }
       function dialog(title) {const host=find('dialog');host.hidden=false;host.replaceChildren(element('h3','',title));const form=element('form');host.append(form);form.append(button('Cancel','ob-quiet',()=>{host.hidden=true;}));return form;}

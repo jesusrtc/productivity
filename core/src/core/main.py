@@ -675,6 +675,7 @@ def create_app() -> FastAPI:
         _STATIC_DIR / "js" / "lib" / "document-terminal.js",
         _STATIC_DIR / "js" / "lib" / "terminal-completion.js",
         _STATIC_DIR / "css" / "workspace-documents.css",
+        _STATIC_DIR / "js" / "lib" / "task-context.js",
         _STATIC_DIR / "js" / "lib" / "workspace-objectives.js",
         _STATIC_DIR / "css" / "workspace-objectives.css",
         _STATIC_DIR / "js" / "views" / "objectives-demo.js",

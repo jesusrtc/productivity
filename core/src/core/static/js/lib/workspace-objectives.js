@@ -78,8 +78,17 @@
     const parent=o.tasks.find(t=>t.children.some(c=>c.id===task.id));
     return [...(o.shared_assets||[]),...(parent?taskAssets(parent):[]),...taskAssets(task)].filter(a=>!isArchived(a,o));
   }
-  function taskReferences(task) {
-    const refs=contextAssets(task).map(a=>assetInfo(a)?.reference);return refs.every(Boolean)?[...new Set(refs)]:null;
+
+  function taskContext(task,o=objective()) {
+    const parent=o.tasks.find(t=>t.children.some(c=>c.id===task.id));
+    function assets(rows) {return rows.filter(a=>!isArchived(a,o)).map(asset=>{
+      const info=assetInfo(asset,o),r=info?.resource,path=r?.path||'',scope=asset.folder&&scopeRows(o).find(t=>[t.path,t.resolved_path].includes(asset.folder.root));
+      const type=asset.required?'Task specification':asset.folder?(scope?.kind==='worktree'?'Worktree':'Folder'):
+        r?.kind==='link'?(asset.sub_link_id?'Sublink':'Link'):r?.kind==='assistant'?(asset.tab_id?'Assistant document tab':'Assistant document'):
+        asset.tab_id?'Document tab':r?.kind==='notebook'||/\.ipynb$/i.test(path)?'Notebook':r?.kind==='document'||/\.md$/i.test(path)?'Document':/\.sql$/i.test(path)?'SQL file':'File';
+      return {title:info?.title||'',type,reference:info?.reference};
+    });}
+    return {version:1,objective:{title:o.name,purpose:o.purpose||'',assets:assets(o.shared_assets||[])},parents:parent?[{title:parent.title,assets:assets(taskAssets(parent))}]:[],task:{title:task.title,assets:assets(taskAssets(task))}};
   }
   function assetTarget(asset) {const {id,required,...target}=asset;return target;}
   function assetRoot(root,o=objective()) {return scopeRows(o).find(t=>[t.path,t.resolved_path].includes(root))?.resolved_path||root;}
@@ -709,7 +718,7 @@
     const project=e.target.closest?.('[data-drag-objective],.objective-tab[data-select-objective]');
     if(project){e.dataTransfer.setData(objectiveMime,JSON.stringify({scope:key(context()),objective_id:project.dataset.dragObjective||project.dataset.selectObjective}));e.dataTransfer.effectAllowed='move';return;}
     const o=objective(),taskNode=e.target.closest?.('[data-open-task]'),task=taskNode&&tasks(o).find(t=>t.id===taskNode.dataset.openTask);
-    if(task){if(dragReference(e.dataTransfer,taskReferences(task)))e.dataTransfer.setData(resourceMime,JSON.stringify({scope:key(context()),objective_id:o.id,task_id:task.id}));else{e.preventDefault();notify('Some task assets are unavailable. Check its assets before passing it to the agent.',true);}return;}
+    if(task){try{const payload=taskContext(task,o),prompt=window.LabTaskContext.format(payload);if(!dragReference(e.dataTransfer,window.LabTaskContext.references(payload)))throw new Error('Unavailable reference');e.dataTransfer.setData(window.LabTaskContext.mime,JSON.stringify(payload));e.dataTransfer.setData('text/plain',prompt);e.dataTransfer.setData(resourceMime,JSON.stringify({scope:key(context()),objective_id:o.id,task_id:task.id}));}catch{e.preventDefault();notify('Some task assets are unavailable. Check its assets before passing it to the agent.',true);}return;}
     const assetNode=e.target.closest?.('[data-objective-asset]');if(assetNode&&!assetNode.dataset.objectiveResource){const asset=JSON.parse(assetNode.dataset.objectiveAsset);if(dragReference(e.dataTransfer,assetInfo(asset)?.reference))e.dataTransfer.setData(resourceMime,JSON.stringify({scope:key(context()),objective_id:o.id,...assetTarget(asset)}));else e.preventDefault();return;}
     const row=e.target.closest?.('[data-objective-resource]');
     if(row&&o){const resource=o.resources.find(r=>r.id===row.dataset.objectiveResource);if(!dragReference(e.dataTransfer,resourceReference(resource,row.dataset.objectiveTab,row.dataset.objectiveSublink))) {e.preventDefault();return;}e.dataTransfer.setData(resourceMime,JSON.stringify({scope:key(context()),objective_id:o.id,resource_id:row.dataset.objectiveResource,tab_id:row.dataset.objectiveTab||null,sub_link_id:row.dataset.objectiveSublink||null}));return;}

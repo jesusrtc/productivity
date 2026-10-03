@@ -15718,11 +15718,22 @@
       if (event.dataTransfer?.files?.length) explorerToast('The browser did not provide the original path. Drag the file or folder from Lab’s sidebar, or copy its pathname in Finder and paste it here.', true);
       return;
     }
+    let taskPrompt=null;
+    const taskPayload=event.dataTransfer.getData('application/x-lab-task-context');
+    if(taskPayload){
+      try{
+        const context=JSON.parse(taskPayload);
+        taskPrompt=window.LabTaskContext.format(context);
+        if(JSON.stringify(window.LabTaskContext.references(context))!==JSON.stringify(references))throw new Error('Task references changed');
+      }catch{explorerToast('Could not read the complete task context. Drag the task again.',true);return;}
+    }
     if (!termXterm || !termWS || termWS.readyState !== WebSocket.OPEN) {
       explorerToast('Connect a terminal before dropping a reference.', true);
       return;
     }
-    termXterm.paste(references.map(_termQuoteDropPath).join(' '));
+    // Keep line breaks for agent editors that accept bracketed paste. A plain
+    // shell receives one line, so a drag never submits newline-delimited input.
+    termXterm.paste(taskPrompt?(termXterm.modes?.bracketedPasteMode?taskPrompt:taskPrompt.replace(/\n/g,' ')):references.map(_termQuoteDropPath).join(' '));
     termXterm.focus();
   }
 

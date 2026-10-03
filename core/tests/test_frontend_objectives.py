@@ -41,7 +41,7 @@ def test_objective_inline_editor_serializes_sibling_saves_and_retains_conflicts(
     fixture = {'folder':str(folder),'oid':oid,'rid':rid,'child':resource['content']['tabs'][0]['id'],'checkout':str(checkout),'session':saved_session,'editorPath':resource['path']}
     scripts = '\n'.join('<script>'+(STATIC/path).read_text()+'</script>' for path in [
         'vendor/marked@12.0.1/marked.min.js','vendor/dompurify@3.4.15/purify.min.js',
-        'js/lib/markdown-content.js','vendor/lab-markdown-editor/markdown-editor.min.js','js/lib/workspace-objectives.js'])
+        'js/lib/markdown-content.js','vendor/lab-markdown-editor/markdown-editor.min.js','js/lib/task-context.js','js/lib/workspace-objectives.js'])
     setup = r'''
 window.assert=(ok,message)=>{if(!ok)throw Error(message)};
 window.contentErrors=[];
@@ -61,7 +61,7 @@ window.fetch=async(url,options={})=>{
 };
 window.read=()=>realFetch('/api/objectives?workspace_id=demo').then(r=>r.json());
 window.resource=data=>data.objectives[0].resources[0];
-const pasted=[],termXterm={paste:text=>pasted.push(text),focus(){}},termWS={readyState:1};
+const pasted=[],termXterm={paste:text=>pasted.push(text),focus(){},modes:{bracketedPasteMode:true}},termWS={readyState:1};
 const _termDragState=null,workspaceTabsDragId=null;
 const notices=[],opened=[];let scopeRoot=FIX.folder;
 window.LabExternalLinks={open:(url,options)=>{opened.push({url,options});return Promise.resolve(true)}};
@@ -75,7 +75,15 @@ window.checkDrag=(selector,expected)=>{
  assert(JSON.stringify(JSON.parse(transfer.getData('application/x-lab-reference')))===JSON.stringify(references),'captured references '+selector);
  const count=pasted.length;
  document.getElementById('termBody').dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:transfer}));
- assert(pasted.length===count+1&&pasted.at(-1)===references.map(_termQuoteDropPath).join(' ')&&!pasted.at(-1).includes('\n'),'unsent console paste '+selector);
+ const taskPayload=transfer.getData(LabTaskContext.mime);
+ if(taskPayload){
+   const model=JSON.parse(taskPayload),prompt=LabTaskContext.format(model);
+   assert(pasted.length===count+1&&pasted.at(-1)===prompt&&prompt===transfer.getData('text/plain'),'unsent readable task prompt '+selector);
+   assert(prompt.startsWith('Context:\nObjective: ')&&prompt.includes('This task: '+JSON.stringify(model.task.title))&&prompt.includes('Work only on This task: '),'task prompt separates background and current work');
+   assert(prompt.includes('Task specification:')&&prompt.includes('read-only unless also listed under This task'),'task prompt labels specifications and limits inherited scope');
+   assert(model.parents.every(p=>prompt.includes('Parent task: '+JSON.stringify(p.title))),'task prompt names every parent');
+   assert(references.every(ref=>prompt.split('\n').filter(line=>line.endsWith(' — '+ref)).length===1),'task prompt includes each exact reference once');
+ }else assert(pasted.length===count+1&&pasted.at(-1)===references.map(_termQuoteDropPath).join(' ')&&!pasted.at(-1).includes('\n'),'unsent console paste '+selector);
 };
 window.checkLink=async(selector,expected)=>{
  const node=document.querySelector(selector),transfer=new DataTransfer();

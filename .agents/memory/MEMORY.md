@@ -1,5 +1,7 @@
 # Memory index
 
+- [Task agent drops use scoped prompts](task-agent-drops-use-scoped-prompts.md) — Context/parent/This task labels, typed references and explicit current-task scope; unsent paste.
+
 - [Live Objectives use task asset buckets](live-objectives-use-task-asset-buckets.md) — authorized live Unassigned/shared/Tasks/task-assets layout, stars and navigation-only task rows.
 - [Live subtasks inherit Objective and parent context](live-subtasks-inherit-objective-and-parent-context.md) — complete deduplicated context bundles and sidebar-only reverse terminal drops.
 - [Task status and terminal icons are separate](task-status-and-terminal-icons-are-separate.md) — left ⬜ / ✅ status; right icon appears only for an asset override, inherited by tabs and terminals.

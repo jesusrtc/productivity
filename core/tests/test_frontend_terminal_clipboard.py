@@ -78,6 +78,48 @@ console.log(JSON.stringify({pastes,notices}));
     assert result['notices'] == []
 
 
+@pytest.mark.parametrize('bracketed', [True, False])
+def test_task_drop_pastes_labelled_scope_prompt_and_keeps_invalid_context_out(bracketed):
+    formatter = (APP.parent/'lib/task-context.js').read_text()
+    result = run('globalThis.window={};\n'+formatter+'\nconst bracketed='+json.dumps(bracketed)+r''';
+const pastes=[],notices=[],sends=[];
+const termXterm={modes:{bracketedPasteMode:bracketed},paste:text=>pastes.push(text),focus(){}};
+const termWS={readyState:1,send:data=>sends.push(data)},WebSocket={OPEN:1};
+const _termDragState=null,workspaceTabsDragId=null;
+const explorerToast=message=>notices.push(message);
+const payload={version:1,objective:{title:'Recover SMS',purpose:'Restore verification',assets:[
+  {title:'Volume analysis.ipynb',type:'Notebook',reference:'/project/volume analysis.ipynb'}]},
+  parents:[{title:'Fix phone parsing',assets:[{title:'Tasks.md · Fix phone parsing',type:'Task specification',reference:'/project/Tasks.md#tab=parent'}]}],
+  task:{title:'Verify recovery',assets:[{title:'Tasks.md · Verify recovery',type:'Task specification',reference:'/project/Tasks.md#tab=child'},
+    {title:'Volume analysis.ipynb',type:'Notebook',reference:'/project/volume analysis.ipynb'},
+    {title:'Feature checkout',type:'Worktree',reference:'/trees/feature'},
+    {title:'Recovery report',type:'Sublink',reference:'https://example.com/report?tab=recovery'}]}};
+const refs=window.LabTaskContext.references(payload),prompt=window.LabTaskContext.format(payload);
+const drop=(model,references=refs)=>_termHandleDrop({dataTransfer:{types:['application/x-lab-task-context','application/x-lab-reference'],getData:key=>
+  key==='application/x-lab-task-context'?JSON.stringify(model):key==='application/x-lab-reference'?JSON.stringify(references):''},preventDefault(){},stopPropagation(){}});
+drop(payload);
+drop({...payload,version:0});
+drop(payload,refs.slice(1));
+drop({...payload,task:{...payload.task,assets:[{title:'Invalid',type:'File',reference:'/file\nexecute'}]}});
+termWS.readyState=3;drop(payload);
+console.log(JSON.stringify({pastes,notices,sends,refs,prompt}));
+''')
+    prompt = result['prompt']
+    assert prompt.startswith('Context:\nObjective: "Recover SMS"\nObjective outcome: Restore verification')
+    assert 'Parent task: "Fix phone parsing"' in prompt
+    assert 'This task: "Verify recovery"' in prompt
+    assert 'Work only on This task: "Verify recovery"' in prompt
+    assert 'Task specification: "Tasks.md · Verify recovery"' in prompt
+    assert 'Notebook: "Volume analysis.ipynb"' in prompt
+    assert 'Worktree: "Feature checkout"' in prompt and 'Sublink: "Recovery report"' in prompt
+    assert 'read-only unless also listed under This task' in prompt
+    assert 'same reference as above' in prompt
+    for ref in result['refs']:
+        assert sum(line.endswith(' — '+ref) for line in prompt.splitlines()) == 1
+    assert result['pastes'] == [prompt if bracketed else prompt.replace('\n',' ')]
+    assert result['sends'] == [] and len(result['notices']) == 4
+
+
 @pytest.mark.parametrize('text,expected', [
     ('│ hello │\n│ world │', 'hello\nworld'),
     ('╭──────╮\n│ hello│\n╰──────╯', 'hello'),
