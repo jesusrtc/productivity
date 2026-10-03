@@ -70,18 +70,20 @@ fits its label up to the sidebar width and shows the locally bundled service
 icon inferred from its URL. Global **Links and icons** domain mappings also
 apply here and update the rows immediately.
 
-Click a link to open its details in the middle working area. Edit its title,
+Click a link to visit its URL directly in the clicking browser, leaving the
+working area in place. Cmd/Ctrl-click opens its details in the middle working
+area. Edit its title,
 URL, TL;DR and named metadata properties, then use **Save** or Cmd/Ctrl-S.
 **Revert** reloads the saved details. Drafts remain available when navigating
 away; a conflicting edit retains your draft. **Open** visits the URL in the
-clicking browser. Cmd/Ctrl-click on a sidebar link opens it directly without
-changing the working area. These controls apply to both shared and scoped links.
+clicking browser. These controls apply to shared and scoped links, as well as
+links attached to tasks.
 
 Use **+ Sublink** in a link's details to add destinations beneath it, such as
 Google Docs tab URLs. Each sublink has its own title, URL, TL;DR and properties,
 and can contain further sublinks. Hover over the parent sidebar link for one
-second to reveal the indented hierarchy. Clicking a child opens its own details;
-Cmd/Ctrl-click opens its destination directly. Child references can be pasted
+second to reveal the indented hierarchy. Clicking a child opens its destination;
+Cmd/Ctrl-click opens its own details. Child references can be pasted
 or associated with terminals just like their parent link.
 
 ## Tasks and details
@@ -104,7 +106,11 @@ a title opens those details and enters **Focus**: the left sidebar shows only
 that task's assets, including its required details. The task control stays at
 the top with **Off · Semi · Focus**. Off restores the usual sidebar, and Semi
 highlights attached assets in their existing order. Returning to Tasks or
-switching objectives exits task focus. The selected mode is browser-local.
+switching objectives exits task focus. The red **×** in the working area's
+upper-right corner closes task mode and returns to the task list, restoring
+the complete sidebar and objective tab. It remains available while browsing
+task assets or using Off/Semi, and navigation saves outgoing document drafts.
+The selected mode is browser-local.
 
 Drag documents, document subtabs, notebooks, links, sublinks, files, folders or
 worktrees onto a task row to attach references to them. Assets can also be

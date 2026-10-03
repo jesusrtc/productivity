@@ -279,3 +279,23 @@ folders plus both fixed roots, highlighting the task's details. Off removed the
 highlights. Controls remain usable at the existing narrow sidebar width, and
 the page raised no exceptions. This staging check saved no resource/task changes
 and sent no input to existing terminals.
+
+## Follow-up: task close and direct link clicks
+
+The native Objective browser regression passes with the revised gestures:
+ordinary parent/child link clicks dispatch their exact URLs while preserving
+the working area, and Cmd-click opens metadata without visiting the URL.
+Metadata drafts, saves, conflicts, hover children and terminal references
+continue to pass.
+
+Task mode now has one accessible red close button in the working area's
+upper-right corner. Native input verifies it does not overlap Rename, exits
+Off/Focus task contexts, restores the complete sidebar and objective tab, and
+saves an outgoing document draft. Replacing the center with a native notebook
+surface keeps the same close control. JavaScript syntax and whitespace checks
+pass.
+
+Live `large-projects` navigation confirmed the red corner placement and return
+to Tasks, with no new page exceptions. No staging metadata was saved, external
+site opened, or terminal input sent during this check. These link gestures
+supersede the earlier editable-link follow-up above.

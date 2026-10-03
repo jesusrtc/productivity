@@ -7,6 +7,7 @@
   const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const drafts = new Map(), linkDrafts = new Map();
   let bridge, dialog = null, hoverTimer, openView = null, activeDraft = null, activeLinkDraft = null, switchMenu = null, switchTimer;
+  let taskCloseButton, taskCloseHost, taskCloseObserver;
   const key = scope => (scope?.vault || '') + '::' + scope?.workspace_id;
   const context = () => bridge?.context?.();
   const data = () => cache.get(key(context()));
@@ -105,6 +106,30 @@
   function taskFocusHtml(task) {
     const mode=taskFocus().mode,count=taskAssets(task).length;return `<section class="objective-task-focus" data-task-id="${esc(task.id)}"><button type="button" class="objective-focused-task" data-open-task="${esc(task.id)}" draggable="true">${taskIcon(task)}<span>${esc(task.title)}</span></button><div class="objective-task-modes" role="group" aria-label="Task focus mode">${[['off','Off'],['semi','Semi'],['focus','Focus']].map(([id,label])=>`<button type="button" data-task-focus-mode="${id}" aria-pressed="${id===mode}" title="${esc({off:'Show all assets',semi:'Highlight task assets in their usual order',focus:'Show only task assets'}[id])}">${label}</button>`).join('')}<button type="button" data-task-assets="${esc(task.id)}" aria-label="Manage assets and icon for ${esc(task.title)}">${count} asset${count===1?'':'s'}</button></div></section>`;
   }
+  function paintTaskClose() {
+    const content=document.getElementById('content'),task=context()&&active(context().path)&&focusedTask();
+    if(!task||!content){
+      taskCloseObserver?.disconnect();taskCloseObserver=null;taskCloseButton?.remove();
+      taskCloseHost?.classList.remove('objective-task-center');taskCloseHost=null;return;
+    }
+    if(!taskCloseObserver){
+      // Native file/notebook views replace the center independently. Watch only
+      // its immediate children and host, never editor/cell output mutations.
+      taskCloseObserver=new MutationObserver(paintTaskClose);
+      taskCloseObserver.observe(content,{childList:true});
+      if(content.parentElement)taskCloseObserver.observe(content.parentElement,{childList:true});
+    }
+    const host=document.querySelector('.main.assistant-inline-host')||content;
+    if(taskCloseHost!==host){taskCloseHost?.classList.remove('objective-task-center');taskCloseHost=host;}
+    host.classList.add('objective-task-center');
+    if(!taskCloseButton){
+      taskCloseButton=document.createElement('button');taskCloseButton.type='button';
+      taskCloseButton.className='objective-task-close';taskCloseButton.dataset.closeObjectiveTask='';
+      taskCloseButton.setAttribute('aria-label','Close task mode');taskCloseButton.title='Close task mode';
+      taskCloseButton.innerHTML='<span aria-hidden="true">×</span>';
+    }
+    if(taskCloseButton.parentElement!==host)host.append(taskCloseButton);
+  }
   function taskAssetRow(asset) {
     const info=assetInfo(asset);if(!info)return '';
     const selected=state().selected,r=info.resource,active=r?selected?.resource===r.id&&(selected.tab||null)===(asset.tab_id||null)&&(selected.subLink||null)===(asset.sub_link_id||null):false;
@@ -139,6 +164,7 @@
       ${rows.length?`<div class="objective-subtabs" role="tree" aria-label="${esc(r.title)} subtabs">${rows.filter(t=>reveal||pins.includes(t.id)).map(t=>`<div class="objective-subtab-row" style="--objective-tab-depth:${t.depth}" role="treeitem" aria-level="${t.depth+1}"><button type="button" class="objective-subtab${state().selected?.resource===r.id&&state().selected.tab===t.id?' active':''}" data-objective-resource="${esc(r.id)}" data-objective-tab="${esc(t.id)}" draggable="true" title="${esc(t.title)}"><span aria-hidden="true">▤</span><span>${esc(t.title)}</span></button><button type="button" class="objective-pin" data-pin-resource="${esc(r.id)}" data-pin-tab="${esc(t.id)}" aria-label="Pin ${esc(t.title)}" aria-pressed="${pins.includes(t.id)}">${pins.includes(t.id)?'◆':'◇'}</button></div>`).join('')}</div>`:''}</div>`;
   }
   function paint() {
+    paintTaskClose();
     bridge.refreshTabs?.();
     if(switchMenu)paintSwitchMenu();
     refreshLinkDetails();
@@ -508,6 +534,7 @@
     if(!root)throw new Error('Choose a file in this objective');return {file:{root,path}};
   }
   function handleClick(e) {
+    if(e.target.closest?.('[data-close-objective-task]')){const id=focusedTask()?.id;renderTasks();document.querySelector(`[data-open-task="${id}"]`)?.focus({preventScroll:true});return;}
     const host=e.target.closest?.('[data-objectives-sidebar],.objective-working,.objective-dialog,.objective-terminal-group,[data-objective-notebook-controls],.repo-tabs,.objective-switch-menu');
     if(!host)return;
     const node=e.target.closest('button,input,a');if(!node)return;
@@ -516,7 +543,7 @@
     if(node.dataset.taskAssets){openTaskAssets(node.dataset.taskAssets);return;}
     if(node.dataset.pickTaskIcon){const id=node.dataset.iconTask;void change({type:'task-update',objective_id:objective().id,task_id:id,icon_asset_id:node.dataset.pickTaskIcon}).then(()=>openTaskAssets(id)).catch(()=>{});return;}
     if(node.dataset.removeTaskAsset){const id=node.dataset.assetTask;void change({type:'task-remove-asset',objective_id:objective().id,task_id:id,asset_id:node.dataset.removeTaskAsset}).then(()=>openTaskAssets(id)).catch(()=>{});return;}
-    if(node.dataset.openTaskAsset){const task=tasks().find(t=>t.id===node.dataset.assetTask),asset=task&&taskAssets(task).find(a=>a.id===node.dataset.openTaskAsset);if(asset){dialog?.remove();dialog=null;openTask(task.id);openAsset(asset);}return;}
+    if(node.dataset.openTaskAsset){const task=tasks().find(t=>t.id===node.dataset.assetTask),asset=task&&taskAssets(task).find(a=>a.id===node.dataset.openTaskAsset);if(asset){const info=assetInfo(asset);if(info?.resource?.kind==='link'&&!e.metaKey&&!e.ctrlKey){openLinkUrl(info.reference);return;}dialog?.remove();dialog=null;openTask(task.id);openAsset(asset);}return;}
     if(node.dataset.taskAsset&&!node.dataset.objectiveResource){const asset=taskAssets(focusedTask()).find(a=>a.id===node.dataset.taskAsset);if(asset)openAsset(asset);return;}
     if(e.target.closest('[data-toggle-objective-switch]')){switchMenu?closeSwitchMenu():showSwitchMenu();return;}
     if(node.hasAttribute('data-choose-objective-slot')){closeSwitchMenu();showAll();data()?.objectives.length?focusDialog(null,Number(node.dataset.chooseObjectiveSlot)):newObjective(Number(node.dataset.chooseObjectiveSlot));return;}
@@ -528,7 +555,7 @@
     if(node.hasAttribute('data-new-objective')){newObjective();return;}
     if(node.hasAttribute('data-focus-objective')){focusDialog();return;}
     if(node.hasAttribute('data-open-objective-tasks')){collapse();renderTasks();return;}
-    if(node.dataset.objectiveResource){const r=objective()?.resources.find(r=>r.id===node.dataset.objectiveResource),sub=node.dataset.objectiveSublink||null;if(r?.kind==='link'&&(e.metaKey||e.ctrlKey)){e.preventDefault();openLinkUrl(linkTarget(r,sub)?.url);}else openResource(node.dataset.objectiveResource,node.dataset.objectiveTab||null,sub);return;}
+    if(node.dataset.objectiveResource){const r=objective()?.resources.find(r=>r.id===node.dataset.objectiveResource),sub=node.dataset.objectiveSublink||null;e.preventDefault();if(r?.kind==='link'&&!e.metaKey&&!e.ctrlKey)openLinkUrl(linkTarget(r,sub)?.url);else openResource(node.dataset.objectiveResource,node.dataset.objectiveTab||null,sub);return;}
     if(node.dataset.openParentLink){openResource(node.dataset.openParentLink);return;}
     if(node.hasAttribute('data-add-objective-sublink')){const d=activeLinkDraft;form('Add sublink',input('Title','title')+input('URL','url','','url'),values=>change({type:'link-sublink',objective_id:d.objective,resource_id:d.resource,parent_id:d.subLink,title:values.get('title'),url:values.get('url')},{scope:d.scope}));return;}
     if(node.dataset.removeObjectiveSublink){const d=activeLinkDraft;void change({type:'link-remove-sublink',objective_id:d.objective,resource_id:d.resource,sub_link_id:node.dataset.removeObjectiveSublink},{scope:d.scope}).catch(()=>{});return;}
@@ -641,7 +668,7 @@
     worktreeColor(path){return active(context()?.path)?scopeRows().find(t=>t.fixed&&t.path===path)?.color||data()?.objectives.flatMap(o=>o.worktrees).find(t=>t.path===path||t.resolved_path===path)?.color:null;},
     notebookControls(root,path){const r=objective()?.resources.find(r=>r.kind==='notebook'&&r.path===path&&context()?.path===root);return r?`<span data-objective-notebook-controls><button type="button" data-rename-objective-resource="${esc(r.id)}">Rename</button></span>`:'';},
     ownsCenter(path){return context()?.path===path&&openView?.scope===key(context())&&!!(document.querySelector('#content .objective-working')||state().selected);},
-    leave(){closeSwitchMenu();releaseDraft();if(context()){collapse();state().focus=null;state().selected=null;persistView();}document.getElementById('sidebar')?.removeAttribute('data-objective-task-mode');document.querySelectorAll('.objective-task-asset-highlight').forEach(n=>n.classList.remove('objective-task-asset-highlight'));openView=null;dialog?.remove();dialog=null;clearTimeout(hoverTimer);}};
+    leave(){closeSwitchMenu();releaseDraft();if(context()){collapse();state().focus=null;state().selected=null;persistView();}paintTaskClose();document.getElementById('sidebar')?.removeAttribute('data-objective-task-mode');document.querySelectorAll('.objective-task-asset-highlight').forEach(n=>n.classList.remove('objective-task-asset-highlight'));openView=null;dialog?.remove();dialog=null;clearTimeout(hoverTimer);}};
   document.addEventListener('keydown',event=>{if(activeLinkDraft?.node?.contains(event.target)&&(event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==='s'){event.preventDefault();void saveLinkDetails(activeLinkDraft);}});
   window.addEventListener('beforeunload',event=>{if([...drafts.values()].some(dirtyDraft)||[...linkDrafts.values()].some(dirtyLink)){event.preventDefault();event.returnValue='';}});
 })();

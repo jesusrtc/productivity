@@ -1,10 +1,12 @@
 # Memory index
 
+- [Objective task mode has a corner close](objective-task-mode-has-corner-close.md) — red upper-right control throughout task mode; returns to Tasks with drafts preserved.
+
 - [Objective tasks open details and focus](objective-tasks-open-details-and-focus.md) — title hyperlinks, Off/Semi/Focus sidebar modes and asset icons inherited by current/terminal tabs.
 - [Objective task assets keep original ownership](objective-task-assets-keep-original-ownership.md) — references to any sidebar asset, deduplication, icon selection/detachment and task terminal targets.
 - [Task agent drops include all asset references](task-agent-drops-include-all-asset-references.md) — exact task details plus every asset reference in one unsent terminal paste bundle.
 
-- [Objective links open editable details](objective-links-open-editable-details.md) — editable title, URL, TL;DR and properties; explicit Open and direct Cmd/Ctrl-click, retained drafts and conflicts.
+- [Objective links open editable details](objective-links-open-editable-details.md) — one click opens URL, Cmd/Ctrl-click opens editable metadata; retained drafts and conflicts.
 - [Objective link sublinks reveal on hover](objective-link-sublinks-reveal-on-hover.md) — one-second parent hover, nested destinations with stable IDs and exact terminal references.
 
 - [Servers uses global workspace tabs](global-servers-use-workspace-tabs.md) — current-workspace selection, independent scopes and removed workspace strip.
