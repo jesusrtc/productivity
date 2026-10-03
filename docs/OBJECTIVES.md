@@ -263,3 +263,32 @@ without waiting for a terminal-selection lookup.
 The `large-projects` workspace is the authorized staging target. Reproduction
 scripts and the measured scope of the 200 ms target are recorded in
 [the staging verification report](diagnostics/objectives-staging-2026-10-02.md).
+
+## Experimental asset buckets in the Home demo
+
+**Home → Objectives demo** now follows the production shell: Objectives and
+one current objective/task tab, a five-choice hover menu, five ordered library
+slots, flat terminal groups and the native inline Markdown editor. Its data
+and terminals remain simulated; only browser-local demo state is saved.
+
+The experimental sidebar order is **Unassigned**, **Objective · pinned**,
+**Tasks**, then **Task assets**. Unassigned contains registered assets that
+have neither a shared pin nor a task association. Shared Objective pins apply
+to every task. Clicking a task opens its details and lists its own assets below
+the task list. Documents, subtabs, notebooks, external links, files, folders
+and worktrees all use this reference-based classification.
+
+Drag an asset onto any task row to attach it. Drop it into Objective to pin it
+as shared context. The **⋯** on an asset also chooses its bucket and task.
+Dropping into Unassigned removes optional task associations and shared pins.
+**Archive** keeps sources available for recovery while removing them from
+shared/task context; expand it and move an asset back to recover it. Mandatory
+task details cannot be detached or archived. **Files & worktrees** supplies
+additional sources without listing every checkout file as unassigned.
+
+Drop a task onto a simulated terminal name to associate it. Drop it inside the
+console to paste shared Objective references plus its required details and
+task-specific assets, with duplicates removed and Archive excluded. No input
+is submitted until **Run simulation**. External-link clicks are simulated;
+Cmd/Ctrl-click shows their editable metadata. **Reset demo** restores the
+sample data. These buckets have not been applied to live workspace registries.

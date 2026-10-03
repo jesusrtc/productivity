@@ -1,5 +1,7 @@
 # Memory index
 
+- [Objective demo uses asset buckets](objective-demo-uses-asset-buckets.md) — production-like sandbox, Unassigned/Objective/Tasks/selected-task assets and recoverable Archive; complete task context bundles.
+
 - [Objective task mode has a corner close](objective-task-mode-has-corner-close.md) — red upper-right control throughout task mode; returns to Tasks with drafts preserved.
 
 - [Objective tasks open details and focus](objective-tasks-open-details-and-focus.md) — title hyperlinks, Off/Semi/Focus sidebar modes and asset icons inherited by current/terminal tabs.

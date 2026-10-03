@@ -1,0 +1,90 @@
+"""Native demo gestures keep shared/task context distinct from archive."""
+import functools
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+import os
+from pathlib import Path
+import shutil
+import subprocess
+from threading import Thread
+import time
+
+import pytest
+
+STATIC = Path(__file__).resolve().parents[2] / 'core/src/core/static'
+
+
+def test_objectives_demo_buckets_and_context_drag(tmp_path):
+    chrome = os.environ.get('CHROME_BIN') or '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+    if not Path(chrome).is_file() or not shutil.which('node'):
+        pytest.skip('Chrome and Node required')
+
+    class Handler(SimpleHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+    server = ThreadingHTTPServer(('127.0.0.1', 0), functools.partial(Handler, directory=str(STATIC)))
+    Thread(target=server.serve_forever, daemon=True).start()
+    profile = tmp_path / 'chrome'
+    process = subprocess.Popen([chrome, '--headless=new', '--no-first-run', '--remote-debugging-port=0',
+                                '--user-data-dir=' + str(profile), 'about:blank'],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    driver = r'''
+const fs=require('node:fs');
+(async()=>{
+ const assert=(ok,message)=>{if(!ok)throw Error(message)};
+ const [port]=fs.readFileSync(process.argv[1]+'/DevToolsActivePort','utf8').split('\n');
+ const target=await fetch(`http://127.0.0.1:${port}/json/new?about:blank`,{method:'PUT'}).then(r=>r.json());
+ const ws=new WebSocket(target.webSocketDebuggerUrl),pending=new Map(),errors=[],requests=[];let sequence=0,dragData=null;
+ ws.onmessage=event=>{const m=JSON.parse(event.data);if(m.method==='Input.dragIntercepted')dragData=m.params.data;if(m.method==='Runtime.exceptionThrown')errors.push(m.params.exceptionDetails.exception?.description||m.params.exceptionDetails.text);if(m.method==='Network.requestWillBeSent')requests.push(m.params.request.url);if(m.id){const p=pending.get(m.id);pending.delete(m.id);m.error?p.reject(Error(m.error.message)):p.resolve(m.result)}};
+ await new Promise(r=>ws.addEventListener('open',r,{once:true}));
+ const send=(method,params={})=>new Promise((resolve,reject)=>{const id=++sequence;pending.set(id,{resolve,reject});ws.send(JSON.stringify({id,method,params}))});
+ async function evaluate(expression){const r=await send('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:true});if(r.exceptionDetails)throw Error(r.exceptionDetails.exception?.description||'Browser assertion');return r.result.value;}
+ async function point(selector){return evaluate(`(()=>{const n=document.querySelector(${JSON.stringify(selector)});if(!n)throw Error('Missing '+${JSON.stringify(selector)});n.scrollIntoView({block:'nearest'});const b=n.getBoundingClientRect();return{x:b.x+Math.min(20,b.width/2),y:b.y+b.height/2}})()`);}
+ async function click(selector){const p=await point(selector);await send('Input.dispatchMouseEvent',{type:'mousePressed',...p,button:'left',clickCount:1});await send('Input.dispatchMouseEvent',{type:'mouseReleased',...p,button:'left',clickCount:1});}
+ async function drag(source,selector){const a=await point(source),b=await point(selector);dragData=null;await send('Input.setInterceptDrags',{enabled:true});await send('Input.dispatchMouseEvent',{type:'mouseMoved',...a});await send('Input.dispatchMouseEvent',{type:'mousePressed',...a,button:'left',buttons:1,clickCount:1});await send('Input.dispatchMouseEvent',{type:'mouseMoved',x:a.x+30,y:a.y+3,button:'left',buttons:1});for(let i=0;i<100&&!dragData;i++)await new Promise(r=>setTimeout(r,10));assert(dragData,'native drag data');for(const type of ['dragEnter','dragOver','drop'])await send('Input.dispatchDragEvent',{type,...b,data:dragData});await send('Input.dispatchMouseEvent',{type:'mouseReleased',...b,button:'left',clickCount:1});await send('Input.setInterceptDrags',{enabled:false});return dragData;}
+ await send('Runtime.enable');await send('Network.enable');await send('Emulation.setDeviceMetricsOverride',{width:1768,height:1200,deviceScaleFactor:1,mobile:false});await send('Page.navigate',{url:process.argv[2]});
+ for(let i=0;i<200;i++){if(await evaluate('!!document.querySelector("[data-task=validate]")'))break;await new Promise(r=>setTimeout(r,20));}
+ assert(await evaluate(`document.querySelectorAll('.ob-nav-tab').length===2&&!document.querySelector('.ob-focus-slot')`),'two production-style tabs');
+ assert(await evaluate(`JSON.stringify([...document.querySelectorAll('[data-overview]>[data-bucket]')].map(n=>n.dataset.bucket))===JSON.stringify(['unassigned','objective','tasks','task'])`),'sidebar bucket order');
+ await drag('[data-bucket=unassigned] [data-item=metrics-query]','.ob-sidebar-task[data-task=validate]');
+ await click('.ob-sidebar-task[data-task=validate] .ob-task-name');
+ assert(await evaluate(`!!document.querySelector('.cm-editor')&&document.querySelector('[data-bucket=task] [data-asset=metrics-query]')&&!document.querySelector('[data-bucket=unassigned] [data-asset=metrics-query]')`),'native editor and task attachment remove unassigned');
+ const data=await drag('.ob-sidebar-task[data-task=validate] .ob-task-name','[data-console=t1] textarea');
+ const refs=JSON.parse(data.items.find(i=>i.mimeType==='application/x-lab-reference').data);
+ for(const expected of ['/demo/workspace','https://app.slack.com/client/demo/incident','/demo/workspace/objectives/sms/Incident notes#tab=validate-details','/demo/workspace/objectives/sms/Verification volume.ipynb','/demo/client/worktrees/sdui/fix-phone','/demo/client/worktrees/sdui/fix-phone/queries/volume.sql'])assert(refs.includes(expected),'complete task context '+expected);
+ assert(new Set(refs).size===refs.length&&!refs.some(r=>r.includes('Old incident notes')||r.includes('Unparseable')),'deduplicated context excludes archive and other tasks');
+ assert(await evaluate(`document.querySelector('[data-console=t1] textarea').value.includes('queries/volume.sql')&&document.querySelector('.ob-console-log').textContent==='Objectives demo terminal · help lists simulated commands.'`),'console drag pastes without running');
+ await drag('[data-bucket=task] [data-asset=volume] .ob-resource','[data-bucket=objective]');
+ const common=await drag('.ob-sidebar-task[data-task=validate] .ob-task-name','[data-console=t1] textarea');
+ const commonRefs=JSON.parse(common.items.find(i=>i.mimeType==='application/x-lab-reference').data);
+ assert(commonRefs.filter(r=>r.endsWith('Verification volume.ipynb')).length===1,'shared and task membership deduplicate');
+ await drag('[data-bucket=objective] [data-asset=volume] .ob-resource','.ob-archive');
+ const archived=await drag('.ob-sidebar-task[data-task=validate] .ob-task-name','[data-console=t1] textarea');
+ assert(!JSON.parse(archived.items.find(i=>i.mimeType==='application/x-lab-reference').data).some(r=>r.endsWith('Verification volume.ipynb')),'archive excluded from agent context');
+ await click('.ob-archive>summary');await drag('[data-bucket=archive] [data-asset=volume] .ob-resource','[data-bucket=unassigned]');
+ assert(await evaluate(`!!document.querySelector('[data-bucket=unassigned] [data-asset=volume]')`),'archive recovery keeps source');
+ await drag('.ob-sidebar-task[data-task=validate] .ob-task-name','[data-terminal=t2]');await click('[data-terminal=t2]');
+ assert(await evaluate(`document.querySelector('[data-reader] h2').textContent==='Validate phone parsing'&&document.querySelector('[data-bucket=task] [data-asset=metrics-query]')`),'task terminal association restores selected task assets');
+ await click('.ob-close-task');assert(await evaluate(`document.querySelector('[data-reader] h2').textContent==='Tasks'&&!document.querySelector('[data-bucket=task] [data-asset]')`),'task close clears selection');
+ await click('[data-all-objectives]');assert(await evaluate(`document.querySelectorAll('[data-slot]').length===5`),'five ordered focus slots');
+ await drag('[data-objective=followup-study]','[data-slot="0"]');
+ assert(await evaluate(`document.querySelector('[data-slot="0"] strong').textContent==='Follow-up investigation'&&document.querySelector('[data-slot="1"] strong').textContent==='SMS recovery'&&document.querySelector('[data-objective=release-study]').textContent.includes('Parked')`),'slot insertion shifts and parks fifth');
+ assert(!errors.length,'no browser exceptions: '+errors.join('\n'));assert(!requests.some(url=>url.includes('/api/')||url.startsWith('ws:')),'demo never uses workspace/terminal APIs');
+ ws.close();console.log('PASS');
+})().catch(error=>{console.error(error.stack);process.exit(1)});
+'''
+    try:
+        deadline = time.monotonic() + 10
+        while not (profile / 'DevToolsActivePort').exists():
+            assert process.poll() is None and time.monotonic() < deadline, 'Chrome did not start'
+            time.sleep(.05)
+        result = subprocess.run(['node', '-e', driver, str(profile),
+                                 f'http://127.0.0.1:{server.server_port}/demos/objectives/index.html'],
+                                capture_output=True, text=True, timeout=90)
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert 'PASS' in result.stdout
+    finally:
+        process.terminate()
+        process.wait(timeout=10)
+        server.shutdown()
+        server.server_close()

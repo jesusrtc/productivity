@@ -8,5 +8,8 @@ the prototype as authorization to migrate workspace or Assistant data.
 
 Keep the demo sandboxed and its network connections disabled. The real Home
 terminal remains mounted but hidden while the demo is selected; opening the
-demo must not launch a real terminal. Up to three simulated objectives occupy
-the focus slots; replacing a slot retains hidden simulation state.
+demo must not launch a real terminal. It now mirrors the production shell:
+Objectives/current-task tabs, five ordered focus slots and hover switching,
+flat terminal groups, native inline Markdown editing and left-menu subtabs.
+Slot insertion shifts later objectives down and parks the fifth; colors belong
+to positions. The new asset bucket flow is experimental in this demo only.

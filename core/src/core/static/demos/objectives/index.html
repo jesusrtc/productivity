@@ -3,25 +3,30 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'none'; img-src 'self' data:; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'none'; img-src 'self' data:; base-uri 'none'; form-action 'none'">
 <title>Objectives demo</title>
+<link rel="stylesheet" href="../../css/lab-shell.css">
 <link rel="stylesheet" href="./objectives.css">
+<script src="../../vendor/marked@12.0.1/marked.min.js" defer></script>
+<script src="../../vendor/dompurify@3.4.15/purify.min.js" defer></script>
+<script src="../../js/lib/markdown-content.js" defer></script>
+<script src="../../vendor/lab-markdown-editor/markdown-editor.min.js" defer></script>
 <script src="./objectives.js" defer></script>
 </head>
 <body>
 <div id="lab-objectives-proposal" aria-label="Workspace objectives proposal">
   <div class="ob-shell"><span><strong>Objectives demo</strong> <span class="ob-muted">/ Simulated workspace</span></span><div class="ob-demo-actions"><span class="ob-muted">Demo data only</span><button type="button" class="ob-action" data-reset>Reset demo</button></div></div>
+  <nav class="ob-focus" aria-label="Objectives navigation" data-focus></nav>
 
   <section class="ob-dialog" data-dialog hidden aria-label="Objective action"></section>
   <div class="ob-layout">
     <aside class="ob-overview" aria-label="Objective resources and worktrees">
-      <nav class="ob-focus" aria-label="Objectives in focus" data-focus></nav>
       <div data-overview></div>
     </aside>
     <main class="ob-reader" aria-label="Selected resource" data-reader></main>
     <aside class="ob-terminals" aria-label="Terminals by objective and worktree" data-terminals></aside>
   </div>
-  <div class="ob-message" aria-live="polite" data-message>Drag resources onto a worktree or terminal. Hover a document to reveal its subtabs.</div>
+  <div class="ob-message" aria-live="polite" data-message>Drag assets onto a task, into a bucket, or into a simulated terminal. Hover a document to reveal its subtabs.</div>
 </div>
 
 </body>
