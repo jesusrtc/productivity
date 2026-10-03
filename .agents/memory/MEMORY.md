@@ -1,5 +1,7 @@
 # Memory index
 
+- [Objective assets share the shell cache version](objective-assets-share-cache-version.md) — fingerprint Objective/demo files and version all sandbox dependencies for normal reloads.
+
 - [Demo task list is navigation-only](demo-task-list-is-navigation-only.md) — middle task-mode header owns completion/editing; one parent task expands at a time.
 - [Demo subtasks inherit parent context](demo-subtasks-inherit-parent-context.md) — console bundles follow Objective → parent task → subtask with exact references.
 - [Demo asset stars share context](demo-asset-stars-share-context.md) — stars preserve task membership; asset drops choose task icons and Unassigned opens middle tasks.

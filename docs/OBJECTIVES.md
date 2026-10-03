@@ -110,7 +110,8 @@ switching objectives exits task focus. The red **×** in the working area's
 upper-right corner closes task mode and returns to the task list, restoring
 the complete sidebar and objective tab. It remains available while browsing
 task assets or using Off/Semi, and navigation saves outgoing document drafts.
-The selected mode is browser-local.
+It follows the working area's viewport while scrolling and stays above the
+native notebook toolbar. The selected mode is browser-local.
 
 Drag documents, document subtabs, notebooks, links, sublinks, files, folders or
 worktrees onto a task row to attach references to them. Assets can also be
@@ -263,6 +264,10 @@ without waiting for a terminal-selection lookup.
 The `large-projects` workspace is the authorized staging target. Reproduction
 scripts and the measured scope of the 200 ms target are recorded in
 [the staging verification report](diagnostics/objectives-staging-2026-10-02.md).
+The additional resource/task cases and live notebook checks are recorded in
+[the asset-case report](diagnostics/objectives-asset-cases-2026-10-02.md).
+Run `scripts/perf/seed_objective_asset_cases.py` with an explicit staging
+`LAB_VAULT`; `--execute-notebooks` streams the synthetic evidence through Lab.
 
 ## Experimental asset buckets in the Home demo
 
@@ -270,6 +275,8 @@ scripts and the measured scope of the 200 ms target are recorded in
 one current objective/task tab, a five-choice hover menu, five ordered library
 slots, flat terminal groups and the native inline Markdown editor. Its data
 and terminals remain simulated; only browser-local demo state is saved.
+Normal reloads version both the shell assets and the sandbox's scripts/styles,
+including its native Markdown editor.
 
 The experimental sidebar order is **Unassigned**, **Objective · pinned**,
 **Tasks**, then **Task assets**. Unassigned contains registered assets that

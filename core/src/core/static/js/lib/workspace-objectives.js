@@ -7,7 +7,7 @@
   const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const drafts = new Map(), linkDrafts = new Map();
   let bridge, dialog = null, hoverTimer, openView = null, activeDraft = null, activeLinkDraft = null, switchMenu = null, switchTimer;
-  let taskCloseButton, taskCloseHost, taskCloseObserver;
+  let taskCloseButton, taskCloseHost, taskCloseObserver, taskCloseResizeObserver, taskCloseFrame;
   const key = scope => (scope?.vault || '') + '::' + scope?.workspace_id;
   const context = () => bridge?.context?.();
   const data = () => cache.get(key(context()));
@@ -106,10 +106,21 @@
   function taskFocusHtml(task) {
     const mode=taskFocus().mode,count=taskAssets(task).length;return `<section class="objective-task-focus" data-task-id="${esc(task.id)}"><button type="button" class="objective-focused-task" data-open-task="${esc(task.id)}" draggable="true">${taskIcon(task)}<span>${esc(task.title)}</span></button><div class="objective-task-modes" role="group" aria-label="Task focus mode">${[['off','Off'],['semi','Semi'],['focus','Focus']].map(([id,label])=>`<button type="button" data-task-focus-mode="${id}" aria-pressed="${id===mode}" title="${esc({off:'Show all assets',semi:'Highlight task assets in their usual order',focus:'Show only task assets'}[id])}">${label}</button>`).join('')}<button type="button" data-task-assets="${esc(task.id)}" aria-label="Manage assets and icon for ${esc(task.title)}">${count} asset${count===1?'':'s'}</button></div></section>`;
   }
+  function positionTaskClose() {
+    if(!taskCloseHost?.isConnected||!taskCloseButton?.isConnected)return;
+    const box=taskCloseHost.getBoundingClientRect(),tabs=document.querySelector('.repo-tabs')?.getBoundingClientRect();
+    const size=taskCloseButton.getBoundingClientRect().width||36;
+    taskCloseButton.style.top=Math.max(box.top,tabs?.bottom||0)+16+'px';
+    taskCloseButton.style.left=Math.max(box.left+8,box.right-size-16)+'px';
+  }
+  function scheduleTaskClosePosition() {
+    if(taskCloseHost&&!taskCloseFrame)taskCloseFrame=requestAnimationFrame(()=>{taskCloseFrame=null;positionTaskClose();});
+  }
   function paintTaskClose() {
     const content=document.getElementById('content'),task=context()&&active(context().path)&&focusedTask();
     if(!task||!content){
-      taskCloseObserver?.disconnect();taskCloseObserver=null;taskCloseButton?.remove();
+      taskCloseObserver?.disconnect();taskCloseObserver=null;taskCloseResizeObserver?.disconnect();
+      if(taskCloseFrame)cancelAnimationFrame(taskCloseFrame);taskCloseFrame=null;taskCloseButton?.remove();
       taskCloseHost?.classList.remove('objective-task-center');taskCloseHost=null;return;
     }
     if(!taskCloseObserver){
@@ -120,7 +131,10 @@
       if(content.parentElement)taskCloseObserver.observe(content.parentElement,{childList:true});
     }
     const host=document.querySelector('.main.assistant-inline-host')||content;
-    if(taskCloseHost!==host){taskCloseHost?.classList.remove('objective-task-center');taskCloseHost=host;}
+    if(taskCloseHost!==host){
+      taskCloseHost?.classList.remove('objective-task-center');taskCloseHost=host;
+      taskCloseResizeObserver?.disconnect();taskCloseResizeObserver ||= new ResizeObserver(scheduleTaskClosePosition);taskCloseResizeObserver.observe(host);
+    }
     host.classList.add('objective-task-center');
     if(!taskCloseButton){
       taskCloseButton=document.createElement('button');taskCloseButton.type='button';
@@ -129,6 +143,7 @@
       taskCloseButton.innerHTML='<span aria-hidden="true">×</span>';
     }
     if(taskCloseButton.parentElement!==host)host.append(taskCloseButton);
+    positionTaskClose();
   }
   function taskAssetRow(asset) {
     const info=assetInfo(asset);if(!info)return '';
@@ -595,7 +610,8 @@
       rows[event.key==='Home'?0:event.key==='End'?rows.length-1:event.key==='ArrowDown'?(current+1)%rows.length:current<0?rows.length-1:(current+rows.length-1)%rows.length]?.focus();
     }else if(anchor&&event.key==='Escape')closeSwitchMenu();
   });
-  window.addEventListener('resize',closeSwitchMenu);
+  window.addEventListener('resize',()=>{closeSwitchMenu();scheduleTaskClosePosition();});
+  window.addEventListener('scroll',scheduleTaskClosePosition,true);
   document.addEventListener('scroll',event=>{if(switchMenu&&event.target.matches?.('.repo-tabs'))closeSwitchMenu();},true);
   document.addEventListener('click',event=>{
     if(active(context()?.path)&&event.target.closest?.('#sidebar,.repo-tabs,#termSessionList')

@@ -7,6 +7,7 @@ import json
 import logging
 import logging.handlers
 import os
+import re
 import threading
 import time
 from contextlib import asynccontextmanager
@@ -551,9 +552,23 @@ def create_app() -> FastAPI:
     app.include_router(code_search_route.router)
     app.include_router(settings_route.router)
 
-    # Mounted before /static so the more specific path wins: vendored,
-    # version-stamped libraries get immutable caching; everything else under
-    # /static keeps the default ETag/304 behavior.
+    # Register before /static so the sandbox document gets its asset version.
+    @app.get("/static/demos/objectives/index.html", response_class=HTMLResponse)
+    async def objectives_demo_page(request: Request):
+        # The sandbox has its own scripts/styles. Carry the shell version into
+        # those requests too; versioning only the iframe HTML leaves its assets
+        # cached, including the immutable native Markdown editor.
+        html = (_STATIC_DIR / "demos" / "objectives" / "index.html").read_text()
+        version = quote(request.query_params.get("v", "0"), safe="")
+        html = re.sub(
+            r'(<(?:script|link)\b[^>]*\b(?:src|href)=")([^"]+)(")',
+            lambda match: f'{match[1]}{match[2]}{"&" if "?" in match[2] else "?"}v={version}{match[3]}',
+            html,
+        )
+        return HTMLResponse(html, headers={"Cache-Control": "no-cache"})
+
+    # Vendored, version-stamped libraries get immutable caching; everything
+    # else under /static keeps the default ETag/304 behavior.
     app.mount(
         "/static/vendor",
         _ImmutableStaticFiles(directory=_STATIC_DIR / "vendor"),
@@ -660,6 +675,13 @@ def create_app() -> FastAPI:
         _STATIC_DIR / "js" / "lib" / "document-terminal.js",
         _STATIC_DIR / "js" / "lib" / "terminal-completion.js",
         _STATIC_DIR / "css" / "workspace-documents.css",
+        _STATIC_DIR / "js" / "lib" / "workspace-objectives.js",
+        _STATIC_DIR / "css" / "workspace-objectives.css",
+        _STATIC_DIR / "js" / "views" / "objectives-demo.js",
+        _STATIC_DIR / "css" / "objectives-demo.css",
+        _STATIC_DIR / "demos" / "objectives" / "index.html",
+        _STATIC_DIR / "demos" / "objectives" / "objectives.js",
+        _STATIC_DIR / "demos" / "objectives" / "objectives.css",
         _STATIC_DIR / "js" / "lib" / "resources.js",
         _STATIC_DIR / "css" / "resources.css",
         _STATIC_DIR / "js" / "lib" / "log-alert.js",
