@@ -190,6 +190,8 @@ html,body { padding:0; overflow:hidden; }
 #lab-objectives-proposal .ob-task-name[aria-pressed=true] { color:var(--ob-text); border-color:var(--ob-accent); background:#192a3d; }
 #lab-objectives-proposal .ob-sidebar-task > .ob-muted { font-size:10px; }
 #lab-objectives-proposal .ob-archive,#lab-objectives-proposal .ob-explorer { margin-top:18px; border-top:1px solid var(--ob-line); padding-top:10px; font-size:12px; }
+#lab-objectives-proposal .ob-worktree-roots { margin-top:18px; }
+#lab-objectives-proposal .ob-worktree-roots .ob-asset-line + .ob-asset-line { margin-top:5px; }
 #lab-objectives-proposal summary { cursor:pointer; color:var(--ob-muted); padding:4px 0; }
 #lab-objectives-proposal .ob-reader { position:relative; padding:25px 20px; font-size:13px; }
 #lab-objectives-proposal .ob-reader:has(.ob-close-task) .ob-reader-head { padding-right:48px; }

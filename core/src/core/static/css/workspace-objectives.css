@@ -42,8 +42,7 @@
 .objective-archive { margin:10px 12px 16px; font-size:11px; color:var(--text-dim); }
 .objective-archive > summary { cursor:pointer; padding:5px 0; }
 .objective-archive .objective-resources { padding:0; }
-[data-native-asset-tools] { display:inline-flex; margin-left:auto; }
-.objective-worktrees .objective-asset-tools { margin-left:auto; }
+.sidebar-scope-chip .objective-asset-tools { margin-left:auto; }
 .objective-resource-group { min-width:0; }
 .objective-resource-head,.objective-subtab-row { display:flex; gap:3px; min-width:0; align-items:center; }
 .objective-resource { flex:1; min-width:0; width:auto; box-sizing:border-box; }

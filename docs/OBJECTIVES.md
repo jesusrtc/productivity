@@ -44,12 +44,11 @@ The sidebar order is:
 2. **Objective · pinned** assets shared across every task.
 3. **Tasks**, with a completion/status badge and navigation-only task rows.
 4. **Task assets**, including the selected task's mandatory details and attachments.
-5. Collapsed **Archive**, then fixed gray **Root** and **Objective** folders and
-   associated worktrees.
+5. Collapsed **Archive**, then fixed gray **Root** and **Objective** folders.
 6. The native recently updated files and Files tree for that selection.
 
 Click **Unassigned** to open the task list in the middle and drag assets onto
-its task rows. Each asset, document subtab, link child and native file/folder
+its task rows. Each asset, document subtab, link child and associated worktree
 has a **☆/★** control. Starring adds shared Objective context without removing
 any task associations; unstarring keeps task associations. The **⋯** menu
 classifies an asset as Unassigned, Objective, a particular task, or Archive.
@@ -59,14 +58,24 @@ but retains the source for recovery; expand it to move references back. A task's
 mandatory details cannot be detached or archived. Only registered references
 appear in Unassigned; the native Files tree supplies additional sources.
 
+Associated worktrees are assets too: an unclassified worktree appears in
+Unassigned; dropping it on a task puts it in that task's assets. Switching
+tasks changes the worktrees shown there. A shared star makes a worktree
+available across tasks, and Archive can set it aside. Only Root and Objective
+stay in the fixed scope list. They remain draggable terminal references.
+Files and folders inside the native explorer have no stars or classification
+controls; the worktree is the asset. A file dragged onto a task or explicitly
+linked as an asset still gets its own asset controls in the buckets.
+
 **Root** always opens the workspace directory. **Objective** opens the selected
 objective's own directory and changes when another objective is selected.
 Both remain gray rather than taking a reserved worktree color. Creating an
 objective creates its directory, including when it has no resources yet.
 
 The **+** beside Worktrees uses the existing folder/worktree chooser, including
-its create-worktree action. Association makes the worktree visible without
-pinning it. A checkout can belong to one objective in this workspace. Each
+its create-worktree action. Association first makes the worktree an Unassigned
+asset, ready to attach to a task or star as shared context. A checkout can
+belong to one objective in this workspace. Each
 focus slot has a fixed objective color and four reserved contrasting worktree
 colors. An objective and its worktrees adopt the destination slot's palette
 when inserted or moved; shifted objectives also adopt their new slot colors.
@@ -348,8 +357,12 @@ right-side asset icon when chosen. Clicking
 Dropping into Unassigned removes optional task associations and shared pins.
 **Archive** keeps sources available for recovery while removing them from
 shared/task context; expand it and move an asset back to recover it. Mandatory
-task details cannot be detached or archived. **Files & worktrees** supplies
-additional sources without listing every checkout file as unassigned.
+task details cannot be detached or archived. Worktrees follow the same asset
+buckets as documents and links; the demo includes an Unassigned triage
+worktree to try attaching it. The gray Root and Objective rows remain visible
+outside the collapsible **Files** explorer. Its file/folder rows have no stars
+or classification controls and supply additional sources without listing every
+checkout file as unassigned.
 
 Drop a task onto a simulated terminal name to associate it. Drop it inside the
 console to paste the same scoped **Context:** / **This task:** prompt as the

@@ -6,7 +6,7 @@
       const focusSlots = 5;
       const iconNames = {document:'file-text',assistant:'files',notebook:'notebook',link:'external-link',task:'square-check',file:'file-code',folder:'folder'};
       const objectives = [
-        {id:'sms',name:'SMS recovery',purpose:'Restore reliable phone verification',color:'#58a6ff',selected:'phone-fix',selectedItem:'incident',draft:'',worktrees:[{id:'phone-fix',name:'sdui/fix-phone',repo:'client',color:'#58a6ff'},{id:'checkpoint',name:'checkpoint/verification',repo:'client',color:'#ff7b72'}],items:[
+        {id:'sms',name:'SMS recovery',purpose:'Restore reliable phone verification',color:'#58a6ff',selected:'phone-fix',selectedItem:'incident',draft:'',worktrees:[{id:'phone-fix',name:'sdui/fix-phone',repo:'client',color:'#58a6ff'},{id:'checkpoint',name:'checkpoint/verification',repo:'client',color:'#ff7b72'},{id:'triage',name:'recovery/triage',repo:'client',color:'#3fb950'}],items:[
           {id:'incident',kind:'document',title:'Incident notes',scope:null,body:'Investigate failed phone verification and record the recovery plan.'},
           {id:'track',kind:'assistant',title:'Investigation — Track 3',scope:null,body:'Linked Assistant document. Its existing content and tasks remain owned by Assistant.'},
           {id:'volume',kind:'notebook',title:'Verification volume.ipynb',scope:null},
@@ -40,7 +40,7 @@
         normalizeObjective(o);
         o.items.filter(i=>i.kind==='task').forEach(task=>{task.due=dateOffset(index===1?2:index===2?-1:6);});
       });
-      const sample=objectives[0];sample.objectiveAssets=['incident','channel','folder::root','folder::objective'];
+      const sample=objectives[0];sample.objectiveAssets=['incident','channel'];
       sample.items.push({id:'metrics-query',kind:'file',title:'queries/volume.sql',scope:'phone-fix',body:'SELECT entry_point, COUNT(*) FROM verification_events GROUP BY entry_point;',tabs:[]},
         {id:'google-doc',kind:'link',title:'Telesign Incident Room — Track 3',scope:null,url:'https://docs.google.com/document/d/demo/edit',tldr:'Shared incident record with investigation and recovery tabs.',tabs:[{id:'google-investigation',title:'Investigation',url:'https://docs.google.com/document/d/demo/edit?tab=investigation',body:''},{id:'google-recovery',title:'Recovery',url:'https://docs.google.com/document/d/demo/edit?tab=recovery',body:''}]});
       sample.items.find(i=>i.id==='validate').assets=['volume','worktree::phone-fix'];
@@ -184,7 +184,7 @@
         if(type){const glyph=element('span','ft-icon ft-'+type);glyph.setAttribute('aria-hidden','true');return glyph;}
         return icon(info.kind==='worktree'?'git-branch':iconNames[info.kind]||'file-text');
       }
-      function catalog(o) {return [...new Set(['folder::root','folder::objective',...o.worktrees.map(t=>'worktree::'+t.id),...o.items.filter(i=>i.kind!=='task'&&i.listed!==false&&!i.taskDocument).map(i=>i.id),...o.assetShelf,...o.objectiveAssets,...o.archiveAssets,...taskEntries(o).flatMap(t=>t.assets||[])])].filter(ref=>assetInfo(o,ref));}
+      function catalog(o) {return [...new Set([...o.worktrees.map(t=>'worktree::'+t.id),...o.items.filter(i=>i.kind!=='task'&&i.listed!==false&&!i.taskDocument).map(i=>i.id),...o.assetShelf,...o.objectiveAssets,...o.archiveAssets,...taskEntries(o).flatMap(t=>t.assets||[])])].filter(ref=>assetInfo(o,ref));}
       function taskContext(o,task) {
         const parent=parentTask(o,task);
         function assets(refs,owner) {return refs.filter(ref=>!o.archiveAssets.includes(ref)).map(ref=>{
@@ -229,13 +229,14 @@
         star.setAttribute('aria-label',(shared?'Unstar ':'Star ')+title);star.setAttribute('aria-pressed',shared);star.title=shared?'Unstar · keep task associations':'Star · share across all tasks';return star;
       }
       function terminalDrop(node,o,ref) {attachDrop(node,'application/x-objective-terminal',id=>{const t=terminals.find(t=>t.id===id&&t.objective===o.id),info=assetInfo(o,ref);if(!t||!info){message('Choose a terminal in '+o.name);return;}t.linked=ref;t.linkedTab=null;render();message('Linked '+t.name+' to '+info.title+' · launch folder kept');});}
-      function assetRow(o,ref,task=null) {
+      function assetRow(o,ref,task=null,controls=true) {
         const info=assetInfo(o,ref),line=element('div','ob-asset-line');line.dataset.asset=ref;if(!info)return line;
         const main=info.item?documentRow(info.item,o):button('','ob-resource',()=>{if(info.tree)o.selected=info.tree.id;renderOverview();message(info.title+' · '+info.reference);});
         if(ref==='folder::root'||ref==='folder::objective')line.classList.add('ob-fixed-root');
         if(!info.item)main.append(assetIcon(info),element('span','ob-label',info.title),element('span','ob-kind',info.kind==='worktree'?'Worktree':'Folder'));
         if(info.tab){line.replaceChildren(resourceRow(info.item,o,info.tab));}else line.append(main);
         const target=line.querySelector('.ob-resource')||main;dragAsset(target,o,ref);terminalDrop(target,o,ref);
+        if(!controls)return line;
         const tools=element('div','ob-asset-tools');const menu=button('⋯','ob-quiet',()=>assetBucketDialog(o,ref));menu.setAttribute('aria-label','Classify '+info.title);tools.append(starButton(o,ref),menu);
         if(task&&ref!==detailsRef(task)){const remove=button('×','ob-quiet',()=>{task.assets=task.assets.filter(r=>r!==ref);if(task.iconAsset===ref)task.iconAsset=null;render();message('Detached '+info.title+' · source kept');});remove.setAttribute('aria-label','Detach '+info.title+' from '+task.title);tools.append(remove);}else if(task)tools.append(element('span','ob-required','Details'));
         (line.querySelector('.ob-resource-head')||line).append(tools);return line;
@@ -281,12 +282,13 @@
         const task=activeTask(o);renderBucket(host,o,'task','TASK ASSETS'+(task?' · '+task.title.toUpperCase():''),task?taskAssetRefs(task):[],null,task);
         if(!task)host.querySelector('[data-bucket=task]').append(element('p','ob-empty','Select a task to see its assets.'));
         const archive=element('details','ob-archive');archive.open=o.archiveOpen===true;archive.ontoggle=()=>{o.archiveOpen=archive.open;persist();};const summary=element('summary','','Archive · '+o.archiveAssets.length);archive.append(summary);attachDrop(archive,'application/x-objective-item',ref=>classifyAsset(o,ref,'archive'));renderBucket(archive,o,'archive','ARCHIVED ASSETS',o.archiveAssets);host.append(archive);
-        const explorer=element('details','ob-explorer');explorer.open=o.explorerOpen===true;explorer.ontoggle=()=>{o.explorerOpen=explorer.open;persist();};explorer.append(element('summary','','Files & worktrees'));heading(explorer,'WORKTREES',worktreeDialog);['folder::root','folder::objective',...o.worktrees.map(t=>'worktree::'+t.id)].forEach(ref=>explorer.append(assetRow(o,ref)));
-        const tree=o.worktrees.find(t=>t.id===o.selected);if(tree){heading(explorer,'RECENTLY UPDATED');o.items.filter(i=>i.scope===tree.id&&i.listed===false).slice(0,2).forEach(i=>explorer.append(fileButton(i.title,o,tree)));heading(explorer,'FILES · '+tree.name,()=>itemDialog('file',tree.id));const files=o.items.filter(i=>i.scope===tree.id&&i.listed===false);const folders=[...new Set(files.filter(i=>i.title.includes('/')).map(i=>i.title.split('/')[0]+'/'))].sort();folders.forEach(folder=>{const id=o.id+'/'+tree.id+'/'+folder,b=button('','ob-file',()=>{openFolders.has(id)?openFolders.delete(id):openFolders.add(id);renderOverview();persist();});b.setAttribute('aria-expanded',openFolders.has(id));b.append(icon('folder'),element('span','',folder));const ref='folder::'+tree.id+'::'+folder;dragAsset(b,o,ref);terminalDrop(b,o,ref);const row=element('div','ob-asset-line');row.dataset.asset=ref;row.append(b,starButton(o,ref));explorer.append(row);if(openFolders.has(id))files.filter(i=>i.title.startsWith(folder)).forEach(i=>explorer.append(fileButton(i.title,o,tree)));});files.filter(i=>!i.title.includes('/')).forEach(i=>explorer.append(fileButton(i.title,o,tree)));}host.append(explorer);
+        const scopes=element('section','ob-worktree-roots');heading(scopes,'WORKTREES',worktreeDialog);['folder::root','folder::objective'].forEach(ref=>scopes.append(assetRow(o,ref,null,false)));host.append(scopes);
+        const explorer=element('details','ob-explorer');explorer.open=o.explorerOpen===true;explorer.ontoggle=()=>{o.explorerOpen=explorer.open;persist();};explorer.append(element('summary','','Files'));
+        const tree=o.worktrees.find(t=>t.id===o.selected);if(tree){heading(explorer,'RECENTLY UPDATED');o.items.filter(i=>i.scope===tree.id&&i.listed===false).slice(0,2).forEach(i=>explorer.append(fileButton(i.title,o,tree)));heading(explorer,'FILES · '+tree.name,()=>itemDialog('file',tree.id));const files=o.items.filter(i=>i.scope===tree.id&&i.listed===false);const folders=[...new Set(files.filter(i=>i.title.includes('/')).map(i=>i.title.split('/')[0]+'/'))].sort();folders.forEach(folder=>{const id=o.id+'/'+tree.id+'/'+folder,b=button('','ob-file',()=>{openFolders.has(id)?openFolders.delete(id):openFolders.add(id);renderOverview();persist();});b.setAttribute('aria-expanded',openFolders.has(id));b.append(icon('folder'),element('span','',folder));const ref='folder::'+tree.id+'::'+folder;dragAsset(b,o,ref);terminalDrop(b,o,ref);explorer.append(b);if(openFolders.has(id))files.filter(i=>i.title.startsWith(folder)).forEach(i=>explorer.append(fileButton(i.title,o,tree)));});files.filter(i=>!i.title.includes('/')).forEach(i=>explorer.append(fileButton(i.title,o,tree)));}host.append(explorer);
       }
       function fileButton(path,o,tree) {
         const getItem=()=>o.items.find(i=>i.title===path&&i.scope===tree.id&&i.listed===false);
-        return assetRow(o,getItem().id);
+        const row=resourceRow(getItem(),o);row.className='ob-file';return row;
       }
       function renderReader() {
         const host=find('reader'),o=objective();host.replaceChildren();

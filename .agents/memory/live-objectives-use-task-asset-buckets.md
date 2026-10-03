@@ -9,3 +9,6 @@ worktrees. Stars share context without removing task associations. Only the
 selected parent expands. Completion/editing live in the working task header,
 which persists while opening native assets; red close exits task mode.
 Optional shared/archive/shelf fields require no registry migration.
+
+The later [worktree asset rule](worktrees-follow-task-asset-buckets.md) removes
+explorer file/folder stars and places worktrees in the same asset buckets.

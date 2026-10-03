@@ -1,5 +1,7 @@
 # Memory index
 
+- [Worktrees follow task asset buckets](worktrees-follow-task-asset-buckets.md) — only Root/Objective stay fixed; worktrees are Unassigned/task/shared assets, explorer files have no stars.
+
 - [Task assets stay put across subtasks](task-assets-stay-put-across-subtasks.md) — reserve the largest child group so task clicks keep the asset section at a fixed position.
 
 - [Task agent drops use scoped prompts](task-agent-drops-use-scoped-prompts.md) — Context/parent/This task labels, typed references and explicit current-task scope; unsent paste.
