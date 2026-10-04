@@ -11,6 +11,7 @@ lab migrations assistant-subtabs
 lab migrations assistant-records-v2
 lab migrations workspace-agent-context
 lab migrations vault-workspace-names
+lab migrations workspace-objectives
 ```
 
 Read the applicable guide after a Lab update or when older instructions no
@@ -53,6 +54,9 @@ Lab alone does not migrate client data.
 
 ## Other compatibility guides
 
+- `workspace-objectives`: workspace-owned `objectives/<folder>/.objective.json`
+  files, discovery, relative owned-document paths and lossless conversion of the
+  previous centralized registry. UI preferences remain separate from content.
 - `workspace-agent-context`: workspace-owned instructions and the existing
   commands for inspecting or removing recognized legacy Lab symlinks.
 - `vault-workspace-names`: current terminology and legacy path compatibility.

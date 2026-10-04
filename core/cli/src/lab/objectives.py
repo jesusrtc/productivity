@@ -1,7 +1,7 @@
 """Workspace-owned objectives; Assistant documents are references, never copies.
 
-The registry lives beside workspace state, while each owned document is an
-ordinary Markdown file with stable embedded subtab IDs. No workspace/tasks
+Each Objective is defined by its folder's .objective.json. Owned documents are
+ordinary Markdown files with stable embedded subtab IDs. No workspace/tasks
 catalog fields are repurposed. Reads do not launch terminals or scan worktrees.
 """
 from __future__ import annotations
@@ -15,7 +15,7 @@ import re
 from urllib.parse import urlparse
 import uuid
 
-from lab import assistant_documents, assistant_records, paths, storage, workspace_identity
+from lab import assistant_documents, assistant_records, objective_store, paths, storage, workspace_identity
 
 PALETTES = [
     ['#58a6ff', '#ff7b72', '#3fb950', '#d29922'],
@@ -46,18 +46,30 @@ def directory(root, workspace_id):
 
 
 def registry(root, workspace_id):
-    return directory(root, workspace_id) / '.lab' / 'objectives.json'
+    """Workspace UI preferences only; Objective content lives in its own folder."""
+    return objective_store.state_file(directory(root, workspace_id))
 
 
-def load(root, workspace_id):
-    file = registry(root, workspace_id)
-    if file.is_file():
-        data = storage.read_json(file)
+def load(root, workspace_id, *, _locked=False):
+    folder = directory(root, workspace_id)
+    if _locked:
+        data = objective_store.read(folder)
     else:
-        data = {'version': 1, 'enabled': False, 'focused': [], 'objectives': [], 'terminal_links': {}}
+        with objective_store.lock(folder):
+            data = objective_store.read(folder)
     saved_revision = revision(data)
     _slot_colors(data)
     return {**data, 'revision': saved_revision}
+
+
+def migrate(root, workspace_id, *, apply=False):
+    folder = directory(root, workspace_id)
+    with workspace_identity.operation_lease(root, workspace_id), objective_store.lock(folder, write=apply):
+        return objective_store.migration(folder, apply=apply)
+
+
+def _objective_dir(folder, objective):
+    return Path(objective.get('path', folder / 'objectives' / objective['id']))
 
 
 def _text(value, name='Name', limit=512):
@@ -108,7 +120,7 @@ def _folder_target(folder, objective, linked):
     if not isinstance(linked, dict) or not isinstance(linked.get('root'), str) or not isinstance(linked.get('path', ''), str):
         raise ValueError('Choose a folder in this objective')
     root = Path(linked['root']).resolve()
-    allowed = [folder.resolve(), (folder/'objectives'/objective['id']).resolve(), *(Path(t['path']).resolve() for t in objective['worktrees'])]
+    allowed = [folder.resolve(), _objective_dir(folder, objective).resolve(), *(Path(t['path']).resolve() for t in objective['worktrees'])]
     target = (root / linked.get('path', '')).resolve()
     if root not in allowed or not target.is_relative_to(root) or not target.is_dir():
         raise ValueError('Choose a folder in this objective')
@@ -282,7 +294,6 @@ def payload(root, workspace_id):
     data['slot_palettes'] = deepcopy(PALETTES)
     folder = directory(root, workspace_id)
     for objective in data['objectives']:
-        objective['path'] = str(folder / 'objectives' / objective['id'])
         for field in ('shared_assets', 'archived_assets', 'asset_shelf'):
             objective.setdefault(field, [])
         for tree in objective['worktrees']:
@@ -375,7 +386,7 @@ def _resource(folder, objective, action):
         if not item['title'].endswith(extension):
             item['title'] += extension
         filename = re.sub(r'[/\\\x00-\x1f]', '_', item['title']).strip('. ')
-        relative = Path('objectives') / objective['id'] / filename
+        relative = _objective_dir(folder, objective).relative_to(folder) / filename
         while (folder / relative).exists():
             relative = relative.with_name(relative.stem + '-' + identifier()[:6] + extension)
         item['path'] = relative.as_posix()
@@ -388,7 +399,7 @@ def _resource(folder, objective, action):
             _write_document(folder, item, action.get('body', ''))
     elif kind == 'file':
         file_root = Path(action.get('file_root') or folder).resolve()
-        if file_root not in [folder.resolve(), (folder/'objectives'/objective['id']).resolve(), *(Path(t['path']).resolve() for t in objective['worktrees'])]:
+        if file_root not in [folder.resolve(), _objective_dir(folder, objective).resolve(), *(Path(t['path']).resolve() for t in objective['worktrees'])]:
             raise ValueError('File folder must belong to this objective')
         target = (file_root / str(action.get('path', ''))).resolve()
         if not target.is_relative_to(file_root) or not target.is_file():
@@ -426,8 +437,8 @@ def _task_details(folder, objective, task, parent=None, resource_id=None):
 
 def mutate(root, workspace_id, action, expected=None):
     folder = directory(root, workspace_id)
-    with workspace_identity.operation_lease(root, workspace_id):
-        data = load(root, workspace_id)
+    with workspace_identity.operation_lease(root, workspace_id), objective_store.lock(folder, write=True):
+        data = load(root, workspace_id, _locked=True)
         if expected is not None and data['revision'] != expected:
             raise ValueError('Objectives changed elsewhere. Refresh and retry.')
         data.pop('revision')
@@ -678,7 +689,7 @@ def mutate(root, workspace_id, action, expected=None):
             if sum(bool(target) for target in [resource, linked_file, linked_folder, view, task_id]) > 1:
                 raise ValueError('Choose one terminal target')
             if linked_file or linked_folder:
-                allowed = [folder.resolve(), (folder/'objectives'/objective['id']).resolve(), *(Path(t['path']).resolve() for t in objective['worktrees'])]
+                allowed = [folder.resolve(), _objective_dir(folder, objective).resolve(), *(Path(t['path']).resolve() for t in objective['worktrees'])]
                 linked = linked_file or linked_folder
                 if not isinstance(linked.get('root'), str) or not isinstance(linked.get('path', ''), str):
                     raise ValueError('Choose a file or folder target')
@@ -713,5 +724,5 @@ def mutate(root, workspace_id, action, expected=None):
             # Preserve owned files so unlinking never destroys user content.
         else:
             raise ValueError('Unsupported objective action')
-        storage.write_json(registry(root, workspace_id), data)
+        objective_store.save(folder, data)
     return payload(root, workspace_id)

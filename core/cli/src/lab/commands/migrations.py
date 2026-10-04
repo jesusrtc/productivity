@@ -14,6 +14,7 @@ GUIDES = {
     'assistant-records-v2': 'migrations/assistant-records-v2.md',
     'workspace-agent-context': 'migrations/workspace-agent-context.md',
     'vault-workspace-names': 'migrations/vault-workspace-names.md',
+    'workspace-objectives': 'migrations/workspace-objectives.md',
 }
 
 

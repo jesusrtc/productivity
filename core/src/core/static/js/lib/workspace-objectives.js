@@ -718,7 +718,8 @@
     if(o&&e.target.closest?.('[data-objectives-sidebar] [data-open-objective-tasks]')){
       const documents=[...new Set(o.tasks.map(t=>t.document_id))].map(id=>o.resources.find(r=>r.id===id)),resource=documents[0];
       // Empty lists still have an actual source: the objective's task registry.
-      const reference=documents.length===1?resourceReference(resource):context().path+'/.lab/objectives.json#objective='+encodeURIComponent(o.id)+'&view=tasks';
+      const manifest=o.manifest_path||context().path+'/.lab/objectives.json#objective='+encodeURIComponent(o.id);
+      const reference=documents.length===1?resourceReference(resource):manifest+(manifest.includes('#')?'&':'#')+'view=tasks';
       if(dragReference(e.dataTransfer,reference))e.dataTransfer.setData(resourceMime,JSON.stringify({scope:key(context()),objective_id:o.id,view:'tasks'}));
     }
   });

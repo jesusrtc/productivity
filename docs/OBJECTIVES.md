@@ -224,7 +224,8 @@ input. Local objects use their captured absolute source path, external links
 use their URL, and document subtabs retain `#tab=<id>`. Shell quoting preserves
 spaces and special characters. Tasks uses its common details document when
 there is one; empty lists or lists with multiple detail documents reference the
-objective's entry in `.lab/objectives.json`. Console drops never create an
+Objective's `.objective.json#view=tasks`. Legacy workspaces still reference
+their original registry until converted. Console drops never create an
 association. Ordinary workspace links and file/folder rows also support these
 reference pastes.
 
@@ -251,42 +252,67 @@ is sent. Ordinary asset drops keep their existing shell-quoted reference paste.
 
 ## Storage and commands
 
-The version-1 registry is `<workspace>/.lab/objectives.json`. Owned content
-lives under `<workspace>/objectives/<objective-id>/` as ordinary Markdown and
-notebook files. Markdown uses the existing embedded subtab format with stable
-IDs. Assistant resources store references. Existing-file resources store their
-folder and relative path. Terminal mappings use stable session UUIDs and one
+Each Objective's source of truth is
+`<workspace>/objectives/<folder>/.objective.json`. Lab discovers these files
+directly, including files created or edited outside Lab. The folder name may
+differ from its stable Objective ID. New UI-created Objectives currently use
+their ID as the folder name. The version-1 manifest owns its name, purpose,
+resources, worktrees, tasks and shared/task/archive associations.
+
+Owned Markdown and notebooks live beside the manifest; their stored `path`
+is relative to that Objective folder. Markdown uses the existing embedded
+subtab format with stable IDs. Assistant resources retain their original
+location and ID references. Existing-file resources retain their source folder
+and relative path. Links are `kind: "link"` manifest entries; they do not need
+individual files. Unregistered explorer files are not automatically assets.
+
+Only UI/runtime preferences live in `.lab/objectives-state.json`: enabled state,
+ordered Objective IDs, the five focused IDs and terminal mappings. This file
+contains no Objective resources, tasks or content. Slot colors are computed.
+Terminal mappings use stable session UUIDs and one
 target: a resource/subtab/sublink, file, folder, or `view: "tasks"`. External link
 details use optional `tldr`, `metadata` and nested `sublinks` fields. Sublinks
 have stable IDs; terminal mappings use `sub_link_id` to retain the exact target.
 Removing a sublink falls back to its parent resource for associated terminals.
-Existing links remain readable without any migration. Folder paths are
+Existing link fields remain readable. Folder paths are
 validated within the objective's workspace, own directory, or associated
 checkout roots, including after resolving symlinks. The
-existing `focused` array holds ordered objective IDs; empty slots can contain
+state file's `focused` array holds ordered Objective IDs; empty slots can contain
 `null`. Focus mutations accept a zero-based `slot` from 0 to 4. Older three-slot
-registries remain readable without a migration.
+legacy registries remain readable without modification.
 
 Objectives can have optional `shared_assets`, `archived_assets` and `asset_shelf`
 reference lists. These are read as empty when absent, without rewriting the
-registry or changing its version.
+manifest or changing its version.
 
 Tasks can have optional `assets` entries with stable IDs targeting resources,
 document subtabs, link children or folders. `icon_asset_id` selects an asset's
 display icon; `details` selects the mandatory task details. Terminal mappings
 can use `task_id` instead of another target. Legacy tasks need no migration.
 
-Objective mutations use Lab's workspace lease and atomic writers. Browser
-writes include the registry revision; document edits also include the content
+Objective mutations use Lab's workspace lease, a workspace-specific metadata
+writer lock and atomic writers. Unchanged sibling manifests are not rewritten.
+Browser writes include the combined file/state revision; document edits also include the content
 revision. Stale writes are rejected and the current state is refreshed. A
 resource unlink keeps its file, and a task's required details cannot be unlinked.
 
-Use Lab rather than editing the registry by hand:
+Manifests may be edited directly. Use Lab for validated mutations, live notebook
+renames and converting the previous `.lab/objectives.json` format:
 
 ```bash
 lab objective ls --workspace example
 lab objective apply --workspace example --file /tmp/objective-action.json
+lab objective migrate --workspace example
+lab objective migrate --workspace example --apply
 ```
+
+Migration previews make no changes. Applying preflights all files, retains a
+byte-identical `.lab/objectives.legacy.json` backup, writes per-folder manifests,
+then removes the old registry. IDs, unknown fields, document bytes, subtabs,
+task associations and Assistant ownership are preserved. Interrupted migrations
+can be retried. Ordinary reads do not convert old data; the first successful
+Objective mutation does. Invalid actions do not migrate it.
+See `lab migrations workspace-objectives` for the format and migration guide.
 
 An action file for first creation can contain:
 

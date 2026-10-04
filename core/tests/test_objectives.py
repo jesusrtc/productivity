@@ -164,10 +164,10 @@ def test_legacy_worktree_paths_resolve_for_terminal_grouping_without_registry_wr
     folder, oid = objective_workspace
     checkout = monorepo/'actual-checkout'; checkout.mkdir()
     shortcut = monorepo/'shortcut-checkout'; shortcut.symlink_to(checkout, target_is_directory=True)
-    apply(monorepo, oid, 'worktree', path=str(shortcut), label='fix')
-    registry = objectives.registry(monorepo, 'demo')
+    data = apply(monorepo, oid, 'worktree', path=str(shortcut), label='fix')
+    registry = Path(data['objectives'][0]['manifest_path'])
     saved = storage.read_json(registry)
-    saved['objectives'][0]['worktrees'][0].pop('resolved_path')
+    saved['worktrees'][0].pop('resolved_path', None)
     storage.write_json(registry, saved)
     before = registry.read_bytes()
     tree = objectives.payload(monorepo, 'demo')['objectives'][0]['worktrees'][0]

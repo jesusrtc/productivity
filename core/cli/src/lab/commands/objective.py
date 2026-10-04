@@ -1,4 +1,4 @@
-"""Objectives use their own registry; existing workspace/task metadata stays intact."""
+"""Objectives live in their own folders; workspace/task metadata stays intact."""
 import json
 from pathlib import Path
 import click
@@ -14,8 +14,23 @@ def objective_group():
 @objective_group.command('ls')
 @click.option('--workspace', default=None)
 def list_objectives(workspace):
-    """Print the objective registry and owned document content."""
-    click.echo(json.dumps(objectives.payload(paths.find_monorepo_root(), resolve_workspace_id(workspace)), indent=2))
+    """Discover Objective files and print their owned document content."""
+    try:
+        click.echo(json.dumps(objectives.payload(paths.find_monorepo_root(), resolve_workspace_id(workspace)), indent=2))
+    except (ValueError, OSError, KeyError) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+@objective_group.command('migrate')
+@click.option('--workspace', default=None)
+@click.option('--apply', 'apply_changes', is_flag=True, help='Write Objective files and preserve a byte-identical legacy backup.')
+def migrate(workspace, apply_changes):
+    """Preview or convert the old registry to per-folder .objective.json files."""
+    try:
+        result = objectives.migrate(paths.find_monorepo_root(), resolve_workspace_id(workspace), apply=apply_changes)
+        click.echo(json.dumps(result, indent=2))
+    except (ValueError, OSError, KeyError) as exc:
+        raise click.ClickException(str(exc)) from exc
 
 
 @objective_group.command('apply')
