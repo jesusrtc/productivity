@@ -13645,6 +13645,130 @@
     return String(s && s.agent_session_objective || '').trim();
   }
 
+  let _termRequestHistoryModal = null;
+  const _termRequestSubmitTimers = new Map();
+  const _termRequestCommandDrafts = new Map();
+
+  function _termRequestCommandInput(name, data) {
+    let draft = _termRequestCommandDrafts.has(name) ? _termRequestCommandDrafts.get(name) : '';
+    const commands = [];
+    if (/^\x1b(?:\[<\d+;\d+;\d+[Mm]|\[[IO])$/.test(data)) return commands;
+    if (data.startsWith('\x1b[200~') && data.endsWith('\x1b[201~')) {
+      const text = data.slice(6, -6);
+      _termRequestCommandDrafts.set(name, /[\r\n\x1b]/.test(text) ? null : draft === null ? null : draft + text);
+      return commands;
+    }
+    for (const char of data) {
+      if (char === '\r') {
+        if (draft !== null && /^\/(clear|new)$/.test(draft.trim())) commands.push(draft.trim());
+        draft = '';
+      } else if (char === '\x03' || char === '\x15') draft = '';
+      else if (char === '\x7f' || char === '\b') draft = draft === null ? null : draft.slice(0, -1);
+      else if (char < ' ' || draft === null || draft.length >= 20) draft = null;
+      else draft += char;
+    }
+    _termRequestCommandDrafts.set(name, draft);
+    return commands;
+  }
+
+  function _termRequestHistoryRows(entries) {
+    let number = 0;
+    return entries.map(entry => {
+      const date = entry.timestamp && new Date(entry.timestamp);
+      const time = date && !Number.isNaN(date.getTime()) ? date.toLocaleString() : '';
+      if (entry.type === 'boundary') {
+        return `<div class="term-request-boundary" role="separator"><span>${termSessEsc(entry.text)}${entry.command ? ` · ${termSessEsc(entry.command)}` : ''}</span>${time ? `<time>${termSessEsc(time)}</time>` : ''}</div>`;
+      }
+      if (entry.type !== 'request') return '';
+      return `<details class="term-request-entry" data-request-id="${termSessEsc(entry.id)}"><summary><span class="term-request-meta">Request ${++number}${time ? `<time>${termSessEsc(time)}</time>` : ''}</span><span class="term-request-preview">${termSessEsc(entry.text)}</span></summary><pre class="term-request-full">${termSessEsc(entry.text)}</pre></details>`;
+    }).join('');
+  }
+
+  async function _termLoadRequestHistory(state) {
+    if (state.loading) return;
+    state.loading = true;
+    try {
+      const response = await fetch('/api/term/requests?' + new URLSearchParams(state.context));
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.detail || 'Could not load requests');
+      if (_termRequestHistoryModal !== state) return;
+      const entries = Array.isArray(body.entries) ? body.entries : [];
+      const key = JSON.stringify(entries);
+      if (key !== state.key) {
+        const list = state.dialog.querySelector('.term-request-list');
+        const expanded = new Set(Array.from(list.querySelectorAll('details[open]'), row => row.dataset.requestId));
+        const focused = document.activeElement?.closest('[data-request-id]')?.dataset.requestId;
+        const bottom = !state.key || list.scrollHeight - list.scrollTop - list.clientHeight < 40;
+        const scroll = list.scrollTop;
+        list.innerHTML = entries.length ? _termRequestHistoryRows(entries) : '<p class="term-request-empty">No submitted requests yet.</p>';
+        for (const row of list.querySelectorAll('details')) {
+          row.open = expanded.has(row.dataset.requestId);
+          if (row.dataset.requestId === focused) row.querySelector('summary').focus({preventScroll:true});
+        }
+        list.scrollTop = bottom ? list.scrollHeight : scroll;
+        state.key = key;
+      }
+      state.dialog.querySelector('.term-request-status').textContent = '';
+    } catch (error) {
+      if (_termRequestHistoryModal === state) state.dialog.querySelector('.term-request-status').textContent = error.message;
+    } finally { state.loading = false; }
+  }
+
+  function termOpenRequestHistory() {
+    const session = _termSessionMeta(termCurrentSession);
+    const workspaceId = _termActiveWorkspaceId();
+    if (!session || !workspaceId) return;
+    if (_termRequestHistoryModal) _termRequestHistoryModal.dialog.close();
+    _termHideSessionTooltip();
+    const opener = document.activeElement;
+    const dialog = document.createElement('dialog');
+    dialog.className = 'term-request-dialog';
+    dialog.setAttribute('aria-labelledby', 'termRequestHistoryTitle');
+    dialog.innerHTML = `<div class="term-request-heading"><div><h2 id="termRequestHistoryTitle">Request history</h2><p>${termSessEsc(_termSessionDisplay(session))}</p></div><button type="button" aria-label="Close request history">✕</button></div><p class="term-request-status" role="status">Loading requests…</p><div class="term-request-list"></div>`;
+    const context = {name:session.name, workspace_id:workspaceId};
+    const vault = _termVaultId();
+    if (vault) context.vault = vault;
+    const state = {dialog, context, key:'', loading:false};
+    _termRequestHistoryModal = state;
+    document.body.appendChild(dialog);
+    dialog.querySelector('button').addEventListener('click', () => dialog.close());
+    dialog.addEventListener('click', event => { if (event.target === dialog) dialog.close(); });
+    dialog.addEventListener('close', () => {
+      clearInterval(state.timer);
+      if (_termRequestHistoryModal === state) _termRequestHistoryModal = null;
+      dialog.remove();
+      if (opener?.isConnected) opener.focus({preventScroll:true});
+    }, {once:true});
+    dialog.showModal();
+    void _termLoadRequestHistory(state);
+    state.timer = setInterval(() => void _termLoadRequestHistory(state), 2000);
+  }
+  window.termOpenRequestHistory = termOpenRequestHistory;
+
+  function _termRequestSubmitted(name, workspaceId, data) {
+    const commands = _termRequestCommandInput(name, data);
+    // Enter signals a possible submission. Read the accepted provider message
+    // rather than reconstructing text from editable input or pasted newlines.
+    if (!data.endsWith('\r') || data.includes('\x1b[200~')) return;
+    const session = _termSessionMeta(name);
+    if (!['claude','codex','copilot'].includes(session?.agent)) return;
+    const context = {name, workspace_id:workspaceId};
+    const vault = _termVaultId();
+    if (vault) context.vault = vault;
+    for (const command of commands) {
+      void fetch('/api/term/requests/command', {method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({...context, command})}).catch(() => {});
+    }
+    for (const timer of _termRequestSubmitTimers.get(name) || []) clearTimeout(timer);
+    const timers = [350, 5500].map(delay => setTimeout(() => {
+      // Reading this endpoint also retains new turns and changed thread IDs.
+      void fetch('/api/term/requests?' + new URLSearchParams(context)).catch(() => {});
+      if (_termRequestHistoryModal?.context.name === name) void _termLoadRequestHistory(_termRequestHistoryModal);
+      if (delay === 5500) _termRequestSubmitTimers.delete(name);
+    }, delay));
+    _termRequestSubmitTimers.set(name, timers);
+  }
+
   function _termSessionContext(s) {
     const objective = _termSessionObjective(s);
     if (objective) {
@@ -13887,9 +14011,11 @@
     }
     if (statusSummary) {
       statusSummary.removeAttribute('title');
-      statusSummary.hidden = !context.items.length && !identityHtml;
+      statusSummary.hidden = !context.items.length && !identityHtml && visual.kind !== 'claude';
     }
-    if (statusSummaryLabel) statusSummaryLabel.textContent = context.label;
+    if (statusSummaryLabel) {
+      statusSummaryLabel.textContent = context.label;
+    }
     if (statusSummaryText) {
       const contextKey = JSON.stringify([
         session.name, context.label, context.items,
@@ -16702,6 +16828,7 @@
       if (termContainer !== myContainer) return;
       if (termWS && termWS.readyState === WebSocket.OPEN) {
         termWS.send(JSON.stringify({ type: 'input', data }));
+        _termRequestSubmitted(name, workspaceId, data);
       }
     });
     _termFocusActiveSoon(myContainer, termXterm);

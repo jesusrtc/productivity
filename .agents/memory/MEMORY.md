@@ -1,5 +1,7 @@
 # Memory index
 
+- [Terminal request history survives clears](terminal-request-history-survives-clears.md) — expandable full submitted messages and session dividers, provider-authoritative capture, durable per-terminal history and scoped access.
+
 - [Terminal names stay open after deliberate use](terminal-names-stay-open-after-deliberate-use.md) — click or configurable 3-second hover keeps names visible until a console click; short crossings collapse.
 
 - [Copilot autopilot follows live identity](copilot-autopilot-live-status.md) — accepted `session.task_complete` enables green without a text reply; exact PID/foreground/ownership mapping follows conversation switches.

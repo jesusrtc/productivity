@@ -2249,11 +2249,15 @@ def _session_rows_for_root(
 
 
 def _enrich_session_details(rows: list[dict]) -> None:
-    from core import agent_activity
+    from core import agent_activity, terminal_requests
 
     _enrich_agent_session_names(rows)
     agent_activity.enrich(rows)
     for row in rows:
+        try:
+            terminal_requests.sync(row)
+        except (OSError, ValueError, sqlite3.Error):
+            log.warning('Unable to retain terminal request history', exc_info=True)
         if row.get("summary"):
             continue
         agent_summary = row.get("agent_session_summary")
@@ -2951,6 +2955,42 @@ def list_saved_sessions(
     root = _vault_root_for(active_root, vault)
     _require_workspace_access(request, active_root, root, workspace_id)
     return _get_workspace_sessions(root, workspace_id)
+
+
+@router.get("/api/term/requests")
+def terminal_request_history(
+    request: Request, name: str, workspace_id: str, vault: str | None = None,
+) -> dict:
+    """Full submitted messages for an authorized terminal, across resets."""
+    from core import terminal_requests
+    # Reuse the session list's vault, workspace and borrowed-terminal access
+    # checks; knowing a terminal's UUID alone grants no access to its history.
+    rows = list_sessions(request, workspace_id, vault)
+    row = next((row for row in rows if row.get('name') == name), None)
+    if row is None:
+        raise HTTPException(status_code=404, detail='Terminal not found in this workspace')
+    terminal_requests.sync(row)
+    return {'name': name, 'entries': terminal_requests.history(name)}
+
+
+class TerminalRequestCommand(BaseModel):
+    name: str
+    workspace_id: str
+    vault: str | None = None
+    command: str = Field(pattern=r'^/(clear|new)$')
+
+
+@router.post("/api/term/requests/command")
+def terminal_request_command(body: TerminalRequestCommand, request: Request) -> dict:
+    from core import terminal_requests
+    rows = list_sessions(request, body.workspace_id, body.vault)
+    row = next((row for row in rows if row.get('name') == body.name), None)
+    if row is None:
+        raise HTTPException(status_code=404, detail='Terminal not found in this workspace')
+    if row.get('agent') not in {'claude', 'codex', 'copilot'}:
+        raise HTTPException(status_code=400, detail='This terminal is not an agent session')
+    terminal_requests.command(row, body.command)
+    return {'ok': True}
 
 
 @router.get("/api/term/workspaces-with-sessions")

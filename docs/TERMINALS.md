@@ -19,6 +19,27 @@ Set **Keep tab names open after hovering (seconds)** in
 is 3 seconds; zero keeps names open immediately on hover. This preference is
 saved in the current browser. Horizontal tabs retain their normal layout.
 
+## Request history
+
+Click **Requests** above the terminal to open its submitted-message history.
+When the strip shows an AI **Objective**, that label opens the same history.
+Each request has a three-line preview; click it to unfold the full message.
+The modal stays with the terminal it was opened for and updates while open,
+preserving unfolded requests and the position of older requests you are reading.
+
+Accepted messages come from Claude, Codex and Copilot conversation logs,
+including pasted or edited multiline input. Enter triggers a refresh; drafts
+and shell input are not stored as requests. Submitted `/clear` and `/new`
+commands create dividers, and detected conversation changes show **Session
+refreshed**. Previous requests remain available after a clear or browser reload.
+
+History is retained in `$LAB_HOME/terminal-requests.sqlite3` (normally
+`~/.lab/terminal-requests.sqlite3`), keyed by the physical terminal name. The
+history API uses the same workspace/vault access checks as the terminal list.
+Existing messages in the current provider transcript are imported; prior
+conversations remain available once Lab has observed them. Transcripts are
+read incrementally without sending commands or changing the agent session.
+
 ## Sidebar references and object links
 
 Sidebar objects dropped inside the console paste a shell-quoted reference

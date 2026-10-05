@@ -33,6 +33,7 @@ def test_late_loaded_home_starts_after_terminal_state():
         chunks.append((offset, source[offset:stop if stop >= 0 else None]))
     prelude = '''
 const location = {search: '?view=productivity'};
+const window = {};
 const UI_CHECK = true;
 const afterPageQuiet = fn => fn();
 const loadRepos = () => {}, vaultRefresh = () => {}, workspaceTabsRefresh = () => {};

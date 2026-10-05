@@ -656,7 +656,8 @@ process.stdout.write(JSON.stringify({statusSummary, statusSummaryLabel, statusSu
     assert html.index('id="termStatusSummary"') > status_end
     assert 'id="termStatusSummaryLabel"' in html
     assert 'id="termStatusSummaryText"' in html
-    assert ">Requests</span>" in html
+    assert ">Requests</button>" in html
+    assert 'onclick="termOpenRequestHistory()"' in html
     assert "grid-template-columns: 56px minmax(0, 1fr)" in css
     assert "max-height: min(24vh, calc(8.4em + 14px))" in css
     assert "overflow-y: auto" in css
@@ -2376,6 +2377,7 @@ function _termMarkDead() {}
 function termRefreshSessions() {}
 function termRefreshSessionsByWorkspaceId() {}
 function _termEvictCache() { throw new Error('full eviction should not run'); }
+function _termRequestSubmitted() {}
 function termEnsureXterm() {
   const id = xtermSeq === 0 ? 'xterm-a' : 'xterm-b';
   xtermSeq += 1;
