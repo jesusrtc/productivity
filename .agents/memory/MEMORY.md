@@ -1,5 +1,7 @@
 # Memory index
 
+- [Terminal tabs follow Objective task order](terminal-tabs-follow-objective-task-order.md) — whole Objective first, parent/subtask order across folders, unassigned last; native pills and session state preserved.
+
 - [Objective-first navigation and overview](objective-first-navigation-and-overview.md) — Objective/tasks before assets, full center overview, and explicit folder clicks exit task focus.
 - [Whole Objective context has categorized indexes](whole-objective-context-has-categorized-indexes.md) — global, task/subtask, Unassigned and complete type-grouped asset indexes in unsent Objective prompts.
 

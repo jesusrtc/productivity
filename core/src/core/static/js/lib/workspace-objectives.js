@@ -616,22 +616,31 @@
   function associate(row) {return change({type:'worktree',objective_id:objective().id,path:row.path,label:row.label||row.name||row.path.split('/').pop(),repo:row.projectPath||row.path,branch:row.branch,kind:row.kind||'worktree'}).then(d=>{const o=d.objectives.find(o=>o.id===objective().id);state().tree[o.id]=o.worktrees.at(-1).id;persistView();return o.worktrees.at(-1);});}
   function terminalIdentity(t) {return t.session_id||t.name;}
   function taskForTerminal(t) {const d=data(),link=d?.terminal_links[terminalIdentity(t)],o=d?.objectives.find(o=>o.id===link?.objective_id),task=tasks(o).find(t=>t.id===link?.task_id);return task?{title:task.title,icon:taskIcon(task,o)}:null;}
-  function terminalObjective(t) {const d=data();if(!d?.enabled)return null;const link=d.terminal_links[terminalIdentity(t)];return d.objectives.find(o=>o.id===link?.objective_id)||d.objectives.find(o=>o.worktrees.some(w=>[w.path,w.resolved_path].includes(t.linked_scope?.root)||[w.path,w.resolved_path].includes(t.cwd)))||d.objectives[0];}
+  function terminalObjective(t) {const d=data();if(!d?.enabled)return null;const link=d.terminal_links[terminalIdentity(t)];return d.objectives.find(o=>o.id===link?.objective_id)||d.objectives.find(o=>o.worktrees.some(w=>t.linked_scope?.root&&[w.path,w.resolved_path].includes(t.linked_scope.root)||t.cwd&&[w.path,w.resolved_path].includes(t.cwd)))||d.objectives[0];}
   function terminalHtml(sessions,pill,newButton) {
     if(!active(context()?.path))return null;
     const d=data(),rows=sessions.map((t,index)=>({t,index,objective:terminalObjective(t)?.id}));
+    let position=0;
     return d.focused.map(id=>{
       const o=d.objectives.find(o=>o.id===id);if(!o)return '';
-      const groups=new Map();
-      for(const row of rows.filter(row=>row.objective===id)){
+      const order=new Map(tasks(o).map((task,index)=>[task.id,index+1]));
+      const rank=row=>{
+        const link=d.terminal_links[terminalIdentity(row.t)];
+        if(order.has(link?.task_id))return order.get(link.task_id);
+        return link&&!link.task_id&&!link.resource_id&&!link.file&&!link.folder?0:Infinity;
+      };
+      const ordered=rows.filter(row=>row.objective===id).sort((a,b)=>rank(a)-rank(b)||a.index-b.index),groups=[];
+      // Task hierarchy takes precedence over checkout grouping. Keep spacing
+      // only between consecutive runs of sessions from the same folder.
+      for(const row of ordered){
         const root=row.t.linked_scope?.root||row.t.cwd||context().path;
         const worktree=o.worktrees.find(w=>w.path===root||w.resolved_path===root);
         const path=worktree?.path||root;
-        if(!groups.has(path))groups.set(path,{worktree,items:[]});
-        groups.get(path).items.push(row);
+        if(groups.at(-1)?.path!==path)groups.push({path,worktree,items:[]});
+        groups.at(-1).items.push(row);
       }
-      const terminals=[...groups].map(([path,{worktree,items}])=>
-        `<div class="objective-terminal-worktree" role="group" aria-label="${esc(worktree?.label||(path===context().path?'Objective folder':path.split('/').filter(Boolean).slice(-2).join('/')))}">${items.map(row=>pill(row.t,row.index)).join('')}</div>`).join('');
+      const terminals=groups.map(({path,worktree,items})=>
+        `<div class="objective-terminal-worktree" role="group" aria-label="${esc(worktree?.label||(path===context().path?'Objective folder':path.split('/').filter(Boolean).slice(-2).join('/')))}">${items.map(row=>pill(row.t,position++)).join('')}</div>`).join('');
       return `<section class="objective-terminal-group" data-objective-active="${id===objective()?.id}" style="--objective-color:${esc(o.color)}"><button type="button" class="objective-terminal-heading" data-select-objective="${esc(id)}" title="${esc(o.name)}">${esc(o.name)}</button><div class="objective-terminal-rows">${terminals}</div></section>`;
     }).join('')+newButton;
   }
@@ -645,10 +654,11 @@
     else if(link.view==='tasks'||link.folder){
       state().selected=null;renderTasks();
       if(link.folder){const view=openView,scope=key(context());Promise.resolve(selected).then(()=>{if(openView===view&&key(context())===scope)bridge.openFolder?.(link.folder);});}
-    }else if(link.resource_id)openResource(link.resource_id,link.tab_id,link.sub_link_id);else if(link.file)bridge.openFile?.(link.file);
+    }else if(link.resource_id)openResource(link.resource_id,link.tab_id,link.sub_link_id);else if(link.file)bridge.openFile?.(link.file);else renderOverview();
     paint();return true;
   }
   function sidebarTarget(node,o=objective()) {
+    if(node.closest?.('[data-objectives-sidebar] [data-select-objective]'))return {};
     const task=node.closest?.('[data-open-task],[data-task-id]');if(task)return {task_id:task.dataset.openTask||task.dataset.taskId};
     const asset=node.closest?.('[data-objective-asset]');if(asset)return JSON.parse(asset.dataset.objectiveAsset);
     const resource=node.closest?.('[data-objective-resource]');if(resource)return {resource_id:resource.dataset.objectiveResource,tab_id:resource.dataset.objectiveTab||null,sub_link_id:resource.dataset.objectiveSublink||null};
@@ -803,12 +813,15 @@
   document.addEventListener('dragover',e=>{const slot=e.target.closest?.('[data-objective-slot]');if(slot&&e.dataTransfer.types.includes(objectiveMime)){e.preventDefault();e.dataTransfer.dropEffect='move';slot.classList.add('objective-drop-target');}},true);
   document.addEventListener('dragleave',e=>e.target.closest?.('[data-objective-slot]')?.classList.remove('objective-drop-target'));
   document.addEventListener('dragend',()=>document.querySelectorAll('.objective-drop-target').forEach(n=>n.classList.remove('objective-drop-target')));
-  const linkDropSelector='[data-task-id],[data-task-icon],[data-objective-asset],[data-objective-resource],[data-objective-root],[data-objective-worktree],[data-objective-bucket],.objective-archive,[data-objectives-sidebar] [data-open-objective-tasks],#sidebar [data-entry-kind],[data-open-file][data-filepath],#termSessionList .sess';
-  document.addEventListener('dragover',e=>{if(!active(context()?.path))return;const target=e.target.closest?.(linkDropSelector);if(e.dataTransfer.types.includes('application/x-lab-terminal')&&e.target.closest('#content,.assistant-inline-host')&&!e.target.closest('#sidebar')){e.preventDefault();e.stopImmediatePropagation();e.dataTransfer.dropEffect='none';return;}if(target&&[resourceMime,documentMime,'application/x-lab-file-path','application/x-lab-terminal',...(target.closest('[data-task-id],[data-objective-bucket]')?['text/uri-list','application/x-lab-reference']:[])].some(m=>e.dataTransfer.types.includes(m))){e.preventDefault();e.dataTransfer.dropEffect='link';if(target.hasAttribute('data-task-id'))target.classList.add('objective-drop-target');}},true);
+  const linkDropSelector='[data-task-id],[data-task-icon],[data-objective-asset],[data-objective-resource],[data-objective-root],[data-objective-worktree],[data-objective-bucket],.objective-archive,[data-objectives-sidebar] [data-select-objective],[data-objectives-sidebar] [data-open-objective-tasks],#sidebar [data-entry-kind],[data-open-file][data-filepath],#termSessionList .sess';
+  document.addEventListener('dragover',e=>{if(!active(context()?.path))return;const target=e.target.closest?.(linkDropSelector);if(e.dataTransfer.types.includes('application/x-lab-terminal')&&e.target.closest('#content,.assistant-inline-host')&&!e.target.closest('#sidebar')){e.preventDefault();e.stopImmediatePropagation();e.dataTransfer.dropEffect='none';return;}if(target&&[resourceMime,documentMime,'application/x-lab-file-path','application/x-lab-terminal',...(target.classList.contains('sess')?[objectiveMime]:[]),...(target.closest('[data-task-id],[data-objective-bucket]')?['text/uri-list','application/x-lab-reference']:[])].some(m=>e.dataTransfer.types.includes(m))){e.preventDefault();e.dataTransfer.dropEffect='link';if(target.hasAttribute('data-task-id'))target.classList.add('objective-drop-target');}},true);
   document.addEventListener('dragleave',e=>{const row=e.target.closest?.('[data-task-id]');if(row&&!row.contains(e.relatedTarget))row.classList.remove('objective-drop-target');});
   document.addEventListener('drop',e=>{
     const project=e.dataTransfer.getData(objectiveMime),slot=e.target.closest?.('[data-objective-slot]');
     if(project&&slot){e.preventDefault();e.stopImmediatePropagation();slot.classList.remove('objective-drop-target');try{const item=JSON.parse(project);if(item.scope!==key(context()))throw new Error('Choose an objective in this workspace');void placeObjective(item.objective_id,Number(slot.dataset.objectiveSlot)).catch(()=>{});}catch(error){notify(error.message,true);}return;}
+    if(project&&active(context()?.path)&&e.target.closest?.('#termSessionList .sess')){
+      e.preventDefault();e.stopImmediatePropagation();try{const item=JSON.parse(project);if(item.scope!==key(context()))throw new Error('Choose an Objective in this workspace');const o=data().objectives.find(o=>o.id===item.objective_id);if(!o)throw new Error('Objective not found');void linkTerminal(bridge.session?.(e.target.closest('#termSessionList .sess').dataset.name),{},o).catch(()=>{});}catch(error){notify(error.message,true);}return;
+    }
     if(project||!active(context()?.path))return;const target=e.target.closest?.(linkDropSelector);if(!target)return;
     const raw=e.dataTransfer.getData(resourceMime),assistant=e.dataTransfer.getData(documentMime),file=e.dataTransfer.getData('application/x-lab-file-path'),terminal=e.dataTransfer.getData('application/x-lab-terminal'),external=target.closest('[data-task-id],[data-objective-bucket]')&&(e.dataTransfer.getData('text/uri-list')||e.dataTransfer.getData('application/x-lab-reference'));if(!raw&&!assistant&&!file&&!terminal&&!external)return;e.preventDefault();e.stopImmediatePropagation();
     if(terminal&&!target.closest('#sidebar')&&!target.classList.contains('sess'))return;

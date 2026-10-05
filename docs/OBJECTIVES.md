@@ -215,8 +215,14 @@ objective. A document can also be dropped directly into objective resources.
 
 ## Terminals
 
-The native terminal selector groups sessions by the five focused objectives,
-then by their fixed launch folders/worktrees. Sessions assigned to a parked
+The native terminal selector groups sessions by the five focused objectives.
+Within each Objective, terminals assigned to the whole Objective come first,
+then terminals follow the sidebar task order: each parent task followed by its
+subtasks, then the next parent. Multiple terminals for one task keep their
+relative order. Terminals without a task assignment, including those linked
+only to an asset or folder, come last. Task order takes priority over launch
+folder grouping and updates after task creation, reassignment or reload.
+Sessions assigned to a parked
 objective reappear when that objective is brought into focus. Existing native
 terminal controls and sessions are reused. Rows stay flat, with a small objective
 name and a thin line down the left. Only the current objective uses its colored
@@ -224,7 +230,13 @@ line and worktree labels/dots; other groups keep a colored header and neutral
 lines and associations. Working/completion indicators retain their status
 colors. Worktree groups use spacing
 rather than extra boxes or headings. Shortcut and real checkout paths share the
-same group.
+same folder identity; spacing marks consecutive sessions from that folder.
+
+Drop the Objective name onto a terminal name, or a terminal onto the sidebar's
+Objective name, to assign it to the whole Objective. Clicking that terminal
+opens the Objective overview. This keeps its launch folder, process, display
+label and original owner. Dropping the Objective inside the console still
+pastes its full unsent context instead of creating an assignment.
 
 Drop any sidebar object onto a **terminal name** to associate it with that
 session: documents and subtabs, notebooks, links, Tasks, files, folders, Root,
