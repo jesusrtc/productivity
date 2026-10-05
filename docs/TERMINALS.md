@@ -13,6 +13,9 @@ the rail or hovering for 3 seconds keeps the names open while moving to Files
 or other views; clicking inside the terminal console hides them. Escape also
 closes the names for keyboard navigation. The expanded list overlays the
 console, preserving its text width, and its right border adjusts the name width.
+Clicks on the expanded list, scrollbar and width divider belong to the tabs,
+including the portion covering the console. Only the exposed console receives
+terminal clicks.
 
 Set **Keep tab names open after hovering (seconds)** in
 **Settings → Global → Terminal appearance** to change the delay. The default

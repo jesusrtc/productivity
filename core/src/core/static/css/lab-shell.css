@@ -2023,7 +2023,8 @@
   .term-active-session.terminal .agent { color: var(--yellow); }
   .term-header select { flex: 1; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border); border-radius: 4px; padding: 3px 6px; font-size: 12px; font-family: ui-monospace, monospace; }
   .term-stage { display: flex; flex: 1; min-height: 0; min-width: 0; }
-  .term-console { display: flex; flex: 1; flex-direction: column; min-height: 0; min-width: 0; }
+  /* Contain xterm's helper/decoration layers below the overlaid tab switcher. */
+  .term-console { display: flex; flex: 1; flex-direction: column; min-height: 0; min-width: 0; isolation: isolate; }
   .term-sessions { display: flex; flex-direction: column; overflow-x: hidden; overflow-y: auto; gap: 4px; width: 62px; padding: 8px 6px; background: var(--bg-secondary); border-right: 1px solid var(--border); flex-shrink: 0; scrollbar-width: thin; }
   .term-sessions:empty { display: none; }
   .term-sessions .sess { position: relative; display: flex; align-items: center; justify-content: center; gap: 5px; width: 100%; height: 36px; min-width: 0; box-sizing: border-box; background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border); border-radius: 4px; font-size: 11px; font-family: ui-monospace, monospace; cursor: pointer; white-space: nowrap; flex-shrink: 0; user-select: none; }

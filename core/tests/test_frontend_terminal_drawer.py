@@ -35,7 +35,16 @@ let fits=0;const fit=termFitAddon.fit.bind(termFitAddon);termFitAddon.fit=()=>{f
 const termSendResize=()=>{},_termHideSessionTooltip=()=>{};
 termXterm.loadAddon(termFitAddon);termXterm.open(document.getElementById('termBody'));
 termXterm.onData(text=>termXterm.write(text));termXterm.write('Terminal width stays fixed.\r\n$ ');
-document.getElementById('termSessionList').addEventListener('click',()=>termXterm.focus());
+let tabClicks=0,consoleClicks=0;
+document.getElementById('termSessionList').addEventListener('click',()=>{tabClicks++;termXterm.focus()});
+document.getElementById('termBody').addEventListener('pointerdown',()=>consoleClicks++,{capture:true});
+// xterm's top decorations and helpers have z-index values above the drawer.
+// A transparent interactive layer must remain inside the console's stacking
+// context, including when an expanded tab overlaps its screen coordinates.
+const decorations=document.createElement('div');decorations.className='xterm-decoration-container';
+const decoration=document.createElement('div');decoration.className='xterm-decoration xterm-decoration-top-layer';
+decoration.style.cssText='top:0;left:0;width:100%;height:180px;pointer-events:auto';
+decorations.appendChild(decoration);document.querySelector('.xterm-screen').appendChild(decorations);
 '''
     page = tmp_path/'drawer.html'
     page.write_text('<!doctype html><meta charset="utf-8"><style>'+css+
@@ -67,12 +76,25 @@ const fs=require('node:fs');
  await move(points.rail);assert((await state()).open,'hover shows names immediately');
  await sleep(200);await move(points.files);assert(!(await state()).open,'quick crossing to Files closes names');
  await sleep(3100);assert(!(await state()).open,'leaving cancels delayed keep-open');
+ await move(points.rail);
+ const overlap=await evaluate(`(()=>{const row=document.querySelectorAll('.sess')[2].getBoundingClientRect();return{x:row.right-20,y:row.y+row.height/2}})()`);
+ assert(overlap.x>baseline.consoleX,'expanded label physically overlays the console');
+ assert(await evaluate(`!!document.elementFromPoint(${overlap.x},${overlap.y}).closest('#termSessionSwitcher')`),'expanded labels own hit testing above xterm layers');
+ const beforeOverlap=await evaluate('({tabClicks,consoleClicks})');
+ await click(overlap);await move(points.files);
+ assert((await state()).pinned&&(await state()).open,'clicking the overlapped label keeps names open');
+ assert(await evaluate(`tabClicks===${beforeOverlap.tabClicks+1}&&consoleClicks===${beforeOverlap.consoleClicks}`),'overlapped label selects a tab without reaching the console');
  await click(points.rail);await move(points.files);
  assert((await state()).pinned&&(await state()).open,'tab click keeps names while moving to Files');
  await evaluate('document.getElementById("files").focus()');assert((await state()).open,'focus outside rail preserves deliberate open state');
  const edge=await evaluate(`(()=>{const r=document.getElementById('termSessionList').getBoundingClientRect();return{x:r.right-2,y:r.y+80}})()`);
  await move(edge);await click(edge);assert((await state()).open,'full right edge and scrollbar stay active');
+ const resize=await evaluate(`(()=>{const r=document.getElementById('termSessionsResizer').getBoundingClientRect();return{x:r.x+r.width/2,y:${overlap.y}}})()`);
+ assert(await evaluate(`document.elementFromPoint(${resize.x},${resize.y}).id==='termSessionsResizer'`),'resizer owns the overlap at the right edge');
+ await click(resize);assert((await state()).pinned&&(await state()).open,'clicking the overlapped resizer keeps names open');
+ assert(await evaluate(`consoleClicks===${beforeOverlap.consoleClicks}`),'tabs, scrollbar and resizer do not click through to the console');
  await click(points.console);assert(!(await state()).open&&!(await state()).pinned,'console click closes names');
+ assert(await evaluate(`consoleClicks===${beforeOverlap.consoleClicks+1}`),'exposed console receives its own pointer click');
  await send('Input.insertText',{text:'native input'});await sleep(50);
  assert(await evaluate('termXterm.buffer.active.getLine(1).translateToString().includes("native input")'),'console remains writable');
  await move(points.rail);await sleep(3200);await move(points.files);
