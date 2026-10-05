@@ -168,6 +168,21 @@
     const selected=item.id===tree()?.id;
     return `<div class="sidebar-scope-chip${selected?' active':''}" style="--sidebar-workspace-color:${esc(item.color)}" ${item.fixed?'data-objective-root':'data-objective-worktree'}="${esc(item.id)}" ${asset?`data-objective-asset="${esc(JSON.stringify(assetTarget(asset)))}"`:''}><span class="objective-worktree-icon" aria-hidden="true">${item.kind==='folder'?'⌂':'⑂'}</span><button type="button" class="sidebar-file-scope-button" data-select-worktree="${esc(item.id)}" draggable="true" aria-pressed="${selected}" title="${esc(item.path)}"><span>${esc(item.label)}</span></button><span class="sidebar-scope-tag">${esc(item.kind==='folder'?'Folder':'Worktree')}</span>${asset?assetControls(asset):''}</div>`;
   }
+  function worktreeNavigationHtml(o) {
+    const scopes=scopeRows(o),entries=tasks(o),groups=new Map(),archived=[];
+    const taskName=t=>{const parent=o.tasks.find(p=>p.children.some(c=>c.id===t.id));return (parent?parent.title+' / ':'')+t.title;};
+    for(const scope of scopes.filter(s=>!s.fixed)){
+      const asset={folder:{root:scope.path,path:'.'}};
+      if(isArchived(asset,o)){archived.push(scopeRow(scope,asset));continue;}
+      const assigned=entries.filter(t=>(t.assets||[]).some(a=>sameAsset(a,asset)));
+      const shared=isShared(asset,o),id=assigned.length?'tasks:'+assigned.map(t=>t.id).join(','):shared?'shared':'unassigned';
+      if(!groups.has(id))groups.set(id,{label:assigned.length?assigned.map(taskName).join(' + '):shared?'Objective · pinned':'Unassigned',rank:assigned.length?2+entries.indexOf(assigned[0]):shared?1:0,rows:[]});
+      groups.get(id).rows.push(scopeRow(scope,asset));
+    }
+    return scopes.filter(s=>s.fixed).map(s=>scopeRow(s)).join('')+
+      [...groups.entries()].sort((a,b)=>a[1].rank-b[1].rank).map(([id,g])=>`<section class="objective-worktree-group" data-worktree-group="${esc(id)}" aria-label="${esc(g.label)} worktrees"><h4>${esc(g.label)}</h4>${g.rows.join('')}</section>`).join('')+
+      (archived.length?`<details class="objective-worktree-archive" ${state().worktreeArchiveOpen?'open':''}><summary>Archive · ${archived.length} ${archived.length===1?'worktree':'worktrees'}</summary><div class="objective-worktree-group" data-objective-bucket="archive">${archived.join('')}</div></details>`:'');
+  }
   function resourceIcon(r,subLink) {
     return r?.kind==='link'?(window.LabScopeLinks?.icon({kind:'external',url:linkTarget(r,subLink)?.url})||'<span aria-hidden="true">↗</span>'):
       (r?.kind!=='assistant'&&bridge.fileIcon?.(r?.path||r?.title))||`<span aria-hidden="true">${r?.kind==='notebook'?'▦':'▤'}</span>`;
@@ -305,8 +320,9 @@
       `<section class="objective-bucket objective-sidebar-tasks" data-objective-bucket="tasks"><div class="sidebar-title objective-title"><button type="button" class="objective-bucket-label" data-open-objective-tasks draggable="true">Tasks</button>${badge(o)}<button type="button" data-new-objective-task aria-label="New objective task">+</button></div><div class="objective-sidebar-task-list" style="--objective-task-rows:${reservedTaskRows}">${o.tasks.map(t=>sidebarTaskRow(t)+(t.id===expanded?.id?t.children.map(c=>sidebarTaskRow(c,t)).join(''):'')).join('')||'<p class="objective-bucket-empty">Add a task to start.</p>'}</div></section>`+
       bucketHtml('task','Task assets',task?taskAssets(task).filter(a=>!isArchived(a,o)):[])+
       (overview?bucketHtml('unassigned','Unassigned',unassigned,true)+`<details class="objective-archive" ${state().archiveOpen?'open':''}><summary>Archive · ${(o.archived_assets||[]).length}</summary>${bucketHtml('archive','Archived assets',o.archived_assets||[])}</details>`:'')+
-      `<div class="sidebar-title objective-title">Worktrees<button type="button" data-associate-worktree aria-label="Associate worktree">+</button></div><div class="objective-worktrees">${scopeRows(o).filter(item=>item.fixed).map(item=>scopeRow(item)).join('')}</div>`;
+      `<div class="sidebar-title objective-title">Worktrees<button type="button" data-associate-worktree aria-label="Associate worktree">+</button></div><div class="objective-worktrees">${worktreeNavigationHtml(o)}</div>`;
     const archive=host.querySelector('.objective-archive');if(archive)archive.ontoggle=()=>{state().archiveOpen=archive.open;};
+    const archivedWorktrees=host.querySelector('.objective-worktree-archive');if(archivedWorktrees)archivedWorktrees.ontoggle=()=>{state().worktreeArchiveOpen=archivedWorktrees.open;};
     host.querySelectorAll('[data-resource-group]').forEach(row=>{row.onmouseenter=()=>{clearTimeout(hoverTimer);const id=row.dataset.resourceGroup;if(state().revealed.has(id))return;const resource=o.resources.find(r=>r.id===id);hoverTimer=setTimeout(()=>{if(row.isConnected&&key(context())===key(scope)){state().revealed.add(id);paint();}},resource?.kind==='link'?1000:1500);};row.onmouseleave=()=>clearTimeout(hoverTimer);});
     markTaskAssets(host);
   }

@@ -101,10 +101,16 @@ revisions cannot silently commit a proposal. Cross-Objective moves retain the
 original file ownership: owned files become references from the destination.
 
 Associated worktrees are assets too: an unclassified worktree appears in
-Unassigned; dropping it on a task puts it in that task's assets. Switching
-tasks changes the worktrees shown there. A shared star makes a worktree
-available across tasks, and Archive can set it aside. Only Root and Objective
-stay in the fixed scope list. They remain draggable terminal references.
+Unassigned; dropping it on a task puts it in that task's context. Every associated
+worktree also stays in the **Worktrees** section, regardless of the selected
+task or working view. Root and Objective folders come first, followed by
+Unassigned, Objective-pinned and task groups. A worktree attached to multiple
+tasks appears once in this navigation section under a combined task label.
+Task/subtask labels preserve their parent context. Shared pins and task asset
+lists continue to show their contextual references. Archived worktrees remain
+recoverable in a collapsed Archive group in the Worktrees section. Worktree
+rows retain their folder navigation, drag targets, stars and classification
+menus. Root and Objective remain gray draggable terminal references.
 Files and folders inside the native explorer have no stars or classification
 controls; the worktree is the asset. A file dragged onto a task or explicitly
 linked as an asset still gets its own asset controls in the buckets.
@@ -118,8 +124,8 @@ scope and opens its folder browser, including when it was already the selected
 scope. Files no longer remain hidden behind the previous task's Focus mode.
 
 The **+** beside Worktrees uses the existing folder/worktree chooser, including
-its create-worktree action. Association first makes the worktree an Unassigned
-asset, ready to attach to a task or star as shared context. A checkout can
+its create-worktree action. Association immediately shows the checkout in the
+Worktrees section's Unassigned group, ready to attach to a task or star as shared context. A checkout can
 belong to one objective in this workspace. Each
 focus slot has a fixed objective color and four reserved contrasting worktree
 colors. An objective and its worktrees adopt the destination slot's palette

@@ -24,6 +24,7 @@ def test_objective_asset_review_and_context_menu(client, monorepo, seed_workspac
         return objectives.mutate(monorepo, 'demo', {'type':operation, 'objective_id':oid, **fields})
     alpha = act('task', title='Alpha analysis')['objectives'][0]['tasks'][0]
     empty = act('task', title='Empty task')['objectives'][0]['tasks'][1]
+    other = act('task', title='Other task')['objectives'][0]['tasks'][2]
     loose = act('resource', kind='link', title='Loose reference', url='https://example.com/loose')['objectives'][0]['resources'][-1]
     pinned = act('resource', kind='link', title='Pinned handbook', url='https://example.com/pinned')['objectives'][0]['resources'][-1]
     act('asset-star', resource_id=pinned['id'], starred=True)
@@ -32,10 +33,23 @@ def test_objective_asset_review_and_context_menu(client, monorepo, seed_workspac
     companion = act('resource', kind='link', title='Companion evidence', url='https://example.com/companion')['objectives'][0]['resources'][-1]
     for resource in (sql, companion):
         act('task-asset', resource_id=resource['id'], task_id=alpha['id'])
+    checkouts = {}
+    for name in ('unassigned', 'alpha', 'other', 'shared', 'archived'):
+        checkout = tmp_path/name;checkout.mkdir()
+        tree = act('worktree', path=str(checkout), label=name+' checkout')['objectives'][0]['worktrees'][-1]
+        checkouts[name] = {'id':tree['id'], 'path':str(checkout)}
+        asset = {'folder':{'root':str(checkout), 'path':'.'}}
+        if name in {'alpha', 'other'}:
+            act('task-asset', task_id=(alpha if name == 'alpha' else other)['id'], **asset)
+        elif name == 'shared':
+            act('asset-star', starred=True, **asset)
+        elif name == 'archived':
+            act('asset-bucket', bucket='archive', **asset)
     data = act('suggest-assignment', resource_id=loose['id'], destination={'bucket':'task', 'task_id':alpha['id']}, reason='Evidence needed for Alpha')
     sid = data['objectives'][0]['assignment_suggestions'][0]['id']
     fixture = {'folder':str(folder), 'oid':oid, 'alpha':alpha['id'], 'empty':empty['id'],
-               'loose':loose['id'], 'pinned':pinned['id'], 'sql':sql['id'], 'companion':companion['id'], 'sid':sid}
+               'loose':loose['id'], 'pinned':pinned['id'], 'sql':sql['id'], 'companion':companion['id'], 'sid':sid,
+               'other':other['id'], 'checkouts':checkouts}
     scripts = ''.join('<script>'+(STATIC/path).read_text()+'</script>' for path in [
         'vendor/marked@12.0.1/marked.min.js', 'vendor/dompurify@3.4.15/purify.min.js',
         'js/lib/markdown-content.js', 'vendor/lab-markdown-editor/markdown-editor.min.js', 'js/lib/workspace-objectives.js'])
@@ -48,7 +62,10 @@ window.until=async fn=>{for(let i=0;i<300;i++){if(await fn())return;await new Pr
 window.read=()=>fetch('/api/objectives?workspace_id=demo').then(r=>r.json());
 window.act=async fields=>{const d=await read(),r=await fetch('/api/objectives',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({workspace_id:'demo',expected:d.revision,action:{objective_id:FIX.oid,...fields}})});assert(r.ok,'fixture mutation');await LabObjectives.load(undefined,true);return r.json()};
 window.explorerToast=(msg,error)=>{if(error)errors.push(msg)};
-LabObjectives.connect({context:()=>({workspace_id:'demo',path:FIX.folder}),scopeRoot:()=>FIX.folder,
+window.checkWorktreeNavigation=async()=>{const o=(await read()).objectives[0],archived=new Set(o.archived_assets.filter(a=>a.folder).map(a=>a.folder.root));const expected=o.worktrees.filter(t=>!archived.has(t.path)).map(t=>t.id).sort();const shown=[...document.querySelectorAll('.objective-worktrees > .objective-worktree-group [data-objective-worktree]')].map(n=>n.dataset.objectiveWorktree).sort();assert(JSON.stringify(shown)===JSON.stringify(expected),'all active worktrees once regardless of task');assert(document.querySelectorAll('.objective-worktrees [data-objective-root]').length===2,'fixed roots retained')};
+let selectedRoot=FIX.folder;window.openedFolders=[];
+LabObjectives.connect({context:()=>({workspace_id:'demo',path:FIX.folder}),scopeRoot:()=>selectedRoot,
+ selectWorktree:row=>{selectedRoot=row.path},openFolder:folder=>openedFolders.push(folder),
  readyContent:()=>Promise.resolve(),prepareCenter(){},refreshTabs:()=>document.getElementById('tabs').innerHTML=LabObjectives.tabsHtml(FIX.folder)});
 (async()=>{await LabObjectives.load();LabObjectives.selectObjective(FIX.oid);window.ready=true})().catch(e=>errors.push(e.stack));
 '''
@@ -98,7 +115,7 @@ const fs=require('node:fs');
  await mode('assets');await search('');
  const shot=await send('Page.captureScreenshot',{format:'png'});fs.writeFileSync(process.argv[1]+'/objective-review.png',Buffer.from(shot.data,'base64'));
  await click('[data-reject-assignment]');
- await evaluate(`until(()=>document.querySelector('.objective-review-asset')?.textContent.includes('Suggestion rejected'))`);
+ await evaluate(`until(()=>document.querySelector('.objective-review-asset:has([data-objective-resource="'+FIX.loose+'"])')?.textContent.includes('Suggestion rejected'))`);
  await evaluate(`(async()=>{const o=(await read()).objectives[0];assert(!o.tasks[0].assets.some(a=>a.resource_id===FIX.loose),'reject never assigns');await act({type:'suggest-assignment',resource_id:FIX.loose,destination:{bucket:'task',task_id:FIX.empty},reason:'Useful for the empty task'})})()`);
  await click('[data-accept-assignment]');
  await evaluate(`until(async()=>(await read()).objectives[0].tasks[1].assets?.some(a=>a.resource_id===FIX.loose))`);
@@ -114,15 +131,30 @@ const fs=require('node:fs');
  await click(alphaSource,'right');await click('[data-menu-bucket="archive"]');
  await evaluate(`until(()=>!document.querySelector('[data-objective-overview-results] [data-objective-resource="'+FIX.loose+'"]'))`);
  await mode('archive');await evaluate(`assert(document.querySelector('[data-restore-objective-asset]')&&document.querySelector('[data-objective-overview-results]').textContent.includes('Loose reference'),'archive view')`);
- await click('[data-restore-objective-asset]');await evaluate(`until(()=>!document.querySelector('[data-restore-objective-asset]'))`);
- await mode('unassigned');await click('[data-trash-objective-asset]');
+ const looseReview='.objective-review-asset:has([data-objective-resource="'+await evaluate('FIX.loose')+'"])';
+ await click(looseReview+' [data-restore-objective-asset]');await evaluate(`until(()=>!document.querySelector('.objective-review-asset:has([data-objective-resource="'+FIX.loose+'"])'))`);
+ await mode('unassigned');await click(looseReview+' [data-trash-objective-asset]');
  await evaluate(`assert(document.querySelector('.objective-dialog[open]'),'trash asks for confirmation')`);
  await click('.objective-dialog [data-cancel]');await evaluate(`assert(document.querySelector('[data-objective-overview-results] [data-objective-resource="'+FIX.loose+'"]'),'cancel keeps asset')`);
- await click('[data-trash-objective-asset]');await click('.objective-dialog [type=submit]');
+ await click(looseReview+' [data-trash-objective-asset]');await click('.objective-dialog [type=submit]');
  await evaluate(`until(async()=>!(await read()).objectives[0].resources.some(r=>r.id===FIX.loose))`);
  await mode('assets');
  const taskLink=await evaluate(`'.objective-sidebar-task [data-open-task="'+FIX.alpha+'"]'`);await click(taskLink);
  await evaluate(`assert(!document.querySelector('[data-objectives-sidebar] [data-objective-bucket=unassigned]')&&!document.querySelector('[data-objectives-sidebar] .objective-archive'),'task focus hides unassigned and archive');assert(document.querySelector('[data-objective-bucket=objective] [data-objective-resource="'+FIX.pinned+'"]'),'pinned remains visible');assert(document.querySelector('[data-objective-bucket=task] [data-objective-resource="'+FIX.sql+'"]'),'task assets remain visible')`);
+ await evaluate(`(async()=>{await checkWorktreeNavigation();assert(document.querySelector('[data-worktree-group="tasks:'+FIX.alpha+'"] [data-objective-worktree="'+FIX.checkouts.alpha.id+'"]'),'worktree grouped by Alpha');assert(document.querySelector('[data-worktree-group="tasks:'+FIX.other+'"] [data-objective-worktree="'+FIX.checkouts.other.id+'"]'),'unselected task worktree still shown');assert(document.querySelector('[data-worktree-group=unassigned] [data-objective-worktree="'+FIX.checkouts.unassigned.id+'"]'),'unassigned worktree still shown in task focus');assert(!document.querySelector('.objective-worktree-archive').open,'archived worktrees stay collapsed')})()`);
+ const otherTree=await evaluate(`'.objective-worktrees [data-objective-worktree="'+FIX.checkouts.other.id+'"] [data-select-worktree]'`);
+ await click(otherTree,'right');await click('[data-menu-assignment="task"]');
+ await evaluate(`document.querySelector('.objective-dialog [name=task]').value=FIX.alpha`);await click('.objective-dialog [type=submit]');
+ await evaluate(`until(()=>document.querySelector('[data-worktree-group="tasks:'+FIX.alpha+'"] [data-objective-worktree="'+FIX.checkouts.other.id+'"]'))`);
+ await evaluate(`(async()=>{await checkWorktreeNavigation();const o=(await read()).objectives[0];assert(!o.tasks[2].assets.length,'moving worktree changes only optional membership');assert(!document.querySelector('[data-worktree-group="tasks:'+FIX.other+'"]'),'empty former task group disappears')})()`);
+ await evaluate(`(async()=>{await act({type:'task-asset',task_id:FIX.other,folder:{root:FIX.checkouts.alpha.path,path:'.'}});await checkWorktreeNavigation();assert(document.querySelector('[data-worktree-group="tasks:'+FIX.alpha+','+FIX.other+'"] [data-objective-worktree="'+FIX.checkouts.alpha.id+'"]'),'multiple task memberships share one combined group')})()`);
+ const emptyLink=await evaluate(`'.objective-sidebar-task [data-open-task="'+FIX.empty+'"]'`);await click(emptyLink);await evaluate(`checkWorktreeNavigation()`);
+ const unassignedTree=await evaluate(`'.objective-worktrees [data-objective-worktree="'+FIX.checkouts.unassigned.id+'"] [data-select-worktree]'`);
+ await click(unassignedTree);await evaluate(`until(()=>openedFolders.at(-1)?.root===FIX.checkouts.unassigned.path);assert(document.querySelector('[data-objectives-sidebar]').dataset.taskFocusMode==='off','worktree navigation exits task focus')`);await evaluate(`checkWorktreeNavigation()`);
+ await click(unassignedTree,'right');await click('[data-menu-bucket=archive]');
+ await evaluate(`until(()=>document.querySelector('.objective-worktree-archive [data-objective-worktree="'+FIX.checkouts.unassigned.id+'"]'))`);await evaluate(`checkWorktreeNavigation()`);
+ await click('.objective-worktree-archive > summary');await click('.objective-worktree-archive '+unassignedTree.split('.objective-worktrees ')[1],'right');await click('[data-menu-bucket=unassigned]');
+ await evaluate(`until(()=>document.querySelector('[data-worktree-group=unassigned] [data-objective-worktree="'+FIX.checkouts.unassigned.id+'"]'))`);await evaluate(`checkWorktreeNavigation()`);
  await click('.objective-sidebar-heading [data-select-objective]');
  await evaluate(`assert(document.querySelector('[data-objectives-sidebar] [data-objective-bucket=unassigned]'),'Objective reveals unassigned');assert(!errors.length,'no browser errors: '+JSON.stringify(errors))`);
  ws.close();console.log('PASS');

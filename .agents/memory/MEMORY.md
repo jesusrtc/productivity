@@ -1,5 +1,7 @@
 # Memory index
 
+- [Worktrees stay visible and group by task](worktrees-stay-visible-and-group-by-task.md) — every checkout remains in Worktrees across task/document/folder views; combined membership labels and recoverable Archive.
+
 - [Objective assets use reviewed assignments](objective-assets-use-reviewed-assignments.md) — pending LLM proposals, related task/asset search, pinned assets above Tasks, overview-only unassigned/archive, and confirmed Trash.
 
 - [New terminals choose workflow, Objective or worktree](new-terminals-choose-workflow-objective-or-worktree.md) — deliberate launches, only the current Objective's checkouts, captured associations and fixed folders.
