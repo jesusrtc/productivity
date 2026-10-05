@@ -1,5 +1,8 @@
 # Terminal tabs reveal on hover
 
+The pointer-leave behavior below is superseded by
+[Terminal names stay open after deliberate use](terminal-names-stay-open-after-deliberate-use.md).
+
 The vertical terminal switcher stays in a 62px icon rail to give the console
 more room. Keep session icons, yellow working dots, blinking green completion
 dots, scope dots, linked-file markers, active state, and recent activity visible

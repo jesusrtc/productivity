@@ -282,10 +282,11 @@
       const p=bridge().appearance();
       form(panel,`<p class="settings-intro">Appearance for terminal tabs throughout Lab in this browser.</p>
         ${field('Tab layout',choices('orientation',p.orientation,[['vertical','Vertical'],['horizontal','Horizontal']]))}
-        <p class="settings-hint">Drag the border beside vertical tabs to resize them. Labels appear when there is room.</p>
+        <p class="settings-hint">Hover over vertical tabs to show their names. Click the tab bar to keep it open; click inside the terminal to hide it. Drag its border to resize the names.</p>
+        ${field('Keep tab names open after hovering (seconds)',input('tabHoverPinSeconds',p.tabHoverPinSeconds ?? 3,'number','min="0" max="60" step="0.1" required'),'Default: 3 seconds. A shorter hover closes when you leave the tab bar. Zero keeps it open immediately.')}
         ${field('Recent tab window',choices('recentMinutes',p.recentMinutes,[15,30,60,180,360,720,1440].map(n=>[n,n<60?n+' minutes':n/60+' hours'])))}
         ${field('Recent tab color',input('recentColor',p.recentColor,'color'))}
-        ${field('Stop blinking after viewing (seconds)',input('completionReadSeconds',p.completionReadSeconds,'number','min="1" max="3600" step="1" required'),'Default: 20 seconds. Keep the terminal visible in the active Lab window for this long. Switching away resets the timer.')}`,async f=>bridge().saveAppearance({orientation:f.elements.orientation.value,recentMinutes:Number(f.elements.recentMinutes.value),recentColor:f.elements.recentColor.value,completionReadSeconds:Number(f.elements.completionReadSeconds.value)}));
+        ${field('Stop blinking after viewing (seconds)',input('completionReadSeconds',p.completionReadSeconds,'number','min="1" max="3600" step="1" required'),'Default: 20 seconds. Keep the terminal visible in the active Lab window for this long. Switching away resets the timer.')}`,async f=>bridge().saveAppearance({orientation:f.elements.orientation.value,tabHoverPinSeconds:Number(f.elements.tabHoverPinSeconds.value),recentMinutes:Number(f.elements.recentMinutes.value),recentColor:f.elements.recentColor.value,completionReadSeconds:Number(f.elements.completionReadSeconds.value)}));
       return;
     }
     const selected=bridge().terminalOptions(scope);

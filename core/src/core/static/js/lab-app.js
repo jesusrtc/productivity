@@ -10994,9 +10994,10 @@
       localStorage.setItem(_TERM_NEW_OPTIONS_KEY + key, JSON.stringify(_TERM_NEW_OPTIONS.filter(value => options.includes(value))));
       if (key === _termGroupScopeKey()) _termApplyNewOptions(document.getElementById('termNewPicker'),key);
     },
-    appearance() { return {orientation:termSessionOrientation,recentMinutes:termRecentMinutes,recentColor:termRecentColor,completionReadSeconds:window.LabTerminalCompletion?.getDelaySeconds() ?? 20}; },
+    appearance() { return {orientation:termSessionOrientation,tabHoverPinSeconds:termTabHoverPinSeconds,recentMinutes:termRecentMinutes,recentColor:termRecentColor,completionReadSeconds:window.LabTerminalCompletion?.getDelaySeconds() ?? 20}; },
     saveAppearance(value) {
       termSetSessionView('orientation',value.orientation);
+      if ('tabHoverPinSeconds' in value) termSetTabHoverPinSeconds(value.tabHoverPinSeconds);
       termSetRecentMinutes(value.recentMinutes); termSetRecentColor(value.recentColor);
       if ('completionReadSeconds' in value) window.LabTerminalCompletion?.setDelaySeconds(value.completionReadSeconds);
     },
@@ -11500,6 +11501,7 @@
   const _TERM_PCT_KEY_PREFIX = 'labTermPct:';
   const _TERM_SESSION_ORIENTATION_KEY = 'labTermSessionOrientation';
   const _TERM_SESSION_WIDTH_KEY = 'labTermSessionWidth';
+  const _TERM_TAB_HOVER_PIN_KEY = 'labTermTabHoverPinSeconds';
   const _TERM_GROUPS_KEY = 'labTermGroups-v1';
   const _TERM_RECENT_MINUTES_KEY = 'labTermRecentMinutes';
   // Dots start green instead of inheriting the old bar/background color.
@@ -11509,6 +11511,8 @@
   const _TERM_GROUP_COLORS = ['#58a6ff', '#a371f7', '#3fb950', '#d29922', '#f85149', '#db61a2', '#39c5cf', '#8b949e'];
   let termSessionOrientation = 'vertical';
   let termSessionWidth = null;
+  let termTabHoverPinSeconds = 3;
+  let _termSessionDrawer = null;
   let termRecentMinutes = 60;
   let termRecentColor = '#3fb950';
   let termRecentActivity = {};
@@ -11518,6 +11522,8 @@
     }
     const storedWidth = parseFloat(localStorage.getItem(_TERM_SESSION_WIDTH_KEY));
     if (Number.isFinite(storedWidth)) termSessionWidth = Math.max(160, Math.min(220, storedWidth));
+    const storedHoverSeconds = localStorage.getItem(_TERM_TAB_HOVER_PIN_KEY);
+    if (storedHoverSeconds !== null) termTabHoverPinSeconds = _termNormalizeTabHoverPinSeconds(storedHoverSeconds);
     const storedRecentMinutes = localStorage.getItem(_TERM_RECENT_MINUTES_KEY);
     if (storedRecentMinutes !== null) termRecentMinutes = _termNormalizeRecentMinutes(storedRecentMinutes);
     termRecentColor = _termNormalizeRecentColor(localStorage.getItem(_TERM_RECENT_COLOR_KEY));
@@ -11526,6 +11532,19 @@
       termRecentActivity = storedRecentActivity;
     }
   } catch {}
+
+  function _termNormalizeTabHoverPinSeconds(value) {
+    const seconds = Number(value);
+    return Number.isFinite(seconds) && String(value).trim() !== '' ? Math.max(0, Math.min(60, seconds)) : 3;
+  }
+
+  function termSetTabHoverPinSeconds(value) {
+    termTabHoverPinSeconds = _termNormalizeTabHoverPinSeconds(value);
+    try { localStorage.setItem(_TERM_TAB_HOVER_PIN_KEY, String(termTabHoverPinSeconds)); } catch {}
+    const input = document.getElementById('termTabHoverPinSeconds');
+    if (input) input.value = String(termTabHoverPinSeconds);
+    _termSessionDrawer?.refreshHoverDelay();
+  }
 
   function _termNormalizeRecentMinutes(value) {
     const parsed = Number(value);
@@ -11616,6 +11635,8 @@
     _termRenderNewOptionsSettings();
     _termApplyRecentSettings();
     document.getElementById('termOrientationSelect').value = termSessionOrientation;
+    const hoverInput = document.getElementById('termTabHoverPinSeconds');
+    if (hoverInput) hoverInput.value = String(termTabHoverPinSeconds);
     document.getElementById('termSettingsModal').classList.add('active');
     document.getElementById('termOrientationSelect').focus();
   }
@@ -11669,7 +11690,7 @@
       panel.classList.toggle('term-sessions-full', horizontal ? panelWidth >= 420 : width >= 112);
       panel.classList.toggle('term-sessions-narrow', !horizontal && width < 180);
     }
-    if (horizontal) document.getElementById('termSessionSwitcher')?.classList.remove('term-tabs-open');
+    if (horizontal) _termSessionDrawer?.reset();
     if (sessionList) sessionList.setAttribute('aria-orientation', horizontal ? 'horizontal' : 'vertical');
     if (resizer) {
       resizer.setAttribute('aria-valuemax', String(bounds.max));
@@ -11692,24 +11713,47 @@
     const switcher = document.getElementById('termSessionSwitcher');
     const resizer = document.getElementById('termSessionsResizer');
     if (!switcher || !resizer) return;
+    let hoverTimer = null, hovered = false, enteredAt = 0;
+    const clearHoverTimer = () => { clearTimeout(hoverTimer); hoverTimer = null; };
     const open = () => {
       if (termSessionOrientation === 'vertical') switcher.classList.add('term-tabs-open');
     };
-    const close = () => {
-      if (resizer.classList.contains('dragging')) return;
-      switcher.classList.remove('term-tabs-open');
+    const pin = () => {
+      if (termSessionOrientation !== 'vertical') return;
+      clearHoverTimer();
+      switcher.classList.add('term-tabs-open', 'term-tabs-pinned');
+    };
+    const scheduleHoverPin = () => {
+      clearHoverTimer();
+      if (!hovered || termSessionOrientation !== 'vertical' || switcher.classList.contains('term-tabs-pinned')) return;
+      hoverTimer = setTimeout(() => { if (hovered) pin(); }, Math.max(0, termTabHoverPinSeconds * 1000 - (performance.now() - enteredAt)));
+    };
+    const close = (force = false) => {
+      clearHoverTimer();
+      if (!force && switcher.classList.contains('term-tabs-pinned')) return;
+      if (!force && resizer.classList.contains('dragging')) return;
+      switcher.classList.remove('term-tabs-open', 'term-tabs-pinned');
       if (switcher.contains(document.activeElement)) document.activeElement.blur();
     };
-    switcher.addEventListener('pointerenter', open);
-    switcher.addEventListener('pointermove', open, {passive: true});
+    const enter = () => {
+      if (termSessionOrientation !== 'vertical') return;
+      if (!hovered) { hovered = true; enteredAt = performance.now(); scheduleHoverPin(); }
+      open();
+    };
+    switcher.addEventListener('pointerenter', enter);
+    switcher.addEventListener('pointermove', enter, {passive: true});
+    switcher.addEventListener('pointerdown', pin, {capture: true});
+    switcher.addEventListener('click', pin, {capture: true});
     switcher.addEventListener('focusin', open);
-    switcher.addEventListener('pointerleave', close);
+    switcher.addEventListener('pointerleave', () => { hovered = false; close(); });
     switcher.addEventListener('focusout', event => {
       if (!switcher.contains(event.relatedTarget) && !switcher.matches(':hover')) close();
     });
     switcher.addEventListener('keydown', event => {
-      if (event.key === 'Escape') { close(); _termHideSessionTooltip(); termXterm?.focus(); }
+      if (event.key === 'Escape') { hovered = false; close(true); _termHideSessionTooltip(); termXterm?.focus(); }
     });
+    document.getElementById('termBody')?.addEventListener('pointerdown', () => { hovered = false; close(true); }, {capture: true});
+    _termSessionDrawer = {refreshHoverDelay:scheduleHoverPin,reset() { hovered = false; clearHoverTimer(); switcher.classList.remove('term-tabs-open', 'term-tabs-pinned'); }};
   }
 
   function _termInitSessionResize() {
@@ -11753,7 +11797,7 @@
       document.body.classList.remove('term-resizing');
       if (resizer.hasPointerCapture(event.pointerId)) resizer.releasePointerCapture(event.pointerId);
       const switcher = document.getElementById('termSessionSwitcher');
-      if (switcher && !switcher.matches(':hover')) {
+      if (switcher && !switcher.matches(':hover') && !switcher.classList.contains('term-tabs-pinned')) {
         switcher.classList.remove('term-tabs-open');
         resizer.blur();
       }

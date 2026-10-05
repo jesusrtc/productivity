@@ -1,5 +1,7 @@
 # Memory index
 
+- [Terminal names stay open after deliberate use](terminal-names-stay-open-after-deliberate-use.md) — click or configurable 3-second hover keeps names visible until a console click; short crossings collapse.
+
 - [Copilot autopilot follows live identity](copilot-autopilot-live-status.md) — accepted `session.task_complete` enables green without a text reply; exact PID/foreground/ownership mapping follows conversation switches.
 
 - [Whole Objectives pass reference context](whole-objectives-pass-reference-context.md) — drag the Objective title/header/library row into a console for all active registered references, tasks/subtasks and worktrees; preserve focus-slot moves.

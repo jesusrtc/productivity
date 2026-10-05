@@ -5,6 +5,20 @@ PTY and WebSocket. The browser's input/output path is unchanged by socket
 rotation: once attached, terminal bytes continue to travel directly between
 the PTY and WebSocket event loop.
 
+## Terminal tab names
+
+Vertical tabs normally show a compact icon rail with status dots. Hover reveals
+the names immediately. Leaving after a brief hover hides them again. Clicking
+the rail or hovering for 3 seconds keeps the names open while moving to Files
+or other views; clicking inside the terminal console hides them. Escape also
+closes the names for keyboard navigation. The expanded list overlays the
+console, preserving its text width, and its right border adjusts the name width.
+
+Set **Keep tab names open after hovering (seconds)** in
+**Settings → Global → Terminal appearance** to change the delay. The default
+is 3 seconds; zero keeps names open immediately on hover. This preference is
+saved in the current browser. Horizontal tabs retain their normal layout.
+
 ## Sidebar references and object links
 
 Sidebar objects dropped inside the console paste a shell-quoted reference

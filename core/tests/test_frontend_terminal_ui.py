@@ -454,7 +454,7 @@ def test_terminal_drawer_drag_adapts_labels_and_persists_width() -> None:
     result = _run_node(r"""
 const stored = {}, classes = new Set(), events = {}, attrs = {};
 let panelWidth = 640, actualWidth = 220, captured = null, observe;
-let termSessionWidth = null, termSessionOrientation = 'vertical';
+let termSessionWidth = null, termSessionOrientation = 'vertical', _termSessionDrawer = null;
 const _TERM_SESSION_WIDTH_KEY = 'width';
 const termXterm = null;
 const frames = [];

@@ -10,7 +10,8 @@ vaults are reported without blocking other settings.
   Agent availability describes the computer running Lab, even when using a
   remote browser. An agent marked “Not installed” cannot be selected as the
   global default. An existing unavailable default stays visible until changed.
-- **Global → Terminal appearance:** tab orientation and recent-tab indicator.
+- **Global → Terminal appearance:** tab orientation, the hover delay for keeping
+  tab names open (3 seconds by default), and the recent-tab indicator.
 - **Global → Projects and worktrees:** editable projects and worktrees roots,
   plus custom project locations and per-project worktree folders.
 - **Global → Link types:** allowed project/worktree link types. Google Docs,

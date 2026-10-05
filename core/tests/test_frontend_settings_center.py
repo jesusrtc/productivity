@@ -26,6 +26,7 @@ def test_settings_center_browser(tmp_path, viewport):
         between('const _TERM_NEW_OPTIONS =','function _termRenderNewOptionsSettings()'),
         between('function _termSessionsKey(','// Home owns one terminal pool.'),
         between('window.LabSettingsBridge = {','async function openSettings()'),
+        between('function _termNormalizeTabHoverPinSeconds(value)','function _termNormalizeRecentMinutes(value)'),
     ])
     # Exercise the actual first statements in existing entry points, without
     # dragging in their retired fallback modal renderers.
@@ -39,6 +40,7 @@ localStorage.clear();
 const currentWorkspace={name:'same',path:'/vault-a/same',vault:'a',display_name:'Workspace Alpha'};
 const currentRepo=null, SELF_WORKSPACE_ID='__self__',SELF_REPO_PATH='/lab',ASSISTANT_WORKSPACE_ID='__assistant__',ASSISTANT_VAULT_ID='__assistant__',ASSISTANT_ROOT='/assistant';
 let _settings={},_vaultAgentPolicy=null,termSessionOrientation='vertical',termRecentMinutes=60,termRecentColor='#3fb950',rendered=0,appliedOptions=0;
+const _TERM_TAB_HOVER_PIN_KEY='labTermTabHoverPinSeconds';let termTabHoverPinSeconds=3,_termSessionDrawer=null;
 const _termActiveWorkspaceId=()=>currentWorkspace.name,_termVaultId=()=>currentWorkspace.vault,_termGroupScopeKey=()=>_termSessionsKey(currentWorkspace.name,currentWorkspace.vault);
 const applyTheme=()=>{},termRenderSessionList=()=>++rendered,_termApplyNewOptions=()=>++appliedOptions;
 const termSetSessionView=(_,v)=>termSessionOrientation=v,termSetRecentMinutes=v=>termRecentMinutes=v,termSetRecentColor=v=>termRecentColor=v;
@@ -166,10 +168,11 @@ const fits=()=>{const d=document.getElementById('labSettingsCenter');const rect=
  field('projectsFolder','/code');field('worktreesFolder','/trees');await save();
  assert(cfg.projectsFolder==='/code'&&cfg.worktreesFolder==='/trees','shared locations saved');
  await section('documents');field('sleepMinutes','20');field('maxRunning','2');await save();assert(cfg.documentTerminals.sleepMinutes===20&&cfg.documentTerminals.maxRunning===2,'global policy saved');
- await section('terminals');assert(form().elements.completionReadSeconds.value==='20','completion delay defaults to twenty seconds');
- field('orientation','horizontal');field('completionReadSeconds','7');await save();assert(termSessionOrientation==='horizontal','appearance bridge');
+ await section('terminals');assert(form().elements.completionReadSeconds.value==='20','completion delay defaults to twenty seconds');assert(form().elements.tabHoverPinSeconds.value==='3','hover keep-open delay defaults to three seconds');
+ field('orientation','horizontal');field('tabHoverPinSeconds','1.5');field('completionReadSeconds','7');await save();assert(termSessionOrientation==='horizontal','appearance bridge');
+ assert(localStorage.getItem('labTermTabHoverPinSeconds')==='1.5','hover keep-open delay saved in this browser');
  assert(localStorage.getItem('labTerminalCompletionReadSeconds')==='7','completion delay persisted');
- await section('documents');await section('terminals');assert(form().elements.completionReadSeconds.value==='7','saved delay restored');
+ await section('documents');await section('terminals');assert(form().elements.completionReadSeconds.value==='7','saved delay restored');assert(form().elements.tabHoverPinSeconds.value==='1.5','saved hover delay restored');
  await section('general');field('theme','dark');failSave=true;form().requestSubmit();await until(()=>q('[data-message]').classList.contains('error'));
  assert(form().elements.theme.value==='dark'&&document.getElementById('labSettingsCenter').open,'failed save keeps draft');failSave=false;await save();
  delayA=true;q('[data-scope="/vault-a/same"]').click();await until(()=>releaseA);
