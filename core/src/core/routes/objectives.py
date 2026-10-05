@@ -61,11 +61,18 @@ def change(request: Request, body: Action):
             reference = terminal_task_links.validate(request, LinkedTask(
                 document_id=action.get('document_id'), assistant_root=action.get('assistant_root')))
             action = {**action, **reference}
-        if action.get('type') in {'task-asset', 'asset-star', 'asset-bucket'}:
+        if action.get('type') in {'task-asset', 'asset-star', 'asset-bucket', 'suggest-assignment', 'asset-assign', 'asset-trash', 'accept-assignment'}:
             from core import terminal_task_links
             from core.routes.term import LinkedTask
             from pathlib import Path
             source = action.get('reference')
+            if action.get('type') == 'accept-assignment':
+                current = objectives.load(root, body.workspace_id)
+                owner = next((o for o in current['objectives'] if o['id'] == action.get('objective_id')), {})
+                suggestion = next((s for s in owner.get('assignment_suggestions', []) if s['id'] == action.get('suggestion_id')), {})
+                target = suggestion.get('asset', {})
+                source = next((r for r in owner.get('resources', []) if r['id'] == target.get('resource_id')), {})
+                action = {**target, **action}
             if source is None and action.get('resource_id'):
                 current = objectives.load(root, body.workspace_id)
                 owner = next((o for o in current['objectives'] if o['id'] == action.get('objective_id')), {})

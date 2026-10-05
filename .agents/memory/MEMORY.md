@@ -1,5 +1,7 @@
 # Memory index
 
+- [Objective assets use reviewed assignments](objective-assets-use-reviewed-assignments.md) — pending LLM proposals, related task/asset search, pinned assets above Tasks, overview-only unassigned/archive, and confirmed Trash.
+
 - [New terminals choose workflow, Objective or worktree](new-terminals-choose-workflow-objective-or-worktree.md) — deliberate launches, only the current Objective's checkouts, captured associations and fixed folders.
 
 - [Terminal tabs follow Objective task order](terminal-tabs-follow-objective-task-order.md) — whole Objective first, parent/subtask order across folders, unassigned last; native pills and session state preserved.

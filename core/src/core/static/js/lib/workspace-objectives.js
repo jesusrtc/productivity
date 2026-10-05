@@ -8,7 +8,7 @@
   const drafts = new Map(), linkDrafts = new Map();
   let bridge, dialog = null, hoverTimer, openView = null, activeDraft = null, activeLinkDraft = null, switchMenu = null, switchTimer;
   let taskCloseButton, taskCloseHost, taskCloseObserver, taskCloseResizeObserver, taskCloseFrame, taskModeHeader, taskModeSpacer;
-  let taskStatusMenu;
+  let taskStatusMenu, assetContextMenu;
   const taskStatuses = {todo:{icon:'⬜',label:'Undo'},in_progress:{icon:'🟡',label:'In progress'},done:{icon:'✅',label:'Completed'}};
   const key = scope => (scope?.vault || '') + '::' + scope?.workspace_id;
   const context = () => bridge?.context?.();
@@ -17,11 +17,11 @@
     const id = key(scope);
     if (!views.has(id)) {
       let saved;try {saved = JSON.parse(localStorage.getItem('lab.objectives.view.v1:' + id));} catch {}
-      views.set(id, {objective:saved?.objective || null, view:saved?.view || 'all', focus:saved?.focus || null, tree:saved?.tree || {}, pins:saved?.pins || {}, revealed:new Set(), selected:null});
+      views.set(id, {objective:saved?.objective || null, view:saved?.view || 'all', focus:saved?.focus || null, tree:saved?.tree || {}, pins:saved?.pins || {}, overview:saved?.overview || {}, revealed:new Set(), selected:null});
     }
     return views.get(id);
   }
-  function persistView() {const s=state();try{localStorage.setItem('lab.objectives.view.v1:'+key(context()),JSON.stringify({objective:s.objective,view:s.view,focus:s.focus,tree:s.tree,pins:s.pins}));}catch{}}
+  function persistView() {const s=state();try{localStorage.setItem('lab.objectives.view.v1:'+key(context()),JSON.stringify({objective:s.objective,view:s.view,focus:s.focus,tree:s.tree,pins:s.pins,overview:s.overview}));}catch{}}
   function objective() {const d=data(),s=state();return d?.objectives.find(o=>o.id===s.objective)||d?.objectives.find(o=>d.focused.includes(o.id));}
   function active(path) {return context()?.path===path&&data()?.enabled===true;}
   function taskStatus(task) {
@@ -130,18 +130,21 @@
   function assetRoot(root,o=objective()) {return scopeRows(o).find(t=>[t.path,t.resolved_path].includes(root))?.resolved_path||root;}
   function sameAsset(a,b) {const folder=target=>target.folder?JSON.stringify({root:assetRoot(target.folder.root),path:target.folder.path.replace(/\/+$/,'')||'.'}):null;return a.resource_id===b.resource_id&&(a.tab_id||null)===(b.tab_id||null)&&(a.sub_link_id||null)===(b.sub_link_id||null)&&folder(a)===folder(b)&&JSON.stringify(a.reference||null)===JSON.stringify(b.reference||null);}
   function isShared(asset,o=objective()) {return (o?.shared_assets||[]).some(a=>sameAsset(a,asset));}
-  function isArchived(asset,o=objective()) {return (o?.archived_assets||[]).some(a=>sameAsset(a,asset));}
+  function requiredAsset(asset,o=objective()) {return tasks(o).some(t=>t.document_id===asset.resource_id&&(!asset.tab_id||t.tab_id===asset.tab_id));}
+  function coversAsset(a,asset) {return sameAsset(a,asset)||!!(a.resource_id&&a.resource_id===asset.resource_id&&!a.tab_id&&!a.sub_link_id);}
+  function isTrashed(asset,o=objective()) {return (o?.trashed_assets||[]).some(a=>coversAsset(a,asset));}
+  function isArchived(asset,o=objective()) {return isTrashed(asset,o)||(o?.archived_assets||[]).some(a=>coversAsset(a,asset));}
   function assetControls(asset) {
     const info=assetInfo(asset);if(!info)return '';
     const target=esc(JSON.stringify(assetTarget(asset))),shared=isShared(asset);
-    return `<span class="objective-asset-tools"><button type="button" class="objective-star" data-objective-star="${target}" aria-pressed="${shared}" aria-label="${shared?'Unstar':'Star'} ${esc(info.title)}" title="${shared?'Unstar · keep task associations':'Star · share across all tasks'}">${shared?'★':'☆'}</button><button type="button" class="objective-asset-menu" data-classify-asset="${target}" aria-label="Classify ${esc(info.title)}">⋯</button></span>`;
+    return `<span class="objective-asset-tools"><button type="button" class="objective-star" data-objective-star="${target}" aria-pressed="${shared}" aria-label="${shared?'Unstar':'Star'} ${esc(info.title)}" title="${shared?'Unstar · keep task associations':'Star · share across all tasks'}">${shared?'★':'☆'}</button>${requiredAsset(asset)?'':`<button type="button" class="objective-asset-menu" data-classify-asset="${target}" aria-label="Classify ${esc(info.title)}">⋯</button>`}</span>`;
   }
   function visibleAsset(asset,o=objective()) {
     const r=o.resources.find(r=>r.id===asset.resource_id),t=tree(o);return !r?.worktree||[t?.id,t?.membership].includes(r.worktree);
   }
   function assetCatalog(o) {
     const rows=[...scopeRows(o).filter(t=>!t.fixed).map(t=>({folder:{root:t.path,path:'.'}})),...o.resources.filter(r=>!r.task_document).map(r=>({resource_id:r.id})),...(o.asset_shelf||[]),...(o.shared_assets||[]),...(o.archived_assets||[]),...tasks(o).flatMap(t=>t.assets||[])];
-    return rows.filter((row,i)=>rows.findIndex(a=>sameAsset(a,row))===i);
+    return rows.filter((row,i)=>!isTrashed(row,o)&&rows.findIndex(a=>sameAsset(a,row))===i);
   }
   function unassignedAssets(o,visible=false) {
     const assigned=tasks(o).flatMap(taskAssets);
@@ -278,7 +281,7 @@
     const selected=state().selected?.resource===r.id&&!state().selected?.tab&&!state().selected?.subLink;
     const icon=resourceIcon(r);
     const controls=assetControls({resource_id:r.id});
-    const rows=r.kind==='link'?subLinksFor(r):tabsFor(r),reveal=state().revealed.has(r.id),pins=state().pins[r.id]||[];
+    const rows=(r.kind==='link'?subLinksFor(r):tabsFor(r)).filter(row=>!isTrashed({resource_id:r.id,...(r.kind==='link'?{sub_link_id:row.id}:{tab_id:row.id})},o)),reveal=state().revealed.has(r.id),pins=state().pins[r.id]||[];
     if(r.kind==='link')return `<div class="objective-resource-group" data-resource-group="${esc(r.id)}"><div class="objective-resource-head"><button type="button" class="sidebar-scope-link objective-resource objective-link${selected?' active':''}" data-objective-resource="${esc(r.id)}" draggable="true" title="${esc(r.title)}">${icon}<span>${esc(r.title)}</span></button>${controls}${rows.length?'<span class="objective-sublinks-marker" aria-hidden="true">'+(reveal?'▾':'▸')+'</span>':''}</div>${reveal&&rows.length?`<div class="objective-subtabs objective-sublinks" role="tree" aria-label="${esc(r.title)} sublinks">${rows.map(row=>`<div class="objective-subtab-row" style="--objective-tab-depth:${row.depth}" role="treeitem" aria-level="${row.depth+1}"><button type="button" class="objective-subtab${state().selected?.resource===r.id&&state().selected?.subLink===row.id?' active':''}" data-objective-resource="${esc(r.id)}" data-objective-sublink="${esc(row.id)}" draggable="true" title="${esc(row.title)}">${window.LabScopeLinks?.icon({kind:'external',url:row.url})||'↗'}<span>${esc(row.title)}</span></button>${assetControls({resource_id:r.id,sub_link_id:row.id})}</div>`).join('')}</div>`:''}</div>`;
     return `<div class="objective-resource-group" data-resource-group="${esc(r.id)}"><div class="objective-resource-head"><button type="button" class="sidebar-scope-link objective-resource${selected?' active':''}" data-objective-resource="${esc(r.id)}" draggable="true" title="${esc(r.title)}">${icon}<span>${esc(r.title)}</span></button>${controls}${rows.length?`<button type="button" class="objective-tree-toggle" data-reveal-resource="${esc(r.id)}" aria-label="Show subtabs for ${esc(r.title)}" aria-expanded="${reveal}">${reveal?'▾':'▸'}</button>`:''}</div>
       ${rows.length?`<div class="objective-subtabs" role="tree" aria-label="${esc(r.title)} subtabs">${rows.filter(t=>reveal||pins.includes(t.id)).map(t=>`<div class="objective-subtab-row" style="--objective-tab-depth:${t.depth}" role="treeitem" aria-level="${t.depth+1}"><button type="button" class="objective-subtab${state().selected?.resource===r.id&&state().selected.tab===t.id?' active':''}" data-objective-resource="${esc(r.id)}" data-objective-tab="${esc(t.id)}" draggable="true" title="${esc(t.title)}"><span aria-hidden="true">▤</span><span>${esc(t.title)}</span></button>${assetControls({resource_id:r.id,tab_id:t.id})}<button type="button" class="objective-pin" data-pin-resource="${esc(r.id)}" data-pin-tab="${esc(t.id)}" aria-label="Pin ${esc(t.title)}" aria-pressed="${pins.includes(t.id)}">${pins.includes(t.id)?'◆':'◇'}</button></div>`).join('')}</div>`:''}</div>`;
@@ -296,19 +299,20 @@
     const task=focusedTask(),expanded=task&&(task.children.length?task:o.tasks.find(t=>t.children.some(c=>c.id===task.id)));
     const reservedTaskRows=Math.max(1,o.tasks.length+Math.max(0,...o.tasks.map(t=>t.children.length)));
     const unassigned=unassignedAssets(o,true);
+    const overview=!task&&!state().selected&&openView?.type==='overview'&&openView.scope===key(scope)&&openView.objective===o.id;
     host.innerHTML=`<div class="objective-sidebar-heading" style="--objective-color:${esc(o.color)}"><button type="button" data-select-objective="${esc(o.id)}" data-drag-objective="${esc(o.id)}" draggable="true" aria-pressed="${!task&&state().view==='objective'}" title="${esc(o.name)} · Drag into a terminal for the full context"><span class="objective-library-dot" aria-hidden="true"></span><span>${esc(o.name)}</span></button><button type="button" data-objective-settings aria-label="Objective settings">⚙</button></div>`+
+      ((o.shared_assets||[]).length?bucketHtml('objective','Objective · pinned',o.shared_assets.filter(a=>!isArchived(a,o))):'')+
       `<section class="objective-bucket objective-sidebar-tasks" data-objective-bucket="tasks"><div class="sidebar-title objective-title"><button type="button" class="objective-bucket-label" data-open-objective-tasks draggable="true">Tasks</button>${badge(o)}<button type="button" data-new-objective-task aria-label="New objective task">+</button></div><div class="objective-sidebar-task-list" style="--objective-task-rows:${reservedTaskRows}">${o.tasks.map(t=>sidebarTaskRow(t)+(t.id===expanded?.id?t.children.map(c=>sidebarTaskRow(c,t)).join(''):'')).join('')||'<p class="objective-bucket-empty">Add a task to start.</p>'}</div></section>`+
-      bucketHtml('objective','Objective assets',o.shared_assets||[])+
       bucketHtml('task','Task assets',task?taskAssets(task).filter(a=>!isArchived(a,o)):[])+
-      bucketHtml('unassigned','Unassigned',unassigned,true)+
-      `<details class="objective-archive" ${state().archiveOpen?'open':''}><summary>Archive · ${(o.archived_assets||[]).length}</summary>${bucketHtml('archive','Archived assets',o.archived_assets||[])}</details>
-      <div class="sidebar-title objective-title">Worktrees<button type="button" data-associate-worktree aria-label="Associate worktree">+</button></div><div class="objective-worktrees">${scopeRows(o).filter(item=>item.fixed).map(item=>scopeRow(item)).join('')}</div>`;
-    const archive=host.querySelector('.objective-archive');archive.ontoggle=()=>{state().archiveOpen=archive.open;};
+      (overview?bucketHtml('unassigned','Unassigned',unassigned,true)+`<details class="objective-archive" ${state().archiveOpen?'open':''}><summary>Archive · ${(o.archived_assets||[]).length}</summary>${bucketHtml('archive','Archived assets',o.archived_assets||[])}</details>`:'')+
+      `<div class="sidebar-title objective-title">Worktrees<button type="button" data-associate-worktree aria-label="Associate worktree">+</button></div><div class="objective-worktrees">${scopeRows(o).filter(item=>item.fixed).map(item=>scopeRow(item)).join('')}</div>`;
+    const archive=host.querySelector('.objective-archive');if(archive)archive.ontoggle=()=>{state().archiveOpen=archive.open;};
     host.querySelectorAll('[data-resource-group]').forEach(row=>{row.onmouseenter=()=>{clearTimeout(hoverTimer);const id=row.dataset.resourceGroup;if(state().revealed.has(id))return;const resource=o.resources.find(r=>r.id===id);hoverTimer=setTimeout(()=>{if(row.isConnected&&key(context())===key(scope)){state().revealed.add(id);paint();}},resource?.kind==='link'?1000:1500);};row.onmouseleave=()=>clearTimeout(hoverTimer);});
     markTaskAssets(host);
   }
   function selectObjective(id) {
     closeTaskStatusMenu();
+    closeAssetContextMenu();
     const o=data()?.objectives.find(o=>o.id===id);if(!o)return;closeSwitchMenu();collapse();state().focus=null;state().objective=id;state().view='objective';state().selected=null;persistView();paint();renderOverview();bridge.refreshTerminals?.();
     const t=tree(o)||{path:context().path,kind:'folder'};if(bridge.scopeRoot?.()!==t.path)bridge.selectWorktree?.(t);
   }
@@ -376,14 +380,55 @@
   function overviewAssets(label,assets) {
     return `<section class="objective-overview-assets" aria-label="${esc(label)}"><h3>${esc(label)}</h3><div class="objective-resources">${assets.map(assetRow).join('')||'<p class="objective-bucket-empty">No assets.</p>'}</div></section>`;
   }
+  function overviewState() {const s=state();return s.overview[objective().id] ||= {mode:'assets',query:''};}
+  function assignmentLabel(destination) {
+    const owner=data().objectives.find(o=>o.id===destination.objective_id)||objective();
+    if(destination.bucket==='task')return (owner.id!==objective().id?owner.name+' / ':'')+(tasks(owner).find(t=>t.id===destination.task_id)?.title||'Unavailable task');
+    return 'Objective: '+owner.name;
+  }
+  function reviewAssetRow(asset,archived=false) {
+    const target=esc(JSON.stringify(assetTarget(asset))),suggestions=(objective().assignment_suggestions||[]).filter(s=>sameAsset(s.asset,asset));
+    const pending=suggestions.filter(s=>s.status==='pending'),rejected=suggestions.some(s=>s.status==='rejected');
+    if(requiredAsset(asset))return `<div class="objective-review-asset">${assetRow(asset)}<span class="objective-assignment-status">Required task details</span></div>`;
+    return `<div class="objective-review-asset"><div class="objective-review-source">${assetRow(asset)}<span class="objective-assignment-status">${archived?'Archived':pending.length?'Suggestion available':rejected?'Suggestion rejected':'No suggestion'}</span></div>${archived?`<div class="objective-review-actions"><button type="button" data-restore-objective-asset="${target}">Restore to Unassigned</button><button type="button" data-trash-objective-asset="${target}">Trash</button></div>`:`${pending.map(s=>`<div class="objective-assignment-suggestion"><div><strong>Suggested → ${esc(assignmentLabel(s.destination))}</strong><p>${esc(s.reason)}</p></div><div class="objective-review-actions"><button type="button" data-accept-assignment="${esc(s.id)}">Accept</button><button type="button" data-reject-assignment="${esc(s.id)}">Reject</button></div></div>`).join('')}<div class="objective-review-actions"><button type="button" data-classify-asset="${target}">${pending.length?'Choose another…':'Assign…'}</button><button type="button" data-archive-objective-asset="${target}">Archive</button><button type="button" data-trash-objective-asset="${target}">Trash</button></div>`}</div>`;
+  }
+  function overviewReviewSection(label,assets,archived=false) {
+    return `<section class="objective-overview-assets" aria-label="${esc(label)}"><h3>${esc(label)} <span class="objective-result-count">${assets.length}</span></h3><div class="objective-review-list">${assets.map(a=>reviewAssetRow(a,archived)).join('')||'<p class="objective-bucket-empty">No assets.</p>'}</div></section>`;
+  }
+  function paintOverviewResults() {
+    const host=document.querySelector('[data-objective-overview-results]');if(!host||openView?.scope!==key(context()))return;
+    const o=objective(),s=overviewState(),query=s.query.trim().toLocaleLowerCase(),includes=text=>!query||String(text||'').toLocaleLowerCase().includes(query);
+    const matchAsset=a=>{const info=assetInfo(a,o);return info&&includes(info.title+' '+info.reference);};
+    const matchTask=t=>includes(t.title+' '+(t.due||''))||taskAssets(t).filter(a=>!isArchived(a,o)).some(matchAsset);
+    const sharedMatch=!!query&&(o.shared_assets||[]).filter(a=>!isArchived(a,o)).some(matchAsset);
+    const entries=tasks(o).filter(t=>matchTask(t)||sharedMatch);
+    if(s.mode==='archive'){
+      host.innerHTML=overviewReviewSection('Archived assets',(o.archived_assets||[]).filter(a=>!isTrashed(a,o)&&matchAsset(a)),true);return;
+    }
+    const unassigned=unassignedAssets(o).filter(matchAsset);
+    let html=s.mode!=='tasks'?overviewReviewSection('Unassigned assets',unassigned):'';
+    if(s.mode!=='unassigned'){
+      const empty=t=>!(t.assets||[]).some(a=>!isArchived(a,o));
+      const renderTask=t=>{const parent=o.tasks.find(p=>p.children.some(c=>c.id===t.id));return `<section class="objective-overview-task" data-overview-task="${esc(t.id)}">${parent?`<p class="objective-task-parent">Subtask of ${esc(parent.title)}</p>`:''}${taskRow(t,parent)}${s.mode==='assets'?overviewAssets('Task: '+t.title,taskAssets(t).filter(a=>!isArchived(a,o))):''}</section>`;};
+      html+=`<section class="objective-overview-tasks"><header><h3>Tasks</h3><button type="button" data-new-objective-task>+ Task</button></header><div class="objective-task-progress">${badge(o)}<span>${esc(progress(o).label)}</span></div>${[true,false].map(without=>{const rows=entries.filter(t=>empty(t)===without);return rows.length?`<h3 class="objective-task-group-label">${without?'Tasks without attached assets':'Tasks with assets'} · ${rows.length}</h3><div class="objective-task-list">${rows.map(renderTask).join('')}</div>`:'';}).join('')||'<p class="objective-bucket-empty">No matching tasks.</p>'}</section>`;
+      if(s.mode==='assets'){
+        html+=overviewReviewSection('Global assets · shared across tasks',(o.shared_assets||[]).filter(a=>!isArchived(a,o)&&(matchAsset(a)||query&&entries.length)));
+        const catalog=assetCatalog(o).filter(a=>!isArchived(a,o)&&matchAsset(a)).concat(o.resources.filter(r=>r.task_document&&!isArchived({resource_id:r.id},o)&&matchAsset({resource_id:r.id})).map(r=>({resource_id:r.id})));
+        html+=`<details class="objective-overview-catalog"><summary>All Objective assets · ${catalog.length}</summary>${overviewAssets('All Objective assets',catalog)}</details>`;
+      }
+    }
+    host.innerHTML=html;
+  }
   function renderOverview() {
     const o=objective();if(!o)return;state().focus=null;state().view='objective';state().selected=null;persistView();
     const host=showCenter('overview');
-    host.innerHTML=`<section class="objective-working objective-overview"><header><h2>${esc(o.name)}</h2><button type="button" data-objective-settings>Objective settings</button></header><p class="objective-purpose">${esc(o.purpose)}</p><section class="objective-overview-tasks"><header><h3>Tasks</h3><button type="button" data-new-objective-task>+ Task</button></header><div class="objective-task-progress">${badge(o)}<span>${esc(progress(o).label)}</span></div><div class="objective-task-list">${o.tasks.map(t=>taskRow(t)+t.children.map(c=>taskRow(c,t)).join('')).join('')||'<p>No tasks yet.</p>'}</div></section>${overviewAssets('Global assets · shared across tasks',o.shared_assets||[])}${o.tasks.map(parent=>[parent,...parent.children].map(task=>overviewAssets((task===parent?'Task: ':'Subtask: ')+task.title,taskAssets(task).filter(a=>!isArchived(a,o)))).join('')).join('')}${overviewAssets('Unassigned assets',unassignedAssets(o))}${overviewAssets('All Objective assets',assetCatalog(o).filter(a=>!isArchived(a,o)).concat(o.resources.filter(r=>r.task_document&&!isArchived({resource_id:r.id},o)).map(r=>({resource_id:r.id}))))}</section>`;
-    paint();
+    const s=overviewState();
+    host.innerHTML=`<section class="objective-working objective-overview"><header><h2>${esc(o.name)}</h2><button type="button" data-objective-settings>Objective settings</button></header><p class="objective-purpose">${esc(o.purpose)}</p><div class="objective-overview-toolbar"><label>Search tasks and assets<input type="search" data-objective-overview-search placeholder="Task, asset name or path…" value="${esc(s.query)}"></label><label>View<select data-objective-overview-mode><option value="assets">Tasks with assets</option><option value="tasks">Tasks only</option><option value="unassigned">Unassigned assets</option><option value="archive">Archive · ${(o.archived_assets||[]).length}</option></select></label></div><div data-objective-overview-results aria-live="polite"></div></section>`;
+    host.querySelector('[data-objective-overview-mode]').value=s.mode;paintOverviewResults();paint();
   }
   function selectScope(row) {
     if(!row)return;const scope=key(context());collapse();state().tree[objective().id]=row.id;renderOverview();
+    openView.type='folder';paint();
     const view=openView;
     Promise.resolve(bridge.selectWorktree?.(row)).then(()=>{if(key(context())===scope&&openView===view)bridge.openFolder?.({root:row.path,path:'.'});}).catch(error=>notify(error.message,true));
   }
@@ -397,14 +442,24 @@
     form('Task assets',`<p class="objective-purpose">${esc(task.title)} · Drop documents, notebooks, links or folders here or onto its task row. Drag an asset onto the icon at the right of its sidebar row to set its terminal icon.</p><div class="objective-task-asset-list" data-task-id="${esc(id)}">${taskAssets(task).map(a=>{const info=assetInfo(a);return info?`<div class="objective-task-asset-choice"><span class="objective-task-asset-icon" aria-hidden="true">${info.icon}</span><button type="button" data-open-task-asset="${esc(a.id)}" data-asset-task="${esc(id)}">${esc(info.title)}</button>${a.required?'<span class="objective-purpose">Details</span>':`<button type="button" data-remove-task-asset="${esc(a.id)}" data-asset-task="${esc(id)}" aria-label="Detach ${esc(info.title)}">×</button>`}</div>`:'';}).join('')}</div>`,async()=>{});
     dialog.querySelector('[type=submit]').textContent='Done';
   }
-  function classifyAsset(target) {
+  function classifyAsset(target,preset=null) {
     const info=assetInfo(target);if(!info)return;
-    const entries=tasks();form('Classify '+info.title,`<label>Bucket<select name="bucket"><option value="unassigned">Unassigned</option><option value="objective">Objective · shared across tasks</option><option value="task">Task</option><option value="archive">Archive</option></select></label><label>Task<select name="task">${entries.map(t=>`<option value="${esc(t.id)}">${esc(t.title)}</option>`).join('')}</select></label>`,async values=>{
-      const bucket=values.get('bucket');await change({type:bucket==='task'?'task-asset':'asset-bucket',objective_id:objective().id,...target,...(bucket==='task'?{task_id:values.get('task')}:{bucket})});
+    const scope={...context()},owner=objective(),assigned=tasks(owner).find(t=>(t.assets||[]).some(a=>sameAsset(a,target))),pending=(owner.assignment_suggestions||[]).find(s=>s.status==='pending'&&sameAsset(s.asset,target));
+    const node=form('Assign '+info.title,`<label>Bucket<select name="bucket"><option value="task">Task</option><option value="objective">Objective · shared across tasks</option><option value="unassigned">Unassigned</option><option value="archive">Archive</option><option value="trash">Trash</option></select></label><label>Objective<select name="objective">${data().objectives.map(o=>`<option value="${esc(o.id)}">${esc(o.name)}</option>`).join('')}</select></label><label>Task<select name="task"></select></label><p data-trash-confirm hidden>Remove this asset from the Objective and detach its task assignments? Source files and running terminals are preserved.</p>`,async values=>{
+      const bucket=values.get('bucket');
+      await change({type:bucket==='trash'?'asset-trash':['task','objective'].includes(bucket)?'asset-assign':'asset-bucket',objective_id:owner.id,...target,...(bucket==='trash'?{confirmed:true}:['task','objective'].includes(bucket)?{destination:{bucket,objective_id:values.get('objective'),...(bucket==='task'?{task_id:values.get('task')}:{})}}:{bucket})},{scope});
     });
-    dialog.querySelector('[name=bucket]').value=isArchived(target)?'archive':isShared(target)?'objective':'unassigned';
-    dialog.querySelector('[name=task]').value=focusedTask()?.id||entries[0]?.id||'';
-    const sync=()=>{dialog.querySelector('[name=task]').parentElement.hidden=dialog.querySelector('[name=bucket]').value!=='task';};dialog.querySelector('[name=bucket]').onchange=sync;sync();
+    node.querySelector('[name=bucket]').value=preset||(isArchived(target)?'archive':isShared(target)?'objective':assigned?'task':pending?.destination.bucket|| (tasks(owner).length?'task':'objective'));
+    node.querySelector('[name=objective]').value=pending?.destination.objective_id||owner.id;
+    const syncTasks=()=>{const entries=tasks(data().objectives.find(o=>o.id===node.querySelector('[name=objective]').value));node.querySelector('[name=task]').innerHTML=entries.map(t=>`<option value="${esc(t.id)}">${esc(t.title)}</option>`).join('');};
+    const sync=()=>{const bucket=node.querySelector('[name=bucket]').value;node.querySelector('[name=objective]').parentElement.hidden=!['task','objective'].includes(bucket);node.querySelector('[name=task]').parentElement.hidden=bucket!=='task';node.querySelector('[data-trash-confirm]').hidden=bucket!=='trash';node.querySelector('[type=submit]').textContent=bucket==='trash'?'Trash asset':'Move';};
+    node.querySelector('[name=objective]').onchange=syncTasks;node.querySelector('[name=bucket]').onchange=sync;syncTasks();
+    if(assigned||pending?.destination.task_id)node.querySelector('[name=task]').value=pending?.destination.task_id||assigned.id;sync();
+  }
+  function trashAsset(target) {
+    const info=assetInfo(target);if(!info)return;const scope={...context()},owner=objective().id;
+    const node=form('Trash '+info.title+'?',`<p>Remove this asset from the Objective and detach its task assignments? Source files and running terminals are preserved.</p>`,()=>change({type:'asset-trash',objective_id:owner,...target,confirmed:true},{scope}));
+    node.querySelector('[type=submit]').textContent='Trash asset';
   }
   function openAsset(asset) {
     if(asset.folder){bridge.openFolder?.(asset.folder);return;}
@@ -707,19 +762,44 @@
     menu.style.left=Math.max(8,Math.min(event.clientX||box.left,innerWidth-size.width-8))+'px';menu.style.top=Math.max(8,Math.min(event.clientY||box.bottom,innerHeight-size.height-8))+'px';
     menu.querySelector('[aria-checked=true]')?.focus({preventScroll:true});
   }
-  document.addEventListener('contextmenu',event=>{const row=event.target.closest?.('[data-objectives-sidebar] .objective-sidebar-task');if(row&&active(context()?.path))showTaskStatusMenu(event,row);},true);
+  function closeAssetContextMenu() {assetContextMenu?.remove();assetContextMenu=null;}
+  function showAssetContextMenu(event) {
+    if(!active(context()?.path)||!event.target.closest?.('[data-objectives-sidebar],.objective-working'))return false;
+    const node=event.target.closest('[data-objective-asset],[data-objective-resource],[data-classify-asset],[data-objective-star]');if(!node)return false;
+    const target=node.dataset.classifyAsset||node.dataset.objectiveStar||node.dataset.objectiveAsset;
+    const asset=target?JSON.parse(target):{resource_id:node.dataset.objectiveResource,...(node.dataset.objectiveTab?{tab_id:node.dataset.objectiveTab}:{}),...(node.dataset.objectiveSublink?{sub_link_id:node.dataset.objectiveSublink}:{})};
+    if(!assetInfo(asset))return false;
+    event.preventDefault();event.stopImmediatePropagation();closeTaskStatusMenu();closeAssetContextMenu();
+    const json=esc(JSON.stringify(assetTarget(asset))),required=requiredAsset(asset);
+    assetContextMenu=document.createElement('div');assetContextMenu.className='objective-asset-context-menu';assetContextMenu.setAttribute('role','menu');assetContextMenu.setAttribute('aria-label','Asset actions');
+    assetContextMenu.innerHTML=`<button type="button" role="menuitem" data-objective-star="${json}">${isShared(asset)?'Unpin':'Pin above tasks'}</button>${required?'<span class="objective-bucket-empty">Required task details</span>':`<button type="button" role="menuitem" data-menu-asset="${json}" data-menu-assignment="task">Move to task…</button><button type="button" role="menuitem" data-menu-asset="${json}" data-menu-assignment="objective">Move to Objective…</button><button type="button" role="menuitem" data-menu-asset="${json}" data-menu-bucket="unassigned">Move to Unassigned</button><button type="button" role="menuitem" data-menu-asset="${json}" data-menu-bucket="archive">Archive</button><button type="button" role="menuitem" data-trash-objective-asset="${json}">Trash…</button>`}`;
+    document.body.append(assetContextMenu);const box=node.getBoundingClientRect();
+    assetContextMenu.style.left=Math.max(8,Math.min(event.clientX||box.left,window.innerWidth-assetContextMenu.offsetWidth-8))+'px';
+    assetContextMenu.style.top=Math.max(8,Math.min(event.clientY||box.bottom,window.innerHeight-assetContextMenu.offsetHeight-8))+'px';assetContextMenu.querySelector('button')?.focus();return true;
+  }
+  document.addEventListener('contextmenu',event=>{if(showAssetContextMenu(event))return;const row=event.target.closest?.('[data-objectives-sidebar] .objective-sidebar-task');if(row&&active(context()?.path))showTaskStatusMenu(event,row);},true);
+  document.addEventListener('keydown',event=>{if(assetContextMenu&&event.target.closest?.('.objective-asset-context-menu')){const rows=[...assetContextMenu.querySelectorAll('button')];if(event.key==='Escape'){closeAssetContextMenu();event.preventDefault();}else if(['ArrowDown','ArrowUp','Home','End'].includes(event.key)){event.preventDefault();const i=rows.indexOf(document.activeElement);rows[event.key==='Home'?0:event.key==='End'?rows.length-1:(i+(event.key==='ArrowDown'?1:rows.length-1))%rows.length]?.focus();}return;}if(event.key==='ContextMenu'||event.shiftKey&&event.key==='F10')showAssetContextMenu(event);},true);
+  document.addEventListener('pointerdown',event=>{if(!event.target.closest?.('.objective-asset-context-menu'))closeAssetContextMenu();});
+  document.addEventListener('scroll',event=>{if(!event.target.closest?.('.objective-asset-context-menu'))closeAssetContextMenu();},true);
+  window.addEventListener('resize',closeAssetContextMenu);
   document.addEventListener('keydown',event=>{if(event.key!=='ContextMenu'&&!(event.shiftKey&&event.key==='F10'))return;const row=event.target.closest?.('[data-objectives-sidebar] .objective-sidebar-task');if(row&&active(context()?.path))showTaskStatusMenu(event,row);},true);
   document.addEventListener('pointerdown',event=>{if(!event.target.closest?.('.objective-task-status-menu'))closeTaskStatusMenu();});
   document.addEventListener('scroll',event=>{if(!event.target.closest?.('.objective-task-status-menu'))closeTaskStatusMenu();},true);
   window.addEventListener('resize',closeTaskStatusMenu);
   function handleClick(e) {
     if(e.target.closest?.('[data-close-objective-task]')){const id=focusedTask()?.id;renderTasks();document.querySelector(`[data-open-task="${id}"]`)?.focus({preventScroll:true});return;}
-    const host=e.target.closest?.('[data-objectives-sidebar],.objective-working,.objective-task-mode-head,.objective-dialog,.objective-terminal-group,[data-objective-notebook-controls],.repo-tabs,.objective-switch-menu');
+    const host=e.target.closest?.('[data-objectives-sidebar],.objective-working,.objective-task-mode-head,.objective-dialog,.objective-terminal-group,[data-objective-notebook-controls],.repo-tabs,.objective-switch-menu,.objective-asset-context-menu');
     if(!host)return;
     const node=e.target.closest('button,input,a');if(!node)return;
+    if(node.closest('.objective-asset-context-menu'))closeAssetContextMenu();
+    if(node.dataset.menuAssignment){classifyAsset(JSON.parse(node.dataset.menuAsset),node.dataset.menuAssignment);return;}
+    if(node.dataset.menuBucket){void change({type:'asset-bucket',objective_id:objective().id,...JSON.parse(node.dataset.menuAsset),bucket:node.dataset.menuBucket}).catch(()=>{});return;}
     if(node.hasAttribute('data-objective-star')){const target=JSON.parse(node.dataset.objectiveStar);void change({type:'asset-star',objective_id:objective().id,...target,starred:!isShared(target)}).catch(()=>{});return;}
     if(node.hasAttribute('data-classify-asset')){classifyAsset(JSON.parse(node.dataset.classifyAsset));return;}
-    if(node.hasAttribute('data-show-unassigned')){collapse();renderTasks();return;}
+    if(node.dataset.acceptAssignment||node.dataset.rejectAssignment){const accept=!!node.dataset.acceptAssignment;void change({type:accept?'accept-assignment':'reject-assignment',objective_id:objective().id,suggestion_id:node.dataset.acceptAssignment||node.dataset.rejectAssignment}).catch(()=>{});return;}
+    if(node.hasAttribute('data-trash-objective-asset')){trashAsset(JSON.parse(node.dataset.trashObjectiveAsset));return;}
+    if(node.hasAttribute('data-archive-objective-asset')||node.hasAttribute('data-restore-objective-asset')){void change({type:'asset-bucket',objective_id:objective().id,...JSON.parse(node.dataset.archiveObjectiveAsset||node.dataset.restoreObjectiveAsset),bucket:node.hasAttribute('data-archive-objective-asset')?'archive':'unassigned'}).catch(()=>{});return;}
+    if(node.hasAttribute('data-show-unassigned')){collapse();Object.assign(overviewState(),{mode:'unassigned',query:''});persistView();renderOverview();return;}
     if(node.dataset.editObjectiveTask){const task=tasks().find(t=>t.id===node.dataset.editObjectiveTask);form('Edit task',input('Task','title',task.title)+input('Due date','due',task.due||'','date',false),async values=>{await change({type:'task-update',objective_id:objective().id,task_id:task.id,title:values.get('title'),due:values.get('due')});});return;}
     if(node.dataset.openTask){if(node.tagName==='A'&&(e.metaKey||e.ctrlKey||e.shiftKey||e.altKey))return;e.preventDefault();openTask(node.dataset.openTask);return;}
     if(node.hasAttribute('data-task-focus-mode')){const f=taskFocus();if(f){f.mode=node.dataset.taskFocusMode;persistView();paint();}return;}
@@ -788,6 +868,7 @@
   },true);
   document.addEventListener('input',event=>{
     const node=event.target,d=activeLinkDraft;
+    if(node.hasAttribute('data-objective-overview-search')){overviewState().query=node.value;persistView();paintOverviewResults();return;}
     if(d&&node.closest('.objective-link-details')===d.node){
       if(node.hasAttribute('data-objective-link-field'))d[node.dataset.objectiveLinkField]=node.value;
       else if(node.closest('[data-link-property]')){const item=d.properties[Number(node.closest('[data-link-property]').dataset.linkProperty)];item[node.hasAttribute('data-link-property-name')?'name':'value']=node.value;}
@@ -796,7 +877,7 @@
     if(!node.matches('[data-objective-search],[data-objective-filter],[data-objective-status-filter]'))return;
     state()[node.hasAttribute('data-objective-search')?'query':node.hasAttribute('data-objective-filter')?'filter':'statusFilter']=node.value;paintLibrary();
   });
-  document.addEventListener('change',e=>{const node=e.target;if(!node.matches('[data-task-done],[data-task-due]'))return;const o=objective(),id=node.dataset.taskDone||node.dataset.taskDue,patch=node.dataset.taskDone?{done:node.checked}:{due:node.value};change({type:'task-update',objective_id:o.id,task_id:id,...patch},{optimistic:d=>{const owner=d.objectives.find(item=>item.id===o.id);if('done'in patch)patchTaskStatus(owner,id,patch.done?'done':'todo');else Object.assign(tasks(owner).find(t=>t.id===id),patch);}}).catch(()=>{});});
+  document.addEventListener('change',e=>{const node=e.target;if(node.hasAttribute('data-objective-overview-mode')){overviewState().mode=node.value;persistView();paintOverviewResults();return;}if(!node.matches('[data-task-done],[data-task-due]'))return;const o=objective(),id=node.dataset.taskDone||node.dataset.taskDue,patch=node.dataset.taskDone?{done:node.checked}:{due:node.value};change({type:'task-update',objective_id:o.id,task_id:id,...patch},{optimistic:d=>{const owner=d.objectives.find(item=>item.id===o.id);if('done'in patch)patchTaskStatus(owner,id,patch.done?'done':'todo');else Object.assign(tasks(owner).find(t=>t.id===id),patch);}}).catch(()=>{});});
   document.addEventListener('dragstart',e=>{
     const project=e.target.closest?.('[data-drag-objective],.objective-tab[data-select-objective]');
     if(project){

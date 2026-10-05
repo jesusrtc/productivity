@@ -105,10 +105,12 @@ def _asset_target(asset):
 
 
 def _prune_assets(objective, remove):
-    for field in ('shared_assets', 'archived_assets', 'asset_shelf'):
+    for field in ('shared_assets', 'archived_assets', 'asset_shelf', 'trashed_assets'):
         if field in objective:
             objective[field] = [asset for asset in objective[field] if not remove(asset)]
     _prune_task_assets(objective, remove)
+    if 'assignment_suggestions' in objective:
+        objective['assignment_suggestions'] = [s for s in objective['assignment_suggestions'] if not remove(s['asset'])]
 
 
 def _prune_task_assets(objective, remove):
@@ -205,6 +207,151 @@ def _asset_bucket(folder, objective, action):
         _prune_task_assets(objective, lambda row: _asset_target(row) == asset)
         if bucket == 'archive':
             _put_asset(objective, 'archived_assets', asset)
+
+
+def _covers(container, asset):
+    """A hidden document/link also hides its subtabs/sublinks."""
+    return _asset_target(container) == asset or bool(
+        container.get('resource_id') and container['resource_id'] == asset.get('resource_id')
+        and not container.get('tab_id') and not container.get('sub_link_id'))
+
+
+def _optional_asset(objective, asset):
+    if any(asset.get('resource_id') == task['document_id']
+           and (not asset.get('tab_id') or asset['tab_id'] == task['tab_id']) for task in _tasks(objective)):
+        raise ValueError('Task details must remain associated with their task')
+
+
+def _assignment_destination(data, objective, action):
+    destination = action.get('destination')
+    if not isinstance(destination, dict) or destination.get('bucket') not in {'task', 'objective'}:
+        raise ValueError('Choose a task or Objective for the assignment')
+    owner = _find(data['objectives'], destination.get('objective_id', objective['id']))
+    if owner is None:
+        raise ValueError('Suggested Objective no longer exists')
+    target = {'bucket':destination['bucket'], 'objective_id':owner['id']}
+    if target['bucket'] == 'task':
+        if not _find(_tasks(owner), destination.get('task_id')):
+            raise ValueError('Suggested task no longer exists')
+        target['task_id'] = destination['task_id']
+    return owner, target
+
+
+def _assignment_asset(folder, objective, action):
+    # Suggestions may only refer to registered assets, never import/create one.
+    if action.get('reference') is not None:
+        raise ValueError('Register the asset before suggesting an assignment')
+    asset = _task_asset(folder, objective, action)
+    if asset.get('folder'):
+        registered = [*objective.get('asset_shelf', []), *objective.get('shared_assets', []),
+                      *objective.get('archived_assets', []), *(a for task in _tasks(objective) for a in task.get('assets', [])),
+                      *({'folder':{'root':str(Path(t['path']).resolve()), 'path':'.'}} for t in objective['worktrees'])]
+        if not any(_asset_target(row) == asset for row in registered):
+            raise ValueError('Register the folder asset before suggesting or changing its assignment')
+    _optional_asset(objective, asset)
+    if any(_covers(row, asset) for row in objective.get('trashed_assets', [])):
+        raise ValueError('This asset was removed')
+    return asset
+
+
+def _transfer_asset(folder, data, source, owner, asset):
+    """Move a registration, retaining the original file/document ownership."""
+    if source is owner:
+        return asset
+    if asset.get('folder'):
+        tree = next((t for t in source['worktrees'] if Path(t['path']).resolve() == Path(asset['folder']['root']).resolve()), None)
+        if tree is None or asset['folder']['path'] != '.':
+            raise ValueError('Only an associated whole worktree can move to another Objective')
+        source['worktrees'].remove(tree)
+        owner['worktrees'].append(tree)
+        for resource in source['resources']:
+            if resource.get('worktree') == tree['id']:
+                resource['worktree'] = None
+        _prune_assets(source, lambda row: row.get('folder', {}).get('root') == asset['folder']['root'])
+        return asset
+    resource = _find(source['resources'], asset.get('resource_id'))
+    if asset.get('tab_id') and resource['kind'] != 'assistant':
+        raise ValueError('Move the whole document to another Objective, rather than an individual subtab')
+    reference = deepcopy(resource)
+    reference.update(id=identifier(), worktree=None)
+    reference.pop('task_document', None)
+    if resource['kind'] in {'document', 'notebook'}:
+        reference.update(kind='file', file_root=str(folder), path=resource['path'])
+    if asset.get('sub_link_id'):
+        reference.update(deepcopy(_find(list(_sublink_rows(resource)), asset['sub_link_id'])))
+        reference['id'] = identifier()
+        reference.pop('sublinks', None)
+    identity = {'file':['file_root', 'path'], 'link':['url'], 'assistant':['assistant_root', 'document_id', 'tab_id']}[reference['kind']]
+    existing = next((r for r in owner['resources'] if r['kind'] == reference['kind'] and all(r.get(k) == reference.get(k) for k in identity)), None)
+    if existing is None:
+        owner['resources'].append(reference)
+    result = {'resource_id':(existing or reference)['id']}
+    if asset.get('tab_id'):
+        result['tab_id'] = asset['tab_id']
+    if asset.get('tab_id') or asset.get('sub_link_id'):
+        _prune_assets(source, lambda row: _asset_target(row) == asset)
+        _put_asset(source, 'trashed_assets', asset)
+    else:
+        source['resources'].remove(resource)
+        _prune_assets(source, lambda row: row.get('resource_id') == resource['id'])
+    # Running terminals keep their original mappings and launch directories.
+    return result
+
+
+def _assign_asset(folder, data, objective, asset, owner, destination):
+    asset = _transfer_asset(folder, data, objective, owner, asset)
+    _prune_task_assets(owner, lambda row: _asset_target(row) == asset)
+    _asset_bucket(folder, owner, {**asset, 'type':'asset-bucket', 'bucket':destination['bucket'] if destination['bucket'] == 'objective' else 'unassigned'})
+    if destination['bucket'] == 'task':
+        task = _find(_tasks(owner), destination['task_id'])
+        _put_asset(task, 'assets', asset, 128)
+    for suggestion in owner.get('assignment_suggestions', []):
+        if suggestion['asset'] == asset and suggestion['status'] == 'pending':
+            suggestion['status'] = 'superseded'
+
+
+def _suggest_assignment(folder, data, objective, action):
+    asset = _assignment_asset(folder, objective, action)
+    if any(_covers(row, asset) for row in objective.get('archived_assets', [])):
+        raise ValueError('Restore the archived asset before suggesting an assignment')
+    owner, destination = _assignment_destination(data, objective, action)
+    if owner is not objective:
+        # Validate the transfer on a copy; a proposal never alters membership.
+        preview = deepcopy(data)
+        _transfer_asset(folder, preview, _find(preview['objectives'], objective['id']), _find(preview['objectives'], owner['id']), asset)
+    rows = objective.setdefault('assignment_suggestions', [])
+    if any(s['asset'] == asset and s['destination'] == destination for s in rows):
+        return  # Includes rejected proposals: do not re-offer the same decision.
+    if len(rows) >= 2048:
+        raise ValueError('This Objective supports up to 2048 assignment suggestions')
+    rows.append({'id':identifier(), 'asset':asset, 'destination':destination,
+                 'reason':_text(action.get('reason'), 'Suggestion reason', 1024), 'status':'pending'})
+
+
+def _trash_asset(folder, objective, action):
+    if action.get('confirmed') is not True:
+        raise ValueError('Confirm removing this asset first')
+    asset = _assignment_asset(folder, objective, action)
+    if asset.get('folder'):
+        root = Path(asset['folder']['root']).resolve()
+        if root in {folder.resolve(), _objective_dir(folder, objective).resolve()} and asset['folder']['path'] == '.':
+            raise ValueError('Root and Objective folders cannot be removed')
+        tree = next((t for t in objective['worktrees'] if Path(t['path']).resolve() == root), None)
+        if tree and asset['folder']['path'] == '.':
+            objective['worktrees'].remove(tree)
+            for resource in objective['resources']:
+                if resource.get('worktree') == tree['id']:
+                    resource['worktree'] = None
+            _prune_assets(objective, lambda row: row.get('folder', {}).get('root') == asset['folder']['root'])
+        else:
+            _prune_assets(objective, lambda row: _asset_target(row) == asset)
+        _put_asset(objective, 'trashed_assets', asset)
+    elif asset.get('tab_id') or asset.get('sub_link_id'):
+        _prune_assets(objective, lambda row: _asset_target(row) == asset)
+        _put_asset(objective, 'trashed_assets', asset)
+    else:
+        objective['resources'] = [r for r in objective['resources'] if r['id'] != asset['resource_id']]
+        _prune_assets(objective, lambda row: row.get('resource_id') == asset['resource_id'])
 
 
 def _color(data, objective):
@@ -510,6 +657,27 @@ def mutate(root, workspace_id, action, expected=None):
             _resource(folder, objective, action)
         elif operation in {'asset-star', 'asset-bucket'}:
             _asset_bucket(folder, objective, action)
+        elif operation == 'suggest-assignment':
+            _suggest_assignment(folder, data, objective, action)
+        elif operation in {'accept-assignment', 'reject-assignment'}:
+            suggestion = _find(objective.get('assignment_suggestions', []), action.get('suggestion_id'))
+            if not suggestion or suggestion['status'] != 'pending':
+                raise ValueError('This suggestion is no longer pending')
+            if operation == 'reject-assignment':
+                suggestion['status'] = 'rejected'
+            else:
+                asset = _assignment_asset(folder, objective, suggestion['asset'])
+                if any(_covers(row, asset) for row in objective.get('archived_assets', [])):
+                    raise ValueError('Restore the archived asset before accepting its assignment')
+                owner, destination = _assignment_destination(data, objective, suggestion)
+                _assign_asset(folder, data, objective, asset, owner, destination)
+                suggestion['status'] = 'accepted'
+        elif operation == 'asset-assign':
+            asset = _assignment_asset(folder, objective, action)
+            owner, destination = _assignment_destination(data, objective, action)
+            _assign_asset(folder, data, objective, asset, owner, destination)
+        elif operation == 'asset-trash':
+            _trash_asset(folder, objective, action)
         elif operation == 'scope':
             resource = _find(objective['resources'], action.get('resource_id'))
             if not resource:

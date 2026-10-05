@@ -36,10 +36,11 @@ def migrate(workspace, apply_changes):
 @objective_group.command('apply')
 @click.option('--workspace', default=None)
 @click.option('--file', 'action_file', type=click.Path(exists=True, path_type=Path), required=True)
-def apply(workspace, action_file):
+@click.option('--expected', default=None, help='Require the revision returned by objective ls; reject stale changes.')
+def apply(workspace, action_file, expected):
     """Apply one JSON objective action through Lab's locked store."""
     try:
-        result = objectives.mutate(paths.find_monorepo_root(), resolve_workspace_id(workspace), json.loads(action_file.read_text()))
+        result = objectives.mutate(paths.find_monorepo_root(), resolve_workspace_id(workspace), json.loads(action_file.read_text()), expected=expected)
         click.echo(json.dumps(result, indent=2))
     except (ValueError, OSError, KeyError) as exc:
         raise click.ClickException(str(exc)) from exc

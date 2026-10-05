@@ -29,6 +29,15 @@ agent instruction, skill, or memory files merely to integrate with Lab.
   `lab context meetings`. Markdown files are the source of truth; agents may
   create and edit them directly. Read client instructions for ownership,
   terminology, research, and writing rules. Lab does not rewrite those rules.
+- For workspace Objective asset organization, read `lab context objectives`.
+  Use `lab objective ls --workspace <id>` to inspect tasks, assets and existing
+  assignment suggestions. When inferring where an asset belongs, write only a
+  `suggest-assignment` action through `lab objective apply`; include the existing
+  asset identifier, destination task/Objective and a short evidence-based reason.
+  Suggestions remain pending for the user's Accept/Reject controls. Do not
+  accept your own suggestions or use assignment, star, bucket, trash or removal
+  actions to implement inferred organization unless the user explicitly requests
+  that actual change. Do not re-offer an identical rejected suggestion.
 
 - For migration instructions and expected data formats, read `lab migrations`
   or `lab agent context migrations`. Detailed guides include

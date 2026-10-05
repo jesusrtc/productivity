@@ -8,6 +8,31 @@
 .objective-overview-tasks,.objective-overview-assets { margin-top:24px; }
 .objective-overview h3 { font-size:13px; margin:0 0 10px; color:var(--text-secondary); }
 .objective-overview-assets > .objective-resources { padding:0; }
+.objective-overview-toolbar { display:flex; gap:12px; flex-wrap:wrap; position:sticky; top:0; z-index:2; padding:12px 0; background:var(--bg-primary); border-bottom:1px solid var(--border); }
+.objective-overview-toolbar label { display:grid; gap:5px; color:var(--text-secondary); font-size:12px; }
+.objective-overview-toolbar label:first-child { flex:1; min-width:180px; }
+.objective-overview-toolbar input,.objective-overview-toolbar select { box-sizing:border-box; width:100%; padding:8px; border:1px solid var(--border); border-radius:5px; color:var(--text-primary); background:var(--bg-secondary); font:inherit; }
+.objective-review-list { display:grid; gap:10px; }
+.objective-review-asset { min-width:0; padding:10px; border:1px solid var(--border); border-radius:6px; background:var(--bg-secondary); }
+.objective-review-source { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
+.objective-review-source > :first-child { flex:1; min-width:0; }
+.objective-assignment-status,.objective-result-count,.objective-task-parent { color:var(--text-dim); font-size:11px; }
+.objective-assignment-suggestion { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; margin-top:8px; padding:8px; border-left:2px solid var(--accent); background:var(--bg-primary); font-size:12px; }
+.objective-assignment-suggestion p { color:var(--text-secondary); margin:5px 0 0; overflow-wrap:anywhere; }
+.objective-review-actions { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+.objective-review-actions [data-accept-assignment] { color:var(--green,#3fb950); }
+.objective-review-actions [data-trash-objective-asset] { color:var(--red,#ff7b72); }
+.objective-overview-task { margin:8px 0; border:1px solid var(--border); border-radius:5px; padding:8px; }
+.objective-overview-task .objective-overview-assets { margin-top:10px; }
+.objective-overview-task .objective-task-row { border-bottom:0; }
+.objective-task-parent { margin:0 0 5px; }
+.objective-overview .objective-task-group-label { margin:18px 0 8px; }
+.objective-overview-catalog { margin-top:24px; color:var(--text-secondary); }
+.objective-overview-catalog > summary { cursor:pointer; font-size:12px; }
+.objective-asset-context-menu { position:fixed; z-index:1100; min-width:185px; padding:5px; border:1px solid var(--border); border-radius:6px; background:var(--bg-secondary); box-shadow:0 6px 18px #0005; }
+.objective-asset-context-menu button { display:block; width:100%; padding:8px; text-align:left; background:none; color:var(--text-primary); border:0; border-radius:3px; font-size:12px; cursor:pointer; }
+.objective-asset-context-menu button:hover,.objective-asset-context-menu button:focus-visible { background:var(--bg-tertiary); }
+.objective-asset-context-menu [data-trash-objective-asset] { color:var(--red,#ff7b72); }
 .objective-title { display:flex; align-items:center; justify-content:space-between; font-size:12px; margin-top:12px; }
 .objective-title [data-drag-objective] { cursor:grab; }
 .objective-title button { border:0; background:none; color:var(--accent); font:inherit; font-size:16px; padding:0; cursor:pointer; }

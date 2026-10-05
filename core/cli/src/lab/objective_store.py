@@ -67,6 +67,20 @@ def _validate(value, target):
         rows = value.setdefault(field, [])
         if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
             raise ValueError(f'{target}: {field} must be an array of objects')
+    for field in ('trashed_assets', 'assignment_suggestions'):
+        rows = value.get(field, [])
+        if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+            raise ValueError(f'{target}: {field} must be an array of objects')
+    suggestions = value.get('assignment_suggestions', [])
+    if len({row.get('id') for row in suggestions if isinstance(row.get('id'), str)}) != len(suggestions):
+        raise ValueError(f'{target}: Assignment suggestions need unique ids')
+    for row in suggestions:
+        destination = row.get('destination')
+        if (not isinstance(row.get('asset'), dict) or not isinstance(destination, dict)
+                or destination.get('bucket') not in {'task', 'objective'}
+                or row.get('status') not in {'pending', 'accepted', 'rejected', 'superseded'}
+                or not isinstance(row.get('reason'), str)):
+            raise ValueError(f'{target}: Invalid assignment suggestion')
     for field in ('resources', 'worktrees', 'tasks'):
         rows = value[field]
         if any(not isinstance(row.get('id'), str) or not row['id'] for row in rows) or len({r['id'] for r in rows}) != len(rows):

@@ -40,31 +40,65 @@ Notebooks open from their resources or Files. Global **Servers**, **Logs** and
 
 The sidebar order is:
 
-1. The **Objective name**, followed by its **Tasks**, completion/status badge,
-   task links and status context menu.
-2. **Objective assets**, shared across every task.
+1. The **Objective name**, followed by **Objective · pinned** assets when any
+   are starred. Pinned assets stay above Tasks in every working view.
+2. **Tasks**, completion/status badge, task links and status context menu.
 3. **Task assets**, including the selected task's mandatory details and attachments.
-4. **Unassigned** assets with neither a shared star nor a task association.
-5. Collapsed **Archive**, then fixed gray **Root** and **Objective** folders.
+4. **Unassigned** assets with neither a shared star nor a task association,
+   shown only while the Objective overview is open.
+5. Collapsed **Archive** in the Objective overview, then fixed gray **Root** and
+   **Objective** folders in every view.
 6. The native recently updated files and Files tree for that selection.
 
 Click the **Objective name** to leave task mode and open its overview. The
-middle column shows every task/subtask and categorizes assets as global/shared,
-each task's specifications and attachments, Unassigned, and the complete asset
-catalog. Assets in other worktree scopes remain visible in this overview;
-Archive stays excluded. The sidebar shows the Objective's generic shared assets
-below its task list. The Objective name is also a full-context drag source.
+middle column puts **Unassigned assets** first, with suggestion status and
+assignment controls. Tasks without optional attachments precede tasks with
+assets; required task specifications are always retained. The toolbar offers
+**Tasks with assets**, **Tasks only**, **Unassigned assets**, and **Archive**.
+Search filters as you type by task title, asset name or reference/path. A task
+match includes all its assets; an attached asset match includes its owning task
+and attachments. Global/shared assets and a collapsed complete catalog follow.
+Assets in other worktree scopes remain visible in this overview. Archive stays
+excluded until its view is selected. Search and view choices are remembered per
+Objective. The Objective name is also a full-context drag source.
 
-Click **Unassigned** to open the task list in the middle and drag assets onto
-its task rows. Each asset, document subtab, link child and associated worktree
+Click **Unassigned** to open its review view. Choose **Tasks with assets** to
+drag assets onto task rows. Each asset, document subtab, link child and associated worktree
 has a **☆/★** control. Starring adds shared Objective context without removing
 any task associations; unstarring keeps task associations. The **⋯** menu
-classifies an asset as Unassigned, Objective, a particular task, or Archive.
+classifies an asset as Unassigned, Objective, a particular task, Archive or Trash.
+Secondary-click an asset for **Move to task**, **Move to Objective**, **Unassigned**,
+**Archive** and **Trash**. Task/Objective pickers can select another Objective in
+the same workspace. Manual moves replace optional task membership; stars remain
+additive. While a task, document or folder is open, unassigned assets and Archive
+are hidden; pinned assets and the selected task's own assets remain available.
 Bucket drops provide the same classification. Moving to Unassigned removes
 optional task associations and shared pins. Archive removes those associations
 but retains the source for recovery; expand it to move references back. A task's
 mandatory details cannot be detached or archived. Only registered references
 appear in Unassigned; the native Files tree supplies additional sources.
+
+**Trash** requires confirmation and removes the asset registration and its
+optional task attachments. It preserves source files, original Assistant
+documents and running terminals. Trashing an individual document subtab or link
+child hides that asset reference while retaining the containing document/link.
+Required task details and fixed Root/Objective folders cannot be trashed.
+
+## Suggested assignments
+
+Agents infer asset organization by creating `suggest-assignment` records, using
+`lab objective apply --workspace <id> --expected <revision> --file <action.json>`.
+See `lab context objectives` for exact action examples and target rules. A
+proposal records an existing asset, destination task/subtask or Objective, and a
+reason. It changes no real assignment, star, worktree membership or terminal.
+
+The Objective review shows **Suggestion available**, **No suggestion** or
+**Suggestion rejected** beside each unassigned/global asset. **Accept** applies
+the proposed relationship atomically; **Reject** keeps the asset in place.
+**Choose another** opens the manual picker. Identical rejected proposals stay
+rejected across subsequent agent runs. Changed or missing destinations and stale
+revisions cannot silently commit a proposal. Cross-Objective moves retain the
+original file ownership: owned files become references from the destination.
 
 Associated worktrees are assets too: an unclassified worktree appears in
 Unassigned; dropping it on a task puts it in that task's assets. Switching
