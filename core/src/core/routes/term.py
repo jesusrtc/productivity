@@ -2565,6 +2565,7 @@ class SessionMetadata(BaseModel):
     linked_file: LinkedFile | None = None
     linked_task: LinkedTask | None = None
     linked_scope: LinkedScope | None = None
+    rename_to_task: bool = False
 
 
 class PastedImage(BaseModel):
@@ -2722,7 +2723,9 @@ def _update_session_metadata(body: SessionMetadata, request: Request) -> dict:
         _require_session_folder(_session_launch_folder(root, body.workspace_id, entry),
                                 body.linked_scope.root if body.linked_scope else None)
     if "label" in fields:
-        label = _clean_optional_text(body.label, max_len=80)
+        # Task drops use their full canonical title; the UI truncates only
+        # the visible row rather than truncating the persisted name.
+        label = _clean_optional_text(body.label, max_len=512)
         if label:
             entry["label"] = label
         else:
@@ -2760,6 +2763,11 @@ def _update_session_metadata(body: SessionMetadata, request: Request) -> dict:
         else:
             from core import terminal_task_links
             entry["linked_task"] = terminal_task_links.validate(request, body.linked_task)
+
+    if body.rename_to_task:
+        if not body.linked_task or not body.linked_task.task_id:
+            raise HTTPException(status_code=400, detail='Choose a task to name this terminal')
+        entry['label'] = entry['linked_task']['title']
 
     displaced = []
     if body.linked_file is not None or body.linked_task is not None:

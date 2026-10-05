@@ -800,7 +800,7 @@
     const bucket=target.closest('[data-objective-bucket]'),bucketId=bucket?.dataset.objectiveBucket;
     const taskNode=target.closest('[data-task-id]');
     if(taskNode||!terminal&&(bucket||target.closest('.objective-archive'))){taskNode?.classList.remove('objective-drop-target');const id=taskNode?.dataset.taskId||focusedTask()?.id;try{
-      if(terminal){void linkTerminal(bridge.session?.(terminal),{task_id:id}).catch(()=>{});return;}
+      if(terminal){void linkTerminal(bridge.session?.(terminal),{task_id:id,rename_to_task:true}).catch(()=>{});return;}
       let item;if(raw){const {scope,...source}=JSON.parse(raw);if(scope!==key(context())||source.objective_id!==objective().id)throw new Error('Choose an asset in this objective');if(source.task_id||source.view)throw new Error('Drop a document, notebook, link or folder onto a task');item=source;}
       else if(assistant){const ref=JSON.parse(assistant);item={reference:{...ref,kind:'assistant',title:ref.title||'Assistant document'}};}
       else if(file){const source=fileDropTarget(e.dataTransfer),scope=scopeRows().find(t=>[t.path,t.resolved_path].includes(source.file?.root));item=source.folder?source:{reference:{kind:'file',title:source.file.path.split('/').pop(),file_root:source.file.root,path:source.file.path,worktree:scope&&!scope.fixed?scope.id:null}};}

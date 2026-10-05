@@ -83,7 +83,9 @@ def change(request: Request, body: Action):
         if action.get('type') == 'terminal':
             from core.routes import term
             sessions = term._get_workspace_sessions(root, body.workspace_id)
-            if not any(s.get('session_id') == action.get('session_id') for s in sessions):
+            entry = next((s for s in sessions if s.get('session_id') == action.get('session_id')), None)
+            terminal_workspace, terminal_vault = body.workspace_id, body.vault
+            if not entry:
                 source = action.get('source') or {}
                 if not source.get('workspace_id'):
                     raise ValueError('Choose a saved terminal in this workspace')
@@ -97,6 +99,9 @@ def change(request: Request, body: Action):
                 linked = (entry or {}).get('linked_task') or {}
                 if not entry or not any(r.get('document_id')==linked.get('document_id') and r.get('assistant_root')==linked.get('assistant_root') for r in refs):
                     raise ValueError('This terminal is not shared with this workspace')
+                terminal_workspace, terminal_vault = source['workspace_id'], source.get('vault')
+            if action.get('rename_to_task') is True and not action.get('task_id'):
+                raise ValueError('Choose a task to name this terminal')
         if action.get('type') == 'rename' and not action.get('tab_id'):
             from core import notebook_kernel
             from contextlib import nullcontext
@@ -113,7 +118,12 @@ def change(request: Request, body: Action):
                     updated = next(r for o in result['objectives'] for r in o['resources'] if r['id'] == resource['id'])
                     notebook_kernel.relocate_file(root, old, paths.workspace_dir(root, body.workspace_id) / updated['path'])
         else:
-            objectives.mutate(root, body.workspace_id, action, body.expected)
+            result = objectives.mutate(root, body.workspace_id, action, body.expected)
+        if action.get('type') == 'terminal' and action.get('rename_to_task') is True:
+            objective = next(o for o in result['objectives'] if o['id'] == action['objective_id'])
+            task = next(t for parent in objective['tasks'] for t in [parent, *parent['children']] if t['id'] == action['task_id'])
+            term.update_session_metadata(term.SessionMetadata(workspace_id=terminal_workspace,
+                vault=terminal_vault, name=entry['name'], label=task['title']), request)
         return payload(request, root, body.workspace_id)
     except (ValueError, OSError, KeyError) as exc:
         raise HTTPException(409 if 'changed elsewhere' in str(exc) else 400, str(exc)) from exc

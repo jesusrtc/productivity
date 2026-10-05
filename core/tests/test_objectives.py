@@ -300,6 +300,36 @@ def test_terminal_resource_links_never_change_session_metadata(client, monorepo,
     assert term._get_workspace_sessions(monorepo,'demo') == [saved]
 
 
+def test_terminal_task_drop_persists_full_name_and_keeps_session(client, monorepo, seed_workspace, monkeypatch):
+    from core.routes import term
+    folder = seed_workspace()
+    term._upsert_workspace_session(monorepo,'demo',{'name':'shell','label':'Old custom name','kind':'terminal','cwd':str(folder),'agent_session_id':'keep'})
+    saved = term._get_workspace_sessions(monorepo,'demo')[0]
+    term._save_meta(monorepo, {saved['name']:{'workspace_id':'demo','logical_name':'shell','label':'Old custom name'}})
+    def forbidden(*args, **kwargs):
+        raise AssertionError('Naming a terminal must not touch its process or input')
+    monkeypatch.setattr(term,'_tmux_command',forbidden)
+    data = objectives.mutate(monorepo,'demo',{'type':'create','name':'One'})
+    oid = data['objectives'][0]['id']
+    title = 'Verify recovery ' + 'with full context ' * 8
+    parent = apply(monorepo,oid,'task',title=title)['objectives'][0]['tasks'][0]
+    parent = apply(monorepo,oid,'task',title='Revisar resultado ✅',parent_id=parent['id'])['objectives'][0]['tasks'][0]
+    body = {'workspace_id':'demo','action':{'type':'terminal','objective_id':oid,'session_id':saved['session_id'],'rename_to_task':True}}
+    for task in [parent,*parent['children']]:
+        body['action']['task_id'] = task['id']
+        response = client.post('/api/objectives',json=body)
+        assert response.status_code == 200, response.text
+        expected = {**saved,'label':task['title']}
+        assert term._get_workspace_sessions(monorepo,'demo') == [expected]
+        assert term._load_meta(monorepo)[saved['name']]['label'] == task['title']
+        assert response.json()['terminal_links'][saved['session_id']]['task_id'] == task['id']
+    before = objectives.load(monorepo,'demo')
+    body['action']['task_id'] = 'missing'
+    assert client.post('/api/objectives',json=body).status_code == 400
+    assert objectives.load(monorepo,'demo') == before
+    assert term._get_workspace_sessions(monorepo,'demo') == [expected]
+
+
 def test_existing_workspace_import_copies_references_not_assistant_content(monorepo, seed_workspace):
     folder=seed_workspace(); tree=monorepo/'tree';tree.mkdir()
     metadata=storage.read_json(folder/'workspace.json');metadata['worktrees']=[{'dir':str(tree),'branch':'fix','repo':str(tree)}]
@@ -366,3 +396,10 @@ def test_shared_terminal_association_keeps_assistant_owner_and_launch_folder(cli
     assert term._get_workspace_sessions(root,'__assistant__')==before
     assert term._get_workspace_sessions(monorepo,'demo')==[]
     assert len(live)==1
+    task = apply(monorepo,oid,'task',title='Shared terminal task')['objectives'][0]['tasks'][0]
+    body['action'].pop('resource_id')
+    body['action'].update(task_id=task['id'],rename_to_task=True)
+    response=client.post('/api/objectives',json=body)
+    assert response.status_code==200,response.text
+    assert term._get_workspace_sessions(root,'__assistant__')==[{**before[0],'label':task['title']}]
+    assert term._get_workspace_sessions(monorepo,'demo')==[] and len(live)==1

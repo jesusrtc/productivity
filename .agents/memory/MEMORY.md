@@ -1,5 +1,7 @@
 # Memory index
 
+- [Terminal task drops rename display labels](terminal-task-drops-rename-display-labels.md) — task/subtask drops save the canonical task name on the terminal's original owner; other resource labels and running sessions stay intact.
+
 - [Terminal console layers stay below tabs](terminal-console-layers-stay-below-tabs.md) — isolate xterm's internal layers so expanded names, scrollbar and divider own clicks over the console.
 
 - [Terminal request history survives clears](terminal-request-history-survives-clears.md) — expandable full submitted messages and session dividers, provider-authoritative capture, durable per-terminal history and scoped access.

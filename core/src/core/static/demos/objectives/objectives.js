@@ -265,7 +265,7 @@
         });
         star.setAttribute('aria-label',(shared?'Unstar ':'Star ')+title);star.setAttribute('aria-pressed',shared);star.title=shared?'Unstar · keep task associations':'Star · share across all tasks';return star;
       }
-      function terminalDrop(node,o,ref) {attachDrop(node,'application/x-objective-terminal',id=>{const t=terminals.find(t=>t.id===id&&t.objective===o.id),info=assetInfo(o,ref);if(!t||!info){message('Choose a terminal in '+o.name);return;}t.linked=ref;t.linkedTab=null;render();message('Linked '+t.name+' to '+info.title+' · launch folder kept');});}
+      function terminalDrop(node,o,ref) {attachDrop(node,'application/x-objective-terminal',id=>{const t=terminals.find(t=>t.id===id&&t.objective===o.id),info=assetInfo(o,ref);if(!t||!info){message('Choose a terminal in '+o.name);return;}t.linked=ref;t.linkedTab=null;const task=taskEntries(o).find(task=>task.id===ref);if(task)t.name=task.title;render();message('Linked '+t.name+' to '+info.title+' · launch folder kept');});}
       function assetRow(o,ref,task=null,controls=true) {
         const info=assetInfo(o,ref),line=element('div','ob-asset-line');line.dataset.asset=ref;if(!info)return line;
         const main=info.item?documentRow(info.item,o):button('','ob-resource',()=>{if(info.tree)o.selected=info.tree.id;renderOverview();message(info.title+' · '+info.reference);});

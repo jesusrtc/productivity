@@ -239,6 +239,9 @@ Drag a task title or the focused task control onto a terminal name to link that
 terminal to the task. The reverse terminal-to-task-row drop also works in the left column. Clicking
 the terminal opens the task's details in Focus mode. Its launch folder, process
 and original Assistant ownership remain intact.
+Dropping a terminal onto a task or subtask also renames its display label to
+that task's current name. The label is saved on the terminal's original owner
+and remains after reload; later manual terminal renames are still available.
 
 Dropping a task **inside the console** pastes an unsent prompt. **Context:**
 identifies the Objective and its shared assets, then each parent task's details

@@ -272,13 +272,20 @@
         if (typeof explorerToast === 'function') explorerToast('Use a terminal attached to this folder/worktree.',true);
         return;
       }
-      const state=current;state.scope.session_name = session.name;state.taskId = ctx.taskId || null;
+      const state=current,task=state.root.document_tasks?.tasks?.find(task=>task.id===ctx.taskId);
+      if(task) {
+        try {
+          const saved=await window.LabTaskTerminalBridge.patch(session,{label:task.title},context);
+          session={...session,label:saved.label};
+        } catch(error) { if(typeof explorerToast==='function')explorerToast(error.message,true);return; }
+      }
+      state.scope.session_name = session.name;state.taskId = ctx.taskId || null;
       remembered(state,state.taskId);show(state,{...session,linked:true});renderLinks(state);
       await showInPanel(state);if(state===current)await refresh(state);return;
     }
     try {
       const saved = await window.LabTaskTerminalBridge.patch(session,{linked_task:{document_id:ctx.documentId,
-        task_id:ctx.taskId,assistant_root:ctx.database,path:ctx.path}},context);
+        task_id:ctx.taskId,assistant_root:ctx.database,path:ctx.path},rename_to_task:Boolean(ctx.taskId)},context);
       window.labFeatureUsage?.('Link terminal to task');
       if (current?.documentId === ctx.documentId && (!ctx.database || current.database === ctx.database)) {
         current.taskId = ctx.taskId; remembered(current,ctx.taskId);

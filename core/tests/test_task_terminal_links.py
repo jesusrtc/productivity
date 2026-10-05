@@ -103,6 +103,20 @@ def test_drop_requires_the_original_document_database_and_path(client, terminals
     assert saved['label']==before['sessions'][0]['label']
 
 
+def test_explicit_task_drop_renames_to_canonical_title(client, terminals, owned_tasks, monorepo):
+    from core.routes import term
+    root,note,*_ = owned_tasks
+    child=next(task for task in tasks.view(root,note.stem)['tasks'] if task.get('parent_id'))
+    before=term._get_workspace_sessions(monorepo,'demo')[0]
+    response=client.patch('/api/term/sessions/metadata',json={'workspace_id':'demo','name':'demo',
+        'linked_task':{'document_id':note.stem,'task_id':child['id']},'rename_to_task':True})
+    assert response.status_code==200,response.text
+    saved=response.json()['session']
+    assert saved['label']==child['title']
+    assert {key:value for key,value in saved.items() if key not in {'label','linked_task'}}=={key:value for key,value in before.items() if key not in {'label','linked_task'}}
+    assert len(terminals)==2
+
+
 def test_series_link_keeps_its_identity_and_title(client, terminals, owned_tasks):
     from lab import assistant_records as records
     root,*_=owned_tasks
