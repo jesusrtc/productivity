@@ -304,9 +304,11 @@ window.ensureLiveMarkdownEditor = (function () {
     <button id="termSettingsBtn" onclick="termOpenSettings()" title="Terminal settings" aria-label="Terminal settings">&#x2699;</button>
   </div>
   <div class="term-stage">
-    <!-- Session labels adapt to the width of the draggable rail. -->
-    <div class="term-sessions" id="termSessionList" role="tablist" aria-label="Terminals" aria-orientation="vertical"></div>
-    <div class="term-sessions-resizer" id="termSessionsResizer" role="separator" tabindex="0" aria-label="Resize terminal tabs" aria-orientation="vertical" aria-controls="termSessionList" aria-valuemin="62" aria-valuemax="220" aria-valuenow="220" title="Drag to resize terminal tabs. Arrow keys also adjust the width."></div>
+    <!-- Icons and status stay visible; hover or keyboard focus reveals labels. -->
+    <div class="term-session-switcher" id="termSessionSwitcher">
+      <div class="term-sessions" id="termSessionList" role="tablist" aria-label="Terminals" aria-orientation="vertical"></div>
+      <div class="term-sessions-resizer" id="termSessionsResizer" role="separator" tabindex="0" aria-label="Resize expanded terminal tabs" aria-orientation="vertical" aria-controls="termSessionList" aria-valuemin="160" aria-valuemax="220" aria-valuenow="220" title="Drag to resize expanded terminal tabs. Arrow keys also adjust the width."></div>
+    </div>
     <div class="term-console">
       <div class="term-status" id="termStatus"><span class="dot"></span><span id="termStatusText">no session</span><span id="termAutoBadge" class="auto-badge" style="display:none" title="Claude running with --permission-mode auto">auto</span></div>
       <div id="termStatusSummary" class="term-status-summary" aria-live="polite" hidden><div id="termStatusIdentity" class="term-context-identity" hidden></div><span id="termStatusSummaryLabel" class="term-status-summary-label">Requests</span><div id="termStatusSummaryText" class="term-status-summary-text"></div></div>

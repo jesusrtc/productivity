@@ -155,6 +155,8 @@
 .objective-terminal-group[data-objective-active=false] { border-left-color:var(--border); }
 .objective-terminal-group[data-objective-active=false] .term-home-association { --term-association-color:var(--text-secondary) !important; }
 .objective-terminal-heading { display:block; min-width:0; padding:1px 2px; color:var(--objective-color); background:none; border:0; text-align:left; font-size:11px; line-height:1.4; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; cursor:pointer; }
+.term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open) .objective-terminal-heading { position:relative; height:18px; padding:0; font-size:0; line-height:0; }
+.term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open) .objective-terminal-heading::after { content:''; position:absolute; top:8px; left:2px; right:2px; height:2px; border-radius:2px; background:currentColor; }
 .objective-terminal-rows,.objective-terminal-worktree { display:flex; flex-direction:column; gap:4px; min-width:0; }
 .objective-terminal-worktree + .objective-terminal-worktree { margin-top:4px; }
 .term-sessions-horizontal .objective-terminal-rows,.term-sessions-horizontal .objective-terminal-worktree { flex-direction:row; align-items:center; }

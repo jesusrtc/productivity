@@ -1,5 +1,7 @@
 # Memory index
 
+- [Terminal tabs reveal on hover](terminal-tabs-reveal-on-hover.md) — compact icons and status dots, temporary resizable labels, and a stable console grid.
+
 - [Objectives live in workspace folders](objectives-live-in-workspace-folders.md) — per-folder `.objective.json` is authoritative; only UI state stays in `.lab`, with lossless legacy conversion.
 
 - [Worktrees follow task asset buckets](worktrees-follow-task-asset-buckets.md) — only Root/Objective stay fixed; worktrees are Unassigned/task/shared assets, explorer files have no stars.

@@ -446,7 +446,7 @@ def test_terminal_agent_activity_scraping_and_attention_ui_are_removed() -> None
     assert ".term-sessions .sess .stat" not in css
 
 
-def test_terminal_rail_drag_adapts_labels_and_persists_width() -> None:
+def test_terminal_drawer_drag_adapts_labels_and_persists_width() -> None:
     helpers = _js_between(
         "  function _termSessionWidthBounds(panelWidth)",
         "  // Apply before the initial route dispatch",
@@ -486,8 +486,8 @@ events.pointermove(event(-100)); flush();
 const compact = snapshot();
 events.pointerup(event(-100)); flush();
 const savedCompact = stored.width;
-events.pointerdown(event(62));
-events.pointermove(event(140)); flush();
+events.pointerdown(event(160));
+events.pointermove(event(170)); flush();
 const middle = snapshot();
 events.pointermove(event(400)); flush();
 const full = snapshot();
@@ -511,12 +511,12 @@ const horizontalCompact = !classes.has('term-sessions-full');
 process.stdout.write(JSON.stringify({compact, middle, full, savedCompact, savedFull,
   narrowPanel, restored, canceled, keyboardCompact, horizontalFull, horizontalCompact, captured}));
 """)
-    assert result['compact'] == {'width': 62, 'full': False, 'narrow': True}
-    assert result['middle'] == {'width': 140, 'full': True, 'narrow': True}
+    assert result['compact'] == {'width': 160, 'full': True, 'narrow': True}
+    assert result['middle'] == {'width': 170, 'full': True, 'narrow': True}
     assert result['full'] == {'width': 220, 'full': True, 'narrow': False}
-    assert result['savedCompact'] == '62'
+    assert result['savedCompact'] == '160'
     assert result['savedFull'] == '220'
-    assert result['narrowPanel'] == {'width': 100, 'full': False, 'narrow': True}
+    assert result['narrowPanel'] == {'width': 208, 'full': True, 'narrow': False}
     assert result['restored'] == result['full']
     assert result['canceled'] == result['full']
     assert result['keyboardCompact'] == result['compact']

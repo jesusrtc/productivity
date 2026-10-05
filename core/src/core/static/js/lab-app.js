@@ -11517,9 +11517,7 @@
       termSessionOrientation = 'horizontal';
     }
     const storedWidth = parseFloat(localStorage.getItem(_TERM_SESSION_WIDTH_KEY));
-    if (Number.isFinite(storedWidth)) termSessionWidth = Math.max(62, Math.min(220, storedWidth));
-    // Preserve the old compact preference as an initial width, then use drag sizing.
-    else if (localStorage.getItem('labTermSessionDetail') === 'compact') termSessionWidth = 62;
+    if (Number.isFinite(storedWidth)) termSessionWidth = Math.max(160, Math.min(220, storedWidth));
     const storedRecentMinutes = localStorage.getItem(_TERM_RECENT_MINUTES_KEY);
     if (storedRecentMinutes !== null) termRecentMinutes = _termNormalizeRecentMinutes(storedRecentMinutes);
     termRecentColor = _termNormalizeRecentColor(localStorage.getItem(_TERM_RECENT_COLOR_KEY));
@@ -11653,7 +11651,7 @@
   }
 
   function _termSessionWidthBounds(panelWidth) {
-    return {min: 62, max: Math.max(62, Math.min(220, panelWidth - 180))};
+    return {min: 160, max: Math.max(160, Math.min(220, panelWidth - 72))};
   }
 
   function _termApplySessionView(refit = true) {
@@ -11671,6 +11669,7 @@
       panel.classList.toggle('term-sessions-full', horizontal ? panelWidth >= 420 : width >= 112);
       panel.classList.toggle('term-sessions-narrow', !horizontal && width < 180);
     }
+    if (horizontal) document.getElementById('termSessionSwitcher')?.classList.remove('term-tabs-open');
     if (sessionList) sessionList.setAttribute('aria-orientation', horizontal ? 'horizontal' : 'vertical');
     if (resizer) {
       resizer.setAttribute('aria-valuemax', String(bounds.max));
@@ -11687,6 +11686,30 @@
 
   function termToggleSessionOrientation() {
     termSetSessionView('orientation', termSessionOrientation === 'horizontal' ? 'vertical' : 'horizontal');
+  }
+
+  function _termInitSessionDrawer() {
+    const switcher = document.getElementById('termSessionSwitcher');
+    const resizer = document.getElementById('termSessionsResizer');
+    if (!switcher || !resizer) return;
+    const open = () => {
+      if (termSessionOrientation === 'vertical') switcher.classList.add('term-tabs-open');
+    };
+    const close = () => {
+      if (resizer.classList.contains('dragging')) return;
+      switcher.classList.remove('term-tabs-open');
+      if (switcher.contains(document.activeElement)) document.activeElement.blur();
+    };
+    switcher.addEventListener('pointerenter', open);
+    switcher.addEventListener('pointermove', open, {passive: true});
+    switcher.addEventListener('focusin', open);
+    switcher.addEventListener('pointerleave', close);
+    switcher.addEventListener('focusout', event => {
+      if (!switcher.contains(event.relatedTarget) && !switcher.matches(':hover')) close();
+    });
+    switcher.addEventListener('keydown', event => {
+      if (event.key === 'Escape') { close(); _termHideSessionTooltip(); termXterm?.focus(); }
+    });
   }
 
   function _termInitSessionResize() {
@@ -11729,6 +11752,11 @@
       resizer.classList.remove('dragging');
       document.body.classList.remove('term-resizing');
       if (resizer.hasPointerCapture(event.pointerId)) resizer.releasePointerCapture(event.pointerId);
+      const switcher = document.getElementById('termSessionSwitcher');
+      if (switcher && !switcher.matches(':hover')) {
+        switcher.classList.remove('term-tabs-open');
+        resizer.blur();
+      }
     };
     document.addEventListener('pointerup', event => finish(event));
     document.addEventListener('pointercancel', event => finish(event, true));
@@ -11751,6 +11779,7 @@
   // loads never flash the default switcher shape. Refit is intentionally off:
   // terminal state is declared later and no xterm exists yet.
   _termApplySessionView(false);
+  _termInitSessionDrawer();
   _termInitSessionResize();
   // Same TDZ hoist for the files-sidebar per-view persistence: the apply
   // helper runs inside _termApplyRememberedVisibility during the same

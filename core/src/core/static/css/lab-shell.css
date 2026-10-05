@@ -2060,6 +2060,21 @@
   .term-panel.term-sessions-full .term-sessions .sess .sess-label { display: block; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .term-panel.term-sessions-full .term-sessions .sess .sess-label.custom { color: var(--text-primary); font-weight: 600; }
 
+  /* The expanded switcher overlays the console, keeping its xterm grid stable. */
+  .term-session-switcher { --term-switcher-width: 62px; position: relative; flex: 0 0 62px; min-width: 0; z-index: 2; }
+  .term-panel:not(.term-sessions-horizontal) .term-session-switcher .term-sessions { position: absolute; inset: 0 auto 0 0; width: var(--term-switcher-width); box-sizing: border-box; }
+  .term-panel:not(.term-sessions-horizontal) .term-session-switcher.term-tabs-open { --term-switcher-width: var(--term-sessions-width, 220px); }
+  .term-panel:not(.term-sessions-horizontal) .term-tabs-open .term-sessions { box-shadow: 10px 0 24px #0005; }
+  .term-panel:not(.term-sessions-horizontal) .term-session-switcher .term-sessions-resizer { position: absolute; top: 0; bottom: 0; left: var(--term-switcher-width); opacity: 0; pointer-events: none; }
+  .term-panel:not(.term-sessions-horizontal) .term-tabs-open .term-sessions-resizer { opacity: 1; pointer-events: auto; }
+  .term-panel:not(.term-sessions-horizontal) .term-sessions .sess { min-height: 36px; }
+  .term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open) .sess { justify-content: center; height: 36px; padding: 0 18px 0 4px; flex-wrap: nowrap; }
+  .term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open) .sess-icon { flex: none; }
+  .term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open) :is(.sess-label, .term-home-association span, .term-folder-association small, .term-new-label, .term-task-link-label, .term-tab-group-label span) { display: none; }
+  .term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open) .term-home-association { position: absolute; right: 3px; bottom: 3px; max-width: none; }
+  .term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open) .term-task-link-pill { display: none; }
+  .term-panel.term-sessions-horizontal .term-session-switcher { display: contents; }
+
   /* Horizontal orientation puts the same switcher above the console. Compact
      mode stays icon-only; full mode restores the old scrollable tab pills. */
   .term-panel.term-sessions-horizontal .term-stage { flex-direction: column; }
