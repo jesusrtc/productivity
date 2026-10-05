@@ -120,6 +120,46 @@ console.log(JSON.stringify({pastes,notices,sends,refs,prompt}));
     assert result['sends'] == [] and len(result['notices']) == 4
 
 
+@pytest.mark.parametrize('bracketed', [True, False])
+def test_whole_objective_drop_pastes_all_groups_without_submitting(bracketed):
+    formatter = (APP.parent/'lib/task-context.js').read_text()
+    result = run('globalThis.window={};\n'+formatter+'\nconst bracketed='+json.dumps(bracketed)+r''';
+const pastes=[],notices=[],sends=[];
+const termXterm={modes:{bracketedPasteMode:bracketed},paste:text=>pastes.push(text),focus(){}};
+const termWS={readyState:1,send:data=>sends.push(data)},WebSocket={OPEN:1};
+const _termDragState=null,workspaceTabsDragId=null,explorerToast=message=>notices.push(message);
+const specification={title:'Task details',type:'Task specification',reference:'/objective/Tasks.md#tab=parent'};
+const payload={version:1,kind:'objective',objective:{title:'Recover SMS',purpose:'Restore verification',assets:[
+  {title:'Recover SMS',type:'Objective manifest',reference:'/objective/.objective.json'},
+  {title:'Recover SMS',type:'Objective folder',reference:'/objective'}]},tasks:[
+  {title:'Fix parsing',assets:[specification]},
+  {title:'Verify fallback',parent:'Fix parsing',assets:[{...specification,reference:'/objective/Tasks.md#tab=child'}]}],
+  assets:[specification,{title:'Incident discussion',type:'Sublink',reference:'https://example.com/thread?tab=recovery'},
+    {title:'Feature checkout',type:'Worktree',reference:'/trees/feature'}]};
+const refs=window.LabTaskContext.references(payload),prompt=window.LabTaskContext.format(payload);
+const drop=(model,references=refs)=>_termHandleDrop({dataTransfer:{types:['application/x-lab-task-context','application/x-lab-reference'],getData:key=>
+  key==='application/x-lab-task-context'?JSON.stringify(model):key==='application/x-lab-reference'?JSON.stringify(references):''},preventDefault(){},stopPropagation(){}});
+drop(payload);
+drop(payload,refs.slice(1));
+drop({...payload,assets:[{title:'Broken',type:'File',reference:'javascript:alert(1)'}]});
+drop({...payload,tasks:null});
+const empty={...payload,tasks:[],assets:[]};drop(empty,window.LabTaskContext.references(empty));
+console.log(JSON.stringify({pastes,notices,sends,refs,prompt,emptyPrompt:window.LabTaskContext.format(empty)}));
+''')
+    prompt = result['prompt']
+    assert 'This objective: "Recover SMS"' in prompt
+    assert 'Task: "Fix parsing"' in prompt
+    assert 'Subtask of "Fix parsing": "Verify fallback"' in prompt
+    assert 'Work on This objective: "Recover SMS"' in prompt and 'Work only on This task' not in prompt
+    assert 'Objective manifest:' in prompt and 'Other objective assets:' in prompt
+    assert 'https://example.com/thread?tab=recovery' in prompt
+    assert '/objective/Tasks.md#tab=child' in prompt and '/trees/feature' in prompt
+    for reference in result['refs']:
+        assert sum(line.endswith(' — '+reference) for line in prompt.splitlines()) == 1
+    assert result['pastes'] == [text if bracketed else text.replace('\n',' ') for text in [prompt, result['emptyPrompt']]]
+    assert not result['sends'] and len(result['notices']) == 3
+
+
 @pytest.mark.parametrize('text,expected', [
     ('│ hello │\n│ world │', 'hello\nworld'),
     ('╭──────╮\n│ hello│\n╰──────╯', 'hello'),

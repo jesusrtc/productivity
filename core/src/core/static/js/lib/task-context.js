@@ -1,4 +1,4 @@
-/* A task drag carries readable context as well as exact source references. */
+/* Task and Objective drags carry readable context and exact source references. */
 (() => {
   'use strict';
   const mime = 'application/x-lab-task-context';
@@ -10,12 +10,14 @@
     try{return ['http:','https:'].includes(new URL(value).protocol);}catch{return false;}
   }
   function groups(context) {
-    if(context?.version!==1||!line(context.objective?.title)||!line(context.task?.title)
-        ||!Array.isArray(context.parents)||!context.task.assets?.length)throw new Error('Incomplete task context');
-    const rows=[context.objective,...context.parents,context.task];
+    const whole=context?.kind==='objective';
+    if(context?.version!==1||!line(context.objective?.title)
+        ||(whole?(!Array.isArray(context.tasks)||!Array.isArray(context.assets)||!context.objective.assets?.length):
+          (!line(context.task?.title)||!Array.isArray(context.parents)||!context.task.assets?.length)))throw new Error('Incomplete context');
+    const rows=whole?[context.objective,...context.tasks,{title:'Other objective assets',assets:context.assets}]:[context.objective,...context.parents,context.task];
     if(rows.some(row=>!line(row.title)||!Array.isArray(row.assets)
         ||row.assets.some(asset=>!line(asset.title)||!line(asset.type)||!validReference(asset.reference))))
-      throw new Error('Invalid task reference');
+      throw new Error('Invalid context reference');
     return rows;
   }
   function references(context) {return [...new Set(groups(context).flatMap(group=>group.assets.map(asset=>asset.reference)))];}
@@ -33,6 +35,16 @@
         seen.set(asset.reference,id);
       }
       if(!rows.length)output.push('- No associated references.');
+    }
+    if(context.kind==='objective'){
+      output.push('','This objective: '+quoted(context.objective.title),'Objective references:');assets(context.objective.assets);
+      for(const task of context.tasks){output.push('',(line(task.parent)?'Subtask of '+quoted(task.parent)+': ':'Task: ')+quoted(task.title),'Task references:');assets(task.assets);}
+      output.push('','Other objective assets:');assets(context.assets);
+      output.push('','Instructions:',
+        'Work on This objective: '+quoted(context.objective.title)+'. Read its Objective manifest and relevant task specifications before making changes.',
+        'Use the references above for the whole Objective, including its tasks and subtasks. Preserve exact document tabs, sublinks and original source ownership.',
+        'Keep changes within this Objective and its explicitly linked worktrees or folders. Other objectives and unrelated workspace files are outside this scope.');
+      return output.join('\n');
     }
     output.push('Shared objective references (background):');assets(context.objective.assets);
     for(const parent of context.parents){output.push('','Parent task: '+quoted(parent.title),'Parent task references (background):');assets(parent.assets);}

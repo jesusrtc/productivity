@@ -1,6 +1,7 @@
 /* Use the native sidebar sizes: scopes 11px, links 12px, files 13px. */
 [data-objectives-sidebar] { margin-bottom:10px; }
 .objective-title { display:flex; align-items:center; justify-content:space-between; font-size:12px; margin-top:12px; }
+.objective-title [data-drag-objective] { cursor:grab; }
 .objective-title button { border:0; background:none; color:var(--accent); font:inherit; font-size:16px; padding:0; cursor:pointer; }
 .objective-worktrees { display:grid; grid-template-columns:minmax(0,1fr); gap:5px; padding:0 12px 8px; }
 .objective-worktree-icon { color:var(--sidebar-workspace-color); }

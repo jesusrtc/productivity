@@ -150,7 +150,7 @@
         const accepts=m=>m!=='application/x-objective-terminal'||!!el.closest('.ob-overview');
         el.ondragover=e=>{if([...handlers.keys()].some(m=>accepts(m)&&e.dataTransfer.types.includes(m))){e.preventDefault();e.stopPropagation();e.dataTransfer.dropEffect=e.dataTransfer.types.includes('application/x-objective-id')?'move':'link';el.classList.add('ob-drop');}};
         el.ondragleave=()=>el.classList.remove('ob-drop');
-        el.ondrop=e=>{el.classList.remove('ob-drop');for(const [mime,run] of handlers){if(!accepts(mime))continue;const ref=e.dataTransfer.getData(mime);if(!ref)continue;e.preventDefault();e.stopPropagation();const source=e.dataTransfer.getData('application/x-objective-source');if(source&&source!==objective().id){message('Choose an asset in the current objective.');return;}run(ref,e.dataTransfer);return;}};
+        el.ondrop=e=>{el.classList.remove('ob-drop');for(const [mime,run] of handlers){if(!accepts(mime))continue;const ref=e.dataTransfer.getData(mime);if(!ref)continue;e.preventDefault();e.stopPropagation();const source=e.dataTransfer.getData('application/x-objective-source');if(source&&source!==objective().id&&mime!=='application/x-objective-id'){message('Choose an asset in the current objective.');return;}run(ref,e.dataTransfer);return;}};
       }
       function applySlotColors() {objectives.forEach(o=>{const slot=focused.indexOf(o.id);o.palette=palettes[slot]||[];o.color=o.palette[0]||'#8b949e';o.worktrees.forEach((t,i)=>{t.color=o.palette[i%4]||'#8b949e';});});}
       function insertObjective(id,slot) {focused=focused.filter(ref=>ref!==id);focused.splice(slot,0,id);focused=focused.slice(0,focusSlots);applySlotColors();render();message('Inserted into slot '+(slot+1)+' · the fifth objective returns to the library.');}
@@ -160,8 +160,9 @@
         const all=button('Objectives','ob-nav-tab',showAll);all.setAttribute('aria-pressed',o.view==='all');all.dataset.allObjectives='';
         const task=activeTask(o),current=button('','ob-nav-tab ob-current',()=>switchObjective(o.id));current.style.setProperty('--objective-color',o.color);current.setAttribute('aria-pressed',o.view!=='all');current.setAttribute('aria-haspopup','menu');current.setAttribute('aria-expanded','false');current.dataset.currentObjective='';
         current.append(task?taskGlyph(o,task):element('span','ob-objective-dot'),element('span','ob-label',task?.title||o.name),element('span','ob-muted','▾'));
+        dragObjective(current,o);
         const menu=element('div','ob-switch-menu');menu.hidden=true;menu.setAttribute('role','menu');
-        Array.from({length:focusSlots},(_,slot)=>{const p=objectives.find(p=>p.id===focused[slot]),b=button('','',()=>p?switchObjective(p.id):focusDialog(slot));b.setAttribute('role','menuitem');b.append(element('span','ob-muted',String(slot+1)),element('span','ob-objective-dot'),element('span','ob-label',p?.name||'Choose objective…'));b.style.setProperty('--objective-color',palettes[slot][0]);menu.append(b);});
+        Array.from({length:focusSlots},(_,slot)=>{const p=objectives.find(p=>p.id===focused[slot]),b=button('','',()=>p?switchObjective(p.id):focusDialog(slot));b.setAttribute('role','menuitem');b.append(element('span','ob-muted',String(slot+1)),element('span','ob-objective-dot'),element('span','ob-label',p?.name||'Choose objective…'));b.style.setProperty('--objective-color',palettes[slot][0]);if(p){b.dataset.objective=p.id;dragObjective(b,p);}menu.append(b);});
         const reveal=()=>{menu.hidden=false;current.setAttribute('aria-expanded','true');};current.onmouseenter=reveal;current.onfocus=reveal;
         host.onmouseleave=()=>{menu.hidden=true;current.setAttribute('aria-expanded','false');};current.onkeydown=e=>{if(e.key==='ArrowDown'){e.preventDefault();reveal();menu.firstElementChild.focus();}else if(e.key==='Escape'){menu.hidden=true;current.setAttribute('aria-expanded','false');}};
         host.append(all,current,menu);
@@ -171,7 +172,7 @@
         heading(host,'FOCUS SLOTS');const slots=element('div','ob-library-slots');
         Array.from({length:focusSlots},(_,slot)=>{const p=objectives.find(p=>p.id===focused[slot]),b=button('','ob-library-slot',()=>focusDialog(slot));b.dataset.slot=String(slot);b.style.setProperty('--objective-color',palettes[slot][0]);b.append(element('span','ob-muted','Slot '+(slot+1)),element('strong','',p?.name||'Empty'));attachDrop(b,'application/x-objective-id',id=>insertObjective(id,slot));slots.append(b);});host.append(slots,element('p','ob-muted','Drop into a slot to insert. Following objectives move down; the fifth stays in this list.'));
         const search=element('input','ob-search');search.type='search';search.placeholder='Name or outcome';search.setAttribute('aria-label','Search objectives');search.value=config.search||'';host.append(search);const list=element('div','ob-library-list');host.append(list);
-        function paint(){list.replaceChildren();objectives.filter(p=>(p.name+' '+p.purpose).toLowerCase().includes(search.value.toLowerCase())).forEach(p=>{const row=element('div','ob-library-row'),open=button('','ob-library-name',()=>switchObjective(p.id));open.append(element('strong','',p.name),element('span','ob-muted',p.purpose));row.draggable=true;row.dataset.objective=p.id;row.ondragstart=e=>{e.dataTransfer.setData('application/x-objective-id',p.id);e.dataTransfer.effectAllowed='move';};row.append(open,progressBadge(p),element('span','ob-muted',focused.includes(p.id)?'Slot '+(focused.indexOf(p.id)+1):'Parked'),button('Focus…','ob-action',()=>focusDialog(null,p.id)));list.append(row);});}
+        function paint(){list.replaceChildren();objectives.filter(p=>(p.name+' '+p.purpose).toLowerCase().includes(search.value.toLowerCase())).forEach(p=>{const row=element('div','ob-library-row'),open=button('','ob-library-name',()=>switchObjective(p.id));open.append(element('strong','',p.name),element('span','ob-muted',p.purpose));row.draggable=true;row.dataset.objective=p.id;dragObjective(row,p);row.append(open,progressBadge(p),element('span','ob-muted',focused.includes(p.id)?'Slot '+(focused.indexOf(p.id)+1):'Parked'),button('Focus…','ob-action',()=>focusDialog(null,p.id)));list.append(row);});}
         search.oninput=()=>{config.search=search.value;paint();persist();};paint();
       }
       function heading(host,label,action) {const row=element('div','ob-section-heading');row.append(element('span','',label));if(action){const add=button('+','ob-quiet',action);add.setAttribute('aria-label','Add to '+label.toLowerCase());row.append(add);}host.append(row);}
@@ -202,16 +203,35 @@
         return icon(info.kind==='worktree'?'git-branch':iconNames[info.kind]||'file-text');
       }
       function catalog(o) {return [...new Set([...o.worktrees.map(t=>'worktree::'+t.id),...o.items.filter(i=>i.kind!=='task'&&i.listed!==false&&!i.taskDocument).map(i=>i.id),...o.assetShelf,...o.objectiveAssets,...o.archiveAssets,...taskEntries(o).flatMap(t=>t.assets||[])])].filter(ref=>assetInfo(o,ref));}
-      function taskContext(o,task) {
-        const parent=parentTask(o,task);
-        function assets(refs,owner) {return refs.filter(ref=>!o.archiveAssets.includes(ref)).map(ref=>{
+      function contextReferenceRows(o,refs,owner) {
+        return refs.filter(ref=>!o.archiveAssets.includes(ref)).map(ref=>{
           const info=assetInfo(o,ref),path=info?.item?.title||'';
           const type=owner&&ref===detailsRef(owner)?'Task specification':info?.kind==='worktree'?'Worktree':info?.kind==='folder'?'Folder':
             info?.kind==='link'?(info.tab?'Sublink':'Link'):info?.kind==='assistant'?(info.tab?'Assistant document tab':'Assistant document'):
             info?.tab?'Document tab':info?.kind==='notebook'||/\.ipynb$/i.test(path)?'Notebook':info?.kind==='document'||/\.md$/i.test(path)?'Document':/\.sql$/i.test(path)?'SQL file':'File';
           return {title:info?.title||'',type,reference:info?.reference};
-        });}
+        });
+      }
+      function taskContext(o,task) {
+        const parent=parentTask(o,task),assets=(refs,owner)=>contextReferenceRows(o,refs,owner);
         return {version:1,objective:{title:o.name,purpose:o.purpose||'',assets:assets(o.objectiveAssets)},parents:parent&&parent!==task?[{title:parent.title,assets:assets(taskAssetRefs(parent),parent)}]:[],task:{title:task.title,assets:assets(taskAssetRefs(task),task)}};
+      }
+      function objectiveContext(o) {
+        const children=o.items.filter(i=>i.kind!=='task'&&!o.archiveAssets.includes(i.id)).flatMap(i=>(i.tabs||[]).map(tab=>i.id+'::'+tab.id));
+        return {version:1,kind:'objective',objective:{title:o.name,purpose:o.purpose||'',assets:[
+          {title:o.name,type:'Objective manifest',reference:'/demo/workspace/objectives/'+o.id+'/.objective.json'},
+          ...contextReferenceRows(o,['folder::objective',...o.objectiveAssets])]},
+          tasks:taskEntries(o).map(task=>({title:task.title,parent:parentTask(o,task)!==task?parentTask(o,task)?.title||'':'',assets:contextReferenceRows(o,taskAssetRefs(task),task)})),
+          assets:contextReferenceRows(o,[...catalog(o),...o.assetShelf,...children])};
+      }
+      function dragObjective(node,o) {
+        node.draggable=true;node.title='Drag '+o.name+' into a terminal to pass its whole context';node.ondragstart=e=>{
+          e.dataTransfer.setData('application/x-objective-id',o.id);e.dataTransfer.setData('application/x-objective-source',o.id);e.dataTransfer.effectAllowed='all';
+          try{
+            const payload=objectiveContext(o),refs=LabTaskContext.references(payload);
+            e.dataTransfer.setData('application/x-lab-reference',JSON.stringify(refs));e.dataTransfer.setData(LabTaskContext.mime,JSON.stringify(payload));e.dataTransfer.setData('text/plain',LabTaskContext.format(payload));e.dataTransfer.effectAllowed='all';
+          }catch{message('Some Objective references are unavailable. Check its assets.');}
+        };
       }
       function dragAsset(node,o,ref) {node.draggable=true;node.ondragstart=e=>{
         try{
@@ -258,7 +278,7 @@
         if(task&&ref!==detailsRef(task)){const remove=button('×','ob-quiet',()=>{task.assets=task.assets.filter(r=>r!==ref);if(task.iconAsset===ref)task.iconAsset=null;render();message('Detached '+info.title+' · source kept');});remove.setAttribute('aria-label','Detach '+info.title+' from '+task.title);tools.append(remove);}else if(task)tools.append(element('span','ob-required','Details'));
         (line.querySelector('.ob-resource-head')||line).append(tools);return line;
       }
-      function renderBucket(host,o,id,label,refs,add,task) {const section=element('section','ob-bucket');section.dataset.bucket=id;section.setAttribute('aria-label',label);heading(section,label,add);if(id==='unassigned'){const title=section.querySelector('.ob-section-heading span');title.replaceWith(button(label,'ob-bucket-title',()=>showTasks(o)));}const list=element('div','ob-list');refs.forEach(ref=>{if(assetInfo(o,ref))list.append(assetRow(o,ref,task));});if(!refs.length)list.append(element('p','ob-empty',id==='unassigned'?'All assets are assigned.':id==='objective'?'Drop shared context here.':id==='archive'?'Drop assets here to set them aside.':''));section.append(list);attachDrop(section,'application/x-objective-item',ref=>id==='task'?task&&attachAsset(o,task,ref):classifyAsset(o,ref,id));host.append(section);}
+      function renderBucket(host,o,id,label,refs,add,task) {const section=element('section','ob-bucket');section.dataset.bucket=id;section.setAttribute('aria-label',label);heading(section,label,add);if(id==='unassigned'){const title=section.querySelector('.ob-section-heading span');title.replaceWith(button(label,'ob-bucket-title',()=>showTasks(o)));}else if(id==='objective')dragObjective(section.querySelector('.ob-section-heading span'),o);const list=element('div','ob-list');refs.forEach(ref=>{if(assetInfo(o,ref))list.append(assetRow(o,ref,task));});if(!refs.length)list.append(element('p','ob-empty',id==='unassigned'?'All assets are assigned.':id==='objective'?'Drop shared context here.':id==='archive'?'Drop assets here to set them aside.':''));section.append(list);attachDrop(section,'application/x-objective-item',ref=>id==='task'?task&&attachAsset(o,task,ref):classifyAsset(o,ref,id));host.append(section);}
       function sidebarTask(o,task,child=false) {
         const line=element('div','ob-sidebar-task'+(child?' child':''));line.dataset.task=task.id;
         const status=taskStatusIcon(task,'ob-task-status');status.dataset.done=taskComplete(task);status.setAttribute('aria-label',taskStatuses[taskStatus(task)].label);status.title=taskStatuses[taskStatus(task)].label+' · Secondary-click to change status';
@@ -419,6 +439,13 @@
               t.draft=(t.draft?t.draft+(payload?'\n\n':' '):'')+prompt;
               renderTerminals();persist();message(payload?'Pasted task prompt with labelled context · unsent':'Pasted '+refs.length+' references · unsent');
             }catch{message('Could not read the complete task context. Drag the task again.');}
+          });
+          attachDrop(console,'application/x-objective-id',(id,transfer)=>{
+            try{
+              const payload=JSON.parse(transfer.getData(LabTaskContext.mime)),refs=LabTaskContext.references(payload);
+              if(payload.kind!=='objective'||payload.objective.title!==objectives.find(o=>o.id===id)?.name||JSON.stringify(refs)!==transfer.getData('application/x-lab-reference'))throw Error('Incomplete Objective references');
+              t.draft=(t.draft?t.draft+'\n\n':'')+LabTaskContext.format(payload);renderTerminals();persist();message('Pasted whole Objective context · unsent');
+            }catch{message('Could not read the complete Objective context. Drag the Objective again.');}
           });
 
           if(t.linked)console.append(button('Unlink item','ob-quiet',()=>{t.linked=null;t.linkedTab=null;render();}));surface.append(console);}

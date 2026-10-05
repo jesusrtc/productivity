@@ -194,6 +194,7 @@ html,body { padding:0; overflow:hidden; }
 #lab-objectives-proposal .ob-star[aria-pressed=true] { color:#e3b341; }
 #lab-objectives-proposal .ob-bucket-title { border:0; background:none; padding:0; color:inherit; font:inherit; text-align:left; cursor:pointer; }
 #lab-objectives-proposal .ob-bucket-title:hover { color:var(--ob-accent); }
+#lab-objectives-proposal .ob-section-heading [draggable=true] { cursor:grab; }
 #lab-objectives-proposal .ob-task-name { display:flex; gap:6px; flex:1; align-items:center; min-width:0; background:none; border:1px solid transparent; border-radius:4px; padding:5px; text-align:left; color:var(--ob-muted); }
 #lab-objectives-proposal .ob-task-name[aria-pressed=true] { color:var(--ob-text); border-color:var(--ob-accent); background:#192a3d; }
 #lab-objectives-proposal .ob-sidebar-task > .ob-muted { font-size:10px; }

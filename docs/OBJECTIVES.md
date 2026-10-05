@@ -256,6 +256,15 @@ receive the readable multiline prompt through bracketed paste; consoles that
 do not support it receive one line to avoid accidental submission. No Enter
 is sent. Ordinary asset drops keep their existing shell-quoted reference paste.
 
+Drag the current Objective tab, its focus-menu entry, the left **Objective**
+heading or its library row into a console to pass the whole Objective. The
+unsent **This objective:** prompt includes its outcome, manifest and folder,
+every task/subtask's details and attachments, all active registered resources,
+document tabs, sublinks and linked worktrees. This includes Unassigned and
+worktree-scoped resources. Archive and unregistered explorer files are excluded.
+Each source is defined once, with its roles retained across tasks. Focus-slot
+drops still move the Objective; a console drop preserves all associations.
+
 ## Storage and commands
 
 Each Objective's source of truth is
@@ -402,7 +411,8 @@ console to paste the same scoped **Context:** / **This task:** prompt as the
 live console, with shared Objective references, parent details/assets and the
 selected task's specification and assets. Reference types and exact sources
 remain explicit, with repeated sources linked by `[R#]` labels
-and Archive excluded. Drag a simulated terminal onto a left-column task,
+and Archive excluded. Drag an Objective title or its left heading into the
+console for the same whole-Objective prompt. Drag a simulated terminal onto a left-column task,
 document/subtab, file, folder or worktree to associate it; middle-column
 elements reject terminal association drops. No input
 is submitted until **Run simulation**. External-link clicks are simulated;

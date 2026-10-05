@@ -93,16 +93,27 @@
     return [...(o.shared_assets||[]),...(parent?taskAssets(parent):[]),...taskAssets(task)].filter(a=>!isArchived(a,o));
   }
 
-  function taskContext(task,o=objective()) {
-    const parent=o.tasks.find(t=>t.children.some(c=>c.id===task.id));
-    function assets(rows) {return rows.filter(a=>!isArchived(a,o)).map(asset=>{
+  function contextReferenceRows(rows,o=objective()) {
+    return rows.filter(a=>!isArchived(a,o)).map(asset=>{
       const info=assetInfo(asset,o),r=info?.resource,path=r?.path||'',scope=asset.folder&&scopeRows(o).find(t=>[t.path,t.resolved_path].includes(asset.folder.root));
       const type=asset.required?'Task specification':asset.folder?(scope?.kind==='worktree'?'Worktree':'Folder'):
         r?.kind==='link'?(asset.sub_link_id?'Sublink':'Link'):r?.kind==='assistant'?(asset.tab_id?'Assistant document tab':'Assistant document'):
         asset.tab_id?'Document tab':r?.kind==='notebook'||/\.ipynb$/i.test(path)?'Notebook':r?.kind==='document'||/\.md$/i.test(path)?'Document':/\.sql$/i.test(path)?'SQL file':'File';
       return {title:info?.title||'',type,reference:info?.reference};
-    });}
+    });
+  }
+  function taskContext(task,o=objective()) {
+    const parent=o.tasks.find(t=>t.children.some(c=>c.id===task.id)),assets=rows=>contextReferenceRows(rows,o);
     return {version:1,objective:{title:o.name,purpose:o.purpose||'',assets:assets(o.shared_assets||[])},parents:parent?[{title:parent.title,assets:assets(taskAssets(parent))}]:[],task:{title:task.title,assets:assets(taskAssets(task))}};
+  }
+  function objectiveContext(o) {
+    const children=o.resources.filter(r=>!isArchived({resource_id:r.id},o)).flatMap(r=>
+      r.kind==='link'?subLinksFor(r).map(t=>({resource_id:r.id,sub_link_id:t.id})):tabsFor(r).map(t=>({resource_id:r.id,tab_id:t.id})));
+    return {version:1,kind:'objective',objective:{title:o.name,purpose:o.purpose||'',assets:[
+      {title:o.name,type:'Objective manifest',reference:o.manifest_path||context().path+'/.lab/objectives.json#objective='+encodeURIComponent(o.id)},
+      {title:o.name,type:'Objective folder',reference:o.path},...contextReferenceRows(o.shared_assets||[],o)]},
+      tasks:tasks(o).map(task=>({title:task.title,parent:o.tasks.find(t=>t.children.some(c=>c.id===task.id))?.title||'',assets:contextReferenceRows(taskAssets(task),o)})),
+      assets:contextReferenceRows([...assetCatalog(o),...children],o)};
   }
   function assetTarget(asset) {const {id,required,...target}=asset;return target;}
   function assetRoot(root,o=objective()) {return scopeRows(o).find(t=>[t.path,t.resolved_path].includes(root))?.resolved_path||root;}
@@ -126,7 +137,7 @@
     return `<div class="objective-sidebar-task${parent?' child':''}${selected?' active':''}" data-task-id="${esc(task.id)}"><span class="objective-sidebar-task-status objective-task-status-icon" data-task-status="${status}" aria-label="${taskStatuses[status].label}" title="${taskStatuses[status].label} · Secondary-click to change status">${taskStatuses[status].icon}</span><a class="objective-sidebar-task-title${done?' done':''}" data-open-task="${esc(task.id)}" href="${esc(taskHref(task))}" draggable="true" title="${esc(task.title)}">${esc(task.title)}</a><span class="objective-sidebar-task-count" title="${taskAssets(task).length} assets">${taskAssets(task).length}</span><button type="button" data-task-icon="${esc(task.id)}" data-open-task="${esc(task.id)}" aria-label="Icon for ${esc(task.title)}" title="Drop an asset here to set the terminal icon" draggable="true">${customTaskIcon(task)}</button></div>`;
   }
   function bucketHtml(id,label,assets,add=false) {
-    return `<section class="objective-bucket" data-objective-bucket="${id}" aria-label="${label}"><div class="sidebar-title objective-title">${id==='unassigned'?`<button type="button" class="objective-bucket-label" data-show-unassigned>${label}</button>`:`<span>${label}</span>`}${add?'<button type="button" data-add-resource="document" aria-label="Add objective asset">+</button>':''}</div><div class="objective-resources">${assets.map(asset=>assetRow(asset)).join('')||`<p class="objective-bucket-empty">${{unassigned:'All assets are assigned.',objective:'Star an asset to share it across tasks.',task:'Select a task to see its assets.',archive:'Drop assets here to set them aside.'}[id]}</p>`}</div></section>`;
+    return `<section class="objective-bucket" data-objective-bucket="${id}" aria-label="${label}"><div class="sidebar-title objective-title">${id==='unassigned'?`<button type="button" class="objective-bucket-label" data-show-unassigned>${label}</button>`:`<span${id==='objective'?` data-drag-objective="${esc(objective().id)}" draggable="true" title="Drag ${esc(objective().name)} into a terminal to pass its whole context"`:''}>${label}</span>`}${add?'<button type="button" data-add-resource="document" aria-label="Add objective asset">+</button>':''}</div><div class="objective-resources">${assets.map(asset=>assetRow(asset)).join('')||`<p class="objective-bucket-empty">${{unassigned:'All assets are assigned.',objective:'Star an asset to share it across tasks.',task:'Select a task to see its assets.',archive:'Drop assets here to set them aside.'}[id]}</p>`}</div></section>`;
   }
   function assetRow(asset) {
     const info=assetInfo(asset);if(!info)return '';
@@ -288,7 +299,7 @@
     if(context()?.path!==path)return '';
     const s=state(),all=working&&s.view==='all',o=objective(),selected=!!(working&&!all&&o),task=working&&focusedTask();
     return `<button type="button" class="repo-tab vault-context-tab objective-tab${all?' active':''}" data-all-objectives aria-pressed="${all}">Objectives</button>`+
-      (o?`<button type="button" class="repo-tab vault-context-tab objective-tab${selected?' active':''}" style="--vault-color:${esc(o.color)}" data-current-objective data-select-objective="${esc(o.id)}" draggable="true" aria-pressed="${selected}" aria-haspopup="menu" aria-expanded="${!!switchMenu}" aria-controls="objective-switch-menu" title="${esc(o.name+(task?' / '+task.title:''))}">${task?`<span class="objective-task-tab-icon">${taskIcon(task)}</span>`:'<span class="vault-mark" aria-hidden="true"></span>'}<span class="objective-tab-name">${esc(task?task.title:o.name)}</span><span class="objective-switch-arrow" data-toggle-objective-switch aria-hidden="true">▾</span></button>`:'');
+      (o?`<button type="button" class="repo-tab vault-context-tab objective-tab${selected?' active':''}" style="--vault-color:${esc(o.color)}" data-current-objective data-select-objective="${esc(o.id)}" draggable="true" aria-pressed="${selected}" aria-haspopup="menu" aria-expanded="${!!switchMenu}" aria-controls="objective-switch-menu" title="${esc(o.name+(task?' / '+task.title:''))} · Drag the whole Objective into a terminal">${task?`<span class="objective-task-tab-icon">${taskIcon(task)}</span>`:'<span class="vault-mark" aria-hidden="true"></span>'}<span class="objective-tab-name">${esc(task?task.title:o.name)}</span><span class="objective-switch-arrow" data-toggle-objective-switch aria-hidden="true">▾</span></button>`:'');
   }
   function closeSwitchMenu() {
     clearTimeout(switchTimer);switchMenu?.remove();switchMenu=null;
@@ -299,7 +310,7 @@
     const focusedIndex=[...switchMenu.querySelectorAll('button')].indexOf(document.activeElement);
     switchMenu.innerHTML=Array.from({length:focusSlots},(_,slot)=>{
       const o=d.objectives.find(o=>o.id===d.focused[slot]),selected=o?.id===objective()?.id;
-      return `<button type="button" role="menuitemradio" aria-checked="${selected}" ${o?`data-select-objective="${esc(o.id)}"`:`data-choose-objective-slot="${slot}"`} style="--vault-color:${esc(o?.color||d.slot_palettes?.[slot]?.[0]||'#8b949e')}"><span class="objective-switch-number">${slot+1}</span><span class="vault-mark" aria-hidden="true"></span><span class="objective-tab-name">${esc(o?.name||'Choose an objective…')}</span></button>`;
+      return `<button type="button" role="menuitemradio" aria-checked="${selected}" ${o?`data-select-objective="${esc(o.id)}" data-drag-objective="${esc(o.id)}" draggable="true" title="Drag this Objective into a terminal to pass its whole context"`:`data-choose-objective-slot="${slot}"`} style="--vault-color:${esc(o?.color||d.slot_palettes?.[slot]?.[0]||'#8b949e')}"><span class="objective-switch-number">${slot+1}</span><span class="vault-mark" aria-hidden="true"></span><span class="objective-tab-name">${esc(o?.name||'Choose an objective…')}</span></button>`;
     }).join('');
     anchor.setAttribute('aria-expanded','true');const box=anchor.getBoundingClientRect();
     switchMenu.style.left=Math.max(8,Math.min(box.left,window.innerWidth-switchMenu.offsetWidth-8))+'px';
@@ -747,7 +758,13 @@
   document.addEventListener('change',e=>{const node=e.target;if(!node.matches('[data-task-done],[data-task-due]'))return;const o=objective(),id=node.dataset.taskDone||node.dataset.taskDue,patch=node.dataset.taskDone?{done:node.checked}:{due:node.value};change({type:'task-update',objective_id:o.id,task_id:id,...patch},{optimistic:d=>{const owner=d.objectives.find(item=>item.id===o.id);if('done'in patch)patchTaskStatus(owner,id,patch.done?'done':'todo');else Object.assign(tasks(owner).find(t=>t.id===id),patch);}}).catch(()=>{});});
   document.addEventListener('dragstart',e=>{
     const project=e.target.closest?.('[data-drag-objective],.objective-tab[data-select-objective]');
-    if(project){e.dataTransfer.setData(objectiveMime,JSON.stringify({scope:key(context()),objective_id:project.dataset.dragObjective||project.dataset.selectObjective}));e.dataTransfer.effectAllowed='move';return;}
+    if(project){
+      const id=project.dataset.dragObjective||project.dataset.selectObjective;e.dataTransfer.setData(objectiveMime,JSON.stringify({scope:key(context()),objective_id:id}));e.dataTransfer.effectAllowed='all';
+      try{
+      const o=data()?.objectives.find(o=>o.id===id),payload=objectiveContext(o);
+      if(!dragReference(e.dataTransfer,window.LabTaskContext.references(payload)))throw new Error('Unavailable reference');
+      e.dataTransfer.setData(window.LabTaskContext.mime,JSON.stringify(payload));e.dataTransfer.setData('text/plain',window.LabTaskContext.format(payload));e.dataTransfer.effectAllowed='all';
+    }catch{notify('Some Objective references are unavailable. Check its assets before passing it to the agent.',true);}return;}
     const o=objective(),taskNode=e.target.closest?.('[data-open-task]'),task=taskNode&&tasks(o).find(t=>t.id===taskNode.dataset.openTask);
     if(task){try{const payload=taskContext(task,o),prompt=window.LabTaskContext.format(payload);if(!dragReference(e.dataTransfer,window.LabTaskContext.references(payload)))throw new Error('Unavailable reference');e.dataTransfer.setData(window.LabTaskContext.mime,JSON.stringify(payload));e.dataTransfer.setData('text/plain',prompt);e.dataTransfer.setData(resourceMime,JSON.stringify({scope:key(context()),objective_id:o.id,task_id:task.id}));}catch{e.preventDefault();notify('Some task assets are unavailable. Check its assets before passing it to the agent.',true);}return;}
     const assetNode=e.target.closest?.('[data-objective-asset]');if(assetNode&&!assetNode.dataset.objectiveResource){const asset=JSON.parse(assetNode.dataset.objectiveAsset);if(dragReference(e.dataTransfer,assetInfo(asset)?.reference))e.dataTransfer.setData(resourceMime,JSON.stringify({scope:key(context()),objective_id:o.id,...assetTarget(asset)}));else e.preventDefault();return;}
@@ -771,7 +788,7 @@
   document.addEventListener('drop',e=>{
     const project=e.dataTransfer.getData(objectiveMime),slot=e.target.closest?.('[data-objective-slot]');
     if(project&&slot){e.preventDefault();e.stopImmediatePropagation();slot.classList.remove('objective-drop-target');try{const item=JSON.parse(project);if(item.scope!==key(context()))throw new Error('Choose an objective in this workspace');void placeObjective(item.objective_id,Number(slot.dataset.objectiveSlot)).catch(()=>{});}catch(error){notify(error.message,true);}return;}
-    if(!active(context()?.path))return;const target=e.target.closest?.(linkDropSelector);if(!target)return;
+    if(project||!active(context()?.path))return;const target=e.target.closest?.(linkDropSelector);if(!target)return;
     const raw=e.dataTransfer.getData(resourceMime),assistant=e.dataTransfer.getData(documentMime),file=e.dataTransfer.getData('application/x-lab-file-path'),terminal=e.dataTransfer.getData('application/x-lab-terminal'),external=target.closest('[data-task-id],[data-objective-bucket]')&&(e.dataTransfer.getData('text/uri-list')||e.dataTransfer.getData('application/x-lab-reference'));if(!raw&&!assistant&&!file&&!terminal&&!external)return;e.preventDefault();e.stopImmediatePropagation();
     if(terminal&&!target.closest('#sidebar')&&!target.classList.contains('sess'))return;
     // A worktree remains a scope drop target even when its row lives in a bucket.

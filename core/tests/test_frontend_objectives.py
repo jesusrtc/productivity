@@ -66,6 +66,7 @@ const _termDragState=null,workspaceTabsDragId=null;
 const notices=[],opened=[];let scopeRoot=FIX.folder;
 window.LabExternalLinks={open:(url,options)=>{opened.push({url,options});return Promise.resolve(true)}};
 window.explorerToast=(message,error)=>{if(error)throw Error(message);notices.push(message)};
+document.getElementById('termBody').addEventListener('dragover',event=>event.preventDefault());
 document.getElementById('termBody').addEventListener('drop',_termHandleDrop);
 document.addEventListener('dragstart',event=>{if(event.isTrusted&&!window.allowTaskNativeDrag&&!event.target.closest('[data-drag-objective]')){window.nativeDrag={effect:event.dataTransfer.effectAllowed,reference:event.dataTransfer.getData('application/x-lab-reference')};event.preventDefault()}});
 window.checkDrag=(selector,expected)=>{
@@ -196,7 +197,7 @@ const fs=require('node:fs');
  await click('[data-objective-slot="4"]');await click('.objective-dialog [type=submit]');
  await evaluate(`(async()=>{await until(async()=>{const d=await read();return d.focused[4]===FIX.oid&&!d.focused[0]});const d=await read();assert(document.querySelector('[data-objective-slot="4"]').dataset.selectObjective===FIX.oid,'empty slot assigns exact position');assert(document.querySelector('.objective-working h2').textContent==='All objectives','slot placement keeps library open');assert(document.querySelector('[data-current-objective]').style.getPropertyValue('--vault-color')===d.slot_palettes[4][0],'current tab follows slot color');assert(resource(await read()).content.tabs[1].body==='Sibling source','slot changes keep document')})()`);
  await evaluate(`(async()=>{for(const name of ['Second','Third','Fourth','Fifth','Sixth']){const d=await read(),r=await fetch('/api/objectives',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({workspace_id:'demo',expected:d.revision,action:{type:'create',name,slot:0}})});assert(r.ok,'fixture objective');}const d=await read();window.beforeInsertion=d.focused.slice();await LabObjectives.load(undefined,true);assert(!d.focused.includes(FIX.oid),'fixture parked');document.getElementById('sidebar').style.display='none';window.scrollTo(0,0)})()`);
- const points=await evaluate(`(()=>{const source=document.querySelector('[data-drag-objective="'+FIX.oid+'"]'),target=document.querySelector('[data-objective-slot="0"]');const a=source.getBoundingClientRect(),b=target.getBoundingClientRect();assert(document.elementFromPoint(b.x+b.width/2,b.y+b.height/2)?.closest('[data-objective-slot]')===target,'visible native drop target '+JSON.stringify({a,b}));return{source:{x:a.x+20,y:a.y+a.height/2},target:{x:b.x+b.width/2,y:b.y+b.height/2}}})()`);
+ const points=await evaluate(`(()=>{const source=document.querySelector('.objective-library-row[data-drag-objective="'+FIX.oid+'"]'),target=document.querySelector('[data-objective-slot="0"]');const a=source.getBoundingClientRect(),b=target.getBoundingClientRect();assert(document.elementFromPoint(b.x+b.width/2,b.y+b.height/2)?.closest('[data-objective-slot]')===target,'visible native drop target '+JSON.stringify({a,b}));return{source:{x:a.x+20,y:a.y+a.height/2},target:{x:b.x+b.width/2,y:b.y+b.height/2}}})()`);
  await send('Input.setInterceptDrags',{enabled:true});
  await send('Input.dispatchMouseEvent',{type:'mouseMoved',...points.source});
  await send('Input.dispatchMouseEvent',{type:'mousePressed',...points.source,button:'left',buttons:1,clickCount:1});
@@ -387,6 +388,32 @@ const fs=require('node:fs');
  await evaluate(`assert(!document.querySelector('[data-objective-bucket=unassigned] [data-objective-resource="'+scopedFileId+'"]'),'worktree-scoped resource hides from another scope')`);
  await click('[data-objective-bucket=task] [data-objective-worktree] [data-select-worktree]');
  await evaluate(`assert(document.querySelector('[data-objective-bucket=unassigned] [data-objective-resource="'+scopedFileId+'"]'),'worktree asset retains native scope navigation')`);
+ await evaluate(`(async()=>{
+   let d=await read(),response=await fetch('/api/objectives',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({workspace_id:'demo',expected:d.revision,action:{type:'resource',objective_id:FIX.oid,kind:'link',title:'Archived context',url:'https://example.com/archived-context'}})});assert(response.ok,'archive fixture resource');d=await response.json();const r=d.objectives[0].resources.at(-1);
+   response=await fetch('/api/objectives',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({workspace_id:'demo',expected:d.revision,action:{type:'asset-bucket',objective_id:FIX.oid,bucket:'archive',resource_id:r.id}})});assert(response.ok,'archive fixture classification');await LabObjectives.load(undefined,true);
+   window.objectivePastesBefore=pasted.length;window.objectiveDataBefore=JSON.stringify(await read());document.getElementById('termBody').style.cssText='position:fixed;right:0;bottom:0;width:260px;height:100px;z-index:200;background:#222';
+ })()`);
+ const objectivePoints=await evaluate(`(()=>{const source=document.querySelector('[data-objective-bucket=objective] [data-drag-objective]'),target=document.getElementById('termBody');source.scrollIntoView({block:'nearest'});const a=source.getBoundingClientRect(),b=target.getBoundingClientRect(),p={x:a.x+a.width/2,y:a.y+a.height/2};assert(document.elementFromPoint(p.x,p.y)===source,'whole Objective drag source is visible');return{source:p,target:{x:b.x+b.width/2,y:b.y+b.height/2}}})()`);
+ dragData=null;await send('Input.setInterceptDrags',{enabled:true});
+ await send('Input.dispatchMouseEvent',{type:'mouseMoved',...objectivePoints.source});
+ await send('Input.dispatchMouseEvent',{type:'mousePressed',...objectivePoints.source,button:'left',buttons:1,clickCount:1});
+ await send('Input.dispatchMouseEvent',{type:'mouseMoved',x:objectivePoints.source.x+30,y:objectivePoints.source.y,button:'left',buttons:1});
+ for(let i=0;i<100&&!dragData;i++)await new Promise(r=>setTimeout(r,20));
+ if(!dragData?.items.some(item=>item.mimeType==='application/x-lab-task-context'))throw Error('Native whole Objective context payload');
+ for(const type of ['dragEnter','dragOver','drop'])await send('Input.dispatchDragEvent',{type,...objectivePoints.target,data:dragData});
+ await send('Input.setInterceptDrags',{enabled:false});await send('Input.dispatchMouseEvent',{type:'mouseReleased',...objectivePoints.target,button:'left',clickCount:1});
+ const whole=JSON.parse(dragData.items.find(item=>item.mimeType==='application/x-lab-task-context').data);
+ const wholeRefs=JSON.parse(dragData.items.find(item=>item.mimeType==='application/x-lab-reference').data);
+ await evaluate(`(async()=>{const model=${JSON.stringify(whole)},refs=${JSON.stringify(wholeRefs)},o=(await read()).objectives[0],prompt=LabTaskContext.format(model);
+   assert(model.kind==='objective'&&model.objective.title===o.name&&model.tasks.length===o.tasks.reduce((n,t)=>n+1+t.children.length,0),'whole Objective includes every task and subtask');
+   assert(pasted.length===objectivePastesBefore+1&&pasted.at(-1)===prompt&&prompt.includes('This objective: ')&&!prompt.includes('Work only on This task:'),'native console drop pastes whole Objective prompt');
+   assert(refs.includes(o.manifest_path)&&refs.includes(o.path)&&refs.includes(FIX.checkout)&&refs.includes(FIX.folder+'/query.sql'),'manifest, Objective folder, worktree and attached file references');
+   for(const task of o.tasks.flatMap(t=>[t,...t.children])){const r=o.resources.find(r=>r.id===task.document_id);assert(refs.includes(FIX.folder+'/'+r.path+'#tab='+task.tab_id),'every task retains its specification tab');}
+   for(const r of o.resources.filter(r=>!o.archived_assets.some(a=>a.resource_id===r.id))){assert(refs.includes(r.kind==='link'?r.url:(r.file_root||FIX.folder)+'/'+r.path)||r.task_document,'unassigned and worktree-scoped resources remain in whole Objective context');}
+   assert(!refs.includes('https://example.com/archived-context')&&new Set(refs).size===refs.length,'archived resources excluded and references deduplicated');
+   assert(refs.every(ref=>prompt.split('\\n').filter(line=>line.endsWith(' — '+ref)).length===1),'each exact reference appears once in whole Objective prompt');
+   assert(JSON.stringify(await read())===objectiveDataBefore,'passing context changes no Objective data or terminal associations');assert(!contentErrors.length,'whole Objective drop has no browser errors');
+ })()`);
  ws.close();console.log('PASS');
 })().catch(error=>{console.error(error.stack);process.exit(1)});
 '''

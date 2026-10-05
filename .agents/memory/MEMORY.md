@@ -1,5 +1,7 @@
 # Memory index
 
+- [Whole Objectives pass reference context](whole-objectives-pass-reference-context.md) — drag the Objective title/header/library row into a console for all active registered references, tasks/subtasks and worktrees; preserve focus-slot moves.
+
 - [Sidebar task status menu](sidebar-task-status-menu.md) — secondary-click Completed/Undo/In progress, green check/red-framed box/yellow dot, saved states; supersedes read-only task status.
 
 - [Terminal hover owns the expanded area](terminal-hover-owns-expanded-area.md) — full-width hover containment, including right-edge and scrollbar clicks, with a stable compact layout slot.
