@@ -1,0 +1,7 @@
+{"type":"session.start","id":"session-start","timestamp":"2026-10-02T22:45:17.000Z","data":{"copilotVersion":"1.0.91"}}
+{"type":"assistant.message","id":"completion-request","timestamp":"2026-10-02T23:53:08.602Z","data":{"turnId":"18","content":"","toolRequests":[{"name":"task_complete","toolCallId":"finish"}]}}
+{"type":"tool.execution_start","id":"tool-start","timestamp":"2026-10-02T23:53:08.607Z","data":{"turnId":"18","toolCallId":"finish","toolName":"task_complete"}}
+{"type":"tool.execution_complete","id":"tool-finish","timestamp":"2026-10-02T23:53:08.753Z","data":{"turnId":"18","toolCallId":"finish","success":true}}
+{"type":"session.task_complete","id":"accepted-completion","timestamp":"2026-10-02T23:53:08.756Z","data":{"summary":"Completed the requested work.","success":true}}
+{"type":"assistant.turn_end","id":"turn-end","timestamp":"2026-10-02T23:53:08.786Z","data":{"turnId":"18"}}
+{"type":"session.usage_checkpoint","id":"usage","timestamp":"2026-10-02T23:53:08.984Z","data":{}}

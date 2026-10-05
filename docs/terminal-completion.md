@@ -73,7 +73,20 @@ do not scan transcripts.
   `turn_duration` clears unfinished working state without claiming completion.
   Local CLI commands such as `/usage`, metadata, and compaction summaries do not
   start work. Recorded user interruptions clear working state.
-- **Copilot:** use the conversation's `events.jsonl`. Require a completed
+- **Copilot:** resolve the live process on the terminal's TTY, then its latest
+  foreground registration in `logs/process-<timestamp>-<pid>.log` under
+  `COPILOT_HOME` (default `~/.copilot`). Reject logs older than the process and
+  require its matching `session-state/<id>/inuse.<pid>.lock` ownership marker.
+  Conversation switches update this mapping; the original launch ID and
+  same-directory/recent transcripts are never fallback identities. Ambiguous
+  processes, unavailable logs/ownership, or unsupported formats return unknown.
+  Read the resolved conversation's `events.jsonl`. A successful
+  `session.task_complete` is an accepted autopilot completion, including when
+  the final response is delivered through the `task_complete` tool rather than
+  a separate text message. Require `success: true` and an absent or `completed`
+  outcome; rejected completions remain working and blocked outcomes wait for
+  intervention. A successful tool execution alone is not acceptance.
+  For ordinary replies, require a completed
   `assistant.message` containing text with no `toolRequests`, followed by an
   `assistant.turn_end` for that same turn. Tool batches also emit turn-end
   events, so a turn-end alone is insufficient. Errors, interruptions, and
@@ -102,6 +115,13 @@ The browser retains previously verified activity through those unknown reads;
 that retained conversation identity is never used to read a stale transcript.
 Provider format changes should add fixtures before extending recognition.
 
+Copilot live identity lookups are scoped to the requested TTYs and cached for
+five seconds, including unresolved TTYs. Process log reads are capped at 2 MiB
+and fingerprint-cached. Continuous appends preserve a verified foreground
+registration; a cold read or an unread gap larger than the cap requires a
+registration within the bounded tail. Partial writes, truncation, and rotation
+cannot silently reuse a stale foreground mapping.
+
 ## Checks
 
 `test_agent_activity.py` covers all three providers, intermediate tool turns,
@@ -120,6 +140,13 @@ final response, shutdown, and an idle resume after abrupt process termination.
 The recordings were generated with a local deterministic provider and temporary
 CLI state, without accessing existing conversations. Browser workspace checks
 run for both Claude and Copilot, including yellow priority and direct green review.
+
+A client-supplied sanitized CLI 1.0.91 autopilot fixture covers accepted
+completion without a tool-free final response, including the yellow-to-green
+frontend transition. Additional cases cover rejection, blocked completion,
+child events, later work, and bounded reads. `test_copilot_identity.py` checks
+live conversation switching, PID reuse, ownership, ambiguity, cache expiry,
+partial/rotated logs, and exact-conversation route enrichment.
 
 Browser verification uses synthetic terminal rows and a synthetic attachment
 only; it must not send input to or replace the user's live agent sessions.

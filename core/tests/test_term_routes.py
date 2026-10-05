@@ -586,13 +586,15 @@ def test_agent_session_names_are_normalized_for_all_supported_clis(monkeypatch) 
             ["Find the test", "Update the tests"],
         ),
     )
+    monkeypatch.setattr(term_mod.copilot_identity, "sessions_by_tty",
+                        lambda ttys: {"ttys002": "copilot-id"})
     rows = [
         {"agent": "codex", "pane_tty": "/dev/ttys001"},
         {
             "agent": "claude", "claude_session_id": "claude-id",
             "cwd": "/repo",
         },
-        {"agent": "copilot", "agent_session_id": "copilot-id"},
+        {"agent": "copilot", "agent_session_id": "old-copilot-id", "pane_tty": "/dev/ttys002"},
         {"agent": None, "kind": "terminal"},
     ]
 
@@ -616,6 +618,7 @@ def test_agent_session_names_are_normalized_for_all_supported_clis(monkeypatch) 
         "Inspect the route", "Review the API",
     ]
     assert rows[2]["agent_session_name"] == "Copilot copilot-id"
+    assert rows[2]["agent_session_id"] == "copilot-id"
     assert rows[2]["agent_session_summary"] == "Update the tests"
     assert rows[2]["agent_session_requests"] == [
         "Find the test", "Update the tests",

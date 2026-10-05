@@ -5,7 +5,7 @@ import pytest
 from core import agent_activity
 
 from .test_frontend_terminal_ui import _run_node, _js_between, ROOT
-from .test_agent_activity import copilot_cli_events, write_events
+from .test_agent_activity import copilot_autopilot_events, copilot_cli_events, write_events
 
 
 MODULE = (ROOT / 'core/src/core/static/js/lib/terminal-completion.js').read_text()
@@ -35,6 +35,27 @@ function session(agent = 'codex', completed_at = 100, name = 'one') {
 }
 const assert = (ok, message) => {if (!ok) throw Error(message);};
 """
+
+
+def test_native_copilot_autopilot_changes_yellow_to_unread_green():
+    events = copilot_autopilot_events()
+    working = agent_activity.response_state('copilot', events[:4], include_timestamp=True)
+    completed = agent_activity.response_state('copilot', events, include_timestamp=True)
+    result = _run_node(CLOCK + MODULE + """
+const C = window.LabTerminalCompletion, s = session('copilot');
+s.agent_activity = WORKING;
+show('workspace', s);
+assert(C.isWorking(s) && !C.meta('workspace', s), 'tool execution stays yellow');
+s.agent_activity = COMPLETED;
+termRenderSessionList();
+assert(!C.isWorking(s) && C.meta('workspace', s), 'accepted completion replaces yellow with green');
+advance(19999);
+assert(C.meta('workspace', s), 'green remains unread until full viewing delay');
+advance(1);
+assert(!C.meta('workspace', s), 'reviewed completion clears green');
+console.log(JSON.stringify({passed:true}));
+""".replace('WORKING', json.dumps(working)).replace('COMPLETED', json.dumps(completed)))
+    assert result['passed']
 
 
 @pytest.mark.parametrize('agent', ['codex', 'claude', 'copilot'])

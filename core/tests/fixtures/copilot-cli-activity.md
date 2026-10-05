@@ -19,3 +19,24 @@ turn IDs, tool requests, and completion boundaries remain as recorded.
 The [Copilot agent-loop documentation](https://github.com/github/copilot-sdk/blob/main/docs/features/agent-loop.md)
 explains why a tool turn end does not finish the user response and why the
 ephemeral `session.idle` event cannot be recovered from persisted JSONL logs.
+
+## Autopilot completion (CLI 1.0.91)
+
+`copilot-cli-1.0.91-autopilot.jsonl` is the client's sanitized reduction of a
+native autopilot completion reported on 2026-10-05. The completion sequence
+preserves the supplied timestamps, turn ID, ordering, empty assistant content,
+tool name, and acceptance flag. IDs are replaced, the summary is test text,
+and hooks, usage payloads, and unrelated conversation content are omitted.
+The session start is reduced to its version marker with a synthetic timestamp.
+
+The final assistant message requests `task_complete`; no tool-free text reply
+follows. Successful tool execution alone is insufficient: the separate
+`session.task_complete` event records whether completion was accepted.
+Rejected and blocked completion variants in tests follow the client-reported
+1.0.91 event schema (`success`, `outcome: completed | continue | blocked`).
+
+Identity tests reproduce the supplied 1.0.91 process log lines:
+`Registering foreground session: <id>` and
+`Unregistering foreground session: <id>`, together with the native
+`session-state/<id>/inuse.<pid>.lock` PID marker. They use isolated temporary
+files and mocked process discovery, never switch or send input to live sessions.

@@ -122,6 +122,83 @@ def copilot_cli_events(name):
     return [json.loads(line) for line in path.read_text().splitlines()]
 
 
+def copilot_autopilot_events():
+    path = Path(__file__).parent / 'fixtures' / 'copilot-cli-1.0.91-autopilot.jsonl'
+    return [json.loads(line) for line in path.read_text().splitlines()]
+
+
+def test_recorded_copilot_autopilot_completes_without_a_final_text_response(tmp_path):
+    events = copilot_autopilot_events()
+    path = tmp_path / 'events.jsonl'
+    for index in range(len(events)):
+        write_events(path, events[:index + 1])
+        state = activity.read_activity('copilot', path)
+        if index == 0:
+            assert state['state'] == 'unknown'
+        elif index < 4:
+            assert state['state'] == 'working'
+        else:
+            assert state == {
+                'state': 'completed', 'completion_id': 'accepted-completion',
+                'updated_at': activity._stamp(events[4]),
+                'completed_at': activity._stamp(events[4]),
+            }
+
+
+@pytest.mark.parametrize('data,expected', [
+    ({'success': True}, 'completed'),
+    ({'success': True, 'outcome': 'completed'}, 'completed'),
+    ({'success': False}, 'working'),
+    ({'success': False, 'outcome': 'continue'}, 'working'),
+    ({'success': False, 'outcome': 'blocked'}, 'waiting'),
+    ({'success': True, 'outcome': 'blocked'}, 'waiting'),
+    ({'success': True, 'outcome': 'continue'}, 'working'),
+    ({'success': True, 'outcome': []}, 'working'),
+    ({'success': 'true'}, 'working'),
+    ({'success': 1}, 'working'),
+    ({'outcome': 'completed'}, 'working'),
+    ({}, 'working'),
+])
+def test_copilot_autopilot_requires_accepted_completion(data, expected):
+    events = [copilot('assistant.message', content='Done'),
+              event('session.task_complete', data=data), copilot('assistant.turn_end')]
+    assert activity.response_state('copilot', events)['state'] == expected
+
+
+@pytest.mark.parametrize('extra', [
+    {'agentId': 'child'},
+    {'isSidechain': True},
+    {'data': {'success': True, 'parentToolCallId': 'child'}},
+])
+def test_copilot_child_task_completion_does_not_finish_parent(extra):
+    finished = {**copilot('session.task_complete', success=True), **extra}
+    assert activity.response_state('copilot', [
+        copilot('assistant.turn_start'), finished,
+    ]) == {'state': 'working'}
+
+
+@pytest.mark.parametrize('kind,expected', [
+    ('session.shutdown', 'completed'), ('session.resume', 'completed'),
+    ('session.context_changed', 'completed'), ('user.message', 'working'),
+    ('assistant.turn_start', 'working'), ('tool.execution_start', 'working'),
+    ('tool.execution_complete', 'working'), ('abort', 'interrupted'),
+    ('session.error', 'error'), ('permission.requested', 'waiting'),
+])
+def test_copilot_autopilot_completion_respects_later_boundaries(kind, expected):
+    events = copilot_autopilot_events() + [copilot(kind)]
+    assert activity.response_state('copilot', events)['state'] == expected
+
+
+def test_copilot_autopilot_boundary_survives_bounded_tail(tmp_path, monkeypatch):
+    path = tmp_path / 'events.jsonl'
+    events = copilot_autopilot_events()
+    write_events(path, [event('padding', content='x' * 2000), *events[4:]])
+    monkeypatch.setattr(activity, 'TAIL_BYTES', 800)
+    assert activity.read_activity('copilot', path)['completion_id'] == 'accepted-completion'
+    events[4].pop('timestamp')
+    assert activity.response_state('copilot', events)['state'] == 'unknown'
+
+
 def test_recorded_copilot_cli_tool_loop_finishes_only_on_final_response(tmp_path):
     events = copilot_cli_events('tool-response')
     assert events[0]['data']['copilotVersion'] == '1.0.83'

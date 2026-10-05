@@ -73,7 +73,7 @@ from lab import paths as lab_paths
 from lab import settings as lab_settings
 from lab import tmux_sockets
 
-from core import auth, fsguard
+from core import auth, copilot_identity, fsguard
 from core import vault_config
 
 
@@ -1311,6 +1311,10 @@ def _enrich_agent_session_names(rows: list[dict]) -> None:
         if row.get("agent") == "codex" and row.get("cwd")
     }
     codex_metadata = _codex_session_metadata_by_tty(codex_ttys, codex_cwds)
+    copilot_sessions = copilot_identity.sessions_by_tty({
+        str(row["pane_tty"]) for row in rows
+        if row.get("agent") == "copilot" and row.get("pane_tty")
+    })
     for row in rows:
         agent = row.get("agent")
         session_id = row.get("agent_session_id") or row.get("claude_session_id")
@@ -1330,8 +1334,13 @@ def _enrich_agent_session_names(rows: list[dict]) -> None:
             display, objective, requests = _claude_session_metadata(
                 session_id, str(row.get("cwd") or ""),
             )
-        elif agent == "copilot" and isinstance(session_id, str):
-            display, objective, requests = _copilot_session_metadata(session_id)
+        elif agent == "copilot":
+            session_id = copilot_sessions.get(_tty_key(row.get("pane_tty")))
+            for key in ("agent_session_id", "agent_session_name", "agent_session_objective",
+                        "agent_session_requests", "agent_session_summary"):
+                row.pop(key, None)
+            if session_id:
+                display, objective, requests = _copilot_session_metadata(session_id)
         if isinstance(session_id, str) and session_id:
             row["agent_session_id"] = session_id
         if display:

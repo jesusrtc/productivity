@@ -145,6 +145,14 @@ def response_state(agent: str, events: list[dict], *, include_timestamp: bool = 
                 turn = data.get('turnId')
                 final_message = bool(data.get('content')) and not data.get('toolRequests')
                 set_state('working')
+            elif kind == 'session.task_complete':
+                # Autopilot can finish through its completion tool without a
+                # separate text response. Tool success alone is not acceptance.
+                final_message = False
+                if data.get('success') is True and data.get('outcome') in (None, 'completed'):
+                    set_state('completed', event)
+                else:
+                    set_state('waiting' if data.get('outcome') == 'blocked' else 'working')
             elif kind == 'assistant.turn_end':
                 if final_message and turn and data.get('turnId') == turn:
                     set_state('completed', event)
