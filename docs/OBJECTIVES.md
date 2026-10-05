@@ -215,6 +215,13 @@ objective. A document can also be dropped directly into objective resources.
 
 ## Terminals
 
+**+ New** asks whether to open for the current workflow (workspace root), the
+current Objective (its own directory), or a specific worktree in that Objective.
+The worktree option opens a list restricted to that Objective's associated
+checkouts. Objective choices save a whole-Objective terminal association;
+worktree choices save a folder association. The Home demo offers the same
+choices with simulated terminals. See [TERMINALS.md](TERMINALS.md#new-terminal-location).
+
 The native terminal selector groups sessions by the five focused objectives.
 Within each Objective, terminals assigned to the whole Objective come first,
 then terminals follow the sidebar task order: each parent task followed by its

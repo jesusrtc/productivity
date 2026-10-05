@@ -5,6 +5,24 @@ PTY and WebSocket. The browser's input/output path is unchanged by socket
 rotation: once attached, terminal bytes continue to travel directly between
 the PTY and WebSocket event loop.
 
+## New terminal location
+
+Opening a new terminal in an Objectives workspace asks where it should start:
+
+- **Current workflow** opens at the active workspace root.
+- **Current Objective** opens in the Objective's directory and saves a whole
+  Objective association, placing it at the top of that Objective's terminal tabs.
+- **Specific worktree** opens a second list containing only that Objective's
+  associated worktrees and folders. Choosing one uses its exact checkout and
+  saves its folder association.
+
+The chooser applies to shell and agent terminals, including file-created
+terminals and the first automatic launch. Cancel or switching workspace,
+vault or Objective starts nothing. Worktree changes also cancel stale choices.
+The launch folder stays fixed, and restoring an existing terminal keeps its
+original folder without asking again. Workspaces without Objectives retain
+the workspace-root and pinned-folder chooser.
+
 ## Terminal tab names
 
 Vertical tabs normally show a compact icon rail with status dots. Hover reveals

@@ -52,6 +52,16 @@
       ...o.worktrees.filter(t=>t.path!==root&&t.path!==folder)];
   }
   function worktrees(path) {if(!active(path))return null;return scopeRows().map(t=>({...t,projectPath:t.repo}));}
+  function terminalLaunchContext() {
+    const o=objective(),scope=context();if(!active(scope?.path)||!o)return null;
+    const path=o.path||scope.path+'/objectives/'+o.id;
+    return {id:o.id,name:o.name,path,context:{...scope},
+      worktrees:o.worktrees.filter(t=>t.path!==scope.path&&t.path!==path).map(t=>({...t}))};
+  }
+  function associateNewTerminal(terminal,association) {
+    const {context:scope,...target}=association;
+    return change({type:'terminal',session_id:terminalIdentity(terminal),...target},{scope});
+  }
   function tree(o=objective()) {return o?(scopeRows(o).find(t=>t.id===state().tree[o.id])||scopeRows(o)[0]):null;}
   function sidebarHtml(path) {return context()?.path===path?'<section data-objectives-sidebar aria-label="Workspace objectives"></section>':'';}
   async function load(scope=context(), fresh=false) {
@@ -851,7 +861,7 @@
       else if(terminal){const item=sidebarTarget(target);if(item)linkTerminal(bridge.session?.(terminal),item).catch(()=>{});}
     }catch(error){notify(error.message,true);}
   },true);
-  window.LabObjectives={connect(adapter){bridge=adapter;},load,active,sidebarHtml,paint,worktrees,tree,associate,terminalHtml,taskForTerminal,openForTerminal,collapse,progress,complete,change,selectObjective,renderTasks,tabsHtml,showAll,
+  window.LabObjectives={connect(adapter){bridge=adapter;},load,active,sidebarHtml,paint,worktrees,tree,associate,terminalHtml,taskForTerminal,openForTerminal,collapse,progress,complete,change,selectObjective,renderTasks,tabsHtml,showAll,terminalLaunchContext,associateNewTerminal,
     openCurrent(){const params=new URLSearchParams(location.search),o=data()?.objectives.find(o=>o.id===params.get('objective'));if(o&&tasks(o).some(t=>t.id===params.get('objective_task'))){state().objective=o.id;openTask(params.get('objective_task'));return;}const f=taskFocus();if(f){openTask(f.task,f.mode);return;}state().view==='objective'&&objective()?selectObjective(objective().id):showAll();},
     openOwnedFile(root,path){
       if(!active(context()?.path))return false;

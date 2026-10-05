@@ -9,5 +9,8 @@
 .term-folder-choice strong { font-size: 13px; }
 .term-folder-choice small { margin-top: 4px; color: var(--text-dim); font: 11px var(--font-mono); }
 .term-folder-kind { color: var(--text-dim); font-size: 10px; flex-shrink: 0; }
+.term-folder-choice:disabled { opacity: .5; cursor: default; }
+.term-folder-list h3 { margin: 12px 0; font-size: 13px; color: var(--text-primary); }
+.term-folder-back { color: var(--accent); background: none; border: 0; padding: 4px 0; cursor: pointer; font: inherit; }
 .term-folder-footer { padding: 10px 14px; border-top: 1px solid var(--border); text-align: right; }
 .term-folder-footer button { padding: 6px 12px; color: var(--text-primary); background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 5px; cursor: pointer; font-family: inherit; }

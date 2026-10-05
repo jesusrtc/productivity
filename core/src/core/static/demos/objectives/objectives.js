@@ -436,6 +436,10 @@
       }
       function addNotebookCell(item,kind) {item.cells.push({id:'cell-'+serial++,kind,source:kind==='code'?'print(1 + 1)':'## Notes\n\nAdd your findings here.',editing:kind==='markdown',output:'',execution:null});renderReader();persist();}
       function selectTerminal(t) {selected=t.objective;const o=objective();if(t.tree!=='objective')o.selected=t.tree;activeTerminal=t.id;const info=assetInfo(o,t.linked+(t.linkedTab?'::'+t.linkedTab:''));if(info?.task){openTask(o,info.task);}else if(info?.item){o.activeTask=null;openResource(o,info.item,info.tab);}else {o.view=info?.kind==='objective'?'overview':'tasks';o.activeTask=null;render();}message(t.name+' · launch folder kept');}
+      function terminalFolder(t) {
+        const o=objectives.find(o=>o.id===t.objective),tree=o.worktrees.find(w=>w.id===t.tree);
+        return tree?'/demo/'+tree.repo+'/worktrees/'+tree.name:t.tree==='root'?'/demo/workspace':'/demo/workspace/objectives/'+o.id;
+      }
       function renderTerminals() {
         const host=find('terminals');host.replaceChildren();const head=element('div','ob-terminal-heading');head.append(element('strong','','TERMINAL'));const mode=element('select');mode.setAttribute('aria-label','Visible terminal groups');[['all','5 objectives'],['selected','Selected objective']].forEach(([value,label])=>{const opt=element('option','',label);opt.value=value;mode.append(opt);});mode.value=config.terminalVisibility;mode.onchange=()=>{config.terminalVisibility=mode.value;renderTerminals();persist();};head.append(mode);host.append(head);
         const surface=element('div','ob-terminal-surface'),rail=element('div','ob-terminal-groups');surface.append(rail);host.append(surface);
@@ -448,7 +452,7 @@
             b.append(info?assetIcon(info):icon('terminal'),element('span','ob-label',info?.title||t.name));const dot=element('span','ob-status-dot'+(t.state==='ready'?' ready':t.state==='idle'?' idle':''));dot.setAttribute('aria-label',t.state==='ready'?'Ready to review':t.state==='working'?'Working':'Idle');b.append(dot);group.append(b);});
         });
         rail.append(button('+ New','ob-action ob-new-terminal',terminalDialog));
-        const t=terminals.find(t=>t.id===activeTerminal);if(t){const o=objectives.find(o=>o.id===t.objective),console=element('div','ob-console');console.dataset.console=t.id;const tree=o.worktrees.find(w=>w.id===t.tree),folder=tree?'/demo/'+tree.repo+'/worktrees/'+tree.name:'/demo/workspace/objectives/'+o.id;console.append(element('strong','',t.name),element('p','ob-muted',folder),element('pre','ob-console-log',(t.logs||[]).join('\n\n')));const label=element('label','','Command or prompt'),draft=element('textarea','ob-editor');draft.value=t.draft;draft.setAttribute('aria-label','Unsent prompt for '+t.name);draft.oninput=()=>{t.draft=draft.value;persist();};label.append(draft);console.append(label,button('Run simulation','ob-action',()=>runCommand(t)),element('div','ob-console-note','Drop an asset to paste its reference. Drop a task for a prompt with Objective, parent and current-task context. Nothing is submitted until Run simulation.'));
+        const t=terminals.find(t=>t.id===activeTerminal);if(t){const o=objectives.find(o=>o.id===t.objective),console=element('div','ob-console');console.dataset.console=t.id;console.append(element('strong','',t.name),element('p','ob-muted',terminalFolder(t)),element('pre','ob-console-log',(t.logs||[]).join('\n\n')));const label=element('label','','Command or prompt'),draft=element('textarea','ob-editor');draft.value=t.draft;draft.setAttribute('aria-label','Unsent prompt for '+t.name);draft.oninput=()=>{t.draft=draft.value;persist();};label.append(draft);console.append(label,button('Run simulation','ob-action',()=>runCommand(t)),element('div','ob-console-note','Drop an asset to paste its reference. Drop a task for a prompt with Objective, parent and current-task context. Nothing is submitted until Run simulation.'));
           attachDrop(console,'application/x-objective-item',(ref,transfer)=>{
             try{
               const info=assetInfo(objective(),ref),payload=info?.task?JSON.parse(transfer.getData(LabTaskContext.mime)):null,refs=payload?LabTaskContext.references(payload):[info?.reference].filter(Boolean);
@@ -489,7 +493,21 @@
         const form=dialog('Associate a worktree');const action=field(form,'Action',select([{id:'existing',name:'Bring an existing worktree'},{id:'new',name:'Create a new worktree'}]));const repo=field(form,'Repository',select([{id:'client',name:'client'},{id:'service',name:'service'}]));const existing=field(form,'Existing worktree',select([{id:'feature/retry',name:'feature/retry'},{id:'feature/analytics',name:'feature/analytics'},{id:'main',name:'main'}]));const name=field(form,'New branch name',element('input'));name.type='text';name.value='fix/follow-up';name.parentElement.hidden=true;action.onchange=()=>{name.parentElement.hidden=action.value!=='new';name.required=action.value==='new';existing.parentElement.hidden=action.value==='new';};
         submit(form,'Associate',()=>{const o=objective(),title=action.value==='new'?name.value.trim():existing.value;const duplicate=objectives.find(p=>p.worktrees.some(t=>t.name===title&&t.repo===repo.value));if(duplicate){message(title+' is already associated with '+duplicate.name);return;}const tree={id:'tree-'+serial++,name:title,repo:repo.value,color:nextColor(o)};o.worktrees.push(tree);seedFiles(o,tree);o.selected=tree.id;message((action.value==='new'?'Created':'Associated')+' '+tree.name+' with '+o.name+' · demo data');});
       }
-      function terminalDialog() {const o=objective(),form=dialog('New terminal · '+o.name),scope=field(form,'Launch folder',select([{id:'objective',name:'Objective folder'},...o.worktrees]));scope.value=o.selected||'objective';submit(form,'Open terminal',()=>{const id='terminal-'+serial++,tree=scope.value;const t={id,objective:o.id,tree,name:'Terminal '+serial,linked:null,state:'idle',draft:'',logs:['New simulated session. Type help to explore.']};terminals.push(t);activeTerminal=id;message('Opened simulated terminal · launch folder remains fixed');});}
+      function terminalDialog() {
+        const o=objective(),form=dialog('New terminal · '+o.name);
+        const scope=field(form,'Open for',select([{id:'workflow',name:'Current workflow'},
+          {id:'objective',name:'Current Objective · '+o.name},{id:'worktree',name:'Specific worktree in '+o.name}]));
+        const worktree=field(form,'Worktree',select(o.worktrees));
+        scope.options[2].disabled=!o.worktrees.length;
+        const sync=()=>{worktree.parentElement.hidden=scope.value!=='worktree';worktree.required=scope.value==='worktree';};scope.onchange=sync;sync();
+        submit(form,'Open terminal',()=>{
+          if(selected!==o.id)return;
+          const id='terminal-'+serial++,tree=scope.value==='workflow'?'root':scope.value==='objective'?'objective':worktree.value;
+          const linked=scope.value==='objective'?'objective::'+o.id:scope.value==='worktree'?'worktree::'+tree:null;
+          const t={id,objective:o.id,tree,name:'Terminal '+serial,linked,state:'idle',draft:'',logs:['New simulated session. Type help to explore.']};
+          terminals.push(t);activeTerminal=id;message('Opened simulated terminal · launch folder remains fixed');
+        });
+      }
       function settingsDialog() {const form=dialog('Objective settings'),o=objective(),input=field(form,'Objective name',element('input'));input.type='text';input.value=o.name;input.required=true;const goal=field(form,'Outcome',element('input'));goal.type='text';goal.value=o.purpose||'';submit(form,'Save',()=>{o.name=input.value.trim();o.purpose=goal.value;message('Objective settings updated');});}
       function todoDialog(item) {const form=dialog('Add a subtask'),input=field(form,'Subtask',element('input'));input.type='text';input.required=true;const due=field(form,'Due date (optional)',element('input'));due.type='date';submit(form,'Add',()=>{const entry={id:'subtask-'+serial++,title:input.value.trim(),done:false,due:due.value};item.checks.push(entry);ensureDetails(objective(),item,entry);message('Subtask created with its own document subtab');});}
       function taskEditDialog(task,entry) {
@@ -513,7 +531,7 @@
       function runCommand(t) {
         const command=(t.draft||'').trim();if(!command)return;const o=objectives.find(o=>o.id===t.objective),tree=o.worktrees.find(tree=>tree.id===t.tree),files=o.items.filter(i=>i.listed===false&&i.scope===t.tree);let output;
         if(command==='clear'){t.logs=[];t.draft='';render();return;}
-        if(command==='pwd')output='/demo/'+(tree?tree.repo+'/worktrees/'+tree.name:'objectives/'+o.id);
+        if(command==='pwd')output=terminalFolder(t);
         else if(command==='ls')output=files.map(i=>i.title).join('\n')||'documents/\nnotebooks/\ntasks/';
         else if(command.startsWith('cat ')){const item=files.find(i=>i.title===command.slice(4).trim());output=item?(item.body||''):'No such simulated file.';}
         else if(command.startsWith('echo '))output=command.slice(5);

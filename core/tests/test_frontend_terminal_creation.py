@@ -39,7 +39,11 @@ const _termSessionsKey = (workspace, vault) => vault + '::' + workspace;
 const _vaultQuery = vault => '&vault=' + encodeURIComponent(vault);
 const _termSelectedScope = () => ({root: '/project', project_root: '/project'});
 let chooseScope = async scope => scope;
-const _termChooseNewScope = (...args) => chooseScope(...args);
+let launchAssociation = null;
+const _termChooseNewScope = async (...args) => {
+  const scope = await chooseScope(...args);
+  return scope === null ? null : {scope, association:launchAssociation};
+};
 const associations = [], statuses = [], alerts = [], attachments = [], auto = [], gets = [], posts = [];
 const _termSaveHomeAssociation = (...args) => associations.push(args);
 const termSetStatus = (...args) => statuses.push(args);
@@ -212,6 +216,26 @@ if(options.result==='choice') {
 }
 await pending;
 ''', result=result, fresh=fresh)
+
+
+def test_objective_choice_keeps_its_origin_if_navigation_happens_during_creation():
+    run(r'''
+const gate = deferred(), links = [];
+launchAssociation={context:{workspace_id:'demo',vault:'ssd',path:'/workspace'},objective_id:'original'};
+window.LabObjectives={associateNewTerminal:async(session,association)=>links.push({session,association})};
+postResult=gate.promise;
+const pending=termSpawnSession('terminal',{startFresh:true});
+await tick();assert.equal(posts.length,1);
+active.workspace='other';active.vault='other-vault';
+launchAssociation={context:{workspace_id:'other',vault:'other-vault'},objective_id:'different'};
+gate.resolve(response(created));await pending;
+assert.equal(links.length,1);
+assert.deepEqual(links[0],{session:created,association:{
+ context:{workspace_id:'demo',vault:'ssd',path:'/workspace'},objective_id:'original'}});
+assert.deepEqual(attachments,[],'creation must not attach to the newly selected workspace');
+assert.deepEqual(gets,[]);
+assert.deepEqual(alerts,[]);
+''')
 
 
 def test_second_creation_supersedes_older_read_without_affecting_other_scope():

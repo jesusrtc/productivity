@@ -15575,13 +15575,20 @@
   }
 
   async function _termChooseNewScope(fallback, current) {
-    if (!document.body.classList.contains('workspace-active') || !currentWorkspace?.is_workspace) return fallback || undefined;
+    if (!document.body.classList.contains('workspace-active') || !currentWorkspace?.is_workspace) return {scope:fallback || undefined};
     const base = currentWorkspace.path, configScope = _sidebarFileConfigScope;
+    await window.LabObjectives?.load();
+    if (!current() || base !== currentWorkspace?.path || configScope !== _sidebarFileConfigScope) return null;
+    const objective = window.LabObjectives?.terminalLaunchContext();
+    const identity = row => JSON.stringify([row?.id, row?.path,
+      row?.worktrees.map(tree => [tree.id, tree.path, tree.repo, tree.kind])]);
+    const objectiveIdentity = identity(objective);
     const rows = window.LabTerminalFolder.choices(base, _workspaceDisplayName(currentWorkspace),
-      _sidebarFileConfig, configScope);
+      _sidebarFileConfig, configScope, objective);
     return window.LabTerminalFolder.choose(rows, () => current()
       && configScope === _sidebarFileConfigScope && base === currentWorkspace?.path
-      && document.body.classList.contains('workspace-active'));
+      && document.body.classList.contains('workspace-active')
+      && objectiveIdentity === identity(window.LabObjectives?.terminalLaunchContext()), {selection:true});
   }
 
   async function termSpawnSession(kind, { startFresh = false, agent = null, name = null, linkedScope = null } = {}) {
@@ -15592,8 +15599,9 @@
 
     const current = () => workspaceId === _termActiveWorkspaceId() && vaultId === _termVaultId()
       && homeSection === _termHomeSection();
-    const scope = await _termChooseNewScope(linkedScope || _termSelectedScope(), current);
-    if (!current() || scope === null) return null;
+    const choice = await _termChooseNewScope(linkedScope || _termSelectedScope(), current);
+    if (!current() || choice === null) return null;
+    const scope = choice.scope;
     termSetStatus('idle', kind === 'claude' ? `creating ${agent || 'claude'}…` : 'creating terminal…');
     try {
       const r = await fetch('/api/term/sessions', {
@@ -15619,6 +15627,10 @@
         return;
       }
       const created = await r.json();
+      if (choice.association) {
+        try { await window.LabObjectives.associateNewTerminal(created, choice.association); }
+        catch (error) { alert('Terminal created, but its Objective association could not be saved: ' + error.message); }
+      }
       if (startFresh) window.labFeatureUsage?.(kind === 'claude' ? 'Create agent terminal' : 'Create terminal');
       if (homeSection) _termSaveHomeAssociation(created.logical_name, homeSection);
       await termSetAutoSpawnEnabled(workspaceId, true, vaultId);

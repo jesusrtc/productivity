@@ -29,6 +29,44 @@ console.log(JSON.stringify(window.LabTerminalFolder.choices('/workspace','Worksp
                for row in result)
 
 
+def test_objective_launch_context_captures_owned_worktrees_and_exact_associations():
+    source = (STATIC / 'js/lib/workspace-objectives.js').read_text()
+    helpers = source[source.index('  function terminalLaunchContext('):source.index('  function tree(')]
+    result = _run_node((STATIC / 'js/lib/terminal-folder.js').read_text() + r'''
+const origin={workspace_id:'work',vault:'one',path:'/workspace'};
+const o={id:'one',name:'Current objective',path:'/workspace/objectives/one',worktrees:[
+ {id:'root',path:'/workspace'},{id:'self',path:'/workspace/objectives/one'},
+ {id:'feature',path:'/trees/feature',resolved_path:'/real/feature',repo:'/repo',kind:'worktree',label:'Feature',color:'#58a6ff'},
+ {id:'folder',path:'/project',repo:'/project',kind:'folder',label:'Project'}]};
+const context=()=>origin,objective=()=>o,active=()=>true;
+const mutations=[],change=(action,options)=>mutations.push({action,...options}),terminalIdentity=t=>t.session_id;
+''' + helpers + r'''
+const launch=terminalLaunchContext();
+const choices=window.LabTerminalFolder.choices('/workspace','Workflow',{
+ pinnedScopes:['/other-objective'],folderScopes:[{path:'/other-objective',kind:'worktree'}]},'one::work',launch);
+const workflow=choices[0],objectiveChoice=choices[1],worktree=choices[2].children[0];
+associateNewTerminal({session_id:'objective-terminal'},objectiveChoice.association);
+associateNewTerminal({session_id:'worktree-terminal'},worktree.association);
+origin.vault='different';o.worktrees[2].path='/moved';
+console.log(JSON.stringify({launch,workflow,objectiveChoice,worktrees:choices[2].children,mutations}));
+''')
+    assert [row['scope']['root'] for row in result['worktrees']] == ['/trees/feature', '/project']
+    assert result['workflow']['scope']['root'] == '/workspace'
+    assert 'association' not in result['workflow']
+    assert result['objectiveChoice']['scope']['root'] == '/workspace/objectives/one'
+    assert result['worktrees'][0]['scope']['worktree'] == '/trees/feature'
+    assert result['worktrees'][0]['scope']['project_root'] == '/repo'
+    assert result['worktrees'][1]['scope']['worktree'] is None
+    assert result['launch']['context']['vault'] == 'one'
+    assert result['mutations'] == [
+        {'action': {'type': 'terminal', 'session_id': 'objective-terminal', 'objective_id': 'one'},
+         'scope': {'workspace_id': 'work', 'vault': 'one', 'path': '/workspace'}},
+        {'action': {'type': 'terminal', 'session_id': 'worktree-terminal', 'objective_id': 'one',
+                    'folder': {'root': '/trees/feature', 'path': '.'}},
+         'scope': {'workspace_id': 'work', 'vault': 'one', 'path': '/workspace'}},
+    ]
+
+
 @pytest.mark.parametrize('viewport', [1440, 390])
 def test_folder_chooser_browser(tmp_path, viewport):
     chrome = (os.environ.get('CHROME_BIN') or shutil.which('chromium')
@@ -46,7 +84,11 @@ let _sidebarFileConfigScope='one::work';
 const _sidebarFileConfig={folderScopes:[{path:'/repo',label:'Project',color:'#58a6ff'},
  {path:'/trees/feature',label:'Project/feature',kind:'worktree',projectPath:'/repo',color:'#d2a8ff'},
  {path:'/unused',label:'Unused'}],pinnedScopes:['/repo','/trees/feature']};
-let termSessions=[],posts=[],attachments=[];
+let termSessions=[],posts=[],attachments=[],associations=[],alerts=[],launchObjective=null,associationFailure=false;
+window.alert=message=>alerts.push(message);
+window.LabObjectives={load:async()=>{},terminalLaunchContext:()=>launchObjective,
+ associateNewTerminal:async(terminal,association)=>{associations.push({terminal,association});
+  if(associationFailure)throw Error('Save failed');}};
 const _termSelectedScope=()=>({root:'/unused'});
 const termSetStatus=()=>{},termSetAutoSpawnEnabled=async()=>{},_termClearDead=()=>{};
 const _termSessionsKey=(w,v)=>v+'::'+w,_termInvalidateSessionReads=()=>{};
@@ -99,9 +141,37 @@ const open=()=>termSpawnSession('terminal',{startFresh:true});
  _sidebarFileConfig.pinnedScopes=['/repo','/trees/feature'];
  pending=termSpawnSession('claude',{startFresh:true,agent:'codex',linkedScope:{root:'/file-folder'}});
  await tick();pick(1);await pending;assert(posts[3].cwd==='/repo'&&posts[3].agent==='codex','file launch uses explicit choice');
+ launchObjective={id:'objective-one',name:'Objective one',path:'/workspace/objectives/one',
+  context:{workspace_id:'work',vault:'one',path:'/workspace'},worktrees:[
+   {id:'own',path:'/trees/own',repo:'/project',label:'Owned worktree',kind:'worktree',color:'#58a6ff'},
+   {id:'another',path:'/trees/another',repo:'/project',label:'Another worktree',kind:'worktree',color:'#d2a8ff'}]};
+ const originalObjective=launchObjective;
+ pending=open();await tick();
+ assert([...q('.term-folder-list').querySelectorAll('strong')].map(n=>n.textContent).join('|')==='Current workflow|Current Objective|Specific worktree','three launch categories');
+ const launchDialog=q('[role=dialog]'),launchRect=launchDialog.getBoundingClientRect();
+ assert(launchRect.left>=0&&launchRect.right<=innerWidth+1&&launchDialog.scrollWidth<=launchDialog.clientWidth+1,'Objective chooser fits viewport');
+ pick(0);await pending;assert(posts.at(-1).cwd==='/workspace'&&!associations.length,'workflow stays at its root without an Objective association');
+ pending=open();await tick();pick(1);await pending;
+ assert(posts.at(-1).cwd==='/workspace/objectives/one'&&associations.at(-1).association.objective_id==='objective-one'&&!associations.at(-1).association.folder,'Objective launch saves a whole-Objective assignment');
+ pending=open();await tick();const before=posts.length;pick(2);
+ assert(posts.length===before&&q('.term-folder-list h3').textContent.includes('Objective one'),'worktree category asks before starting');
+ assert([...q('.term-folder-list').querySelectorAll('small')].some(n=>n.textContent==='/trees/own')&&!q('.term-folder-list').textContent.includes('/repo'),'only current Objective worktrees are offered, not unrelated pins');
+ assert(document.activeElement===q('[data-folder-choice="0"]'),'worktree list receives keyboard focus');
+ q('[data-folder-back]').click();assert(q('[data-folder-choice="2"]')===document.activeElement,'back returns to worktree category');
+ pick(2);pick(1);await pending;
+ assert(posts.at(-1).cwd==='/trees/another'&&posts.at(-1).linked_scope.project_root==='/project'&&associations.at(-1).association.folder.root==='/trees/another','chosen worktree launch and association use exact checkout');
+ pending=open();await tick();launchObjective={...launchObjective,id:'different'};
+ await pending;assert(posts.length===before+1&&!q('.term-folder-overlay'),'Objective navigation cancels creation');
+ pending=open();await tick();launchObjective={...launchObjective,worktrees:[]};
+ await pending;assert(posts.length===before+1,'changed worktree list cancels stale choices');
+ pending=open();await tick();assert(q('[data-folder-choice="2"]').disabled,'no-worktree Objective still permits workflow or Objective');
+ associationFailure=true;pick(1);await pending;
+ assert(attachments.at(-1).name==='new'+posts.length&&alerts.at(-1).includes('Terminal created, but'),'association failure preserves and opens the created session');
+ associationFailure=false;launchObjective=null;
  document.body.classList.remove('workspace-active');
- pending=open();await pending;assert(posts[4].cwd==='/unused','other terminal surfaces keep their launch behavior');
+ pending=open();await pending;assert(posts.at(-1).cwd==='/unused','other terminal surfaces keep their launch behavior');
  document.body.classList.add('workspace-active');
+ launchObjective=originalObjective;
  open();await tick();
  document.getElementById('result').textContent='PASS choices, explicit launch, cancel, keyboard, navigation, repeated launch, agents, mobile';
 })().catch(error=>document.getElementById('result').textContent='FAIL: '+error.stack);

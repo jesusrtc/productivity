@@ -127,7 +127,7 @@ const termStopPeriodicRefresh = () => {};
 termStartPeriodicRefresh();
 await tick();
 console.log(JSON.stringify({requests, refreshes}));
-''', section('  async function termSpawnSession(', '  async function termKillCurrent()'),
+''', section('  async function _termChooseNewScope(', '  async function termKillCurrent()'),
         section('  function termStartPeriodicRefresh()', '  function termStopPeriodicRefresh()'))
     assert result['requests'][0]['workspace_id'] == '__self__'
     assert result['requests'][0]['vault'] is None
@@ -195,7 +195,7 @@ const attached = [];
 const termAttach = name => attached.push(name);
 await termSpawnSession('shell', {startFresh: true});
 console.log(JSON.stringify({association: _termReadHomeAssociations()['new-ssd'].section, attached}));
-''', section('  async function termSpawnSession(', '  async function termKillCurrent()'))
+''', section('  async function _termChooseNewScope(', '  async function termKillCurrent()'))
     assert result == {'association': 'vault:ssd', 'attached': []}
 
 

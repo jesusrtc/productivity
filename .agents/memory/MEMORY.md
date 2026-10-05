@@ -1,5 +1,7 @@
 # Memory index
 
+- [New terminals choose workflow, Objective or worktree](new-terminals-choose-workflow-objective-or-worktree.md) — deliberate launches, only the current Objective's checkouts, captured associations and fixed folders.
+
 - [Terminal tabs follow Objective task order](terminal-tabs-follow-objective-task-order.md) — whole Objective first, parent/subtask order across folders, unassigned last; native pills and session state preserved.
 
 - [Objective-first navigation and overview](objective-first-navigation-and-overview.md) — Objective/tasks before assets, full center overview, and explicit folder clicks exit task focus.
