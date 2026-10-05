@@ -95,6 +95,11 @@ def _tasks(objective):
     return [task for parent in objective['tasks'] for task in [parent, *parent['children']]]
 
 
+def _set_task_status(task, status):
+    task['status'] = status
+    task['done'] = status == 'done'
+
+
 def _asset_target(asset):
     return {key:value for key,value in asset.items() if key != 'id'}
 
@@ -588,7 +593,7 @@ def mutate(root, workspace_id, action, expected=None):
             parent = _find(objective['tasks'], action.get('parent_id')) if action.get('parent_id') else None
             if action.get('parent_id') and parent is None:
                 raise ValueError('Parent task not found')
-            task = {'id': identifier(), 'title': _text(action.get('title')), 'done': False, 'due': _date(action.get('due')), 'children': []}
+            task = {'id': identifier(), 'title': _text(action.get('title')), 'done': False, 'status': 'todo', 'due': _date(action.get('due')), 'children': []}
             _task_details(folder, objective, task, parent, action.get('document_id') or (parent or {}).get('document_id'))
             (parent['children'] if parent else objective['tasks']).append(task)
         elif operation in {'task-update', 'task-asset', 'task-remove-asset'}:
@@ -615,12 +620,23 @@ def mutate(root, workspace_id, action, expected=None):
                 task['assets'] = [a for a in task['assets'] if a['id'] != asset_id]
                 if task.get('icon_asset_id') == asset_id:
                     task.pop('icon_asset_id')
-            if 'done' in action:
-                if not isinstance(action['done'], bool):
+            if 'status' in action or 'done' in action:
+                if 'done' in action and type(action['done']) is not bool:
                     raise ValueError('Task completion must be a boolean')
-                task['done'] = action['done']
-                for child in task['children']:
-                    child['done'] = action['done']
+                status = action.get('status', 'done' if action.get('done') else 'todo')
+                if not isinstance(status, str) or status not in {'todo', 'in_progress', 'done'}:
+                    raise ValueError('Choose Undo, In progress or Completed')
+                if 'done' in action and action['done'] != (status == 'done'):
+                    raise ValueError('Task status and completion must agree')
+                _set_task_status(task, status)
+                if status != 'in_progress':
+                    for child in task['children']:
+                        _set_task_status(child, status)
+                parent = next((p for p in objective['tasks'] if task in p['children']), None)
+                if parent:
+                    children = parent['children']
+                    _set_task_status(parent, 'done' if all(c['done'] for c in children) else
+                                     'in_progress' if any(c['done'] or c.get('status') == 'in_progress' for c in children) else 'todo')
             if 'due' in action:
                 task['due'] = _date(action['due'])
             if 'title' in action:

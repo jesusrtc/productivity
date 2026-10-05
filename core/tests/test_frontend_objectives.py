@@ -127,7 +127,7 @@ const fs=require('node:fs');
  await new Promise(r=>ws.addEventListener('open',r,{once:true}));
  const send=(method,params={})=>new Promise((resolve,reject)=>{const id=++sequence;pending.set(id,{resolve,reject});ws.send(JSON.stringify({id,method,params}))});
  async function evaluate(expression){const r=await send('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:true});if(r.exceptionDetails)throw Error(r.exceptionDetails.exception?.description||'Browser assertion');return r.result.value;}
- async function click(selector,modifiers=0){const p=await evaluate(`(()=>{const n=document.querySelector(${JSON.stringify(selector)});assert(n,'click target '+${JSON.stringify(selector)});n.scrollIntoView({block:'center'});const r=n.getBoundingClientRect(),p={x:r.x+r.width/2,y:r.y+r.height/2};assert(document.elementFromPoint(p.x,p.y)?.closest(${JSON.stringify(selector)})===n,'click target is hittable '+${JSON.stringify(selector)}+' '+JSON.stringify({point:p,rect:r.toJSON(),sidebar:document.getElementById('sidebar').getBoundingClientRect().toJSON(),center:document.getElementById('content').getBoundingClientRect().toJSON()})+' '+document.elementFromPoint(p.x,p.y)?.outerHTML.slice(0,300));return p})()`);await send('Input.dispatchMouseEvent',{type:'mousePressed',...p,button:'left',clickCount:1,modifiers});await send('Input.dispatchMouseEvent',{type:'mouseReleased',...p,button:'left',clickCount:1,modifiers});}
+ async function click(selector,modifiers=0,button="left"){const p=await evaluate(`(()=>{const n=document.querySelector(${JSON.stringify(selector)});assert(n,'click target '+${JSON.stringify(selector)});n.scrollIntoView({block:'center'});const r=n.getBoundingClientRect(),p={x:r.x+r.width/2,y:r.y+r.height/2};assert(document.elementFromPoint(p.x,p.y)?.closest(${JSON.stringify(selector)})===n,'click target is hittable '+${JSON.stringify(selector)}+' '+JSON.stringify({point:p,rect:r.toJSON(),sidebar:document.getElementById('sidebar').getBoundingClientRect().toJSON(),center:document.getElementById('content').getBoundingClientRect().toJSON()})+' '+document.elementFromPoint(p.x,p.y)?.outerHTML.slice(0,300));return p})()`);await send('Input.dispatchMouseEvent',{type:'mousePressed',...p,button,clickCount:1,modifiers});await send('Input.dispatchMouseEvent',{type:'mouseReleased',...p,button,clickCount:1,modifiers});}
  async function type(text){await evaluate('editor().view.dispatch({selection:{anchor:editor().value.length},scrollIntoView:true});editor().focus()');await send('Input.insertText',{text});}
  await send('Emulation.setDeviceMetricsOverride',{width:1768,height:1100,deviceScaleFactor:1,mobile:false});await send('Page.navigate',{url:process.argv[2]});
  for(let i=0;i<200;i++){if(await evaluate('!!window.until'))break;await new Promise(r=>setTimeout(r,20));}
@@ -296,6 +296,25 @@ const fs=require('node:fs');
  await evaluate(`assert(!document.querySelector('[data-pick-task-icon]'),'asset list cannot override task icons on click')`);
  await click('.objective-dialog [type=submit]');await click('.objective-task-title');
  await evaluate(`assert(document.querySelector('.objective-sidebar-task [data-task-icon]')?.childElementCount===0&&document.querySelector('[data-current-objective] .objective-task-default-icon')?.textContent==='⬜','ordinary attachments leave the right task icon empty and retain the tab status icon')`);
+ await click('.objective-sidebar-task .objective-sidebar-task-title',0,'right');
+ await evaluate(`assert(document.querySelectorAll('.objective-task-status-menu [role=menuitemradio]').length===3&&document.querySelector('.objective-task-status-menu [aria-checked=true]').dataset.setTaskStatus==='todo','secondary click shows all statuses without navigating');assert(document.querySelector('.objective-task-mode-head'),'secondary click retains task view')`);
+ await click('.objective-task-status-menu [data-set-task-status=in_progress]');
+ await evaluate(`(async()=>{await until(async()=>(await read()).objectives[0].tasks[0].status==='in_progress');await LabObjectives.load(undefined,true);assert(document.querySelector('.objective-sidebar-task-status').textContent==='🟡'&&document.querySelector('[data-current-objective] .objective-task-default-icon').textContent==='🟡','in progress survives reload with matching default icons');assert(!document.querySelector('[data-task-done]').checked&&!document.querySelector('.objective-task-status-menu'),'in progress is unfinished and closes menu')})()`);
+ await click('.objective-sidebar-task .objective-sidebar-task-title',0,'right');
+ await click('.objective-task-status-menu [data-set-task-status=done]');
+ await evaluate(`until(async()=>(await read()).objectives[0].tasks[0].done)`);
+ await evaluate(`assert(document.querySelector('.objective-sidebar-task-status').textContent==='✅'&&document.querySelector('[data-task-done]').checked,'completed updates status and completion control')`);
+ await click('.objective-sidebar-task .objective-sidebar-task-title',0,'right');
+ await click('.objective-task-status-menu [data-set-task-status=todo]');
+ await evaluate(`until(async()=>(await read()).objectives[0].tasks[0].status==='todo')`);
+ await evaluate(`assert(document.querySelector('.objective-sidebar-task-status').textContent==='⬜'&&getComputedStyle(document.querySelector('.objective-sidebar-task-status')).boxShadow!=='none','undo retains box with red frame')`);
+ await evaluate(`document.querySelector('.objective-sidebar-task-title').focus()`);
+ await send('Input.dispatchKeyEvent',{type:'keyDown',key:'F10',code:'F10',modifiers:8,windowsVirtualKeyCode:121});
+ await send('Input.dispatchKeyEvent',{type:'keyUp',key:'F10',code:'F10',modifiers:8,windowsVirtualKeyCode:121});
+ await evaluate(`assert(document.querySelector('.objective-task-status-menu'),'keyboard context menu')`);
+ await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
+ await send('Input.dispatchKeyEvent',{type:'keyUp',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
+ await evaluate(`assert(!document.querySelector('.objective-task-status-menu')&&document.activeElement.matches('.objective-sidebar-task-title'),'escape closes menu and returns focus')`);
  const iconPoints=await evaluate(`(()=>{const source=document.querySelector('[data-objective-bucket=task] [data-objective-resource="${notebookId}"]'),target=document.querySelector('.objective-sidebar-task [data-task-icon]');source.scrollIntoView({block:'nearest'});target.scrollIntoView({block:'nearest'});const a=source.getBoundingClientRect(),b=target.getBoundingClientRect();return{source:{x:a.x+20,y:a.y+a.height/2},target:{x:b.x+b.width/2,y:b.y+b.height/2}}})()`);
  dragData=null;await send('Input.setInterceptDrags',{enabled:true});
  await send('Input.dispatchMouseEvent',{type:'mouseMoved',...iconPoints.source});

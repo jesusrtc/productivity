@@ -42,6 +42,12 @@ Task entries retain their `id`, `title`, `done`, `due`, `document_id`, `tab_id`,
 Keep every existing ID, reference and unknown field when adapting a file.
 Unregistered explorer files are not automatically imported as assets.
 
+Tasks can also have `status`: `todo` (Undo), `in_progress` or `done` (Completed).
+When present, it determines the compatibility `done` boolean; keep both aligned
+when editing a manifest. Existing tasks without `status` retain their `done`
+behavior. A `task-update` action accepts either `status` or the existing `done`
+boolean. Completed/Undo also update subtasks; In progress preserves their states.
+
 `.lab/objectives-state.json` contains only workspace UI/runtime state:
 five focused IDs, ordering IDs, enabled state and terminal associations. It is
 not an Objective catalog. Colors are calculated from the focus-slot position.

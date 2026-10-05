@@ -1,5 +1,9 @@
 # Task status and terminal icons are separate
 
+The read-only two-state rule below is superseded by
+[Sidebar task status menu](sidebar-task-status-menu.md). The separation from
+custom asset icons and their drop behavior still applies.
+
 The user's final October 3, 2026 clarification supersedes the intermediate
 bell and duplicated checkbox proposals: show read-only ⬜ / ✅ status on the
 left of sidebar task rows. Show the right-side icon only when the task has a

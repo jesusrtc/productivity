@@ -42,7 +42,7 @@ The sidebar order is:
 
 1. **Unassigned** assets with neither a shared star nor a task association.
 2. **Objective · pinned** assets shared across every task.
-3. **Tasks**, with a completion/status badge and navigation-only task rows.
+3. **Tasks**, with a completion/status badge, task links and a status context menu.
 4. **Task assets**, including the selected task's mandatory details and attachments.
 5. Collapsed **Archive**, then fixed gray **Root** and **Objective** folders.
 6. The native recently updated files and Files tree for that selection.
@@ -123,7 +123,7 @@ subtab in an objective-owned `Tasks.md` document. Subtask details nest beneath
 their parent's subtab. Clicking the task title opens those details as an
 independent working view. Editing one subtab preserves its siblings.
 
-The left task list is navigation-only. Selecting a task expands just that
+The left task list opens task details on a normal click. Selecting a task expands just that
 parent's subtasks and displays its own assets beneath the list. Selecting
 another parent collapses the previous group. Task details are not duplicated
 as a separate `Tasks.md` tree in Unassigned.
@@ -149,11 +149,17 @@ scopes and original ownership remain unchanged. Duplicate drops keep one
 association. The middle task-list asset button opens its attachments and can
 detach optional assets; its mandatory details remain associated.
 
-The left edge of each task row shows **⬜ / ✅** as its read-only status.
+The left edge of each task row shows **⬜** for Undo with a red frame, **🟡** for
+In progress and **✅** for Completed. Secondary-click anywhere on the row to
+choose **Set to completed**, **Set to undo** or **Set to in progress**. The menu
+also opens with Shift+F10 and closes with Escape. Completed and Undo update
+the task's subtasks too; In progress preserves their completion. Changing a
+subtask updates its parent's aggregate status. Status is saved in the Objective
+manifest and reflected in the task header, active tab and default terminal icon.
 The right edge holds the icon used by its active tab and linked terminals.
 Without a chosen asset, the right edge shows no icon. Its empty drop area
 appears on hover or keyboard focus so an asset can still be dragged there.
-The active tab and linked terminals use the task's checkbox status by default.
+The active tab and linked terminals use the task's current status by default.
 Attaching assets and editing task details keep the chosen icon. Only dropping
 an asset onto the task's icon area chooses that asset's icon, attaching it if necessary. The current tab and a terminal
 linked to the task inherit the icon. Existing saved icon choices remain valid;
@@ -364,7 +370,8 @@ to every task. Clicking a task opens its details and lists its own assets below
 the task list. Documents, subtabs, notebooks, external links, files, folders
 and worktrees all use this reference-based classification.
 
-The left task list is navigation-only: completion and editing live in the
+The left task list opens details and has the same secondary-click status menu
+as the live workspace. Completion and editing also remain available in the
 middle task view. Selecting a task expands only that task's subtasks; selecting
 another collapses the previous group. The live and demo lists reserve space
 for the largest subtask group in the Objective, so **Task assets** stays at the
@@ -377,7 +384,7 @@ as shared context. The **⋯** on an asset also chooses its bucket and task.
 Every asset and individual document subtab has a **☆/★** control that toggles
 shared Objective context without removing its task associations. Drop an
 asset onto a task's icon area to select that icon and attach the asset if
-needed. Tasks default to ⬜ / ✅, and the current tab and linked terminal inherit the
+needed. Tasks default to ⬜ / 🟡 / ✅, and the current tab and linked terminal inherit the
 right-side asset icon when chosen. Clicking
 **Unassigned** opens the middle task list, where asset drops attach to tasks.
 Dropping into Unassigned removes optional task associations and shared pins.

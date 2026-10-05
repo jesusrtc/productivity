@@ -179,6 +179,14 @@ html,body { padding:0; overflow:hidden; }
 #lab-objectives-proposal .ob-sidebar-task.child { padding-left:18px; }
 #lab-objectives-proposal .ob-task-status { font-size:14px; width:18px; flex:none; text-align:center; color:var(--ob-muted); }
 #lab-objectives-proposal .ob-task-status[data-done=true] { color:var(--ob-accent); }
+#lab-objectives-proposal .ob-task-status-icon { display:inline-grid; place-items:center; width:18px; min-height:18px; flex-shrink:0; border-radius:3px; }
+#lab-objectives-proposal .ob-task-status-icon[data-task-status=todo] { background:#ff7b722e; box-shadow:inset 0 0 0 1px #ff7b72a6; }
+#lab-objectives-proposal .ob-task-status-icon[data-task-status=in_progress] { background:#e3b3411f; }
+#lab-objectives-proposal .ob-task-status-menu { position:fixed; z-index:1100; width:220px; max-width:calc(100vw - 16px); padding:5px; border:1px solid var(--ob-line); border-radius:6px; background:var(--ob-surface); color:var(--ob-text); box-shadow:0 6px 18px #0005; font-size:12px; }
+#lab-objectives-proposal .ob-task-status-menu-title { padding:5px 8px 7px; color:var(--ob-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#lab-objectives-proposal .ob-task-status-menu button { display:flex; align-items:center; gap:8px; width:100%; padding:7px 8px; border:0; border-radius:3px; background:none; color:var(--ob-text); font:inherit; text-align:left; cursor:pointer; }
+#lab-objectives-proposal .ob-task-status-menu button:hover,#lab-objectives-proposal .ob-task-status-menu button:focus-visible { background:#234367; outline:1px solid var(--ob-accent); }
+#lab-objectives-proposal .ob-task-status-menu button[aria-checked=true]::after { content:'✓'; margin-left:auto; color:var(--ob-accent); }
 #lab-objectives-proposal .ob-task-icon { display:grid; place-items:center; width:23px; height:23px; flex:none; border:1px solid transparent; border-radius:4px; }
 #lab-objectives-proposal .ob-task-icon.ob-drop { border-color:var(--ob-accent); background:#234367; }
 #lab-objectives-proposal .ob-task-icon:empty { opacity:0; }

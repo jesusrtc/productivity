@@ -90,6 +90,10 @@ def _validate(value, target):
                 raise ValueError(f'{target}: Task needs a title')
             task.setdefault('children', [])
             task.setdefault('done', False)
+            if 'status' in task:
+                if not isinstance(task['status'], str) or task['status'] not in {'todo', 'in_progress', 'done'}:
+                    raise ValueError(f'{target}: Task status must be todo, in_progress or done')
+                task['done'] = task['status'] == 'done'
     return value
 
 

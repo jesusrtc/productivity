@@ -1,5 +1,7 @@
 # Memory index
 
+- [Sidebar task status menu](sidebar-task-status-menu.md) — secondary-click Completed/Undo/In progress, green check/red-framed box/yellow dot, saved states; supersedes read-only task status.
+
 - [Terminal hover owns the expanded area](terminal-hover-owns-expanded-area.md) — full-width hover containment, including right-edge and scrollbar clicks, with a stable compact layout slot.
 
 - [Shell DOM changes need a backend restart](shell-dom-changes-need-backend-restart.md) — fresh assets can accompany old HTML; verify the served DOM after restarting the exact server.

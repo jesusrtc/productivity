@@ -32,6 +32,8 @@
       const hoverTimers = new Map();
       const hoverDelay = 1500;
       const documentEditors = new Map();
+      let taskStatusMenu;
+      const taskStatuses = {todo:{icon:'⬜',label:'Undo'},in_progress:{icon:'🟡',label:'In progress'},done:{icon:'✅',label:'Completed'}};
       const palettes = [['#58a6ff','#ff7b72','#3fb950','#d29922'],['#bc8cff','#e3b341','#56d6c0','#ff9bce'],['#ffa657','#f778ba','#a9d14c','#238a97'],['#39c5cf','#d67ad2','#e5a07c','#85c56a'],['#8b9dff','#e87f91','#a6be4f','#58b9a6']];
       objectives.forEach((o,index)=>{
         o.palette=palettes[index]||[];o.color=o.palette[0]||'#8b949e';
@@ -55,8 +57,23 @@
       function dateOffset(offset) {const day=new Date();day.setDate(day.getDate()+offset);return localDate(day);}
       function localDate(day=new Date()) {return day.getFullYear()+'-'+String(day.getMonth()+1).padStart(2,'0')+'-'+String(day.getDate()).padStart(2,'0');}
       function dayNumber(value) {if(!/^\d{4}-\d{2}-\d{2}$/.test(value||''))return null;return Date.parse(value+'T00:00:00Z')/86400000;}
-      function taskComplete(task) {return task.checks?.length?task.checks.every(c=>c.done):task.done===true;}
-      function setTaskComplete(task,done) {task.done=done;task.checks?.forEach(c=>c.done=done);render();}
+      function taskStatus(task) {
+        if(task.status==='in_progress')return 'in_progress';
+        if(task.checks?.length)return task.checks.every(c=>c.done)?'done':task.checks.some(c=>c.done||c.status==='in_progress')?'in_progress':'todo';
+        return task.done?'done':'todo';
+      }
+      function taskComplete(task) {return taskStatus(task)==='done';}
+      function setTaskStatus(o,task,status) {
+        const set=(t,s)=>Object.assign(t,{status:s,done:s==='done'});
+        set(task,status);if(status!=='in_progress')task.checks?.forEach(c=>set(c,status));
+        const parent=parentTask(o,task);
+        if(parent&&parent!==task)set(parent,parent.checks.every(c=>c.done)?'done':parent.checks.some(c=>c.done||c.status==='in_progress')?'in_progress':'todo');
+      }
+      function setTaskComplete(task,done) {setTaskStatus(objective(),task,done?'done':'todo');render();}
+      function taskStatusIcon(task,className='') {
+        const status=taskStatus(task),glyph=element('span',className+' ob-task-status-icon',taskStatuses[status].icon);
+        glyph.dataset.taskStatus=status;return glyph;
+      }
       function taskProgress(o) {
         const tasks=o.items.filter(i=>i.kind==='task'),done=tasks.filter(taskComplete).length;
         const deadlines=tasks.flatMap(t=>taskComplete(t)?[]:[t.due,...t.checks.filter(c=>!c.done).map(c=>c.due||t.due)]).map(dayNumber).filter(n=>n!==null);
@@ -175,7 +192,7 @@
         const reference=item.kind==='link'?(tab?.url||item.url):'/demo/'+(tree?tree.repo+'/worktrees/'+tree.name+'/'+item.title:'workspace/'+(item.kind==='assistant'?'assistant/': 'objectives/'+o.id+'/')+item.title)+(tab?'#tab='+encodeURIComponent(tab.id):'');
         return {ref,item,tab,tree,title:tab?item.title+' · '+tab.title:item.title,kind:item.kind,reference};
       }
-      function taskGlyph(o,task,customOnly=false) {const info=task.iconAsset&&assetInfo(o,task.iconAsset);if(info&&info.kind!=='task')return assetIcon(info);if(customOnly)return document.createDocumentFragment();const glyph=element('span','ob-task-default-icon',taskComplete(task)?'✅':'⬜');glyph.setAttribute('aria-hidden','true');return glyph;}
+      function taskGlyph(o,task,customOnly=false) {const info=task.iconAsset&&assetInfo(o,task.iconAsset);if(info&&info.kind!=='task')return assetIcon(info);if(customOnly)return document.createDocumentFragment();const glyph=taskStatusIcon(task,'ob-task-default-icon');glyph.setAttribute('aria-hidden','true');return glyph;}
       function assetIcon(info) {
         if(!info)return icon('file-text');
         if(info.kind==='task')return taskGlyph(info.objective,info.task);
@@ -244,12 +261,37 @@
       function renderBucket(host,o,id,label,refs,add,task) {const section=element('section','ob-bucket');section.dataset.bucket=id;section.setAttribute('aria-label',label);heading(section,label,add);if(id==='unassigned'){const title=section.querySelector('.ob-section-heading span');title.replaceWith(button(label,'ob-bucket-title',()=>showTasks(o)));}const list=element('div','ob-list');refs.forEach(ref=>{if(assetInfo(o,ref))list.append(assetRow(o,ref,task));});if(!refs.length)list.append(element('p','ob-empty',id==='unassigned'?'All assets are assigned.':id==='objective'?'Drop shared context here.':id==='archive'?'Drop assets here to set them aside.':''));section.append(list);attachDrop(section,'application/x-objective-item',ref=>id==='task'?task&&attachAsset(o,task,ref):classifyAsset(o,ref,id));host.append(section);}
       function sidebarTask(o,task,child=false) {
         const line=element('div','ob-sidebar-task'+(child?' child':''));line.dataset.task=task.id;
-        const status=element('span','ob-task-status',taskComplete(task)?'✅':'⬜');status.dataset.done=taskComplete(task);status.setAttribute('aria-label',taskComplete(task)?'Completed':'Incomplete');
+        const status=taskStatusIcon(task,'ob-task-status');status.dataset.done=taskComplete(task);status.setAttribute('aria-label',taskStatuses[taskStatus(task)].label);status.title=taskStatuses[taskStatus(task)].label+' · Secondary-click to change status';
         const name=button('','ob-task-name',()=>openTask(o,task)),glyph=element('span','ob-task-icon');glyph.dataset.taskIcon=task.id;glyph.title='Drop an asset here to use its icon';glyph.setAttribute('aria-label','Icon for '+task.title);glyph.append(taskGlyph(o,task,true));
         attachDrop(glyph,'application/x-objective-item',ref=>{const info=assetInfo(o,ref);if(!info||info.task)return;task.iconAsset=ref;attachAsset(o,task,ref);message('Using '+info.title+' icon for '+task.title);});
         name.append(element('span','ob-label',task.title));name.setAttribute('aria-pressed',o.activeTask===task.id);if(task.checks?.length)name.setAttribute('aria-expanded',o.expandedTask===task.id);dragAsset(name,o,task.id);
+        line.oncontextmenu=event=>showTaskStatusMenu(event,o,task,line);
+        line.onkeydown=event=>{if(event.key==='ContextMenu'||event.shiftKey&&event.key==='F10')showTaskStatusMenu(event,o,task,line);};
         line.append(status,name,element('span','ob-muted',String(taskAssetRefs(task).length)),glyph);dragAsset(glyph,o,task.id);attachDrop(line,'application/x-objective-item',ref=>attachAsset(o,task,ref));terminalDrop(line,o,task.id);return line;
       }
+      function closeTaskStatusMenu() {taskStatusMenu?.remove();taskStatusMenu=null;}
+      function showTaskStatusMenu(event,o,task,line) {
+        event.preventDefault();event.stopPropagation();closeTaskStatusMenu();
+        const menu=element('div','ob-task-status-menu'),anchor=line.querySelector('.ob-task-name');taskStatusMenu=menu;
+        menu.setAttribute('role','menu');menu.setAttribute('aria-label','Status for '+task.title);menu.append(element('div','ob-task-status-menu-title',task.title));
+        for(const status of ['done','todo','in_progress']){
+          const option=button('','',()=>{closeTaskStatusMenu();setTaskStatus(o,task,status);render();});
+          option.dataset.setTaskStatus=status;option.setAttribute('role','menuitemradio');option.setAttribute('aria-checked',taskStatus(task)===status);
+          const icon=element('span','ob-task-status-icon',taskStatuses[status].icon);icon.dataset.taskStatus=status;option.append(icon,element('span','','Set to '+taskStatuses[status].label.toLowerCase()));menu.append(option);
+        }
+        menu.onkeydown=e=>{
+          if(e.key==='Escape'){e.preventDefault();closeTaskStatusMenu();anchor?.focus();return;}
+          const options=[...menu.querySelectorAll('button')],index=options.indexOf(document.activeElement);
+          if(['ArrowDown','ArrowUp','Home','End'].includes(e.key)){e.preventDefault();options[e.key==='Home'?0:e.key==='End'?options.length-1:(index+(e.key==='ArrowDown'?1:-1)+options.length)%options.length].focus();}
+          if(e.key==='Tab')closeTaskStatusMenu();
+        };
+        root.append(menu);const box=line.getBoundingClientRect(),bounds=menu.getBoundingClientRect();
+        menu.style.left=Math.max(8,Math.min(event.clientX||box.left,innerWidth-bounds.width-8))+'px';menu.style.top=Math.max(8,Math.min(event.clientY||box.bottom,innerHeight-bounds.height-8))+'px';
+        menu.querySelector('[aria-checked=true]').focus();
+      }
+      document.addEventListener('pointerdown',event=>{if(taskStatusMenu&&!taskStatusMenu.contains(event.target))closeTaskStatusMenu();});
+      document.addEventListener('scroll',event=>{if(taskStatusMenu&&!taskStatusMenu.contains(event.target))closeTaskStatusMenu();},true);
+      window.addEventListener('resize',closeTaskStatusMenu);
       function resourceTarget(o,ref) {const [id,tabId]=ref.split('::');const item=o.items.find(i=>i.id===id);if(tabId&&!item?.tabs?.some(t=>t.id===tabId))return null;return item?{item,tab:item.tabs?.find(t=>t.id===tabId)}:null;}
       function openResource(o,item,tab=null) {if(item.kind==='task'){openTask(o,item);return;}o.expandedResource=item.tabs?.length?item.id:null;o.view='resource';o.selectedItem=item.id;o.selectedTab=tab?.id||null;if(item.scope)o.selected=item.scope;if(tab&&!o.activeTask)retainTabs(o,item);if(o.activeTask&&tab)o.expandedResource=null;render();}
       function resourceRow(item,o,tab=null) {
@@ -329,7 +371,7 @@
         host.append(element('p','ob-task-legend','▤ opens the task’s document subtab. Dates apply to unfinished work; subtasks inherit their parent’s deadline until you set one.'));
       }
       function taskLine(o,task,entry) {
-        const child=entry!==task,row=element('div','ob-task-row'+(child?' ob-task-child':'')),check=element('input');row.dataset.task=entry.id;check.type='checkbox';check.checked=child?entry.done:taskComplete(task);check.setAttribute('aria-label','Complete '+(child?'subtask ':'task ')+entry.title);check.onchange=()=>{entry.done=check.checked;if(!child)task.checks.forEach(c=>c.done=check.checked);render();};
+        const child=entry!==task,row=element('div','ob-task-row'+(child?' ob-task-child':'')),check=element('input');row.dataset.task=entry.id;check.type='checkbox';check.checked=child?entry.done:taskComplete(task);check.setAttribute('aria-label','Complete '+(child?'subtask ':'task ')+entry.title);check.onchange=()=>{setTaskStatus(o,entry,check.checked?'done':'todo');render();};
         const title=button(entry.title,'ob-task-title',()=>openTask(o,entry));title.title=entry.title;title.dataset.done=check.checked;dragAsset(title,o,entry.id);
         const doc=o.items.find(i=>i.id===entry.detail),tab=doc?.tabs.find(t=>t.id===entry.tab),details=button('▤','ob-task-doc',()=>openTask(o,entry));details.setAttribute('aria-label','Open details for '+entry.title);details.title=doc.title+' / '+tab.title;
         const due=element('input','ob-task-due');due.type='date';due.value=entry.due||'';due.setAttribute('aria-label','Due date for '+entry.title);due.title=child&&!entry.due&&task.due?'Inherits '+task.due:'Due date';due.onchange=()=>{entry.due=due.value;render();};const days=dayNumber(entry.due||task.due);if(!check.checked&&days!==null)due.dataset.status=days<dayNumber(localDate())?'overdue':days<=dayNumber(localDate())+2?'risk':'track';
@@ -431,11 +473,11 @@
         else if(command.startsWith('cat ')){const item=files.find(i=>i.title===command.slice(4).trim());output=item?(item.body||''):'No such simulated file.';}
         else if(command.startsWith('echo '))output=command.slice(5);
         else if(command==='help')output='pwd · ls · cat <path> · echo <text> · clear\ndone marks the linked task complete.\nAny other text produces a simulated agent response.';
-        else if(command==='done'){const item=taskEntries(o).find(i=>i.id===t.linked);if(item){item.done=true;item.checks?.forEach(c=>c.done=true);output='Linked task complete.';}else output='Link this terminal to a task first.';}
+        else if(command==='done'){const item=taskEntries(o).find(i=>i.id===t.linked);if(item){setTaskStatus(o,item,'done');output='Linked task complete.';}else output='Link this terminal to a task first.';}
         else output='Simulated agent completed: '+command;
         t.logs=[...(t.logs||[]),'$ '+command,output].slice(-40);t.draft='';t.state='ready';render();message(t.name+' · simulated result ready to review');
       }
-      function render() {renderFocus();renderOverview();renderReader();renderTerminals();persist();}
+      function render() {closeTaskStatusMenu();renderFocus();renderOverview();renderReader();renderTerminals();persist();}
       render();
       let currentDay=localDate();setInterval(()=>{if(localDate()!==currentDay){currentDay=localDate();renderFocus();renderOverview();if(objective().view==='tasks')renderReader();}},60000);
       find('reset').onclick=()=>{const form=dialog('Reset all simulated changes?');submit(form,'Reset demo',()=>{restore(JSON.parse(JSON.stringify(fresh)));message('Demo reset to its sample data');});};

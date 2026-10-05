@@ -25,6 +25,70 @@ def apply(root, oid, type_, **fields):
     return objectives.mutate(root, 'demo', {'type':type_, 'objective_id':oid, **fields})
 
 
+def test_task_status_persists_and_completion_controls_remain_compatible(monorepo, objective_workspace):
+    folder, oid = objective_workspace
+    data = apply(monorepo, oid, 'task', title='Verify recovery')
+    parent = data['objectives'][0]['tasks'][0]
+    for title in ['Parsing', 'Fallback']:
+        data = apply(monorepo, oid, 'task', title=title, parent_id=parent['id'])
+    parent = data['objectives'][0]['tasks'][0]
+    first, second = parent['children']
+    apply(monorepo, oid, 'task-update', task_id=parent['id'], icon_asset_id='details')
+    o = objectives.payload(monorepo, 'demo')['objectives'][0]
+    documents = {r['path']:(folder/r['path']).read_bytes() for r in o['resources'] if r['kind'] == 'document'}
+
+    apply(monorepo, oid, 'task-update', task_id=first['id'], status='in_progress')
+    persisted = objectives.load(monorepo, 'demo')['objectives'][0]['tasks'][0]
+    assert persisted['status'] == persisted['children'][0]['status'] == 'in_progress'
+    assert not persisted['done'] and not persisted['children'][0]['done']
+    assert storage.read_json(Path(o['manifest_path']))['tasks'][0]['children'][0]['status'] == 'in_progress'
+    apply(monorepo, oid, 'task-update', task_id=first['id'], done=True)
+    apply(monorepo, oid, 'task-update', task_id=parent['id'], status='in_progress')
+    persisted = objectives.load(monorepo, 'demo')['objectives'][0]['tasks'][0]
+    assert persisted['status'] == 'in_progress' and persisted['children'][0]['done']
+    assert not persisted['children'][1]['done']
+    data = apply(monorepo, oid, 'task-update', task_id=second['id'], status='done')
+    assert data['objectives'][0]['tasks'][0]['status'] == 'done'
+    assert data['objectives'][0]['tasks'][0]['done']
+    data = apply(monorepo, oid, 'task-update', task_id=parent['id'], status='todo')
+    assert all(t['status'] == 'todo' and not t['done'] for t in [data['objectives'][0]['tasks'][0], *data['objectives'][0]['tasks'][0]['children']])
+    apply(monorepo, oid, 'task-update', task_id=parent['id'], done=True)
+    data = objectives.payload(monorepo, 'demo')
+    assert all(t['status'] == 'done' and t['done'] for t in [data['objectives'][0]['tasks'][0], *data['objectives'][0]['tasks'][0]['children']])
+    assert data['objectives'][0]['tasks'][0]['icon_asset_id'] == 'details'
+    assert {path:(folder/path).read_bytes() for path in documents} == documents
+
+
+@pytest.mark.parametrize('patch', [
+    {'status':'unknown'}, {'status':[]}, {'status':True}, {'status':None},
+    {'status':'done','done':False}, {'status':'todo','done':True}, {'done':1},
+])
+def test_invalid_task_status_never_changes_saved_tasks(monorepo, objective_workspace, patch):
+    _, oid = objective_workspace
+    data = apply(monorepo, oid, 'task', title='Keep task')
+    task = data['objectives'][0]['tasks'][0]
+    before = objectives.load(monorepo, 'demo')
+    with pytest.raises(ValueError):
+        apply(monorepo, oid, 'task-update', task_id=task['id'], **patch)
+    assert objectives.load(monorepo, 'demo') == before
+
+
+def test_legacy_task_completion_loads_without_a_status(monorepo, objective_workspace):
+    _, oid = objective_workspace
+    data = apply(monorepo, oid, 'task', title='Legacy task')
+    target = Path(data['objectives'][0]['manifest_path'])
+    manifest = storage.read_json(target)
+    manifest['tasks'][0].pop('status')
+    manifest['tasks'][0]['done'] = True
+    target.write_text(json.dumps(manifest))
+    data = objectives.load(monorepo, 'demo')
+    task = data['objectives'][0]['tasks'][0]
+    assert task['done'] and 'status' not in task
+    data = apply(monorepo, oid, 'task-update', task_id=task['id'], status='in_progress')
+    assert data['objectives'][0]['tasks'][0]['status'] == 'in_progress'
+    assert not data['objectives'][0]['tasks'][0]['done']
+
+
 def test_tasks_always_have_details_and_nested_subtabs_preserve_siblings(monorepo, objective_workspace):
     folder, oid = objective_workspace
     data = apply(monorepo, oid, 'task', title='Verify parser', due='2026-10-04')
