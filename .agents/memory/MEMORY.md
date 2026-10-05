@@ -1,5 +1,7 @@
 # Memory index
 
+- [Shell DOM changes need a backend restart](shell-dom-changes-need-backend-restart.md) — fresh assets can accompany old HTML; verify the served DOM after restarting the exact server.
+
 - [Terminal tabs reveal on hover](terminal-tabs-reveal-on-hover.md) — compact icons and status dots, temporary resizable labels, and a stable console grid.
 
 - [Objectives live in workspace folders](objectives-live-in-workspace-folders.md) — per-folder `.objective.json` is authoritative; only UI state stays in `.lab`, with lossless legacy conversion.
