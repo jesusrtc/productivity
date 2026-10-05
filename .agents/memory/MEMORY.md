@@ -1,5 +1,7 @@
 # Memory index
 
+- [Objective activation follows linked terminals](objective-activation-follows-linked-terminals.md) — whole Objective ↔ terminal navigation selects the associated context without recursive switches or passive restoration overrides.
+
 - [Task clicks activate their linked terminal](task-clicks-activate-linked-terminal.md) — task/subtask clicks reveal the associated session; each terminal has one replaceable task assignment.
 
 - [Worktree clicks show native Files](worktree-clicks-show-native-files.md) — scope clicks select the file tree and preserve Recently updated/vs main/Uncommitted; explicit GitHub actions open history.

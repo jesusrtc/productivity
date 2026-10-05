@@ -264,6 +264,14 @@ objective. A document can also be dropped directly into objective resources.
 
 ## Terminals
 
+Selecting a whole Objective in the top bar or sidebar also activates a terminal
+assigned directly to that Objective. Keep the current terminal if it belongs
+to the Objective; otherwise select the first available match. Task, subtask,
+asset and worktree assignments do not count as whole-Objective assignments.
+Clicking that terminal selects its Objective and opens the overview without
+switching terminals again. Restoring a view or refreshing metadata does not
+override the user's terminal selection.
+
 **+ New** asks whether to open for the current workflow (workspace root), the
 current Objective (its own directory), or a specific worktree in that Objective.
 The worktree option opens a list restricted to that Objective's associated

@@ -326,11 +326,16 @@
     host.querySelectorAll('[data-resource-group]').forEach(row=>{row.onmouseenter=()=>{clearTimeout(hoverTimer);const id=row.dataset.resourceGroup;if(state().revealed.has(id))return;const resource=o.resources.find(r=>r.id===id);hoverTimer=setTimeout(()=>{if(row.isConnected&&key(context())===key(scope)){state().revealed.add(id);paint();}},resource?.kind==='link'?1000:1500);};row.onmouseleave=()=>clearTimeout(hoverTimer);});
     markTaskAssets(host);
   }
-  function selectObjective(id) {
+  function activateLinkedTerminal(matches) {
+    const sessions=Object.entries(data().terminal_links||{}).filter(([,link])=>matches(link)).map(([session])=>session);
+    Promise.resolve(bridge.activateLinkedTerminal?.(sessions)).catch(error=>notify(error.message,true));
+  }
+  function selectObjective(id,{activateTerminal=true}={}) {
     closeTaskStatusMenu();
     closeAssetContextMenu();
     const o=data()?.objectives.find(o=>o.id===id);if(!o)return;closeSwitchMenu();collapse();state().focus=null;state().objective=id;state().view='objective';state().selected=null;persistView();paint();renderOverview();bridge.refreshTerminals?.();
     const t=tree(o)||{path:context().path,kind:'folder'};if(bridge.scopeRoot?.()!==t.path)bridge.selectWorktree?.(t);
+    if(activateTerminal)activateLinkedTerminal(link=>link.objective_id===id&&!link.task_id&&!link.resource_id&&!link.file&&!link.folder&&!link.view);
   }
   function tabsHtml(path,working=true) {
     if(context()?.path!==path)return '';
@@ -452,7 +457,7 @@
     const o=objective(),task=tasks(o).find(t=>t.id===id);if(!task)return;
     state().focus={objective:o.id,task:id,mode:['focus','semi','off'].includes(mode)?mode:'focus'};
     state().view='objective';persistView();openResource(task.document_id,task.tab_id);
-    if(activateTerminal){const sessions=Object.entries(data().terminal_links||{}).filter(([,link])=>link.objective_id===o.id&&link.task_id===id).map(([session])=>session);Promise.resolve(bridge.activateTaskTerminal?.(sessions)).catch(error=>notify(error.message,true));}
+    if(activateTerminal)activateLinkedTerminal(link=>link.objective_id===o.id&&link.task_id===id);
   }
   function openTaskAssets(id) {
     const task=tasks().find(t=>t.id===id);if(!task)return;
@@ -961,7 +966,7 @@
     }catch(error){notify(error.message,true);}
   },true);
   window.LabObjectives={connect(adapter){bridge=adapter;},load,active,sidebarHtml,paint,worktrees,tree,associate,terminalHtml,taskForTerminal,openForTerminal,collapse,progress,complete,change,selectObjective,renderTasks,tabsHtml,showAll,terminalLaunchContext,associateNewTerminal,
-    openCurrent(){const params=new URLSearchParams(location.search),o=data()?.objectives.find(o=>o.id===params.get('objective'));if(o&&tasks(o).some(t=>t.id===params.get('objective_task'))){state().objective=o.id;openTask(params.get('objective_task'));return;}const f=taskFocus();if(f){openTask(f.task,f.mode);return;}state().view==='objective'&&objective()?selectObjective(objective().id):showAll();},
+    openCurrent(){const params=new URLSearchParams(location.search),o=data()?.objectives.find(o=>o.id===params.get('objective'));if(o&&tasks(o).some(t=>t.id===params.get('objective_task'))){state().objective=o.id;openTask(params.get('objective_task'));return;}const f=taskFocus();if(f){openTask(f.task,f.mode);return;}state().view==='objective'&&objective()?selectObjective(objective().id,{activateTerminal:false}):showAll();},
     openOwnedFile(root,path){
       if(!active(context()?.path))return false;
       const scope=context(),full=root.replace(/\/$/,'')+'/'+path;

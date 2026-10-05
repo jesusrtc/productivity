@@ -2844,7 +2844,7 @@ process.stdout.write(JSON.stringify({parts, html: _termSessionIdentityHtml(parts
 
 
 def test_objective_task_click_reveals_its_linked_terminal_without_reopening_documents():
-    result = _run_node(_js_between('  function _termActivateObjectiveTaskTerminal(', '  async function _termActivateTab(') + """
+    result = _run_node(_js_between('  function _termActivateObjectiveTerminal(', '  async function _termActivateTab(') + """
 const classes=new Set(['term-collapsed']), activations=[], selections=[], visibility=[];
 const document={body:{classList:{add:name=>classes.add(name),contains:name=>classes.has(name)}}};
 const termSessions=[{name:'first',session_id:'uuid-first'}, {name:'current',session_id:'uuid-current'},
@@ -2856,11 +2856,11 @@ const _termVisibilityKey=()=>'/workspace';
 const _termRememberVisibility=(key,shown)=>visibility.push({key,shown});
 const termToggleCollapse=()=>{classes.delete('term-collapsed');_termRememberVisibility(_termVisibilityKey(),true)};
 const termStartPeriodicRefresh=()=>{refreshes++};
-_termActivateObjectiveTaskTerminal(['uuid-first','uuid-current']);
-_termActivateObjectiveTaskTerminal(['uuid-first']);
-_termActivateObjectiveTaskTerminal(['missing']);
-_termActivateObjectiveTaskTerminal([]);
-_termActivateObjectiveTaskTerminal(['legacy-id']);
+_termActivateObjectiveTerminal(['uuid-first','uuid-current']);
+_termActivateObjectiveTerminal(['uuid-first']);
+_termActivateObjectiveTerminal(['missing']);
+_termActivateObjectiveTerminal([]);
+_termActivateObjectiveTerminal(['legacy-id']);
 process.stdout.write(JSON.stringify({activations,selections,visibility,refreshes,classes:[...classes]}));
 """)
     assert result['activations'] == [

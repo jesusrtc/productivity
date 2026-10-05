@@ -11310,7 +11310,7 @@
 
   let _termTabActivationSeq = 0;
 
-  function _termActivateObjectiveTaskTerminal(identities) {
+  function _termActivateObjectiveTerminal(identities) {
     const linked = termSessions.filter(session => identities.includes(session.session_id || session.logical_name || session.name));
     const session = linked.find(session => session.name === termCurrentSession) || linked[0];
     if (!session) return;
@@ -20651,7 +20651,7 @@
     addWorktree: button => sidebarAddScope(button),
     refreshSidebar: () => currentWorkspace?.is_workspace && _refreshWorkspaceSidebar({preserveScroll:true}),
     refreshTerminals: () => termRenderSessionList(),
-    activateTaskTerminal: identities => _termActivateObjectiveTaskTerminal(identities),
+    activateLinkedTerminal: identities => _termActivateObjectiveTerminal(identities),
     prepareCenter: type => {
       window.AssistantView?.prepareExternalLink();
       window.LabScopeLinks?.closeExternal();
