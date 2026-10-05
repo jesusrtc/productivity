@@ -260,3 +260,7 @@ html,body { padding:0; overflow:hidden; }
 }
 #lab-objectives-proposal .ob-fixed-root :is(.ob-resource,.ob-icon) { color:var(--ob-muted); }
 #lab-objectives-proposal .ob-sidebar-task > .ob-quiet { color:var(--ob-muted); padding:2px; }
+#lab-objectives-proposal .ob-objective-heading { display:flex; align-items:center; gap:8px; margin-bottom:10px; }
+#lab-objectives-proposal .ob-objective-name { flex:1; min-width:0; padding:7px 4px; border:0; background:none; color:var(--ob-text); text-align:left; font:600 13px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; cursor:pointer; }
+#lab-objectives-proposal .ob-objective-name[aria-pressed=true] { background:color-mix(in srgb,var(--ob-accent) 12%,transparent); }
+#lab-objectives-proposal .ob-objective-assets { margin-top:24px; }

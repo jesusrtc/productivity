@@ -1,5 +1,13 @@
 /* Use the native sidebar sizes: scopes 11px, links 12px, files 13px. */
 [data-objectives-sidebar] { margin-bottom:10px; }
+.objective-sidebar-heading { display:flex; align-items:center; gap:8px; margin:6px 12px 0; }
+.objective-sidebar-heading > button { display:flex; align-items:center; gap:7px; min-width:0; border:0; border-radius:4px; padding:7px 4px; background:none; color:var(--text-primary); font:600 13px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; cursor:pointer; }
+.objective-sidebar-heading > [data-select-objective] { flex:1; text-align:left; }
+.objective-sidebar-heading > [data-select-objective] > span:last-child { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.objective-sidebar-heading > [aria-pressed=true],.objective-sidebar-heading > button:hover { background:color-mix(in srgb,var(--accent) 12%,var(--bg-secondary)); }
+.objective-overview-tasks,.objective-overview-assets { margin-top:24px; }
+.objective-overview h3 { font-size:13px; margin:0 0 10px; color:var(--text-secondary); }
+.objective-overview-assets > .objective-resources { padding:0; }
 .objective-title { display:flex; align-items:center; justify-content:space-between; font-size:12px; margin-top:12px; }
 .objective-title [data-drag-objective] { cursor:grab; }
 .objective-title button { border:0; background:none; color:var(--accent); font:inherit; font-size:16px; padding:0; cursor:pointer; }

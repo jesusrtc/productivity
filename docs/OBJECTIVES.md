@@ -15,8 +15,8 @@ their usual sidebar until they opt in.
 
 The workspace tab bar has **Objectives** and **the current objective**, using
 the vault-tab style. Hover over the current objective to show the five focused
-objectives in a dropdown. Choose one to open its tasks in the middle working
-area. The arrow also opens the dropdown on click; Arrow Up/Down enters it from
+objectives in a dropdown. Choose one to open its full overview in the middle
+working area, including every task, subtask and active asset. The arrow also opens the dropdown on click; Arrow Up/Down enters it from
 the keyboard and Escape closes it. While working on a task, this same tab shows
 the task's title and icon; its dropdown still switches objectives.
 
@@ -40,12 +40,20 @@ Notebooks open from their resources or Files. Global **Servers**, **Logs** and
 
 The sidebar order is:
 
-1. **Unassigned** assets with neither a shared star nor a task association.
-2. **Objective · pinned** assets shared across every task.
-3. **Tasks**, with a completion/status badge, task links and a status context menu.
-4. **Task assets**, including the selected task's mandatory details and attachments.
+1. The **Objective name**, followed by its **Tasks**, completion/status badge,
+   task links and status context menu.
+2. **Objective assets**, shared across every task.
+3. **Task assets**, including the selected task's mandatory details and attachments.
+4. **Unassigned** assets with neither a shared star nor a task association.
 5. Collapsed **Archive**, then fixed gray **Root** and **Objective** folders.
 6. The native recently updated files and Files tree for that selection.
+
+Click the **Objective name** to leave task mode and open its overview. The
+middle column shows every task/subtask and categorizes assets as global/shared,
+each task's specifications and attachments, Unassigned, and the complete asset
+catalog. Assets in other worktree scopes remain visible in this overview;
+Archive stays excluded. The sidebar shows the Objective's generic shared assets
+below its task list. The Objective name is also a full-context drag source.
 
 Click **Unassigned** to open the task list in the middle and drag assets onto
 its task rows. Each asset, document subtab, link child and associated worktree
@@ -71,6 +79,9 @@ linked as an asset still gets its own asset controls in the buckets.
 objective's own directory and changes when another objective is selected.
 Both remain gray rather than taking a reserved worktree color. Creating an
 objective creates its directory, including when it has no resources yet.
+Clicking Root, Objective or a worktree exits task focus, selects that exact file
+scope and opens its folder browser, including when it was already the selected
+scope. Files no longer remain hidden behind the previous task's Focus mode.
 
 The **+** beside Worktrees uses the existing folder/worktree chooser, including
 its create-worktree action. Association first makes the worktree an Unassigned
@@ -267,6 +278,10 @@ document tabs, sublinks and linked worktrees. This includes Unassigned and
 worktree-scoped resources. Archive and unregistered explorer files are excluded.
 Each source is defined once, with its roles retained across tasks. Focus-slot
 drops still move the Objective; a console drop preserves all associations.
+The prompt separates the Objective index, global assets shared across tasks,
+each task/subtask's specification and assets, Unassigned assets, and a complete
+asset index grouped by type. Repeated sources retain the same reference label
+so an asset's global and task roles remain clear.
 
 ## Storage and commands
 
@@ -283,6 +298,9 @@ subtab format with stable IDs. Assistant resources retain their original
 location and ID references. Existing-file resources retain their source folder
 and relative path. Links are `kind: "link"` manifest entries; they do not need
 individual files. Unregistered explorer files are not automatically assets.
+All asset definitions and their global/task indexes belong to this Objective's
+manifest in its directory. Linked remote documents, Assistant content, source
+files and worktrees are represented there by their exact source references.
 
 Only UI/runtime preferences live in `.lab/objectives-state.json`: enabled state,
 ordered Objective IDs, the five focused IDs and terminal mappings. This file

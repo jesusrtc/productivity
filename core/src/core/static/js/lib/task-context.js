@@ -14,7 +14,7 @@
     if(context?.version!==1||!line(context.objective?.title)
         ||(whole?(!Array.isArray(context.tasks)||!Array.isArray(context.assets)||!context.objective.assets?.length):
           (!line(context.task?.title)||!Array.isArray(context.parents)||!context.task.assets?.length)))throw new Error('Incomplete context');
-    const rows=whole?[context.objective,...context.tasks,{title:'Other objective assets',assets:context.assets}]:[context.objective,...context.parents,context.task];
+    const rows=whole?[context.objective,...context.tasks,{title:'Unassigned assets',assets:context.unassigned_assets||[]},{title:'All Objective assets',assets:context.assets}]:[context.objective,...context.parents,context.task];
     if(rows.some(row=>!line(row.title)||!Array.isArray(row.assets)
         ||row.assets.some(asset=>!line(asset.title)||!line(asset.type)||!validReference(asset.reference))))
       throw new Error('Invalid context reference');
@@ -37,9 +37,16 @@
       if(!rows.length)output.push('- No associated references.');
     }
     if(context.kind==='objective'){
-      output.push('','This objective: '+quoted(context.objective.title),'Objective references:');assets(context.objective.assets);
-      for(const task of context.tasks){output.push('',(line(task.parent)?'Subtask of '+quoted(task.parent)+': ':'Task: ')+quoted(task.title),'Task references:');assets(task.assets);}
-      output.push('','Other objective assets:');assets(context.assets);
+      const index=context.objective.assets.filter(asset=>['Objective manifest','Objective folder'].includes(asset.type));
+      output.push('','This objective: '+quoted(context.objective.title),'Objective index:');assets(index);
+      output.push('','Global assets (shared across tasks):');assets(context.objective.assets.filter(asset=>!index.includes(asset)));
+      for(const task of context.tasks){output.push('',(line(task.parent)?'Subtask of '+quoted(task.parent)+': ':'Task: ')+quoted(task.title),'Task assets and specification:');assets(task.assets);}
+      output.push('','Unassigned assets:');assets(context.unassigned_assets||[]);
+      output.push('','Asset index by type:');
+      const byType=new Map();
+      for(const asset of context.assets){if(!byType.has(asset.type))byType.set(asset.type,[]);byType.get(asset.type).push(asset);}
+      for(const [type,rows] of byType){output.push(line(type)+':');assets(rows);}
+      if(!byType.size)output.push('- No other assets.');
       output.push('','Instructions:',
         'Work on This objective: '+quoted(context.objective.title)+'. Read its Objective manifest and relevant task specifications before making changes.',
         'Use the references above for the whole Objective, including its tasks and subtasks. Preserve exact document tabs, sublinks and original source ownership.',

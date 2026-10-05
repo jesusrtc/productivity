@@ -151,7 +151,7 @@ console.log(JSON.stringify({pastes,notices,sends,refs,prompt,emptyPrompt:window.
     assert 'Task: "Fix parsing"' in prompt
     assert 'Subtask of "Fix parsing": "Verify fallback"' in prompt
     assert 'Work on This objective: "Recover SMS"' in prompt and 'Work only on This task' not in prompt
-    assert 'Objective manifest:' in prompt and 'Other objective assets:' in prompt
+    assert 'Objective manifest:' in prompt and 'Asset index by type:' in prompt and 'Global assets (shared across tasks):' in prompt
     assert 'https://example.com/thread?tab=recovery' in prompt
     assert '/objective/Tasks.md#tab=child' in prompt and '/trees/feature' in prompt
     for reference in result['refs']:
