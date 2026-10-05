@@ -166,7 +166,7 @@
   }
   function scopeRow(item,asset=null) {
     const selected=item.id===tree()?.id;
-    return `<div class="sidebar-scope-chip${selected?' active':''}" style="--sidebar-workspace-color:${esc(item.color)}" ${item.fixed?'data-objective-root':'data-objective-worktree'}="${esc(item.id)}" ${asset?`data-objective-asset="${esc(JSON.stringify(assetTarget(asset)))}"`:''}><span class="objective-worktree-icon" aria-hidden="true">${item.kind==='folder'?'⌂':'⑂'}</span><button type="button" class="sidebar-file-scope-button" data-select-worktree="${esc(item.id)}" draggable="true" aria-pressed="${selected}" title="${esc(item.path)}"><span>${esc(item.label)}</span></button><span class="sidebar-scope-tag">${esc(item.kind==='folder'?'Folder':'Worktree')}</span>${asset?assetControls(asset):''}</div>`;
+    return `<div class="sidebar-scope-chip${selected?' active':''}" style="--sidebar-workspace-color:${esc(item.color)}" ${item.fixed?'data-objective-root':'data-objective-worktree'}="${esc(item.id)}" ${asset?`data-objective-asset="${esc(JSON.stringify(assetTarget(asset)))}"`:''}><span class="objective-worktree-icon" aria-hidden="true">${item.kind==='folder'?'⌂':'⑂'}</span><button type="button" class="sidebar-file-scope-button" data-select-worktree="${esc(item.id)}" draggable="true" aria-pressed="${selected}" title="${esc(item.path)}"><span>${esc(item.label)}</span></button><span class="sidebar-scope-tag">${esc(item.kind==='folder'?'Folder':'Worktree')}</span>${bridge.scopeActions?.(item)||''}${asset?assetControls(asset):''}</div>`;
   }
   function worktreeNavigationHtml(o) {
     const scopes=scopeRows(o),entries=tasks(o),groups=new Map(),archived=[];
@@ -383,7 +383,7 @@
     const rows=d.objectives.filter(o=>(!query||(o.name+' '+o.purpose).toLocaleLowerCase().includes(query))&&(!s.filter||s.filter==='all'||d.focused.includes(o.id)===(s.filter==='focused'))&&(!s.statusFilter||s.statusFilter==='all'||progress(o).status===s.statusFilter));
     host.innerHTML=rows.map(o=>`<div class="objective-library-row" data-drag-objective="${esc(o.id)}" draggable="true" style="--objective-color:${esc(o.color)}"><span class="objective-library-dot" aria-hidden="true"></span><button type="button" data-library-objective="${esc(o.id)}"><strong>${esc(o.name)}</strong><span>${esc(o.purpose)}</span></button>${badge(o)}<span class="objective-library-focus">${d.focused.includes(o.id)?'Slot '+(d.focused.indexOf(o.id)+1):'Parked'}</span><button type="button" data-place-objective="${esc(o.id)}" aria-label="Choose focus slot for ${esc(o.name)}">Focus…</button></div>`).join('')||'<p>No objectives match. Create one or change the filters.</p>';
   }
-  function showCenter(type) {releaseDraft();bridge.prepareCenter?.();openView={type,scope:key(context()),objective:objective()?.id};return document.getElementById('content');}
+  function showCenter(type) {releaseDraft();bridge.prepareCenter?.(type);openView={type,scope:key(context()),objective:objective()?.id};return document.getElementById('content');}
   function taskHref(task) {const url=new URL(location.pathname,location.origin);url.searchParams.set('workspace',context().path);url.searchParams.set('objective',objective().id);url.searchParams.set('objective_task',task.id);return url.pathname+url.search;}
   function taskRow(task,parent=null) {
     const done=parent?task.done:complete(task);return `<div class="objective-task-row${parent?' child':''}" data-task-id="${esc(task.id)}"><input type="checkbox" aria-label="Complete ${esc(task.title)}" data-task-done="${esc(task.id)}" ${done?'checked':''}><a class="objective-task-title${done?' done':''}" href="${esc(taskHref(task))}" data-open-task="${esc(task.id)}" draggable="true">${esc(task.title)}</a><button type="button" data-task-assets="${esc(task.id)}" aria-label="Assets and icon for ${esc(task.title)}" title="${taskAssets(task).length} assets · drag an asset onto the sidebar task icon to change it">${taskIcon(task)}</button><input type="date" aria-label="Due date for ${esc(task.title)}" data-task-due="${esc(task.id)}" value="${esc(task.due||'')}" title="${parent&&!task.due?'Inherits '+(parent.due||'parent deadline'):'Due date'}"><button type="button" data-add-subtask="${esc(task.id)}" ${parent?'hidden':''} aria-label="Add subtask to ${esc(task.title)}">+</button></div>`;
@@ -443,15 +443,16 @@
     host.querySelector('[data-objective-overview-mode]').value=s.mode;paintOverviewResults();paint();
   }
   function selectScope(row) {
-    if(!row)return;const scope=key(context());collapse();state().tree[objective().id]=row.id;renderOverview();
-    openView.type='folder';paint();
-    const view=openView;
-    Promise.resolve(bridge.selectWorktree?.(row)).then(()=>{if(key(context())===scope&&openView===view)bridge.openFolder?.({root:row.path,path:'.'});}).catch(error=>notify(error.message,true));
+    if(!row)return;collapse();state().tree[objective().id]=row.id;
+    state().focus=null;state().selected=null;state().view='objective';persistView();
+    showCenter('files').innerHTML='<div class="file-viewer-empty">Select a file from the tree</div>';paint();
+    Promise.resolve(bridge.selectWorktree?.(row)).catch(error=>notify(error.message,true));
   }
-  function openTask(id,mode='focus') {
+  function openTask(id,mode='focus',{activateTerminal=false}={}) {
     const o=objective(),task=tasks(o).find(t=>t.id===id);if(!task)return;
     state().focus={objective:o.id,task:id,mode:['focus','semi','off'].includes(mode)?mode:'focus'};
     state().view='objective';persistView();openResource(task.document_id,task.tab_id);
+    if(activateTerminal){const sessions=Object.entries(data().terminal_links||{}).filter(([,link])=>link.objective_id===o.id&&link.task_id===id).map(([session])=>session);Promise.resolve(bridge.activateTaskTerminal?.(sessions)).catch(error=>notify(error.message,true));}
   }
   function openTaskAssets(id) {
     const task=tasks().find(t=>t.id===id);if(!task)return;
@@ -478,7 +479,7 @@
     node.querySelector('[type=submit]').textContent='Trash asset';
   }
   function openAsset(asset) {
-    if(asset.folder){bridge.openFolder?.(asset.folder);return;}
+    if(asset.folder){const scope=asset.folder.path==='.'&&scopeRows().find(t=>[t.path,t.resolved_path].includes(asset.folder.root));if(scope)selectScope(scope);else bridge.openFolder?.(asset.folder);return;}
     openResource(asset.resource_id,asset.tab_id||null,asset.sub_link_id||null);
   }
   function openResource(resourceId,tabId=null,subLink=null) {
@@ -730,6 +731,7 @@
     state().objective=o.id;state().view='objective';
     const resource=o.resources.find(r=>r.id===link.resource_id),root=link.folder?.root||link.file?.root||t.linked_scope?.root;
     const w=scopeRows(o).find(w=>w.id===resource?.worktree||[w.path,w.resolved_path].includes(root));
+    if(link.folder?.path==='.'&&w&&!link.task_id){selectScope(w);return true;}
     let selected;if(w){state().tree[o.id]=w.id;if(bridge.scopeRoot?.()!==w.path)selected=bridge.selectWorktree?.(w);}persistView();
     if(link.task_id){openTask(link.task_id);}
     else if(link.view==='tasks'||link.folder){
@@ -817,7 +819,7 @@
     if(node.hasAttribute('data-archive-objective-asset')||node.hasAttribute('data-restore-objective-asset')){void change({type:'asset-bucket',objective_id:objective().id,...JSON.parse(node.dataset.archiveObjectiveAsset||node.dataset.restoreObjectiveAsset),bucket:node.hasAttribute('data-archive-objective-asset')?'archive':'unassigned'}).catch(()=>{});return;}
     if(node.hasAttribute('data-show-unassigned')){collapse();Object.assign(overviewState(),{mode:'unassigned',query:''});persistView();renderOverview();return;}
     if(node.dataset.editObjectiveTask){const task=tasks().find(t=>t.id===node.dataset.editObjectiveTask);form('Edit task',input('Task','title',task.title)+input('Due date','due',task.due||'','date',false),async values=>{await change({type:'task-update',objective_id:objective().id,task_id:task.id,title:values.get('title'),due:values.get('due')});});return;}
-    if(node.dataset.openTask){if(node.tagName==='A'&&(e.metaKey||e.ctrlKey||e.shiftKey||e.altKey))return;e.preventDefault();openTask(node.dataset.openTask);return;}
+    if(node.dataset.openTask){if(node.tagName==='A'&&(e.metaKey||e.ctrlKey||e.shiftKey||e.altKey))return;e.preventDefault();openTask(node.dataset.openTask,'focus',{activateTerminal:true});return;}
     if(node.hasAttribute('data-task-focus-mode')){const f=taskFocus();if(f){f.mode=node.dataset.taskFocusMode;persistView();paint();}return;}
     if(node.dataset.taskAssets){openTaskAssets(node.dataset.taskAssets);return;}
     if(node.dataset.removeTaskAsset){const id=node.dataset.assetTask;void change({type:'task-remove-asset',objective_id:objective().id,task_id:id,asset_id:node.dataset.removeTaskAsset}).then(()=>openTaskAssets(id)).catch(()=>{});return;}
@@ -848,7 +850,7 @@
     if(node.dataset.addResource){addResource(node.dataset.addResource);return;}
     if(node.hasAttribute('data-new-objective-task')){addTask();return;}
     if(node.dataset.addSubtask){addTask(node.dataset.addSubtask);return;}
-    if(node.dataset.taskDocument){openTask(node.dataset.taskDocument);return;}
+    if(node.dataset.taskDocument){openTask(node.dataset.taskDocument,'focus',{activateTerminal:true});return;}
     if(node.hasAttribute('data-objective-settings')){const o=objective();form('Objective settings',input('Name','name',o.name)+input('Outcome','purpose',o.purpose,'text',false),v=>change({type:'settings',objective_id:o.id,name:v.get('name'),purpose:v.get('purpose')}));return;}
     if(node.dataset.renameObjectiveResource){const r=objective().resources.find(r=>r.id===node.dataset.renameObjectiveResource),tab=r.kind==='document'&&openView?.resource===r.id?openView.tab:null;form(tab?'Rename subtab':'Rename resource',input('Name','title',r.content?.tabs?.find(t=>t.id===tab)?.title||r.title),async v=>{await change({type:'rename',objective_id:objective().id,resource_id:r.id,tab_id:tab,title:v.get('title')});openResource(r.id,tab);});return;}
     if(node.dataset.addObjectiveSubtab){form('New document subtab',input('Name','title'),async v=>{await change({type:'subtab',objective_id:objective().id,resource_id:node.dataset.addObjectiveSubtab,title:v.get('title'),body:''});openResource(node.dataset.addObjectiveSubtab);});return;}

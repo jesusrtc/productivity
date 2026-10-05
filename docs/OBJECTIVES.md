@@ -120,8 +120,10 @@ objective's own directory and changes when another objective is selected.
 Both remain gray rather than taking a reserved worktree color. Creating an
 objective creates its directory, including when it has no resources yet.
 Clicking Root, Objective or a worktree exits task focus, selects that exact file
-scope and opens its folder browser, including when it was already the selected
-scope. Files no longer remain hidden behind the previous task's Focus mode.
+scope and shows the native Files tree, including when it was already the selected
+scope. Recently updated, vs main and Uncommitted retain their current settings.
+Plain scope clicks do not open a folder modal. GitHub history and terminal
+actions remain explicit buttons on the selected scope row.
 
 The **+** beside Worktrees uses the existing folder/worktree chooser, including
 its create-worktree action. Association immediately shows the checkout in the
@@ -178,6 +180,13 @@ The left task list opens task details on a normal click. Selecting a task expand
 parent's subtasks and displays its own assets beneath the list. Selecting
 another parent collapses the previous group. Task details are not duplicated
 as a separate `Tasks.md` tree in Unassigned.
+
+Clicking a task or subtask also opens its linked terminal and reveals the
+terminal panel. Its details stay open. If several terminals belong to that
+task, keep the current one when it is linked; otherwise select the first
+available terminal. A terminal has one task/subtask assignment at a time:
+linking it to another task replaces the previous assignment, including across
+Objectives. Tasks without a linked terminal leave the current terminal alone.
 
 Task titles are hyperlinks to their required details document/subtab. Clicking
 a title opens those details and enters task mode. Its working-area header keeps
@@ -291,7 +300,8 @@ the Objective directory, or a worktree. The reverse gesture works too: drag a
 terminal onto a left-column task, resource, Tasks, or folder/worktree row.
 Middle-column elements reject terminal association drops. Clicking a linked
 terminal reopens that object; Tasks opens the task list and folders use the
-existing folder browser. Its corresponding sidebar scope is selected.
+existing folder browser. Root, Objective and whole-worktree links instead
+select the native Files tree. Its corresponding sidebar scope is selected.
 These mappings do not move the terminal's launch folder, transfer ownership,
 change its Assistant document link, or replace its agent session.
 

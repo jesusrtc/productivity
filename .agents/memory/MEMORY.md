@@ -1,5 +1,9 @@
 # Memory index
 
+- [Task clicks activate their linked terminal](task-clicks-activate-linked-terminal.md) — task/subtask clicks reveal the associated session; each terminal has one replaceable task assignment.
+
+- [Worktree clicks show native Files](worktree-clicks-show-native-files.md) — scope clicks select the file tree and preserve Recently updated/vs main/Uncommitted; explicit GitHub actions open history.
+
 - [Worktrees stay visible and group by task](worktrees-stay-visible-and-group-by-task.md) — every checkout remains in Worktrees across task/document/folder views; combined membership labels and recoverable Archive.
 
 - [Objective assets use reviewed assignments](objective-assets-use-reviewed-assignments.md) — pending LLM proposals, related task/asset search, pinned assets above Tasks, overview-only unassigned/archive, and confirmed Trash.

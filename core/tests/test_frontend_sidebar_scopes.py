@@ -192,3 +192,22 @@ process.stdout.write(JSON.stringify({rows,rootLabel,nestedRootLabel,history,
                                  {'root':'/trees/checkout','label':'feature/login'}],
                       'disabledHistory':1,'disabledTerminal':1,'kindIcons':2,
                       'plainLabel':'Plain folder','noRepeatedBranch':True}
+
+
+def test_background_workspace_updates_preserve_native_files_view():
+    result = _run_node(helpers() + _js_between('  async function _loadWorkspaceInfo(', '  // ─── Theme + Settings') + """
+const calls=[];
+let loads=0, _contextSubView='files';
+currentWorkspace.is_workspace=true;
+window.LabObjectives={load:()=>{loads++},ownsCenter:()=>false};
+const _refreshWorkspaceSidebar=options=>calls.push(options);
+document.getElementById=()=>{throw Error('Background update must keep the Files center')};
+global.fetch=()=>{throw Error('Files view must not load the retired workspace dashboard')};
+(async()=>{
+ await _loadWorkspaceInfo({preserveScroll:true,backgroundRefresh:true});
+ _contextSubView='objectives';window.LabObjectives.ownsCenter=()=>true;
+ await _loadWorkspaceInfo({preserveScroll:true,backgroundRefresh:true});
+ process.stdout.write(JSON.stringify({calls,loads}));
+})().catch(error=>{console.error(error);process.exitCode=1});
+""")
+    assert result == {'calls':[{'preserveScroll':True,'backgroundRefresh':True}],'loads':2}

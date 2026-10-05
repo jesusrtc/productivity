@@ -33,9 +33,11 @@ def test_objective_asset_review_and_context_menu(client, monorepo, seed_workspac
     companion = act('resource', kind='link', title='Companion evidence', url='https://example.com/companion')['objectives'][0]['resources'][-1]
     for resource in (sql, companion):
         act('task-asset', resource_id=resource['id'], task_id=alpha['id'])
+    (folder/'checkouts').mkdir()
     checkouts = {}
     for name in ('unassigned', 'alpha', 'other', 'shared', 'archived'):
-        checkout = tmp_path/name;checkout.mkdir()
+        checkout = folder/'checkouts'/name;checkout.mkdir()
+        (checkout/'checkout.txt').write_text(name+' checkout file')
         tree = act('worktree', path=str(checkout), label=name+' checkout')['objectives'][0]['worktrees'][-1]
         checkouts[name] = {'id':tree['id'], 'path':str(checkout)}
         asset = {'folder':{'root':str(checkout), 'path':'.'}}
@@ -52,20 +54,40 @@ def test_objective_asset_review_and_context_menu(client, monorepo, seed_workspac
                'other':other['id'], 'checkouts':checkouts}
     scripts = ''.join('<script>'+(STATIC/path).read_text()+'</script>' for path in [
         'vendor/marked@12.0.1/marked.min.js', 'vendor/dompurify@3.4.15/purify.min.js',
-        'js/lib/markdown-content.js', 'vendor/lab-markdown-editor/markdown-editor.min.js', 'js/lib/workspace-objectives.js'])
+        'js/lib/project-sidebar.js', 'js/lib/markdown-content.js', 'vendor/lab-markdown-editor/markdown-editor.min.js', 'js/lib/workspace-objectives.js'])
+    app = (STATIC/'js/lab-app.js').read_text()
+    def between(start, end):
+        return app[app.index(start):app.index(end, app.index(start))]
+    native = '\n'.join([
+        between('  function afterFirstPaint(', '  function afterPageQuiet('),
+        between('  function symlinkMarker(', '  function _sidebarFilesTitle('),
+        between('  let showDotFiles = false;', '  function filterDotFiles(nodes)'),
+        between('  function renderSidebarFileTree(', '  async function selfPopulateSidebar('),
+    ])
+    prelude = r'''
+const currentWorkspace={name:'demo',path:FIX.folder,is_workspace:true}, LAB_IS_ADMIN=true;
+let currentRepo=null, _workspaceDocPath=null, _workspaceDocRoot=null, workspaceOpenFile=null, _lastWorkspaceMtime=0, _repoFileRoot=null;
+const _workspaceSidebarCache=new Map(), _recentlyPending=new Map(), _PENDING_GRACE_MS=2000;
+let diffCache={};
+const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])), escAttr=esc;
+const _termCancelPendingLinkedFileOpen=()=>{}, _treeIsOpen=()=>false, _nbGetLastViewed=()=>0;
+const _sidebarFilesTitle=()=>'<div class="sidebar-title">Files</div>';
+const openRepositoryHistory=options=>{const node=document.createElement('dialog');node.dataset.historyRoot=options.root;node.innerHTML='<p>Git history</p>';document.body.appendChild(node);node.showModal()};
+function _refreshWorkspaceSidebar(){_sidebarProjectView(FIX.folder,_sidebarScopedRoot(FIX.folder))}
+'''
     setup = r'''
 window.errors=[];
 window.addEventListener('error',e=>errors.push(e.error?.stack||e.message));
 window.addEventListener('unhandledrejection',e=>errors.push(String(e.reason)));
 window.assert=(ok,msg)=>{if(!ok)throw Error(msg)};
-window.until=async fn=>{for(let i=0;i<300;i++){if(await fn())return;await new Promise(r=>setTimeout(r,20))}throw Error('Timeout: '+fn)};
+window.until=async fn=>{for(let i=0;i<300;i++){if(await fn())return;await new Promise(r=>setTimeout(r,20))}throw Error('Timeout: '+fn+' · '+JSON.stringify({errors,transition:_sidebarScopeTransition?.error,root:_sidebarScopedRoot(FIX.folder)}))};
 window.read=()=>fetch('/api/objectives?workspace_id=demo').then(r=>r.json());
 window.act=async fields=>{const d=await read(),r=await fetch('/api/objectives',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({workspace_id:'demo',expected:d.revision,action:{objective_id:FIX.oid,...fields}})});assert(r.ok,'fixture mutation');await LabObjectives.load(undefined,true);return r.json()};
 window.explorerToast=(msg,error)=>{if(error)errors.push(msg)};
 window.checkWorktreeNavigation=async()=>{const o=(await read()).objectives[0],archived=new Set(o.archived_assets.filter(a=>a.folder).map(a=>a.folder.root));const expected=o.worktrees.filter(t=>!archived.has(t.path)).map(t=>t.id).sort();const shown=[...document.querySelectorAll('.objective-worktrees > .objective-worktree-group [data-objective-worktree]')].map(n=>n.dataset.objectiveWorktree).sort();assert(JSON.stringify(shown)===JSON.stringify(expected),'all active worktrees once regardless of task');assert(document.querySelectorAll('.objective-worktrees [data-objective-root]').length===2,'fixed roots retained')};
-let selectedRoot=FIX.folder;window.openedFolders=[];
-LabObjectives.connect({context:()=>({workspace_id:'demo',path:FIX.folder}),scopeRoot:()=>selectedRoot,
- selectWorktree:row=>{selectedRoot=row.path},openFolder:folder=>openedFolders.push(folder),
+window.openedFolders=[];_sidebarFileConfig.recentMode='local-main';_sidebarFileConfig.showRecent=true;
+LabObjectives.connect({context:()=>({workspace_id:'demo',path:FIX.folder}),scopeRoot:()=>_sidebarScopedRoot(FIX.folder),scopeActions:row=>_sidebarScopeActionsHtml(row,FIX.folder),
+ selectWorktree:row=>{if(row.path!==FIX.folder)_sidebarRememberScope({...row,projectPath:row.repo||row.path});return sidebarSelectScope({getAttribute:name=>name==='data-base-root'?FIX.folder:row.path===FIX.folder?'':row.path})},openFolder:folder=>openedFolders.push(folder),
  readyContent:()=>Promise.resolve(),prepareCenter(){},refreshTabs:()=>document.getElementById('tabs').innerHTML=LabObjectives.tabsHtml(FIX.folder)});
 (async()=>{await LabObjectives.load();LabObjectives.selectObjective(FIX.oid);window.ready=true})().catch(e=>errors.push(e.stack));
 '''
@@ -73,7 +95,7 @@ LabObjectives.connect({context:()=>({workspace_id:'demo',path:FIX.folder}),scope
     page = '<!doctype html><meta charset="utf-8"><style>'+css+'''
 body{--bg-primary:#0d1117;--bg-secondary:#161b22;--bg-tertiary:#21262d;--border:#30363d;--text-primary:#e6edf3;--text-secondary:#a6afb9;--text-dim:#8b949e;--accent:#58a6ff;margin:0;background:var(--bg-primary)}
 #sidebar{position:static;width:300px;height:calc(100vh - 42px);overflow:auto}#content{min-width:0;height:calc(100vh - 42px);overflow:auto}.test-layout{display:grid;grid-template-columns:300px 1fr}.repo-tabs{position:static;top:auto;height:42px}
-</style><div class="repo-tabs" id="tabs"></div><div class="test-layout"><aside id="sidebar"><section data-objectives-sidebar></section></aside><main id="content"></main></div>''' + scripts + '<script>const FIX='+json.dumps(fixture)+';</script><script>'+setup+'</script>'
+</style><div class="repo-tabs" id="tabs"></div><div class="test-layout"><aside id="sidebar"><section data-objectives-sidebar></section></aside><main id="content"></main></div>''' + scripts + '<script>const FIX='+json.dumps(fixture)+';</script><script>'+prelude+native+setup+'</script>'
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
             pass
@@ -101,7 +123,7 @@ const fs=require('node:fs');
  await new Promise(r=>ws.addEventListener('open',r,{once:true}));
  const send=(method,params={})=>new Promise((resolve,reject)=>{const id=++sequence;pending.set(id,{resolve,reject});ws.send(JSON.stringify({id,method,params}))});
  const evaluate=async expression=>{const r=await send('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:true});if(r.exceptionDetails)throw Error(r.exceptionDetails.exception?.description||'Browser error');return r.result.value};
- const click=async(selector,button='left')=>{const p=await evaluate(`(()=>{const n=document.querySelector(${JSON.stringify(selector)});assert(n,'click target '+${JSON.stringify(selector)});n.scrollIntoView({block:'center'});const r=n.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()`);await send('Input.dispatchMouseEvent',{type:'mousePressed',...p,button,clickCount:1});await send('Input.dispatchMouseEvent',{type:'mouseReleased',...p,button,clickCount:1})};
+ const click=async(selector,button='left')=>{const p=await evaluate(`(async()=>{const n=document.querySelector(${JSON.stringify(selector)});assert(n,'click target '+${JSON.stringify(selector)});n.scrollIntoView({block:'center'});await new Promise(requestAnimationFrame);await new Promise(requestAnimationFrame);const r=n.getBoundingClientRect(),p={x:r.x+r.width/2,y:r.y+r.height/2};assert(document.elementFromPoint(p.x,p.y)?.closest(${JSON.stringify(selector)})===n,'click target is hittable '+${JSON.stringify(selector)});return p})()`);await send('Input.dispatchMouseEvent',{type:'mousePressed',...p,button,clickCount:1});await send('Input.dispatchMouseEvent',{type:'mouseReleased',...p,button,clickCount:1})};
  const search=async text=>{await evaluate(`(()=>{const n=document.querySelector('[data-objective-overview-search]');n.focus();n.select()})()`);await send('Input.insertText',{text});};
  const mode=async value=>evaluate(`(()=>{const n=document.querySelector('[data-objective-overview-mode]');n.value=${JSON.stringify(value)};n.dispatchEvent(new Event('change',{bubbles:true}))})()`);
  await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});await send('Page.navigate',{url:process.argv[2]});
@@ -150,7 +172,14 @@ const fs=require('node:fs');
  await evaluate(`(async()=>{await act({type:'task-asset',task_id:FIX.other,folder:{root:FIX.checkouts.alpha.path,path:'.'}});await checkWorktreeNavigation();assert(document.querySelector('[data-worktree-group="tasks:'+FIX.alpha+','+FIX.other+'"] [data-objective-worktree="'+FIX.checkouts.alpha.id+'"]'),'multiple task memberships share one combined group')})()`);
  const emptyLink=await evaluate(`'.objective-sidebar-task [data-open-task="'+FIX.empty+'"]'`);await click(emptyLink);await evaluate(`checkWorktreeNavigation()`);
  const unassignedTree=await evaluate(`'.objective-worktrees [data-objective-worktree="'+FIX.checkouts.unassigned.id+'"] [data-select-worktree]'`);
- await click(unassignedTree);await evaluate(`until(()=>openedFolders.at(-1)?.root===FIX.checkouts.unassigned.path);assert(document.querySelector('[data-objectives-sidebar]').dataset.taskFocusMode==='off','worktree navigation exits task focus')`);await evaluate(`checkWorktreeNavigation()`);
+ await click(unassignedTree);await evaluate(`(async()=>{await until(()=>document.querySelector('[data-project-sidebar]')?.dataset.projectSidebar===FIX.checkouts.unassigned.path&&document.querySelector('[data-project-directory] [data-filepath="checkout.txt"]'));assert(document.querySelector('[data-objectives-sidebar]').dataset.taskFocusMode==='off','worktree navigation exits task focus');assert(document.querySelector('#content .file-viewer-empty')&&!document.querySelector('.objective-overview'),'native Files center');assert(!openedFolders.length&&!document.querySelector('dialog[open]'),'worktree selection never opens a folder modal');assert(_sidebarCurrentRecentMode()==='local-main'&&document.querySelector('[data-recent-mode="local-main"]').getAttribute('aria-pressed')==='true','vs main preference preserved');assert(document.querySelector('[data-recent-mode="uncommitted"]')&&document.querySelector('[data-recent-mode="mtime:60"]'),'native Git and time filters retained')})()`);await evaluate(`checkWorktreeNavigation()`);
+ await click('[data-recent-mode=uncommitted]');await evaluate(`until(()=>document.querySelector('[data-recent-mode=uncommitted]').getAttribute('aria-pressed')==='true');assert(_sidebarCurrentRecentMode()==='uncommitted','native Git filter changes')`);
+ const alphaTree=await evaluate(`'.objective-worktrees [data-objective-worktree="'+FIX.checkouts.alpha.id+'"] [data-select-worktree]'`);
+ await click(alphaTree);await evaluate(`(async()=>{await until(()=>document.querySelector('[data-project-directory] [data-entry-root="'+FIX.checkouts.alpha.path+'"][data-filepath="checkout.txt"]'));assert(_sidebarCurrentRecentMode()==='uncommitted'&&!openedFolders.length,'checkout switch retains filter without opening modal')})()`);
+ await click(unassignedTree);await evaluate(`until(()=>document.querySelector('[data-project-directory] [data-entry-root="'+FIX.checkouts.unassigned.path+'"][data-filepath="checkout.txt"]'))`);
+ await click(emptyLink);await click(unassignedTree);await evaluate(`assert(document.querySelector('[data-objectives-sidebar]').dataset.taskFocusMode==='off'&&!document.querySelector('[data-task-mode-head]'),'already selected checkout exits task focus');assert(document.querySelector('[data-project-directory] [data-filepath="checkout.txt"]')&&!openedFolders.length,'already selected checkout keeps native Files visible')`);
+ const history=await evaluate(`'.objective-worktrees [data-objective-worktree="'+FIX.checkouts.unassigned.id+'"] .sidebar-repo-history'`);
+ await click(history);await evaluate(`assert(document.querySelector('dialog[open][data-history-root]'),'explicit GitHub button opens Git history');document.querySelector('dialog[open]').close();document.querySelector('[data-history-root]').remove();assert(!openedFolders.length,'GitHub action does not open the folder modal')`);
  await click(unassignedTree,'right');await click('[data-menu-bucket=archive]');
  await evaluate(`until(()=>document.querySelector('.objective-worktree-archive [data-objective-worktree="'+FIX.checkouts.unassigned.id+'"]'))`);await evaluate(`checkWorktreeNavigation()`);
  await click('.objective-worktree-archive > summary');await click('.objective-worktree-archive '+unassignedTree.split('.objective-worktrees ')[1],'right');await click('[data-menu-bucket=unassigned]');

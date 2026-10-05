@@ -2841,3 +2841,31 @@ process.stdout.write(JSON.stringify({parts, html: _termSessionIdentityHtml(parts
     assert 'docs/&lt;notes>.md' in result['html']
     assert len(result['unlinked']) == 1
     assert result['unlinked'][0]['text'] == 'lab'
+
+
+def test_objective_task_click_reveals_its_linked_terminal_without_reopening_documents():
+    result = _run_node(_js_between('  function _termActivateObjectiveTaskTerminal(', '  async function _termActivateTab(') + """
+const classes=new Set(['term-collapsed']), activations=[], selections=[], visibility=[];
+const document={body:{classList:{add:name=>classes.add(name),contains:name=>classes.has(name)}}};
+const termSessions=[{name:'first',session_id:'uuid-first'}, {name:'current',session_id:'uuid-current'},
+ {name:'legacy',logical_name:'legacy-id'}];
+let termCurrentSession='current', refreshes=0;
+const _termSelectTab=value=>selections.push(value);
+const _termActivateTab=(name,options)=>activations.push({name,options});
+const _termVisibilityKey=()=>'/workspace';
+const _termRememberVisibility=(key,shown)=>visibility.push({key,shown});
+const termToggleCollapse=()=>{classes.delete('term-collapsed');_termRememberVisibility(_termVisibilityKey(),true)};
+const termStartPeriodicRefresh=()=>{refreshes++};
+_termActivateObjectiveTaskTerminal(['uuid-first','uuid-current']);
+_termActivateObjectiveTaskTerminal(['uuid-first']);
+_termActivateObjectiveTaskTerminal(['missing']);
+_termActivateObjectiveTaskTerminal([]);
+_termActivateObjectiveTaskTerminal(['legacy-id']);
+process.stdout.write(JSON.stringify({activations,selections,visibility,refreshes,classes:[...classes]}));
+""")
+    assert result['activations'] == [
+        {'name':name,'options':{'openDocument':False}} for name in ['current','first','legacy']]
+    assert result['selections'] == [None, None, None]
+    assert result['visibility'] == [{'key':'/workspace','shown':True}] * 3
+    assert result['refreshes'] == 3
+    assert result['classes'] == ['term-open']

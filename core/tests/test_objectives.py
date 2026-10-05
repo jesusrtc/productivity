@@ -323,11 +323,22 @@ def test_terminal_task_drop_persists_full_name_and_keeps_session(client, monorep
         assert term._get_workspace_sessions(monorepo,'demo') == [expected]
         assert term._load_meta(monorepo)[saved['name']]['label'] == task['title']
         assert response.json()['terminal_links'][saved['session_id']]['task_id'] == task['id']
+        assert len(response.json()['terminal_links']) == 1
     before = objectives.load(monorepo,'demo')
     body['action']['task_id'] = 'missing'
     assert client.post('/api/objectives',json=body).status_code == 400
     assert objectives.load(monorepo,'demo') == before
     assert term._get_workspace_sessions(monorepo,'demo') == [expected]
+
+    other = objectives.mutate(monorepo,'demo',{'type':'create','name':'Another Objective'})['objectives'][-1]
+    other_task = apply(monorepo,other['id'],'task',title='Other task')['objectives'][-1]['tasks'][0]
+    body['action'].update(objective_id=other['id'],task_id=other_task['id'])
+    response = client.post('/api/objectives',json=body)
+    assert response.status_code == 200, response.text
+    assert list(response.json()['terminal_links']) == [saved['session_id']]
+    assert response.json()['terminal_links'][saved['session_id']]['objective_id'] == other['id']
+    assert response.json()['terminal_links'][saved['session_id']]['task_id'] == other_task['id']
+    assert term._get_workspace_sessions(monorepo,'demo') == [{**saved,'label':other_task['title']}]
 
 
 def test_existing_workspace_import_copies_references_not_assistant_content(monorepo, seed_workspace):

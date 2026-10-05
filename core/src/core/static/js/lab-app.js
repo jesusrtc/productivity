@@ -2916,11 +2916,19 @@
       : '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M2.5 6V4.5h5l2 2h8v9h-15V6Z"/></svg>';
   }
 
+  function _sidebarScopeActionsHtml(scope, baseRoot) {
+    const active = scope.path === _sidebarScopedRoot(baseRoot);
+    const switching = active && _sidebarScopeTransition?.baseRoot === baseRoot;
+    const scopeAttrs = `data-base-root="${escAttr(baseRoot)}" data-folder-path="${escAttr(scope.path === baseRoot ? '' : scope.path)}"`;
+    const label = _sidebarScopeDisplayLabel(scope);
+    const attachIcon = '<svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="2" y="3" width="16" height="14" rx="2"/><path d="m5 7 3 3-3 3m5 0h5"/></svg>';
+    return `<button type="button" class="sidebar-repo-history" ${scopeAttrs} onclick="sidebarOpenRepositoryHistory(this)" ${active && !switching ? '' : 'disabled'} aria-label="Open Git history for ${escAttr(label)}" title="${active ? 'Open Git history' : 'Select this folder to open Git history'}">${_SIDEBAR_GITHUB_ICON}</button><button type="button" class="sidebar-link-terminal" ${scopeAttrs} onclick="termToggleNewPicker(event)" ${active && !switching ? '' : 'disabled'} aria-label="Open a new terminal" title="${active ? 'Open a new terminal…' : 'Select this folder to open the terminal menu'}">${attachIcon}</button>`;
+  }
+
   function _sidebarFileScopeButtonsHtml(baseRoot) {
     if (window.LabObjectives?.active(baseRoot)) return window.LabObjectives.sidebarHtml(baseRoot);
     const activePath = _sidebarScopedRoot(baseRoot);
     const scopes = _sidebarVisibleScopes(baseRoot);
-    const attachIcon = '<svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="2" y="3" width="16" height="14" rx="2"/><path d="m5 7 3 3-3 3m5 0h5"/></svg>';
     return `<div class="sidebar-file-scope-buttons" role="group" aria-label="Active and pinned folders">${scopes.map(scope => {
       const active = scope.path === activePath;
       const switching = active && _sidebarScopeTransition?.baseRoot === baseRoot;
@@ -2929,7 +2937,7 @@
       const color = _sidebarValidColor(scope.color), label = _sidebarScopeDisplayLabel(scope);
       const kind = scope.kind === 'worktree' ? 'Worktree' : scope.kind === 'parent' ? 'Parent folder' : 'Main folder';
       const scopeAttrs = `data-base-root="${escAttr(baseRoot)}" data-folder-path="${escAttr(scope.path === baseRoot ? '' : scope.path)}"`;
-      return `<div class="sidebar-scope-chip${active ? ' active' : ''}${loading ? ' loading' : ''}" aria-busy="${loading}" data-scope-kind="${escAttr(scope.kind || 'folder')}" ${scopeAttrs} style="--sidebar-workspace-color:${escAttr(color)}"><button type="button" class="sidebar-scope-color" data-scope-path="${escAttr(scope.path)}" onclick="sidebarScopeColors(this)" aria-label="${kind} · Change color for ${escAttr(label)}" title="${kind} · Change color">${_sidebarScopeKindIcon(scope.kind)}</button><button type="button" class="sidebar-file-scope-button${active ? ' active' : ''}" ${scopeAttrs} draggable="true" onclick="sidebarActivateScope(this,event)" aria-pressed="${active ? 'true' : 'false'}" title="${escAttr(scope.path)} · Double-click to edit metadata" style="--sidebar-workspace-color:${escAttr(color)}"><span>${esc(label)}</span></button>${loading ? '<span class="sidebar-scope-spinner" role="status" aria-label="Loading folder"></span>' : ''}<span class="sidebar-scope-tag" title="${kind}">${scope.kind === 'worktree' ? 'Worktree' : scope.kind === 'parent' ? 'Parent' : 'Folder'}</span><button type="button" class="sidebar-repo-history" ${scopeAttrs} onclick="sidebarOpenRepositoryHistory(this)" ${active && !switching ? '' : 'disabled'} aria-label="Open Git history for ${escAttr(label)}" title="${active ? 'Open Git history' : 'Select this folder to open Git history'}">${_SIDEBAR_GITHUB_ICON}</button><button type="button" class="sidebar-link-terminal" ${scopeAttrs} onclick="termToggleNewPicker(event)" ${active && !switching ? '' : 'disabled'} aria-label="Open a new terminal" title="${active ? 'Open a new terminal…' : 'Select this folder to open the terminal menu'}">${attachIcon}</button><button type="button" class="sidebar-scope-pin${pinned ? ' pinned' : ''}" data-scope-path="${escAttr(scope.path)}" onclick="sidebarPinScope(this)" aria-label="${pinned ? 'Unpin' : 'Pin'} ${escAttr(label)}" aria-pressed="${pinned}" title="${pinned ? 'Unpin' : 'Pin'}">${_sidebarScopePinIcon()}</button></div>`;
+      return `<div class="sidebar-scope-chip${active ? ' active' : ''}${loading ? ' loading' : ''}" aria-busy="${loading}" data-scope-kind="${escAttr(scope.kind || 'folder')}" ${scopeAttrs} style="--sidebar-workspace-color:${escAttr(color)}"><button type="button" class="sidebar-scope-color" data-scope-path="${escAttr(scope.path)}" onclick="sidebarScopeColors(this)" aria-label="${kind} · Change color for ${escAttr(label)}" title="${kind} · Change color">${_sidebarScopeKindIcon(scope.kind)}</button><button type="button" class="sidebar-file-scope-button${active ? ' active' : ''}" ${scopeAttrs} draggable="true" onclick="sidebarActivateScope(this,event)" aria-pressed="${active ? 'true' : 'false'}" title="${escAttr(scope.path)} · Double-click to edit metadata" style="--sidebar-workspace-color:${escAttr(color)}"><span>${esc(label)}</span></button>${loading ? '<span class="sidebar-scope-spinner" role="status" aria-label="Loading folder"></span>' : ''}<span class="sidebar-scope-tag" title="${kind}">${scope.kind === 'worktree' ? 'Worktree' : scope.kind === 'parent' ? 'Parent' : 'Folder'}</span>${_sidebarScopeActionsHtml(scope, baseRoot)}<button type="button" class="sidebar-scope-pin${pinned ? ' pinned' : ''}" data-scope-path="${escAttr(scope.path)}" onclick="sidebarPinScope(this)" aria-label="${pinned ? 'Unpin' : 'Pin'} ${escAttr(label)}" aria-pressed="${pinned}" title="${pinned ? 'Unpin' : 'Pin'}">${_sidebarScopePinIcon()}</button></div>`;
     }).join('')}<button type="button" class="sidebar-scope-add" data-base-root="${escAttr(baseRoot)}" onclick="sidebarAddScope(this)" aria-label="Add project, worktree or folder" title="Add project, worktree or folder">+</button>${_sidebarScopeTransition?.baseRoot === baseRoot && _sidebarScopeTransition.error ? `<div class="sidebar-scope-load-error" role="alert"><span>${esc(_sidebarScopeTransition.error)}</span><button type="button" data-base-root="${escAttr(baseRoot)}" onclick="sidebarRetryScopeSwitch(this)">Retry</button></div>` : ''}</div>`;
   }
 
@@ -10624,6 +10632,7 @@
     // Startup reconciliation and file polls must not replace a newer
     // Objective library, task view or editor with the retired dashboard.
     if (window.LabObjectives?.ownsCenter(currentWorkspace.path)) return;
+    if (_contextSubView === 'files') return _refreshWorkspaceSidebar({preserveScroll, backgroundRefresh});
     if (!preserveScroll && !keepShell) window.AssistantView?.closeInlineDocument();
     const workspacePath = currentWorkspace.path;
     const sequence = ++_workspaceInfoSequence;
@@ -11300,6 +11309,18 @@
   }
 
   let _termTabActivationSeq = 0;
+
+  function _termActivateObjectiveTaskTerminal(identities) {
+    const linked = termSessions.filter(session => identities.includes(session.session_id || session.logical_name || session.name));
+    const session = linked.find(session => session.name === termCurrentSession) || linked[0];
+    if (!session) return;
+    document.body.classList.add('term-open');
+    if (document.body.classList.contains('term-collapsed')) termToggleCollapse();
+    else _termRememberVisibility(_termVisibilityKey(), true);
+    termStartPeriodicRefresh();
+    _termSelectTab(null);
+    return _termActivateTab(session.name, {openDocument:false});
+  }
 
   async function _termActivateTab(name, options = {}) {
     const request = ++_termTabActivationSeq;
@@ -20621,6 +20642,7 @@
       && !document.body.classList.contains('self-active') && !document.body.classList.contains('assistant-active')
       ? {workspace_id:currentWorkspace.name,vault:_workspaceVaultId(currentWorkspace),path:currentWorkspace.path} : null,
     scopeRoot: () => currentWorkspace ? _sidebarScopedRoot(currentWorkspace.path) : null,
+    scopeActions: row => _sidebarScopeActionsHtml(row, currentWorkspace.path),
     selectWorktree: row => {
       if(row.path!==currentWorkspace.path)_sidebarRememberScope({...row,projectPath:row.repo||row.path});
       return sidebarSelectScope({getAttribute:name => name==='data-base-root'
@@ -20629,7 +20651,8 @@
     addWorktree: button => sidebarAddScope(button),
     refreshSidebar: () => currentWorkspace?.is_workspace && _refreshWorkspaceSidebar({preserveScroll:true}),
     refreshTerminals: () => termRenderSessionList(),
-    prepareCenter: () => {
+    activateTaskTerminal: identities => _termActivateObjectiveTaskTerminal(identities),
+    prepareCenter: type => {
       window.AssistantView?.prepareExternalLink();
       window.LabScopeLinks?.closeExternal();
       _termCancelPendingLinkedFileOpen();
@@ -20639,7 +20662,7 @@
       _workspaceDocRoot=null;
       currentRepo=null;currentRepoInWorkspace=null;_repoFileRoot=null;
       if(currentWorkspace)setLastWorkspaceDoc(currentWorkspace.path,null);
-      _contextSubView='objectives';
+      _contextSubView=type==='files'?'files':'objectives';
       document.getElementById('diffTabs').style.display='none';document.body.classList.remove('has-diff-tabs');
       _sidebarApplyForView();
     },
