@@ -2061,7 +2061,8 @@
   .term-panel.term-sessions-full .term-sessions .sess .sess-label.custom { color: var(--text-primary); font-weight: 600; }
 
   /* The expanded switcher overlays the console, keeping its xterm grid stable. */
-  .term-session-switcher { --term-switcher-width: 62px; position: relative; flex: 0 0 62px; min-width: 0; z-index: 2; }
+  .term-panel:not(.term-sessions-horizontal) .term-stage { position: relative; padding-left: 62px; }
+  .term-session-switcher { --term-switcher-width: 62px; position: absolute; inset: 0 auto 0 0; width: var(--term-switcher-width); min-width: 0; z-index: 2; }
   .term-panel:not(.term-sessions-horizontal) .term-session-switcher .term-sessions { position: absolute; inset: 0 auto 0 0; width: var(--term-switcher-width); box-sizing: border-box; }
   .term-panel:not(.term-sessions-horizontal) .term-session-switcher.term-tabs-open { --term-switcher-width: var(--term-sessions-width, 220px); }
   .term-panel:not(.term-sessions-horizontal) .term-tabs-open .term-sessions { box-shadow: 10px 0 24px #0005; }

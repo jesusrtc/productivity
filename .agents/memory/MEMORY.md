@@ -1,5 +1,7 @@
 # Memory index
 
+- [Terminal hover owns the expanded area](terminal-hover-owns-expanded-area.md) — full-width hover containment, including right-edge and scrollbar clicks, with a stable compact layout slot.
+
 - [Shell DOM changes need a backend restart](shell-dom-changes-need-backend-restart.md) — fresh assets can accompany old HTML; verify the served DOM after restarting the exact server.
 
 - [Terminal tabs reveal on hover](terminal-tabs-reveal-on-hover.md) — compact icons and status dots, temporary resizable labels, and a stable console grid.
