@@ -1,6 +1,7 @@
-"""Explicit, reviewed cleanup of detached Lab terminals older than seven days."""
+"""Reviewed cleanup of inactive terminals and tasks completed over a day ago."""
 from __future__ import annotations
 
+from contextlib import nullcontext
 import hashlib
 import json
 import logging
@@ -14,12 +15,13 @@ from pydantic import BaseModel, Field
 
 from core import agent_activity, auth, document_terminals, fsguard
 from core.routes import term, ui
-from lab import paths, tmux_sockets
+from lab import objective_store, objectives, paths, tmux_sockets
 from lab.workspace_identity import operation_lease
 
 router = APIRouter()
 log = logging.getLogger(__name__)
 INACTIVE_SECONDS = 7 * 24 * 60 * 60
+COMPLETED_SECONDS = 24 * 60 * 60
 _LOCK = threading.RLock()
 
 
@@ -51,17 +53,37 @@ def _last_used(row: dict) -> int:
 
 def _eligible(row: dict, now: float) -> bool:
     logical = str(row.get("logical_name") or "")
+    completed = row.get('task_completed_at')
+    finished = isinstance(completed, (int, float)) and completed > 0 and completed < now - COMPLETED_SECONDS
+    if row.get('task_status') == 'done' and not finished:
+        return False
+    cutoff = COMPLETED_SECONDS if finished else INACTIVE_SECONDS
     return bool(row.get("activity_known") and row.get("tmux_id")
                 and row.get("created", 0) > 0 and not row.get("attached")
                 and row.get("workspace_id") and logical
                 and logical != "server" and not logical.startswith("server-")
-                and _last_used(row) < now - INACTIVE_SECONDS)
+                and not row.get('terminal_main')
+                and _last_used(row) < now - cutoff)
+
+
+def _objective_state(registry: dict, session_id: str | None) -> dict:
+    link = registry.get('terminal_links', {}).get(session_id, {})
+    state = {'terminal_main': link.get('main')}
+    owner = next((o for o in registry.get('objectives', []) if o['id'] == link.get('objective_id')), {})
+    task = next((t for p in owner.get('tasks', []) for t in [p, *p.get('children', [])]
+                 if t['id'] == link.get('task_id')), {})
+    if task:
+        state.update(task_id=task['id'], task_status=task.get('status', 'done' if task['done'] else 'todo'))
+    if task.get('done') and task.get('status', 'done') == 'done' and task.get('completed_at'):
+        state.update(task_completed_at=task['completed_at'], task_title=task['title'])
+        state['cleanup_reason'] = 'completed_task' if task['completed_at'] < time.time() - COMPLETED_SECONDS else 'inactive'
+    return state
 
 
 def _root_rows(root: Path, listing: list[dict], meta: dict, registered: set[str]) -> list[dict]:
     # Read-only discovery: opening the modal must not allocate identities or
     # prune runtime registries. Existing registries win over legacy recovery.
-    workspaces = {}
+    workspaces, objective_data = {}, {}
     rows = []
     documents = None
     for live in listing:
@@ -85,6 +107,11 @@ def _root_rows(root: Path, listing: list[dict], meta: dict, registered: set[str]
         saved = next((s for s in data.get("sessions", []) if isinstance(s, dict)
                       and s.get("name") == row.get("logical_name")), {})
         row["label"] = saved.get("label") or row.get("label") or row.get("logical_name")
+        if workspace not in objective_data:
+            objective_data[workspace] = objectives.load(root, workspace) if (
+                not workspace.startswith('__') and paths.workspace_file(root, workspace).is_file()) else {}
+        row['objective_terminal_id'] = saved.get('session_id') or row.get('session_id')
+        row.update(_objective_state(objective_data[workspace], row['objective_terminal_id']))
         if row.get("document_key"):
             if documents is None:
                 documents = document_terminals._load(root)
@@ -139,6 +166,7 @@ def _scan(active_root: Path) -> tuple[list[dict], list[str]]:
     for row in candidates:
         identity = [row[key] for key in ("vault", "workspace_id", "name", "tmux_socket",
                                         "tmux_id", "created", "pane_pid", "last_used")]
+        identity.extend([row.get('task_id'), row.get('task_completed_at')])
         row["id"] = hashlib.sha256(json.dumps(identity).encode()).hexdigest()
     return candidates, warnings
 
@@ -146,7 +174,7 @@ def _scan(active_root: Path) -> tuple[list[dict], list[str]]:
 def _public(row: dict) -> dict:
     return {key: row.get(key) for key in
             ("id", "name", "label", "logical_name", "vault", "workspace_id", "workspace_name",
-             "last_used", "tmux_socket")}
+             "last_used", "tmux_socket", "cleanup_reason", "task_title", "task_completed_at")}
 
 
 @router.get("/api/term/cleanup")
@@ -164,7 +192,7 @@ def candidates(request: Request) -> dict:
         group["sessions"].append(_public(row))
     for group in groups.values():
         group["sessions"].sort(key=lambda s: (s["last_used"], s["name"]))
-    return {"days": 7, "groups": sorted(groups.values(), key=lambda g: (g["name"].casefold(), g["vault"])),
+    return {"days": 7, "completed_task_hours": 24, "groups": sorted(groups.values(), key=lambda g: (g["name"].casefold(), g["vault"])),
             "warnings": warnings, "count": len(rows)}
 
 
@@ -238,7 +266,14 @@ def cleanup(body: CleanupRequest, request: Request) -> dict:
                 skipped.append({"id": candidate_id, "reason": "Session changed, became active, or is no longer available."})
                 continue
             try:
-                with operation_lease(row["root"], row["workspace_id"]), tmux_sockets.state_lock():
+                has_objectives = not row['workspace_id'].startswith('__') and paths.workspace_file(row['root'], row['workspace_id']).is_file()
+                objective_lock = objective_store.lock(paths.workspace_dir(row['root'], row['workspace_id'])) if has_objectives else nullcontext()
+                with operation_lease(row["root"], row["workspace_id"]), tmux_sockets.state_lock(), objective_lock:
+                    if has_objectives:
+                        fresh = _objective_state(objectives.load(row['root'], row['workspace_id'], _locked=True), row['objective_terminal_id'])
+                        if any(fresh.get(field) != row.get(field) for field in ('terminal_main', 'task_id', 'task_status', 'task_completed_at')):
+                            skipped.append({'id':candidate_id, 'reason':'Task status or main terminal assignment changed.'})
+                            continue
                     # Persist suppression before any kill, including recovery
                     # initiated by other open browsers. Purge only reviewed tabs.
                     roots = _roots(active_root) if row["workspace_id"] == term.SELF_WORKSPACE_ID else [{"path": row["root"]}]

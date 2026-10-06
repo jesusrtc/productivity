@@ -16,17 +16,21 @@ const o={id:'one',name:'One',tasks:[task('working','in_progress'),task('todo','t
 const sessions=['global','working','extra','grandchild','todo','done','unassigned'].map(name=>({name,session_id:name,logical_name:name}));
 const links={global:{objective_id:'one'},working:{objective_id:'one',task_id:'working'},todo:{objective_id:'one',task_id:'todo'},done:{objective_id:'one',task_id:'done'},extra:{objective_id:'one',view:'tasks'},grandchild:{objective_id:'one',view:'tasks'}};
 const registry={enabled:true,focused:['one'],objectives:[o],terminal_links:links};
-const data=()=>registry,active=()=>true,context=()=>({path:'/workspace'}),tasks=o=>o?.tasks||[],taskDisplayName=t=>t.title;
+const data=()=>registry,active=()=>true,context=()=>({workspace_id:'work',path:'/workspace'}),tasks=o=>o?.tasks||[],taskDisplayName=t=>t.title;
 const taskStatus=t=>t.status,taskIcon=()=>'',customTaskIcon=()=>'';
+let selected=null;const focusedTask=()=>o.tasks.find(t=>t.id===selected),objective=()=>o;
 const parents={extra:'working',grandchild:'extra'},bridge={parentTerminal:t=>sessions.find(s=>s.name===parents[t.name])};
 ''' + helpers + r'''
 const original=JSON.stringify(sessions),filtered=terminalSessions(sessions),all=terminalSessions(sessions,{wipOnly:false});
+selected='todo';const withTodo=terminalSessions(sessions);selected='done';const withDone=terminalSessions(sessions);selected=null;
 links.working.task_id='done';const after=terminalSessions(sessions);
-console.log(JSON.stringify({filtered:filtered.map(s=>s.task_id||s.name),all:all.map(s=>s.task_id||s.name),after:after.map(s=>s.task_id||s.name),unchanged:original===JSON.stringify(sessions)}));
+console.log(JSON.stringify({withTodo:withTodo.map(s=>s.task_id||s.name),withDone:withDone.map(s=>s.task_id||s.name),filtered:filtered.map(s=>s.task_id||s.name),all:all.map(s=>s.task_id||s.name),after:after.map(s=>s.task_id||s.name),unchanged:original===JSON.stringify(sessions)}));
 ''')
-    assert result['filtered'] == ['working', 'recommended', 'extra', 'grandchild']
-    assert set(result['all']) == {'global','working','todo','done','recommended','extra','grandchild','unassigned'}
-    assert result['after'] == ['working', 'recommended']  # WIP primary is now recommended.
+    assert result['filtered'] == ['workflow-terminal:work:main', 'global', 'working', 'recommended', 'extra', 'grandchild']
+    assert set(result['all']) == {'workflow-terminal:work:main','global','working','todo','done','recommended','extra','grandchild','unassigned'}
+    assert result['withTodo'] == ['workflow-terminal:work:main', 'global', 'working', 'todo', 'recommended', 'extra', 'grandchild']
+    assert result['withDone'] == ['workflow-terminal:work:main', 'global', 'working', 'done', 'recommended', 'extra', 'grandchild']
+    assert result['after'] == ['workflow-terminal:work:main', 'global', 'working', 'recommended']  # WIP primary is now recommended.
     assert result['unchanged']
 
 
@@ -70,6 +74,7 @@ const reply=(request,path)=>{if(request.current())request.update({entries:[{path
  assert(document.querySelector('.objective-worktrees').hidden,'Worktrees starts folded');
  assert(document.querySelector('.objective-worktree-navigation').nextElementSibling.classList.contains('objective-sidebar-tasks'),'Worktrees above Tasks');
  assert(document.querySelectorAll('.objective-worktrees [data-select-worktree]').length===3,'Root, Objective and Objective worktree tracked');
+ assert(!document.querySelector('.objective-worktrees h4'),'clean worktree buttons without assignment headings');
  click('.objective-sidebar-task [data-open-task="parent"]');await tick();
  assert(document.querySelector('.objective-sidebar-task-title').textContent==='Root + topic','task display uses assigned scope names');
  assert(document.querySelector('.objective-sidebar-task-title i').style.background===''&&document.querySelector('.objective-task-worktree-name').style.getPropertyValue('--worktree-color')==='#8b949e','scope colors kept');

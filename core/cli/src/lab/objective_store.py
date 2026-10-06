@@ -9,6 +9,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from copy import deepcopy
 import fcntl
+import math
 from pathlib import Path
 import re
 
@@ -105,9 +106,12 @@ def _validate(value, target):
             task.setdefault('children', [])
             task.setdefault('done', False)
             if 'status' in task:
-                if not isinstance(task['status'], str) or task['status'] not in {'todo', 'in_progress', 'done'}:
-                    raise ValueError(f'{target}: Task status must be todo, in_progress or done')
+                if not isinstance(task['status'], str) or task['status'] not in {'todo', 'in_progress', 'done', 'paused', 'wont_do'}:
+                    raise ValueError(f'{target}: Task status must be todo, in_progress, done, paused or wont_do')
                 task['done'] = task['status'] == 'done'
+            if 'completed_at' in task and (type(task['completed_at']) not in {int, float}
+                    or not math.isfinite(task['completed_at']) or task['completed_at'] <= 0):
+                raise ValueError(f'{target}: Task completion time must be a positive timestamp')
     return value
 
 
@@ -196,6 +200,26 @@ def read(folder):
     links = data.setdefault('terminal_links', {})
     if not isinstance(links, dict) or any(not isinstance(link, dict) for link in links.values()):
         raise ValueError('Objective terminal links must be an object')
+    # Adopt one legacy whole-Objective terminal as its main. Other saved
+    # sessions remain usable; normalizing a read never writes or kills them.
+    for oid in ordered:
+        candidates = [(name, link) for name, link in links.items() if link.get('objective_id') == oid
+                      and not any(link.get(field) for field in ('task_id', 'resource_id', 'file', 'folder', 'view'))]
+        primary = next((name for name, link in candidates if link.get('main') == 'objective'),
+                       candidates[0][0] if candidates else None)
+        for name, link in candidates:
+            if name == primary:
+                link['main'] = 'objective'
+            else:
+                link.pop('main', None)
+                link['view'] = 'tasks'
+    workflow_main = False
+    for link in links.values():
+        if link.get('main') == 'workflow':
+            if workflow_main:
+                link.clear()
+                link['view'] = 'workflow'
+            workflow_main = True
     return data
 
 

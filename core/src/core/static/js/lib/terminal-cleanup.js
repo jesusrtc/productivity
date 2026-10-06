@@ -33,7 +33,7 @@
     if (container) return;
     container = host;
     onBusy = busyChanged;
-    const description = element('p', 'These are the sessions cleanup would kill: no recorded activity or access for more than 7 days. Connected terminals, working or waiting agents, managed servers, and unsent document drafts are excluded. Saved agent conversations remain.');
+    const description = element('p', 'Cleanup can delete task terminals 24 hours after completion, with no activity or access in the last 24 hours. Other terminals qualify after 7 inactive days. Fixed main terminals, connected terminals, working or waiting agents, managed servers, and unsent document drafts are excluded. Saved agent conversations remain.');
     notice = element('div', '', 'resource-notice');
     notice.setAttribute('role', 'status');
     notice.setAttribute('aria-live', 'polite');
@@ -101,6 +101,7 @@
       const age = Math.floor((Date.now() / 1000 - session.last_used) / 86400);
       const activity = element('td', new Date(session.last_used * 1000).toLocaleString());
       activity.append(element('small', `Inactive ${age} days`));
+      if(session.cleanup_reason==='completed_task')activity.append(element('small', 'Task completed '+new Date(session.task_completed_at*1000).toLocaleString()));
       const actions = element('td');
       const stop = button('Kill', () => kill([session]), 'resource-danger');
       stop.disabled = busy;
@@ -111,7 +112,7 @@
     if (!candidates.length) {
       const row = element('tr');
       const empty = element('td', busy ? 'Checking inactive sessions…'
-        : 'No inactive sessions older than 7 days' + (selected === 'all' ? '.' : ' in this workspace.'));
+        : 'No completed or inactive sessions eligible for cleanup' + (selected === 'all' ? '.' : ' in this workspace.'));
       empty.colSpan = 4; row.append(empty); list.append(row);
     }
     allButton.textContent = `Kill ${candidates.length} inactive`;

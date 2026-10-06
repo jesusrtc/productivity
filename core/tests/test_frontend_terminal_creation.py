@@ -381,3 +381,47 @@ assert.equal(await attaching, true, 'a confirmed row must remain attachable acro
 assert.ok(_termCanAttach(active.workspace, 'new'));
 assert.deepEqual(alerts, []);
 ''', workspace=workspace)
+
+
+@pytest.mark.parametrize('target', ['selected', 'other-task', 'other-objective'])
+def test_task_creation_attaches_only_if_its_task_is_still_selected(target):
+    run(r'''
+const gate=deferred(), links=[];
+launchAssociation={context:{workspace_id:'demo',vault:'ssd',path:'/workspace'},objective_id:'one',task_id:'task'};
+let current={id:'one',task:{id:'task'}};
+window.LabObjectives={associateNewTerminal:async(session,association)=>links.push({session,association}),terminalLaunchContext:()=>current};
+postResult=gate.promise;
+const pending=termSpawnSession('terminal',{startFresh:true});await tick();
+if(options.target==='other-task')current={id:'one',task:{id:'other'}};
+if(options.target==='other-objective')current={id:'two',task:{id:'task'}};
+gate.resolve(response(created));await tick();
+assert.equal(links.length,1,'creation retains its original task association');
+assert.deepEqual(attachments,options.target==='selected'?[['new','demo']]:[],'late creation must not steal another selected task');
+gets[0].resolve(response([old,created]));await pending;
+assert.equal(selected,options.target==='selected'?'new':'old');
+assert.ok(termSessions.some(s=>s.name==='new'),'background-created terminal remains available');
+assert.deepEqual(alerts,[]);
+''', target=target)
+
+
+@pytest.mark.parametrize('role', ['workflow', 'objective'])
+@pytest.mark.parametrize('target', ['selected', 'other-task', 'other-objective'])
+def test_main_creation_keeps_a_newer_task_selection(role, target):
+    run(r'''
+const gate=deferred(),links=[];
+launchAssociation={context:{workspace_id:'demo',vault:'ssd',path:'/workspace'},main:options.role,
+ ...(options.role==='objective'?{objective_id:'one'}:{})};
+let current={id:'one',task:null};
+window.LabObjectives={associateNewTerminal:async(s,a)=>links.push(a),terminalLaunchContext:()=>current,
+ selectObjective:id=>{current={id,task:null}}};
+postResult=gate.promise;
+const pending=termSpawnSession('terminal',{startFresh:true});await tick();
+if(options.target==='other-task')current={id:'one',task:{id:'newer-task'}};
+if(options.target==='other-objective')current={id:'two',task:null};
+gate.resolve(response(created));await tick();
+assert.equal(links[0].main,options.role);
+assert.deepEqual(attachments,options.target==='selected'?[['new','demo']]:[]);
+gets[0].resolve(response([old,created]));await pending;
+assert.ok(termSessions.some(s=>s.name==='new'));
+assert.deepEqual(alerts,[]);
+''', role=role, target=target)

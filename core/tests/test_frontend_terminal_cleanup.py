@@ -58,7 +58,7 @@ function walk(node) { return [node,...node.children.flatMap(walk)]; }
   const tabs=walk(dialog).filter(n=>n.role==='tab');
   if(tabs.length!==4||tabs.filter(n=>n['aria-selected']==='true').length!==1)throw Error('Workspace tabs');
   await tabs.find(n=>n.textContent.startsWith('Empty')).click();
-  if(!walk(dialog).some(n=>n.textContent==='No inactive sessions older than 7 days in this workspace.'))throw Error('Empty workspace');
+  if(!walk(dialog).some(n=>n.textContent==='No completed or inactive sessions eligible for cleanup in this workspace.'))throw Error('Empty workspace');
   if(!walk(dialog).find(n=>n.textContent==='Kill 0 inactive').disabled)throw Error('Empty cleanup disabled');
   await walk(dialog).find(n=>n.role==='tab'&&n.textContent.startsWith('Demo')).click();
   if(ACTION==='other'){

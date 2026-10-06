@@ -32,9 +32,10 @@
     return [
       ...(objective.task?[{name:'Current task (recommended)',description:objective.task.title,kind:'Task',
         scope:scope(objective.path,objective.name),association:{...association,task_id:objective.task.id,rename_to_task:true}}]:[]),
-      {...rows[0], name: 'Current workflow', description: label, kind: 'Workflow'},
+      {...rows[0], name: 'Current workflow', description: label+' · Main terminal', kind: 'Workflow',
+        association:{context:objective.context,main:'workflow'}},
       {name: 'Current Objective', description: objective.name, kind: 'Objective',
-        scope: scope(objective.path, objective.name), association},
+        scope: scope(objective.path, objective.name), association:{...association,main:'objective'}},
       {name: 'Specific worktree', description: 'Choose a worktree in ' + objective.name,
         kind: 'Worktree', children: worktrees},
     ];

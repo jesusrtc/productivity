@@ -66,14 +66,14 @@ console.log(JSON.stringify({launch,workflow,objectiveChoice,worktrees:choices[2]
 ''')
     assert [row['scope']['root'] for row in result['worktrees']] == ['/trees/feature', '/project']
     assert result['workflow']['scope']['root'] == '/workspace'
-    assert 'association' not in result['workflow']
+    assert result['workflow']['association'] == {'context': result['launch']['context'], 'main': 'workflow'}
     assert result['objectiveChoice']['scope']['root'] == '/workspace/objectives/one'
     assert result['worktrees'][0]['scope']['worktree'] == '/trees/feature'
     assert result['worktrees'][0]['scope']['project_root'] == '/repo'
     assert result['worktrees'][1]['scope']['worktree'] is None
     assert result['launch']['context']['vault'] == 'one'
     assert result['mutations'] == [
-        {'action': {'type': 'terminal', 'session_id': 'objective-terminal', 'objective_id': 'one'},
+        {'action': {'type': 'terminal', 'session_id': 'objective-terminal', 'objective_id': 'one', 'main': 'objective'},
          'scope': {'workspace_id': 'work', 'vault': 'one', 'path': '/workspace'}},
         {'action': {'type': 'terminal', 'session_id': 'worktree-terminal', 'objective_id': 'one',
                     'folder': {'root': '/trees/feature', 'path': '.'}},
@@ -164,7 +164,7 @@ const open=()=>termSpawnSession('terminal',{startFresh:true});
  assert([...q('.term-folder-list').querySelectorAll('strong')].map(n=>n.textContent).join('|')==='Current workflow|Current Objective|Specific worktree','three launch categories');
  const launchDialog=q('[role=dialog]'),launchRect=launchDialog.getBoundingClientRect();
  assert(launchRect.left>=0&&launchRect.right<=innerWidth+1&&launchDialog.scrollWidth<=launchDialog.clientWidth+1,'Objective chooser fits viewport');
- pick(0);await pending;assert(posts.at(-1).cwd==='/workspace'&&!associations.length,'workflow stays at its root without an Objective association');
+ pick(0);await pending;assert(posts.at(-1).cwd==='/workspace'&&associations.at(-1).association.main==='workflow'&&!associations.at(-1).association.objective_id,'workflow main stays at its root without an Objective association');
  pending=open();await tick();pick(1);await pending;
  assert(posts.at(-1).cwd==='/workspace/objectives/one'&&associations.at(-1).association.objective_id==='objective-one'&&!associations.at(-1).association.folder,'Objective launch saves a whole-Objective assignment');
  pending=open();await tick();const before=posts.length;pick(2);

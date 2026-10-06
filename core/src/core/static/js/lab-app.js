@@ -11370,7 +11370,7 @@
   let _termTabActivationSeq = 0;
 
   function _termActivateObjectiveTerminal(identities) {
-    const linked = termSessions.filter(session => identities.includes(session.session_id || session.logical_name || session.name));
+    const linked = termSessions.filter(session => [session.session_id, session.logical_name, session.name].some(identity => identity && identities.includes(identity)));
     const session = linked.find(session => session.name === termCurrentSession) || linked[0];
     if (!session) return;
     document.body.classList.add('term-open');
@@ -11705,7 +11705,18 @@
     try { localStorage.setItem(_TERM_WIP_ONLY_KEY, String(termWipOnly)); } catch {}
     const checkbox = document.getElementById('termWipOnly');
     if (checkbox) checkbox.checked = termWipOnly;
+    _termUpdateAllButton();
     termRenderSessionList();
+  }
+
+  function _termUpdateAllButton() {
+    const button=document.getElementById('termShowAllBtn');
+    if(button){button.textContent=termWipOnly?'Show all terminals':'Show WIP + selected task terminals';button.setAttribute('aria-pressed',String(!termWipOnly));}
+  }
+
+  function termToggleAllTerminals() {
+    termSetWipOnly(!termWipOnly);
+    document.getElementById('termNewPicker')?.classList.remove('open');
   }
 
   function termSetRecentEnabled(enabled) {
@@ -13560,6 +13571,7 @@
 
   function _termApplyNewOptions(picker, scope = _termGroupScopeKey()) {
     if (!picker) return;
+    _termUpdateAllButton();
     const enabled = new Set(_termReadNewOptions(scope));
     let visible = 0;
     picker.querySelectorAll('[data-term-option]').forEach(button => {
@@ -13576,6 +13588,9 @@
 
   function termAssignTabGroup(sessionName, groupId) {
     const names = Array.isArray(sessionName) ? sessionName : [sessionName];
+    if(names.some(name=>window.LabObjectives?.terminalMain?.(termSessions.find(s=>s.name===name)))){
+      explorerToast('Main terminals stay fixed above their task tabs.');return;
+    }
     const logicals = new Set(names.map(_termSessionLogical).filter(Boolean));
     if (!logicals.size) return;
     const state = _termReadGroupState();
@@ -13656,6 +13671,9 @@
     const membership = state.tabMembership[logical];
     const horizontal = termSessionOrientation === 'horizontal';
     const session = (termSessions || []).find(item => item.name === sessionName);
+    if(window.LabObjectives?.terminalMain?.(session)){
+      _termShowGroupMenu(anchor,'<div class="term-group-menu-title">Fixed main terminal</div><button role="menuitem" class="term-group-menu-row" data-action="all">'+(termWipOnly?'Show all terminals':'Show WIP + selected task terminals')+'</button>',()=>{termCloseGroupMenu();termToggleAllTerminals();});return;
+    }
     if (session?.document_source) {
       _termShowGroupMenu(anchor, '<button role="menuitem" class="term-group-menu-row" data-action="open">Open document</button><button role="menuitem" class="term-group-menu-row" data-action="unlink">Unlink from document…</button>', action => {
         termCloseGroupMenu();
@@ -13780,6 +13798,9 @@
     const scope = _termSessionsKey(workspaceId, vaultId);
     if (!workspaceId || !names.length || _termCloseTabsPending.has(scope)) return false;
     names = [...new Set(names)];
+    if(names.some(name=>window.LabObjectives?.terminalMain?.(termSessions.find(s=>s.name===name)))){
+      explorerToast('Workflow and Objective main terminals stay fixed.');return false;
+    }
     if (names.some(name => termSessions.find(row => row.name === name)?.document_source)) {
       explorerToast('Document terminals are shared. Use Unlink from document to choose where to keep one.');
       return false;
@@ -14123,6 +14144,7 @@
   async function termRenameSession(name) {
     const session = _termSessionMeta(name);
     if (!session) return;
+    if(window.LabObjectives?.terminalMain?.(session)){explorerToast('Main terminal names follow their workflow or Objective.');return;}
     if (session.document_source) {
       const label = prompt('Rename terminal tab', session.label || session.document_source.logical_name);
       if (label !== null) await _termPatchLinks(session, {label:label.trim() || null}).catch(error => explorerToast(error.message,true));
@@ -14351,9 +14373,10 @@
   }
 
   function _termSessionPillHtml(s, index) {
+    const main = window.LabObjectives?.terminalMain?.(s);
     const objectiveTask = window.LabObjectives?.taskForTerminal(s);
     const taskOwn=objectiveTask&&!objectiveTask.inherited;
-    const display = taskOwn?objectiveTask.title:_termSessionDisplay(s);
+    const display = main?.label || (taskOwn?objectiveTask.title:_termSessionDisplay(s));
     // Compact/full visibility is CSS-controlled so switching detail never
     // rebuilds or reconnects a terminal. The active header always carries
     // the complete identity, even in compact mode.
@@ -14371,17 +14394,17 @@
     const context = _termSessionContext(s);
     const summary = _termSessionSummary(s);
     const ariaSummary = summary.length > 160 ? `${summary.slice(0, 157).trim()}...` : summary;
-    const ariaLabel = `${display} · ${visual.badge}${objectiveTask ? (objectiveTask.inherited?' · Parent task context: ':' · Task: ')+objectiveTask.title : ''}${working ? ' · Working' : ''}${ready ? ` · ${completion.label}` : ''}${ariaSummary ? ` · ${context.label}: ${ariaSummary}` : ''}`;
+    const ariaLabel = `${display} · ${main ? main.kind+' main terminal · Fixed' : visual.badge}${objectiveTask ? (objectiveTask.inherited?' · Parent task context: ':' · Task: ')+objectiveTask.title : ''}${working ? ' · Working' : ''}${ready ? ` · ${completion.label}` : ''}${ariaSummary ? ` · ${context.label}: ${ariaSummary}` : ''}`;
     const tooltip = _termSessionTooltipPayload(s, [statusTitle, completion?.label, recentTitle].filter(Boolean).join(' · '));
     const linked = String(s.linked_file && s.linked_file.path || '').trim();
     const scope = s.linked_scope;
     const scopeAttrs = scope ? ` style="--term-scope-color:${termSessEsc(_termScopeColor(scope))}" data-linked-scope="${termSessEsc(scope.root)}"` : '';
-    return `<span${scopeAttrs} class="sess ${visual.kind}${taskOwn?' objective-task-terminal':''}${active}${recent}${dead}" role="tab" aria-label="${termSessEsc(ariaLabel)}" aria-selected="${active ? 'true' : 'false'}" tabindex="${active ? '0' : '-1'}" draggable="true" data-order-token="${termSessEsc(`s:${logical}`)}" data-name="${termSessEsc(s.name)}" data-logical="${termSessEsc(logical)}" data-tooltip="${termSessEsc(tooltip)}">
-      ${taskOwn?`<span class="sess-task-status objective-task-status-icon" data-task-status="${objectiveTask.status}" aria-hidden="true">${{done:'✅',in_progress:'🟡',todo:'⬜'}[objectiveTask.status]||'⬜'}</span>`:''}
-      ${taskOwn&&!objectiveTask.assetIcon?'':`<span class="sess-icon" aria-hidden="true"${objectiveTask ? ' title="'+termSessEsc(objectiveTask.title)+'"' : ''}>${taskOwn?objectiveTask.assetIcon:objectiveTask?.icon || visual.icon}</span>`}
-      <span class="sess-order" aria-hidden="true">${index + 1}</span>
-      ${scope?.worktree && !linked ? '' : `<span class="sess-label${s.label ? ' custom' : ''}">${termSessEsc(display)}</span>`}
-      ${_termSessionAssociationHtml(s)}
+    return `<span${scopeAttrs} class="sess ${visual.kind}${main?' term-main-terminal':''}${taskOwn?' objective-task-terminal':''}${active}${recent}${dead}" role="tab" aria-label="${termSessEsc(ariaLabel)}" aria-selected="${active ? 'true' : 'false'}" tabindex="${active ? '0' : '-1'}" ${main?`draggable="false" data-terminal-main="${main.kind}" title="${termSessEsc(main.kind+' main terminal · Fixed')}"`:`draggable="true" data-order-token="${termSessEsc(`s:${logical}`)}"`} data-name="${termSessEsc(s.name)}" data-logical="${termSessEsc(logical)}" data-tooltip="${termSessEsc(tooltip)}">
+      ${taskOwn?`<span class="sess-task-status objective-task-status-icon" data-task-status="${objectiveTask.status}" aria-hidden="true">${{done:'✅',in_progress:'🟡',todo:'⬜',paused:'⏸',wont_do:'🚫'}[objectiveTask.status]||'⬜'}</span>`:''}
+      ${taskOwn&&!objectiveTask.assetIcon?'':`<span class="sess-icon" aria-hidden="true"${objectiveTask ? ' title="'+termSessEsc(objectiveTask.title)+'"' : ''}>${main?.icon || (taskOwn?objectiveTask.assetIcon:objectiveTask?.icon || visual.icon)}</span>`}
+      ${main?'':`<span class="sess-order" aria-hidden="true">${index + 1}</span>`}
+      ${!main && scope?.worktree && !linked ? '' : `<span class="sess-label${s.label ? ' custom' : ''}">${termSessEsc(display)}</span>`}
+      ${main?'':_termSessionAssociationHtml(s)}
       ${working ? '<span class="sess-activity sess-working" aria-hidden="true"></span>' : ''}
       ${ready ? '<span class="sess-activity sess-completion" role="button" tabindex="0" aria-label="Mark completed terminal work as reviewed" title="Click to mark completed work as reviewed"></span>' : ''}
       ${linked ? `<span class="sess-link" aria-hidden="true">&#x21C4;</span>` : ''}
@@ -14405,8 +14428,9 @@
   }
 
   function _termTaskPlaceholderHtml(session) {
+    const main=window.LabObjectives?.terminalMain?.(session);
     const task=window.LabObjectives?.taskForTerminal(session),status=task?.status||'todo';
-    return `<button type="button" class="sess term-task-placeholder${task?' objective-task-terminal':''}" role="button" data-open-task-terminal="${termSessEsc(session.task_id||'')}" data-terminal-objective="${termSessEsc(session.objective_id)}" title="Open ${termSessEsc(session.label)} terminal · One primary terminal per ${task?'task':'Objective'} (recommended)">${!task||task.assetIcon?`<span class="sess-icon" aria-hidden="true">${task?.assetIcon||'▣'}</span>`:''}${task?`<span class="sess-task-status objective-task-status-icon" data-task-status="${status}" aria-hidden="true">${{done:'✅',in_progress:'🟡',todo:'⬜'}[status]}</span>`:''}<span class="sess-label">${termSessEsc(session.label)}</span><span class="term-task-create" aria-hidden="true">＋</span></button>`;
+    return `<button type="button" class="sess term-task-placeholder${main?' term-main-terminal':''}${task?' objective-task-terminal':''}" role="button" ${main?`data-terminal-main="${main.kind}"`:''} data-open-task-terminal="${termSessEsc(session.task_id||'')}" data-terminal-objective="${termSessEsc(session.objective_id||'')}" title="Open ${termSessEsc(main?.label||session.label)} terminal · ${main?'Fixed '+main.kind+' main terminal':'One primary terminal per task (recommended)'}">${!task||task.assetIcon?`<span class="sess-icon" aria-hidden="true">${main?.icon||task?.assetIcon||'▣'}</span>`:''}${task?`<span class="sess-task-status objective-task-status-icon" data-task-status="${status}" aria-hidden="true">${{done:'✅',in_progress:'🟡',todo:'⬜',paused:'⏸',wont_do:'🚫'}[status]}</span>`:''}<span class="sess-label">${termSessEsc(main?.label||session.label)}</span><span class="term-task-create" aria-hidden="true">＋</span></button>`;
   }
 
   function termRenderSessionList() {
@@ -14507,7 +14531,7 @@
     if (borrowed.length) html += '<div class="term-document-section"><span class="term-document-section-label" title="Shared through linked documents">Document terminals</span>' + borrowed.map(row => subtabPill(row.session,row.index)).join('') + '</div>';
     html += _termNewButtonHtml();
     html = window.LabObjectives?.terminalHtml(viewSessions, _termSubtabRenderer(groupState, viewSessions, pill), _termNewButtonHtml(),
-      {arrange:sessions => _termArrangeSubtabRows(sessions, groupState)}) ?? html;
+      {arrange:sessions => _termArrangeSubtabRows(sessions, groupState),showAll:!termWipOnly}) ?? html;
     // Unchanged polls must not recreate every tab or dismiss its tooltip.
     if (el._labTabsHtml === html) return;
     el._labTabsHtml = html;
@@ -14524,7 +14548,9 @@
     });
     el.querySelectorAll('.sess').forEach(node => {
       if(node.hasAttribute('data-open-task-terminal')) {
-        node.addEventListener('click',()=>void window.LabObjectives.openTaskTerminal(node.dataset.openTaskTerminal||null,node.dataset.terminalObjective));
+        node.addEventListener('click',()=>void (node.dataset.terminalMain
+          ?window.LabObjectives.openMainTerminal(node.dataset.terminalMain,node.dataset.terminalObjective)
+          :window.LabObjectives.openTaskTerminal(node.dataset.openTaskTerminal||null,node.dataset.terminalObjective)));
         return;
       }
       const completionDot = node.querySelector('.sess-completion');
@@ -14607,6 +14633,8 @@
     if (!order.includes(srcToken) || srcToken === dstToken) return null;
     if (dstToken && !order.includes(dstToken)) return null;
     const source = srcToken.slice(2), destination = dstToken?.startsWith('s:') ? dstToken.slice(2) : null;
+    if ([source, destination].some(logical => logical && window.LabObjectives?.terminalMain?.(
+      termSessions.find(session => session.logical_name === logical)))) return null;
     const parents=_termSubtabParents(next);
     const descendants = logical => {
       const all = new Set([logical]);
@@ -14737,6 +14765,7 @@
       event.preventDefault();
       if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
       if (event.target.closest('.term-drop-preview')) return;
+      if(event.target.closest('[data-terminal-main]')){_termClearDropPreview();return;}
       const item = event.target.closest('[data-order-token]');
       const groupNode = event.target.closest('.term-tab-group');
       const groupId = groupNode?.querySelector('[data-tab-group]')?.dataset.tabGroup || '';
@@ -15919,9 +15948,15 @@
     if (!current() || choice === null) return null;
     if(choice.association&&!choice.association.folder&&!choice.association.view) {
       const existing=window.LabObjectives?.findTaskTerminal?.(termSessions,choice.association);
-      if(existing){await window.LabObjectives.openTaskTerminal(choice.association.task_id||null,choice.association.objective_id);return existing;}
+      if(existing){
+        if(choice.association.main)await window.LabObjectives.openMainTerminal(choice.association.main,choice.association.objective_id);
+        else await window.LabObjectives.openTaskTerminal(choice.association.task_id||null,choice.association.objective_id);
+        return existing;
+      }
     }
     const scope = choice.scope;
+    if(choice.association?.main==='objective')window.LabObjectives?.selectObjective?.(choice.association.objective_id,{activateTerminal:false});
+    const mainSelection=choice.association?.main?window.LabObjectives?.terminalLaunchContext?.():null;
     termSetStatus('idle', kind === 'claude' ? `creating ${agent || 'claude'}…` : 'creating terminal…');
     try {
       const r = await fetch('/api/term/sessions', {
@@ -15968,7 +16003,13 @@
         termSessions = [{...created, workspace_id: created.workspace_id || workspaceId}, ...termSessions];
       }
       _termSessionsCache.set(sessionCacheKey, termSessions);
-      termAttach(created.name, workspaceId);
+      const taskTarget = choice.association?.task_id;
+      const selection = taskTarget || choice.association?.main ? window.LabObjectives?.terminalLaunchContext?.() : null;
+      const selected = taskTarget ? selection?.id === choice.association.objective_id && selection?.task?.id === taskTarget
+        : !choice.association?.main || selection?.id === mainSelection?.id && selection?.task?.id === mainSelection?.task?.id;
+      if (selected) {
+        termAttach(created.name, workspaceId);
+      }
       // Framework pseudo-workspaces use the workspace-id-aware helper.
       if (workspaceId === CEREBRO_WORKSPACE_ID || workspaceId === SELF_WORKSPACE_ID || workspaceId === ASSISTANT_WORKSPACE_ID) {
         await termRefreshSessionsByWorkspaceId(workspaceId, created);
@@ -15990,6 +16031,7 @@
     const workspaceId = _termActiveWorkspaceId();
     const vaultId = typeof _termVaultId === 'function' ? _termVaultId() : null;
     const session = (termSessions || []).find(s => s && s.name === termCurrentSession);
+    if(window.LabObjectives?.terminalMain?.(session)){explorerToast('Workflow and Objective main terminals stay fixed.');return;}
     const isAttached = session && session.kind === 'attached';
     const question = isAttached
       ? 'Detach ' + (session.logical_name || termCurrentSession) + ' from Lab? The original tmux session will keep running.'
@@ -20953,13 +20995,17 @@
     refreshTerminals: () => termRenderSessionList(),
     activateLinkedTerminal: identities => _termActivateObjectiveTerminal(identities),
     sessions:()=>termSessions,
+    workflowName:()=>_workspaceDisplayName(currentWorkspace),
+    createWorkflowTerminal:launch=>termSpawnSession('terminal',{startFresh:true,launchChoice:{
+      scope:{base_root:launch.context.path,project_root:launch.context.path,root:launch.context.path,label:_workspaceDisplayName(currentWorkspace),color:'#8b949e',config_scope:_sidebarFileConfigScope},
+      association:{context:launch.context,main:'workflow'}}}),
     parentTerminal:session=>{
       const parent=_termSubtabParents(_termReadGroupState(),termSessions)[session.logical_name];
       return termSessions.find(item=>item.logical_name===parent);
     },
     createTaskTerminal:(launch,task)=>termSpawnSession('terminal',{startFresh:true,launchChoice:{
       scope:{base_root:launch.context.path,project_root:launch.context.path,root:launch.path,label:launch.name,color:'#8b949e',config_scope:_sidebarFileConfigScope},
-      association:{context:launch.context,objective_id:launch.id,...(task?{task_id:task.id,rename_to_task:true}:{})}}}),
+      association:{context:launch.context,objective_id:launch.id,...(task?{task_id:task.id,rename_to_task:true}:{main:'objective'})}}}),
     prepareCenter: type => {
       window.AssistantView?.prepareExternalLink();
       window.LabScopeLinks?.closeExternal();

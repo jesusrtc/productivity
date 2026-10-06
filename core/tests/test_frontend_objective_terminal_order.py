@@ -22,7 +22,7 @@ const first={id:'one',name:'One',color:'#58a6ff',worktrees:[{id:'a',path:'/a',re
   {id:'parent',title:'Parent',children:[{id:'child-one',title:'First child',children:[]},{id:'child-two',title:'Second child',children:[]}]},
   {id:'next',title:'Next task',children:[]}]};
 const second={id:'two',name:'Two',color:'#bc8cff',worktrees:[{path:'/two',label:'Two folder'}],tasks:[{id:'other',title:'Other task',children:[]}]};
-const registry={enabled:true,objectives:[first,second,{id:'parked',tasks:[],worktrees:[]}],focused:['one','two'],terminal_links:{}};
+const registry={enabled:true,objectives:[first,second,{id:'parked',name:'Parked',tasks:[],worktrees:[]}],focused:['one','two'],terminal_links:{}};
 let current=first;
 const context=()=>({path:'/workspace'}),active=()=>registry.enabled,data=()=>registry,objective=()=>current;
 const tasks=o=>o?.tasks.flatMap(t=>[t,...t.children])||[],esc=value=>String(value),taskIcon=()=>'<icon>',taskDisplayName=t=>t.title;
@@ -45,12 +45,12 @@ const names=()=>{
   assert.deepEqual(indices,indices.map((_,index)=>index),'row numbers follow the displayed order');
   assert(html.endsWith('<new>'));
   const groups=[...html.matchAll(/data-select-objective="(.*?)" aria-expanded="(.*?)"[^>]*>.*?<div class="objective-terminal-rows"( hidden)?>/g)];
-  assert.equal(groups.length,2,'every focused Objective retains its header');
+  assert.equal(groups.length,3,'focused Objectives and saved parked mains retain their headers');
   assert.equal(groups.filter(match=>match[2]==='true').length,1,'only one Objective is expanded');
   groups.forEach(match=>{assert.equal(match[2],String(match[1]===current.id));assert.equal(!!match[3],match[1]!==current.id);});
   return [...html.matchAll(/<tab>(.*?)<\/tab>/g)].map(match=>match[1]);
 };
-assert.deepEqual(names(),['whole','tasks-view','parent-second','parent-first','child-one','child-two','next','free','asset','missing-task','other-task','other-free']);
+assert.deepEqual(names(),['whole','tasks-view','parent-second','parent-first','child-one','child-two','next','free','asset','missing-task','other-task','other-free','parked']);
 assert.equal(JSON.stringify(sessions),original,'sorting preserves session identity, launch folders and conversations');
 current=second;names();current=first;
 assert.deepEqual(taskForTerminal(sessions[1]),{title:'Second child',icon:'<icon>',assetIcon:'<icon>',status:'todo',inherited:false});

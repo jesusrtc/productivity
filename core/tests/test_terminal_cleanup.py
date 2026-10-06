@@ -237,3 +237,72 @@ def test_failed_autospawn_suppression_never_stops_session(setup, monkeypatch):
     assert len(result["errors"]) == 1
     assert not result["killed"]
     assert not setup.calls
+
+
+def test_completed_task_cleanup_waits_a_day_and_keeps_mains_recent_use_and_unknown_times(setup, monkeypatch):
+    from lab import paths
+    root = setup.roots['one']
+    target = paths.workspace_file(root, 'demo')
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text('{}')  # Disposable fixture, never a user's workspace.
+    tasks = [{'id':name, 'title':name, 'done':True, 'status':'done', 'children':[], **fields}
+             for name, fields in [('finished', {'completed_at':NOW-2*86400}),
+                                  ('boundary', {'completed_at':NOW-86400}),
+                                  ('recent-use', {'completed_at':NOW-2*86400}),
+                                  ('legacy', {})]]
+    registry = {'objectives':[{'id':'o', 'tasks':tasks}], 'terminal_links':{
+        **{t['id']:{'objective_id':'o', 'task_id':t['id']} for t in tasks},
+        'workflow':{'main':'workflow'}, 'main':{'objective_id':'o', 'main':'objective'}}}
+    monkeypatch.setattr(cleanup.objectives, 'load', lambda *args, **kwargs: registry)
+    for name in ['finished', 'boundary', 'recent-use', 'legacy', 'workflow', 'main']:
+        setup.add(name, session_id=name, activity=NOW-3*86400, last_attached=NOW-3*86400,
+                  last_access=NOW-100 if name=='recent-use' else 0)
+    result = snapshot(setup)
+    assert result['completed_task_hours'] == 24
+    rows = [s for group in result['groups'] for s in group['sessions']]
+    assert [s['logical_name'] for s in rows] == ['finished']
+    assert rows[0]['cleanup_reason'] == 'completed_task'
+    assert rows[0]['task_completed_at'] == NOW-2*86400
+    selected = ids(result)
+    tasks[0].update(status='paused', done=False)
+    tasks[0].pop('completed_at')
+    result = setup.client.post('/api/term/cleanup', json={'candidates':selected}).json()
+    assert len(result['skipped']) == 1 and not result['killed']
+    assert not setup.calls
+
+
+def test_fixed_main_terminal_never_qualifies_for_seven_day_cleanup(setup, monkeypatch):
+    from lab import paths
+    target = paths.workspace_file(setup.roots['one'], 'demo')
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text('{}')
+    monkeypatch.setattr(cleanup.objectives, 'load', lambda *a: {
+        'objectives':[], 'terminal_links':{'fixed':{'main':'workflow'}}})
+    setup.add('fixed', session_id='fixed')
+    setup.add('regular')
+    assert [s['logical_name'] for g in snapshot(setup)['groups'] for s in g['sessions']] == ['regular']
+
+
+def test_task_reopened_or_promoted_after_scan_is_rechecked_before_kill(setup, monkeypatch):
+    from contextlib import contextmanager
+    from lab import paths
+    target = paths.workspace_file(setup.roots['one'], 'demo')
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text('{}')
+    registry = {'terminal_links':{'finished':{'objective_id':'o', 'task_id':'t'}},
+                'objectives':[{'id':'o', 'tasks':[{'id':'t', 'title':'Done', 'done':True,
+                    'status':'done', 'children':[], 'completed_at':NOW-2*86400}]}]}
+    monkeypatch.setattr(cleanup.objectives, 'load', lambda *a, **kw: registry)
+    setup.add('finished', session_id='finished', activity=NOW-3*86400, last_attached=NOW-3*86400)
+    selected = ids(snapshot(setup))
+    assert len(selected) == 1
+
+    @contextmanager
+    def promote_after_scan(*args):
+        registry['terminal_links']['finished'] = {'objective_id':'o', 'main':'objective'}
+        yield
+    monkeypatch.setattr(cleanup, 'operation_lease', promote_after_scan)
+    result = setup.client.post('/api/term/cleanup', json={'candidates':selected}).json()
+    assert not result['killed'] and len(result['skipped']) == 1
+    assert result['skipped'][0]['reason'] == 'Task status or main terminal assignment changed.'
+    assert not setup.calls

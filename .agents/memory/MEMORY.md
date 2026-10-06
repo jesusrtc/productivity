@@ -1,5 +1,17 @@
 # Memory index
 
+- [Workflow and Objective mains are fixed](workflow-objective-mains-are-fixed.md) — one saved primary role each, always visible with distinct icons and fixed context/positions; extra processes preserved.
+
+- [Objective tasks support Paused and Won’t do](objective-tasks-support-paused-and-wont-do.md) — persisted additional statuses, independent completion flags and parent/subtask rollups.
+
+- [Terminal menu reveals all sessions](terminal-menu-can-reveal-all-objectives.md) — Show all toggles status filtering and Objective folding, including parked sessions; fixed mains remain visible.
+
+- [Completed-task cleanup starts after 24 hours](completed-task-terminals-qualify-after-24-hours.md) — actual completion timestamps, reviewed eligibility, retained main/active sessions and pre-kill assignment rechecks.
+
+- [Selected tasks always have a visible terminal](selected-task-always-has-visible-terminal.md) — WIP plus selected task at any status; deliberate task clicks create/reuse a primary, with deduplication and navigation guards.
+
+- [Worktrees list has no assignment headings](worktrees-list-has-no-assignment-headings.md) — clean scope buttons without task/Unassigned/pinned captions; memberships and actions preserved.
+
 - [Worktree browse mode restores task assets](worktree-browse-restores-task-assets.md) — hover-folded Worktrees above Tasks, center task assignment, checkout-owned recent-file union and display-only names/colors.
 
 - [Objective terminals default to WIP tasks](objective-terminals-default-to-wip-tasks.md) — In progress tasks and inherited child terminals only; Settings can reveal all preserved sessions.

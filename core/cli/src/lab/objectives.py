@@ -12,6 +12,7 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import time
 from urllib.parse import urlparse
 import uuid
 
@@ -98,6 +99,20 @@ def _tasks(objective):
 def _set_task_status(task, status):
     task['status'] = status
     task['done'] = status == 'done'
+    if status == 'done':
+        task.setdefault('completed_at', time.time())
+    else:
+        task.pop('completed_at', None)
+
+
+def _children_status(children):
+    if all(c.get('status') == 'wont_do' for c in children):
+        return 'wont_do'
+    if all(c['done'] or c.get('status') == 'wont_do' for c in children):
+        return 'done'
+    if any(c['done'] or c.get('status') == 'in_progress' for c in children):
+        return 'in_progress'
+    return 'paused' if all(c.get('status') == 'paused' for c in children) else 'todo'
 
 
 def _asset_target(asset):
@@ -596,6 +611,19 @@ def mutate(root, workspace_id, action, expected=None):
         data.pop('revision')
         operation = action.get('type')
         objective = _find(data['objectives'], action.get('objective_id'))
+        if operation == 'terminal':
+            role = action.get('main')
+            if role is not None and (not isinstance(role, str) or role not in {'workflow', 'objective'}):
+                raise ValueError('Choose a workflow or Objective main terminal')
+            targets = ('task_id', 'resource_id', 'tab_id', 'sub_link_id', 'file', 'folder', 'view')
+            if role and any(action.get(field) for field in targets):
+                raise ValueError('A main terminal cannot have another target')
+            name = _text(action.get('session_id'), 'Terminal identity')
+            previous = data['terminal_links'].get(name, {})
+            proposed = role or ('objective' if objective and not any(action.get(field) for field in targets) else None)
+            if previous.get('main') and (previous['main'] != proposed
+                    or previous.get('objective_id') != (None if proposed == 'workflow' else action.get('objective_id'))):
+                raise ValueError('Main terminals have a fixed workflow or Objective context')
         if operation == 'create':
             if len(data['objectives']) >= 100:
                 raise ValueError('An objective workspace supports up to 100 saved objectives')
@@ -637,6 +665,14 @@ def mutate(root, workspace_id, action, expected=None):
                     for file in sorted((folder / directory_).glob('*')):
                         if file.is_file() and file.suffix in {'.md','.ipynb'}:
                             _resource(folder, objective, {'kind':'file','title':file.name,'path':file.relative_to(folder).as_posix()})
+        elif operation == 'terminal' and action.get('main') == 'workflow':
+            if action.get('objective_id'):
+                raise ValueError('A workflow main terminal belongs to the workspace')
+            for other, link in data['terminal_links'].items():
+                if other != name and link.get('main') == 'workflow':
+                    link.clear()
+                    link['view'] = 'workflow'
+            data['terminal_links'][name] = {'main': 'workflow'}
         elif objective is None:
             raise ValueError('Objective not found')
         elif operation == 'focus':
@@ -792,8 +828,8 @@ def mutate(root, workspace_id, action, expected=None):
                 if 'done' in action and type(action['done']) is not bool:
                     raise ValueError('Task completion must be a boolean')
                 status = action.get('status', 'done' if action.get('done') else 'todo')
-                if not isinstance(status, str) or status not in {'todo', 'in_progress', 'done'}:
-                    raise ValueError('Choose Undo, In progress or Completed')
+                if not isinstance(status, str) or status not in {'todo', 'in_progress', 'done', 'paused', 'wont_do'}:
+                    raise ValueError("Choose Undo, In progress, Completed, Paused or Won't do")
                 if 'done' in action and action['done'] != (status == 'done'):
                     raise ValueError('Task status and completion must agree')
                 _set_task_status(task, status)
@@ -803,8 +839,7 @@ def mutate(root, workspace_id, action, expected=None):
                 parent = next((p for p in objective['tasks'] if task in p['children']), None)
                 if parent:
                     children = parent['children']
-                    _set_task_status(parent, 'done' if all(c['done'] for c in children) else
-                                     'in_progress' if any(c['done'] or c.get('status') == 'in_progress' for c in children) else 'todo')
+                    _set_task_status(parent, _children_status(children))
             if 'due' in action:
                 task['due'] = _date(action['due'])
             if 'title' in action:
@@ -905,6 +940,12 @@ def mutate(root, workspace_id, action, expected=None):
                         link.pop('task_id', None)
                         link['view'] = 'tasks'
                 data['terminal_links'][name]['task_id'] = task_id
+            elif not any([resource, linked_file, linked_folder, view]):
+                for other, link in data['terminal_links'].items():
+                    if other != name and link.get('objective_id') == objective['id'] and link.get('main') == 'objective':
+                        link.pop('main', None)
+                        link['view'] = 'tasks'
+                data['terminal_links'][name]['main'] = 'objective'
         elif operation == 'remove-resource':
             resource_id = action.get('resource_id')
             if any(t['document_id'] == resource_id for p in objective['tasks'] for t in [p, *p['children']]):

@@ -42,13 +42,14 @@ The sidebar order is:
 
 1. The **Objective name**, followed by **Objective · pinned** assets when any
    are starred. Pinned assets stay above Tasks in every working view.
-2. **Tasks**, completion/status badge, task links and status context menu.
-3. **Task assets**, including the selected task's mandatory details and attachments.
-4. **Unassigned** assets with neither a shared star nor a task association,
+2. **Worktrees**, folded by default and revealed on hover or keyboard focus.
+3. **Tasks**, completion/status badge, task links and status context menu.
+4. **Task assets**, including the selected task's mandatory details and attachments.
+5. **Unassigned** assets with neither a shared star nor a task association,
    shown only while the Objective overview is open.
-5. Collapsed **Archive** in the Objective overview, then fixed gray **Root** and
-   **Objective** folders in every view.
-6. The native recently updated files and Files tree for that selection.
+6. Collapsed **Archive** in the Objective overview.
+7. Native recently updated files and the Files tree for the selected worktree.
+   Task mode shows recent files across only the worktrees assigned to that task.
 
 Click the **Objective name** to leave task mode and open its overview. The
 middle column puts **Unassigned assets** first, with suggestion status and
@@ -104,9 +105,8 @@ Associated worktrees are assets too: an unclassified worktree appears in
 Unassigned; dropping it on a task puts it in that task's context. Every associated
 worktree also stays in the **Worktrees** section, regardless of the selected
 task or working view. Root and Objective folders come first, followed by
-Unassigned, Objective-pinned and task groups. A worktree attached to multiple
-tasks appears once in this navigation section under a combined task label.
-Task/subtask labels preserve their parent context. Shared pins and task asset
+the associated checkout buttons. The list has no task or assignment-group
+headings. A worktree attached to multiple tasks appears once. Shared pins and task asset
 lists continue to show their contextual references. Archived worktrees remain
 recoverable in a collapsed Archive group in the Worktrees section. Worktree
 rows retain their folder navigation, drag targets, stars and classification
@@ -121,13 +121,17 @@ Both remain gray rather than taking a reserved worktree color. Creating an
 objective creates its directory, including when it has no resources yet.
 Clicking Root, Objective or a worktree exits task focus, selects that exact file
 scope and shows the native Files tree, including when it was already the selected
-scope. Recently updated, vs main and Uncommitted retain their current settings.
+scope. Recently updated appears on the left and all tasks/subtasks unfold in
+the middle so a worktree can be dragged onto multiple tasks. Folding Worktrees
+restores the previous task and its assets. Assigned worktree names and colors
+replace only a task's displayed name; its own Markdown, icon and assets remain.
+Recently updated, vs main and Uncommitted retain their current settings.
 Plain scope clicks do not open a folder modal. GitHub history and terminal
 actions remain explicit buttons on the selected scope row.
 
 The **+** beside Worktrees uses the existing folder/worktree chooser, including
 its create-worktree action. Association immediately shows the checkout in the
-Worktrees section's Unassigned group, ready to attach to a task or star as shared context. A checkout can
+Worktrees section, ready to attach to a task or star as shared context. A checkout can
 belong to one objective in this workspace. Each
 focus slot has a fixed objective color and four reserved contrasting worktree
 colors. An objective and its worktrees adopt the destination slot's palette
@@ -181,12 +185,13 @@ parent's subtasks and displays its own assets beneath the list. Selecting
 another parent collapses the previous group. Task details are not duplicated
 as a separate `Tasks.md` tree in Unassigned.
 
-Clicking a task or subtask also opens its linked terminal and reveals the
-terminal panel. Its details stay open. If several terminals belong to that
-task, keep the current one when it is linked; otherwise select the first
-available terminal. A terminal has one task/subtask assignment at a time:
-linking it to another task replaces the previous assignment, including across
-Objectives. Tasks without a linked terminal leave the current terminal alone.
+Clicking a task or subtask activates its primary terminal and reveals the
+terminal panel, regardless of status. Its details stay open. If the session
+is missing, Lab creates it automatically; repeated clicks reuse the same
+primary. A task owns one primary terminal. Extra subterminals can inherit the
+parent task's context without claiming another task assignment. An ordinary
+terminal can be reassigned to a different task, including across Objectives.
+Refreshing or restoring task details does not spawn another terminal.
 
 Task titles are hyperlinks to their required details document/subtab. Clicking
 a title opens those details and enters task mode. Its working-area header keeps
@@ -210,10 +215,10 @@ association. The middle task-list asset button opens its attachments and can
 detach optional assets; its mandatory details remain associated.
 
 The left edge of each task row shows **⬜** for Undo with a red frame, **🟡** for
-In progress and **✅** for Completed. Secondary-click anywhere on the row to
-choose **Set to completed**, **Set to undo** or **Set to in progress**. The menu
-also opens with Shift+F10 and closes with Escape. Completed and Undo update
-the task's subtasks too; In progress preserves their completion. Changing a
+In progress, **✅** for Completed, **⏸** for Paused and **🚫** for Won’t do.
+Secondary-click anywhere on the row to choose one of these five statuses. The menu
+also opens with Shift+F10 and closes with Escape. Completed, Undo, Paused
+and Won’t do update the task's subtasks too; In progress preserves them. Changing a
 subtask updates its parent's aggregate status. Status is saved in the Objective
 manifest and reflected in the task header, active tab and default terminal icon.
 The right edge holds the icon used by its active tab and linked terminals.
@@ -279,25 +284,40 @@ checkouts. Objective choices save a whole-Objective terminal association;
 worktree choices save a folder association. The Home demo offers the same
 choices with simulated terminals. See [TERMINALS.md](TERMINALS.md#new-terminal-location).
 
-The native terminal selector groups sessions by the five focused objectives.
-Within each Objective, terminals assigned to the whole Objective come first,
-then terminals follow the sidebar task order: each parent task followed by its
-subtasks, then the next parent. Multiple terminals for one task keep their
-relative order. Terminals without a task assignment, including those linked
-only to an asset or folder, come last. Task order takes priority over launch
-folder grouping and updates after task creation, reassignment or reload.
-Sessions assigned to a parked
-objective reappear when that objective is brought into focus. Existing native
-terminal controls and sessions are reused. Rows stay flat, with a small objective
-name and a thin line down the left. Only the current objective uses its colored
-line and worktree labels/dots; other groups keep a colored header and neutral
-lines and associations. Working/completion indicators retain their status
-colors. Worktree groups use spacing
-rather than extra boxes or headings. Shortcut and real checkout paths share the
-same folder identity; spacing marks consecutive sessions from that folder.
+The terminal selector always shows one fixed **⌂ workflow main** at the top
+and one fixed **◎ Objective main** immediately after each Objective divider.
+The small diamond marks a main terminal. Clicking a main row creates its
+session if needed and reuses it thereafter. These tabs cannot be moved,
+nested, renamed or reassigned through the tab controls. Existing extra
+sessions remain ordinary terminals. Main roles are saved as
+`main: "workflow"` or `main: "objective"` in the workspace terminal links;
+workflow links have no Objective target.
+
+By default, task tabs include In progress tasks and the selected task at any
+status, plus independent children that inherit those contexts. Other sessions
+keep running while hidden. Objective headers and the dropdown expand the same
+current Objective; main rows stay visible when its task rows are folded.
+**Show all terminals** in the terminal menu reveals every session and Objective,
+including parked Objectives with saved sessions. Toggle it again to restore
+the default filter. The same choice is available in Terminal settings.
+
+Task terminals follow the sidebar hierarchy. Drag one ordinary terminal over
+another to choose **Move below**, **Make child** or **Cancel**. Children unfold
+on parent hover or keyboard focus, and selected children stay visible. An
+independent child opens its parent's task context without taking the parent's
+1:1 task assignment. Task and terminal navigation preserves the original
+process, checkout and agent conversation.
+
+Task completion records `completed_at` as Unix seconds in the Objective
+manifest. Pausing, reopening or declining clears it. **Clean up completed /
+inactive terminals** opens the reviewed Resources cleanup list. A completed-task
+terminal qualifies after 24 hours, with no activity or access during the last
+24 hours. Fixed mains, connected sessions and working/waiting agents are kept.
+Legacy completed tasks without a timestamp are not expired based on an invented
+completion date. Other sessions retain the seven-day inactivity rule.
 
 Drop the Objective name onto a terminal name, or a terminal onto the sidebar's
-Objective name, to assign it to the whole Objective. Clicking that terminal
+Objective name, to make that ordinary session the Objective main. Clicking that terminal
 opens the Objective overview. This keeps its launch folder, process, display
 label and original owner. Dropping the Objective inside the console still
 pastes its full unsent context instead of creating an assignment.

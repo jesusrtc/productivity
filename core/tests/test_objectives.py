@@ -453,3 +453,68 @@ def test_worktrees_can_belong_to_multiple_tasks_without_changing_details_or_icon
         assert [updated.get(field) for field in ('id','title','document_id','tab_id','icon_asset_id')] == [original.get(field) for field in ('id','title','document_id','tab_id','icon_asset_id')]
         assert len(updated['assets']) == 2
         assert any(asset['folder']['root'] == str(checkout) for asset in updated['assets'])
+
+
+def test_main_terminals_are_unique_and_fixed_without_removing_other_links(monorepo, objective_workspace):
+    _, oid = objective_workspace
+    data = apply(monorepo, oid, 'task', title='A task')
+    task_id = data['objectives'][0]['tasks'][0]['id']
+    apply(monorepo, oid, 'terminal', session_id='task-primary', task_id=task_id)
+    apply(monorepo, oid, 'terminal', session_id='old-main')
+    data = apply(monorepo, oid, 'terminal', session_id='main', main='objective')
+    assert data['terminal_links']['main']['main'] == 'objective'
+    assert data['terminal_links']['old-main']['view'] == 'tasks'
+    assert 'main' not in data['terminal_links']['old-main']
+    objectives.mutate(monorepo, 'demo', {'type':'terminal', 'session_id':'workflow-old', 'main':'workflow'})
+    data = objectives.mutate(monorepo, 'demo', {'type':'terminal', 'session_id':'workflow', 'main':'workflow'})
+    assert data['terminal_links']['workflow'] == {'main':'workflow'}
+    assert data['terminal_links']['workflow-old'] == {'view':'workflow'}
+    assert data['terminal_links']['task-primary']['task_id'] == task_id
+    for session, patch in [('main', {'task_id':task_id}), ('main', {'main':'workflow'}),
+                           ('workflow', {'task_id':task_id}), ('workflow', {'main':'objective'})]:
+        before = objectives.load(monorepo, 'demo')
+        with pytest.raises(ValueError, match='fixed'):
+            apply(monorepo, oid, 'terminal', session_id=session, **patch)
+        assert objectives.load(monorepo, 'demo') == before
+    for role in ['invalid', [], True]:
+        with pytest.raises(ValueError):
+            apply(monorepo, oid, 'terminal', session_id='bad', main=role)
+
+
+def test_paused_wont_do_and_completion_time_preserve_task_details(monorepo, objective_workspace, monkeypatch):
+    folder, oid = objective_workspace
+    data = apply(monorepo, oid, 'task', title='Parent')
+    parent = data['objectives'][0]['tasks'][0]
+    data = apply(monorepo, oid, 'task', title='Child', parent_id=parent['id'])
+    child = data['objectives'][0]['tasks'][0]['children'][0]
+    documents = {r['path']:(folder/r['path']).read_bytes() for r in data['objectives'][0]['resources']}
+    for status in ['paused', 'wont_do']:
+        data = apply(monorepo, oid, 'task-update', task_id=child['id'], status=status)
+        saved = data['objectives'][0]['tasks'][0]
+        assert saved['status'] == saved['children'][0]['status'] == status
+        assert not saved['done'] and not saved['children'][0]['done']
+        assert 'completed_at' not in saved
+    monkeypatch.setattr(objectives.time, 'time', lambda: 2_000_000_000)
+    data = apply(monorepo, oid, 'task-update', task_id=parent['id'], status='done')
+    assert all(t['completed_at'] == 2_000_000_000 for t in [data['objectives'][0]['tasks'][0], *data['objectives'][0]['tasks'][0]['children']])
+    monkeypatch.setattr(objectives.time, 'time', lambda: 2_000_100_000)
+    data = apply(monorepo, oid, 'task-update', task_id=parent['id'], status='done')
+    assert data['objectives'][0]['tasks'][0]['completed_at'] == 2_000_000_000
+    data = apply(monorepo, oid, 'task-update', task_id=parent['id'], status='paused')
+    assert all('completed_at' not in t for t in [data['objectives'][0]['tasks'][0], *data['objectives'][0]['tasks'][0]['children']])
+    assert {path:(folder/path).read_bytes() for path in documents} == documents
+
+
+def test_legacy_whole_objective_links_adopt_one_main_without_writing(monorepo, objective_workspace):
+    _, oid = objective_workspace
+    target = objectives.registry(monorepo, 'demo')
+    state = storage.read_json(target)
+    state['terminal_links'] = {'first':{'objective_id':oid}, 'extra':{'objective_id':oid},
+                               'independent':{'objective_id':oid, 'view':'tasks'}}
+    storage.write_json(target, state)  # Legacy data in the isolated fixture.
+    before = target.read_bytes()
+    data = objectives.load(monorepo, 'demo')
+    assert data['terminal_links']['first']['main'] == 'objective'
+    assert data['terminal_links']['extra'] == {'objective_id':oid, 'view':'tasks'}
+    assert data['terminal_links']['independent'] == {'objective_id':oid, 'view':'tasks'}
+    assert target.read_bytes() == before

@@ -173,7 +173,7 @@ def test_terminal_sessions_support_orientation_and_responsive_labels() -> None:
     assert 'class="agent"' in source
     assert 'class="sess-label' in source
     assert 'class="k"' not in source
-    assert '${_termSessionAssociationHtml(s)}' in source
+    assert "${main?'':_termSessionAssociationHtml(s)}" in source
     assert "(e.clientY - rect.top) < rect.height / 2" in source
     assert "(e.clientX - rect.left) < rect.width / 2" in source
     assert 'aria-selected="${active ? \'true\' : \'false\'}"' in source
@@ -2626,7 +2626,7 @@ console.log(JSON.stringify({ok, calls, alerts, termCurrentSession, pending: _ter
 
 
 def test_new_menu_options_are_workspace_scoped_and_respect_vault_policy() -> None:
-    helpers = _js_between('  const _TERM_NEW_OPTIONS =', '  function _termNewButtonHtml()')
+    helpers = _js_between('  function _termUpdateAllButton()', '  function termToggleAllTerminals(') + _js_between('  const _TERM_NEW_OPTIONS =', '  function _termNewButtonHtml()')
     result = _run_node(r'''
 const stored = {};
 const localStorage = {getItem: key => stored[key] || null, setItem: (key, value) => stored[key] = value};
@@ -2897,11 +2897,12 @@ _termActivateObjectiveTerminal(['uuid-first']);
 _termActivateObjectiveTerminal(['missing']);
 _termActivateObjectiveTerminal([]);
 _termActivateObjectiveTerminal(['legacy-id']);
+_termActivateObjectiveTerminal(['legacy']);
 process.stdout.write(JSON.stringify({activations,selections,visibility,refreshes,classes:[...classes]}));
 """)
     assert result['activations'] == [
-        {'name':name,'options':{'openDocument':False}} for name in ['current','first','legacy']]
-    assert result['selections'] == [None, None, None]
-    assert result['visibility'] == [{'key':'/workspace','shown':True}] * 3
-    assert result['refreshes'] == 3
+        {'name':name,'options':{'openDocument':False}} for name in ['current','first','legacy','legacy']]
+    assert result['selections'] == [None, None, None, None]
+    assert result['visibility'] == [{'key':'/workspace','shown':True}] * 4
+    assert result['refreshes'] == 4
     assert result['classes'] == ['term-open']
