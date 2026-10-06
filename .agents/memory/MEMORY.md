@@ -1,5 +1,7 @@
 # Memory index
 
+- [Terminal task statuses use small dots](terminal-task-statuses-use-small-dots.md) — simple dot/name rows, 5px task dots including inherited children, colored worktree names and accessible status labels.
+
 - [Objective header reveals all its terminals](objective-header-can-reveal-all-its-terminals.md) — visible Show all / Show WIP control, scoped saved preference, unchanged task/terminal focus and compact keyboard access.
 
 - [Workflow and Objective mains are fixed](workflow-objective-mains-are-fixed.md) — one saved primary role each, workspace always visible and only active Objective main shown, with distinct icons and fixed context/positions.

@@ -795,6 +795,7 @@
     return null;
   }
   function taskForTerminal(t) {const binding=terminalTask(t);return binding?{title:taskDisplayName(binding.task,binding.objective),icon:taskIcon(binding.task,binding.objective),assetIcon:customTaskIcon(binding.task,binding.objective),inherited:binding.inherited,status:taskStatus(binding.task)}:null;}
+  function terminalTaskNameHtml(t) {const binding=terminalTask(t);return binding?taskNameHtml(binding.task,binding.objective):null;}
   function terminalObjective(t) {const d=data();if(!d?.enabled)return null;const link=terminalLink(t);if(link?.main==='workflow'||link?.view==='workflow')return null;return d.objectives.find(o=>o.id===link?.objective_id)||d.objectives.find(o=>o.worktrees.some(w=>t.linked_scope?.root&&[w.path,w.resolved_path].includes(t.linked_scope.root)||t.cwd&&[w.path,w.resolved_path].includes(t.cwd)))||d.objectives[0];}
   function terminalSessions(sessions,{wipOnly=true}={}) {
     if(!active(context()?.path))return sessions;
@@ -1164,7 +1165,7 @@
     }catch(error){notify(error.message,true);}
   },true);
   window.LabObjectives={connect(adapter){bridge=adapter;startRefreshing();},load,active,sidebarHtml,paint,worktrees,tree,associate,terminalHtml,taskForTerminal,openForTerminal,collapse,progress,complete,change,selectObjective,renderTasks,tabsHtml,showAll,terminalLaunchContext,associateNewTerminal,
-    terminalSessions,terminalParents,terminalExpanded,terminalMain,openMainTerminal,openTaskTerminal,sidebarMode,recentScopes,
+    terminalSessions,terminalParents,terminalExpanded,terminalMain,openMainTerminal,openTaskTerminal,terminalTaskNameHtml,sidebarMode,recentScopes,
     terminalTaskContext(t){const binding=terminalTask(t);return binding?taskContext(binding.task,binding.objective):null;},
     childTerminalAssociation(t){const o=terminalObjective(t);return active(context()?.path)&&o?{context:{...context()},objective_id:o.id,view:'tasks'}:null;},
     findTaskTerminal(sessions,target){return sessions.find(t=>{if(target.main==='workflow')return terminalMain(t)?.kind==='workflow';const link=terminalLink(t);return link?.objective_id===target.objective_id&&(target.task_id?link.task_id===target.task_id:terminalMain(t)?.kind==='objective');});},

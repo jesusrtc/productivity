@@ -307,6 +307,13 @@ including parked Objectives with saved sessions. Toggle it again to return to
 one expanded Objective and its saved task filter. The same choice is available
 in Terminal settings.
 
+Task terminals use small status dots instead of checkbox/emoji badges. Their
+assigned worktree names retain each worktree's colored dot and text, including
+on recommended terminals; asset icons still appear when chosen. Independent
+children use a small dot for their inherited task status. Status names remain
+available in hover text and accessible labels. The sidebar keeps its status
+controls.
+
 Task terminals follow the sidebar hierarchy. Drag one ordinary terminal over
 another to choose **Move below**, **Make child** or **Cancel**. Children unfold
 on parent hover or keyboard focus, and selected children stay visible. An

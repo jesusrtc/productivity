@@ -8,8 +8,9 @@ and one per task through explicit open/create rows; never launch a process just
 because a task was added or a task row was opened. Existing primary sessions are
 reused and repeated create clicks are deduplicated.
 
-Primary terminal rows mirror task names, left status boxes and optional right
-asset icons. Subtask terminals nest under their task's terminal, including a
+Primary terminal rows mirror task names and optional right asset icons. Their
+status uses a small dot, as described in terminal-task-statuses-use-small-dots.md;
+sidebar checkbox-style controls stay in the sidebar. Subtask terminals nest under their task's terminal, including a
 recommended parent row when no primary has been opened. Task focus and hover
 reveal children. Deliberate moves override the default task hierarchy through
 browser-local `tabRoots`, `tabParents` and `tabAfter` state.

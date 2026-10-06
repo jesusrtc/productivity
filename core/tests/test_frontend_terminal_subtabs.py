@@ -16,7 +16,8 @@ from .test_frontend_terminal_ui import _js_between, _run_node, LAB_APP, LAB_SHEL
 GROUPS = _js_between('  function _termGroupScopeKey()', '  function _termSessionDisplay(s)')
 MOVES = _js_between('  function _termPlanItemMove(', '  function termReorderSessions(')
 RENDER = _js_between('  function _termTaskPlaceholderHtml(', '  // One move plan')
-PILL = _js_between('  function _termSessionPillHtml(', '  function _termMarkVisibleCompletionSeen(')
+PILL = _js_between('  function _termTaskStatusLabel(', '  function _termMarkVisibleCompletionSeen(')
+ASSOCIATION = _js_between('  function _termSessionAssociationHtml(', '  function _termTaskStatusLabel(')
 ALL_TOGGLE = _js_between('  function termSetWipOnly(', '  function termSetRecentEnabled(')
 OBJECTIVE_ACTIVATE = _js_between('  function _termActivateObjectiveTerminal(', '  async function _termActivateTab(')
 OBJECTIVES = LAB_APP.parent / 'lib/workspace-objectives.js'
@@ -134,7 +135,8 @@ const _termSessionMeta=name=>termSessions.find(s=>s.name===name),_termSessionDis
 const termSessEsc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const _termRenderActiveSessionHeader=()=>{},_termHideSessionTooltip=()=>{},_termShowSessionTooltip=()=>{},_termScheduleSessionTooltipHide=()=>{},_termClearLinkDropTarget=()=>{};
 const termDeadSessions=new Set(),_termSessionVisual=()=>({kind:'terminal',badge:'Terminal',icon:'▣'}),_termSessionRecentMeta=()=>null,_termSessionIsWorking=()=>false;
-const _termSessionContext=()=>({label:'Requests'}),_termSessionSummary=()=>'',_termSessionTooltipPayload=()=> '{}',_termSessionAssociationHtml=()=>'';
+const _termSessionContext=()=>({label:'Requests'}),_termSessionSummary=()=>'',_termSessionTooltipPayload=()=> '{}';
+const _sidebarFileConfigScope='fixture',_sidebarFileConfig={folderScopes:[]},_loadSidebarFileConfig=()=>({folderScopes:[]}),_termScopeColor=s=>s.color||'#8b949e';
 window.marked={};window.DOMPurify={};window.LabMarkdownEditor={create:(node,options)=>({value:options.body,destroy(){},focus(){}})};
 const _termActivateTab=async name=>{termCurrentSession=name;termRenderSessionList()};
 const termToggleCollapse=()=>document.body.classList.toggle('term-collapsed'),_termRememberVisibility=()=>{},_termVisibilityKey=()=>workspace,termStartPeriodicRefresh=()=>{};
@@ -151,7 +153,7 @@ LabObjectives.connect({context:()=>({workspace_id:workspace,vault,path:'/workspa
 (async()=>{await LabObjectives.load();LabObjectives.openCurrent();termRenderSessionList();document.body.dataset.ready='true'})();
 '''.replace('ORIENTATION', repr(orientation))
     css = LAB_SHELL_CSS.read_text() + (LAB_SHELL_CSS.parent / 'workspace-objectives.css').read_text()
-    page = '<!doctype html><meta charset="utf-8"><style>'+css+' .term-panel{width:680px}.term-tabs-open{--term-sessions-width:230px}#sidebar{position:fixed;left:0;top:40px;width:230px;height:calc(100vh - 40px);overflow:auto}#content{margin-left:240px;width:calc(100vw - 920px)}</style><body class="term-open"><button id="outside">Outside</button><button id="termShowAllBtn" onclick="termToggleAllTerminals()">Show all terminals</button><div class="repo-tabs"></div><aside id="sidebar"><section data-objectives-sidebar></section></aside><main id="content"></main><section class="term-panel term-sessions-full '+('term-sessions-horizontal' if orientation=='horizontal' else '')+'"><div class="term-stage"><div class="term-session-switcher term-tabs-open"><div class="term-sessions" id="termSessionList"></div></div></div></section><div id="termGroupMenu" class="term-group-menu" hidden></div><script>'+OBJECTIVES.read_text()+'</script><script>'+GROUPS+MOVES+RENDER+PILL+ALL_TOGGLE+OBJECTIVE_ACTIVATE+setup+'</script>'
+    page = '<!doctype html><meta charset="utf-8"><style>'+css+' .term-panel{width:680px}.term-tabs-open{--term-sessions-width:230px}#sidebar{position:fixed;left:0;top:40px;width:230px;height:calc(100vh - 40px);overflow:auto}#content{margin-left:240px;width:calc(100vw - 920px)}</style><body class="term-open"><button id="outside">Outside</button><button id="termShowAllBtn" onclick="termToggleAllTerminals()">Show all terminals</button><div class="repo-tabs"></div><aside id="sidebar"><section data-objectives-sidebar></section></aside><main id="content"></main><section class="term-panel term-sessions-full '+('term-sessions-horizontal' if orientation=='horizontal' else '')+'"><div class="term-stage"><div class="term-session-switcher term-tabs-open"><div class="term-sessions" id="termSessionList"></div></div></div></section><div id="termGroupMenu" class="term-group-menu" hidden></div><script>'+OBJECTIVES.read_text()+'</script><script>'+GROUPS+MOVES+RENDER+ASSOCIATION+PILL+ALL_TOGGLE+OBJECTIVE_ACTIVATE+setup+'</script>'
     (tmp_path / 'fixture.html').write_text(page)
     class Handler(SimpleHTTPRequestHandler):
         def log_message(self, *args): pass
@@ -217,7 +219,7 @@ const fs=require('node:fs');
  Object.assign(fixture.terminal_links,{'uuid-a':{objective_id:'one',task_id:'Parent task'},'uuid-b':{objective_id:'one',task_id:'Subtask'},'uuid-c':{objective_id:'one',view:'tasks'}});
  const group=_termReadGroupState();group.tabRoots=[];group.tabParents={c:'b'};group.tabAfter={};_termWriteGroupState(group);fixture.revision+='tasks';await LabObjectives.load(undefined,true);LabObjectives.renderTasks();
  })()`);
- assert(await evaluate(`document.querySelector('[data-term-parent=a] [data-term-parent=b] .sess[data-name=c]')&&document.querySelector('.sess[data-name=a] .sess-label').textContent==='Parent task'&&document.querySelector('.sess[data-name=a] .sess-task-status').textContent==='⬜'&&!document.querySelector('.sess[data-name=a] .sess-icon')`),'task-shaped terminal tree and status match task organization');
+ assert(await evaluate(`document.querySelector('[data-term-parent=a] [data-term-parent=b] .sess[data-name=c]')&&document.querySelector('.sess[data-name=a] .sess-label').textContent==='Parent task'&&document.querySelector('.sess[data-name=a] .sess-task-status').dataset.taskStatus==='todo'&&getComputedStyle(document.querySelector('.sess[data-name=a] .sess-task-status')).width==='5px'&&!document.querySelector('.sess[data-name=a] .sess-icon')&&document.querySelector('.sess[data-name=c] .sess-task-status').dataset.taskStatus==='todo'&&!document.querySelector('.sess[data-name=c] .objective-task-default-icon')`),'task tree uses small status dots for primary and inherited child terminals');
  await move(await point(tab('a')));await move(await point(tab('b')));await click(tab('c'));
  assert(await evaluate(`LabObjectives.terminalLaunchContext().task.id==='Subtask'&&document.querySelector('.objective-task-mode-head').textContent.includes('Subtask')&&termCurrentSession==='c'&&!fixture.terminal_links['uuid-c'].task_id&&document.querySelector('.sess[data-name=c]').getAttribute('aria-label').includes('Parent task context: Subtask')`),'unassigned child selects inherited task and retains independent association');
  await move(await point('#outside'));await evaluate('document.activeElement?.blur()');await sleep(80);
@@ -271,12 +273,24 @@ const fs=require('node:fs');
  await evaluate(`const main=document.querySelector('[data-terminal-main=workflow]');main.click();main.click()`);await sleep(100);
  assert(await evaluate(`created.length===5&&created[4].workflow&&termCurrentSession==='workflow-main'&&document.getElementById('termSessionList').firstElementChild.dataset.name==='workflow-main'&&document.querySelector('.sess[data-name=workflow-main]').getAttribute('draggable')==='false'&&!document.querySelector('.sess[data-name=workflow-main]').hasAttribute('data-order-token')&&document.querySelector('.objective-terminal-heading[data-select-objective=one]').parentElement.nextElementSibling.dataset.name==='new-global'`),'one fixed workflow main at top and Objective main immediately after its divider');
  await click('.sess[data-name=workflow-main]');assert(await evaluate('created.length===5'),'workflow main reuses the saved session');
- for(const [status,icon] of [['paused','⏸'],['wont_do','🚫']]){
+ for(const [status,label] of [['paused','Paused'],['wont_do','Won’t do']]){
   await evaluate(`(async()=>{const t=fixture.objectives[0].tasks.find(t=>t.id==='Not started');t.status=${JSON.stringify(status)};fixture.revision+='status';await LabObjectives.load(undefined,true);LabObjectives.renderTasks()})()`);
   assert(await evaluate(`!document.querySelector('.sess[data-name="new-Not started"]')`),'paused and declined terminals hidden by default');
   await click('.objective-sidebar-task [data-open-task="Not started"]');await sleep(80);
-  assert(await evaluate(`termCurrentSession==='new-Not started'&&created.length===5&&document.querySelector('.sess[data-name="new-Not started"] .sess-task-status').textContent===${JSON.stringify(icon)}`),'selected paused or declined task reveals its primary and status icon');
+  assert(await evaluate(`termCurrentSession==='new-Not started'&&created.length===5&&document.querySelector('.sess[data-name="new-Not started"] .sess-task-status').dataset.taskStatus===${JSON.stringify(status)}&&document.querySelector('.sess[data-name="new-Not started"]').getAttribute('aria-label').includes(${JSON.stringify(label)})`),'selected paused or declined task reveals its primary and accessible status dot');
  }
+ await evaluate(`(async()=>{
+ const o=fixture.objectives[0];o.worktrees=[{id:'ui',label:'sdui/jcortes/tel',path:'/trees/ui',repo:'/workspace',kind:'worktree',color:'#ff7b72'},{id:'checkpoint',label:'checkpoint/jco',path:'/trees/checkpoint',repo:'/workspace',kind:'worktree',color:'#58a6ff'}];
+ o.tasks.find(t=>t.id==='Not started').assets=[{id:'ui-asset',folder:{root:'/trees/ui',path:'.'}},{id:'checkpoint-asset',folder:{root:'/trees/checkpoint',path:'.'}}];
+ o.tasks.push({id:'Recommended',title:'Recommended',children:[],assets:[{id:'recommend-asset',folder:{root:'/trees/checkpoint',path:'.'}}],status:'todo',done:false});
+ const name='worktree-only';termSessions.push({name,logical_name:name,session_id:'uuid-'+name,kind:'terminal',cwd:'/trees/ui',linked_scope:{root:'/trees/ui',project_root:'/workspace',worktree:'/trees/ui',label:'sdui/jcortes · ui',color:'#ff7b72'}});fixture.terminal_links['uuid-'+name]={objective_id:'one',folder:{root:'/trees/ui',path:'.'}};
+ fixture.revision+='colors';await LabObjectives.load(undefined,true);
+ })()`);
+ assert(await evaluate(`(()=>{const row=document.querySelector('.sess[data-name="new-Not started"]'),labels=[...row.querySelectorAll('.objective-task-worktree-name')];return labels.length===2&&labels[0].textContent==='sdui/jcortes/tel'&&getComputedStyle(labels[0]).color==='rgb(255, 123, 114)'&&getComputedStyle(labels[1]).color==='rgb(88, 166, 255)'&&getComputedStyle(row.querySelector('.sess-task-status')).width==='5px'&&!row.querySelector('.term-folder-association')&&fixture.objectives[0].tasks.find(t=>t.id==='Not started').title==='Not started'&&row.getAttribute('aria-label').includes('Won’t do')})()`),'assigned task terminal names keep each worktree color and small status without duplicating launch-folder labels');
+ await click('[data-objective-terminals-all=one]');
+ assert(await evaluate(`(()=>{const row=document.querySelector('[data-open-task-terminal=Recommended]');return row.querySelector('.objective-task-worktree-name').textContent==='checkpoint/jco'&&getComputedStyle(row.querySelector('.objective-task-worktree-name')).color==='rgb(88, 166, 255)'&&getComputedStyle(row.querySelector('.sess-task-status')).width==='5px'&&row.getAttribute('aria-label').includes('Not started')&&created.length===5})()`),'recommended terminals use the same colored label and small status dot');
+ assert(await evaluate(`(()=>{const row=document.querySelector('.sess[data-name=worktree-only]'),label=row.querySelector('.term-folder-association');return !row.querySelector('.sess-icon')&&label.textContent==='sdui/jcortes/ui'&&getComputedStyle(label).color==='rgb(255, 123, 114)'&&getComputedStyle(label,'::before').width==='6px'&&getComputedStyle(row).backgroundColor==='rgba(0, 0, 0, 0)'})()`),'worktree terminal is a plain row with matching colored dot and text');
+ fs.writeFileSync(process.argv[1]+'/../terminal-dots.png',Buffer.from((await send('Page.captureScreenshot',{format:'png'})).data,'base64'));
  assert(await evaluate('errors.length===0'),'no browser errors with main roles, Show all, paused or declined tasks');
  ws.close();console.log('PASS');
 })().catch(e=>{console.error(e.stack);process.exit(1)});
