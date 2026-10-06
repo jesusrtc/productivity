@@ -1,5 +1,7 @@
 # Memory index
 
+- [Terminal recency bar is opt-in](terminal-recency-bar-is-opt-in.md) — disabled by default, explicit browser Settings toggle; saved window/color/activity do not enable it.
+
 - [Terminal tree mirrors tasks and inherits context](terminal-tree-mirrors-tasks-and-inherits-context.md) — one primary per task, recommended global/task rows, task-shaped nesting and independent children with inherited context.
 
 - [Current Objective refreshes every five seconds](current-objective-refreshes-every-five-seconds.md) — scoped polling for external tasks/assets, faster directory membership checks and preserved drafts/live rows.

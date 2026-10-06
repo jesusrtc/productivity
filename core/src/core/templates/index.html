@@ -344,6 +344,7 @@ window.ensureLiveMarkdownEditor = (function () {
       <p>Automatic document agents sleep after 1 hour and expire after 36 hours by default.</p>
       <button type="button" onclick="LabDocumentTerminal.settings()">Configure document terminals…</button>
       <h3>Recent tabs</h3>
+        <label><input id="termRecentEnabled" type="checkbox" onchange="termSetRecentEnabled(this.checked)"> Show recency bar on terminal tabs</label>
         <label for="termRecentMinutes">
           <span>Recent window</span>
           <select id="termRecentMinutes" onchange="termSetRecentMinutes(this.value)" aria-label="Recent terminal activity window">
@@ -357,10 +358,10 @@ window.ensureLiveMarkdownEditor = (function () {
           </select>
         </label>
         <label for="termRecentColor">
-          <span>Dot color</span>
-          <span class="term-recent-color-control"><input id="termRecentColor" type="color" value="#3fb950" oninput="termSetRecentColor(this.value)" aria-label="Recent terminal dot color"><code id="termRecentColorValue">#3fb950</code></span>
+          <span>Bar color</span>
+          <span class="term-recent-color-control"><input id="termRecentColor" type="color" value="#3fb950" oninput="termSetRecentColor(this.value)" aria-label="Recent terminal bar color"><code id="termRecentColorValue">#3fb950</code></span>
         </label>
-        <p>Inactive tabs used within this window show a dot in this color.</p>
+        <p>Off by default. When enabled, inactive tabs used within this window show a bar in this color.</p>
 
       <p>Changes are saved automatically in this browser. Right-click a tab to organize groups, add dividers, rename, or close it.</p>
       <section class="term-danger-zone" aria-labelledby="termDangerTitle">

@@ -222,7 +222,7 @@ const render = () => _termSessionPillHtml(s, 0);
 const done = s.agent_activity;
 s.agent_activity = {state:'working'};
 assert(render().includes('sess-working') && !render().includes('sess-completion'), 'one yellow working dot');
-window.LabObjectives = {taskForTerminal:()=>({title:'Verify the fix',icon:'<svg class="ft-nb"></svg>'})};
+window.LabObjectives = {taskForTerminal:()=>({title:'Verify the fix',icon:'<svg class="ft-nb"></svg>',assetIcon:'<svg class="ft-nb"></svg>',status:'todo',inherited:false})};
 assert(render().includes('<svg class="ft-nb">') && render().includes('Task: Verify the fix') && render().includes('sess-working'), 'a task-linked terminal inherits its asset icon and retains working status');
 delete window.LabObjectives;
 s.agent_activity = done;

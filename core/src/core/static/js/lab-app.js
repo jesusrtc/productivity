@@ -11003,10 +11003,11 @@
       localStorage.setItem(_TERM_NEW_OPTIONS_KEY + key, JSON.stringify(_TERM_NEW_OPTIONS.filter(value => options.includes(value))));
       if (key === _termGroupScopeKey()) _termApplyNewOptions(document.getElementById('termNewPicker'),key);
     },
-    appearance() { return {orientation:termSessionOrientation,tabHoverPinSeconds:termTabHoverPinSeconds,recentMinutes:termRecentMinutes,recentColor:termRecentColor,completionReadSeconds:window.LabTerminalCompletion?.getDelaySeconds() ?? 20}; },
+    appearance() { return {orientation:termSessionOrientation,tabHoverPinSeconds:termTabHoverPinSeconds,recentEnabled:termRecentEnabled,recentMinutes:termRecentMinutes,recentColor:termRecentColor,completionReadSeconds:window.LabTerminalCompletion?.getDelaySeconds() ?? 20}; },
     saveAppearance(value) {
       termSetSessionView('orientation',value.orientation);
       if ('tabHoverPinSeconds' in value) termSetTabHoverPinSeconds(value.tabHoverPinSeconds);
+      if ('recentEnabled' in value) termSetRecentEnabled(value.recentEnabled);
       termSetRecentMinutes(value.recentMinutes); termSetRecentColor(value.recentColor);
       if ('completionReadSeconds' in value) window.LabTerminalCompletion?.setDelaySeconds(value.completionReadSeconds);
     },
@@ -11524,8 +11525,9 @@
   const _TERM_SESSION_WIDTH_KEY = 'labTermSessionWidth';
   const _TERM_TAB_HOVER_PIN_KEY = 'labTermTabHoverPinSeconds';
   const _TERM_GROUPS_KEY = 'labTermGroups-v1';
+  const _TERM_RECENT_ENABLED_KEY = 'labTermRecentEnabled';
   const _TERM_RECENT_MINUTES_KEY = 'labTermRecentMinutes';
-  // Dots start green instead of inheriting the old bar/background color.
+  // Keep the saved color key compatible with the earlier dot marker.
   const _TERM_RECENT_COLOR_KEY = 'labTermRecentDotColor';
   const _TERM_RECENT_ACTIVITY_KEY = 'labTermRecentActivity-v1';
   const _TERM_RECENT_MINUTE_OPTIONS = [15, 30, 60, 180, 360, 720, 1440];
@@ -11534,6 +11536,7 @@
   let termSessionWidth = null;
   let termTabHoverPinSeconds = 3;
   let _termSessionDrawer = null;
+  let termRecentEnabled = false;
   let termRecentMinutes = 60;
   let termRecentColor = '#3fb950';
   let termRecentActivity = {};
@@ -11545,6 +11548,7 @@
     if (Number.isFinite(storedWidth)) termSessionWidth = Math.max(160, Math.min(220, storedWidth));
     const storedHoverSeconds = localStorage.getItem(_TERM_TAB_HOVER_PIN_KEY);
     if (storedHoverSeconds !== null) termTabHoverPinSeconds = _termNormalizeTabHoverPinSeconds(storedHoverSeconds);
+    termRecentEnabled = localStorage.getItem(_TERM_RECENT_ENABLED_KEY) === 'true';
     const storedRecentMinutes = localStorage.getItem(_TERM_RECENT_MINUTES_KEY);
     if (storedRecentMinutes !== null) termRecentMinutes = _termNormalizeRecentMinutes(storedRecentMinutes);
     termRecentColor = _termNormalizeRecentColor(localStorage.getItem(_TERM_RECENT_COLOR_KEY));
@@ -11602,7 +11606,7 @@
   }
 
   function _termSessionRecentMeta(session, now = Date.now()) {
-    if (!(session && session.logical_name)) return null;
+    if (!termRecentEnabled || !(session && session.logical_name)) return null;
     const scoped = termRecentActivity[_termRecentScopeKey()];
     const usedAt = Number(scoped && scoped[session.logical_name]);
     if (!Number.isFinite(usedAt) || usedAt <= 0) return null;
@@ -11616,19 +11620,28 @@
   }
 
   function _termApplyRecentSettings() {
+    const enabled = document.getElementById('termRecentEnabled');
     const btn = document.getElementById('termRecentSettingsBtn');
     const label = document.getElementById('termRecentButtonLabel');
     const select = document.getElementById('termRecentMinutes');
     const colorInput = document.getElementById('termRecentColor');
     const colorValue = document.getElementById('termRecentColorValue');
     const panel = document.getElementById('termPanel');
-    const windowLabel = _termRecentWindowLabel();
+    const windowLabel = termRecentEnabled ? _termRecentWindowLabel() : 'Off';
+    if (enabled) enabled.checked = termRecentEnabled;
     if (btn) btn.title = `Recent terminal highlight: ${windowLabel}`;
     if (label) label.textContent = windowLabel;
     if (select && String(select.value) !== String(termRecentMinutes)) select.value = String(termRecentMinutes);
     if (colorInput && colorInput.value.toLowerCase() !== termRecentColor) colorInput.value = termRecentColor;
     if (colorValue) colorValue.textContent = termRecentColor;
     if (panel && panel.style) panel.style.setProperty('--term-recent-color', termRecentColor);
+  }
+
+  function termSetRecentEnabled(enabled) {
+    termRecentEnabled = enabled === true;
+    try { localStorage.setItem(_TERM_RECENT_ENABLED_KEY, String(termRecentEnabled)); } catch {}
+    _termApplyRecentSettings();
+    termRenderSessionList();
   }
 
   function termSetRecentMinutes(value) {

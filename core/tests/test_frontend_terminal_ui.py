@@ -186,6 +186,8 @@ def test_terminal_tabs_show_recent_activity_with_configurable_window() -> None:
 
     assert 'id="termSettingsModal"' in html
     assert 'onclick="termOpenSettings()"' in html
+    assert 'id="termRecentEnabled" type="checkbox"' in html
+    assert 'onchange="termSetRecentEnabled(this.checked)"' in html
     assert '<select id="termRecentMinutes"' in html
     assert 'onchange="termSetRecentMinutes(this.value)"' in html
     assert '<option value="15">15 minutes</option>' in html
@@ -220,10 +222,12 @@ const localStorage = {
   setItem(key, value) { stored[key] = value; },
 };
 const _TERM_RECENT_ACTIVITY_KEY = 'recent';
+const _TERM_RECENT_ENABLED_KEY = 'enabled';
 const _TERM_RECENT_MINUTES_KEY = 'minutes';
 const _TERM_RECENT_COLOR_KEY = 'color';
 const _TERM_RECENT_MINUTE_OPTIONS = [15, 30, 60, 180, 360, 720, 1440];
 let termRecentMinutes = 60;
+let termRecentEnabled = true;
 let termRecentColor = '#3fb950';
 let termRecentActivity = {};
 let vault = 'ssd';
@@ -308,6 +312,37 @@ process.stdout.write(JSON.stringify({
         "panelColor": "#a371f7",
         "renderCount": 2,
     }
+
+
+def test_terminal_recency_defaults_off_until_explicitly_enabled_in_settings() -> None:
+    initialization = _js_between('  const _TERM_SESSION_ORIENTATION_KEY =', '  function _termNormalizeTabHoverPinSeconds(')
+    helpers = _js_between('  function _termNormalizeRecentMinutes(', '  function termCloseRecentSettings()')
+    result = _run_node(r'''
+const vm=require('node:vm');
+const initialize=(stored={})=>{
+ const sandbox={localStorage:{getItem:key=>stored[key]??null,setItem:(key,value)=>stored[key]=value},
+  document:{getElementById:()=>null},termRenderSessionList:()=>{},
+  _termSessionsKey:(w,v)=>v+'::'+w,_termActiveWorkspaceId:()=> 'demo',_termVaultId:()=> 'vault'};
+ vm.runInNewContext(SOURCE+`
+  const termSessions=[{name:'session',logical_name:'session'}];
+  _termMarkRecent('demo','session','vault',100000);
+  globalThis.result={enabled:termRecentEnabled,minutes:termRecentMinutes,color:termRecentColor,meta:_termSessionRecentMeta(termSessions[0],100000)};
+  globalThis.toggle=enabled=>{termSetRecentEnabled(enabled);return _termSessionRecentMeta(termSessions[0],100000);};
+ `,sandbox);return sandbox;
+};
+const legacy={labTermRecentMinutes:'180',labTermRecentDotColor:'#a371f7'};
+const fresh=initialize().result,oldPreferences=initialize(legacy).result;
+const explicit=initialize(legacy),on=explicit.toggle(true),restored=initialize(legacy).result;
+const off=explicit.toggle(false),disabled=initialize(legacy).result;
+console.log(JSON.stringify({fresh,oldPreferences,on,restored,off,disabled,stored:legacy}));
+'''.replace('SOURCE', json.dumps(initialization + helpers)))
+    assert not result['fresh']['enabled'] and result['fresh']['meta'] is None
+    assert not result['oldPreferences']['enabled'] and result['oldPreferences']['meta'] is None
+    assert result['on']['label'] == 'used just now'
+    assert result['restored']['enabled'] and result['restored']['meta']
+    assert result['off'] is None and not result['disabled']['enabled']
+    assert result['stored']['labTermRecentEnabled'] == 'false'
+    assert result['disabled']['minutes'] == 180 and result['disabled']['color'] == '#a371f7'
 
 
 def test_terminal_tabs_support_colored_dividers() -> None:
