@@ -343,6 +343,8 @@ window.ensureLiveMarkdownEditor = (function () {
       <h3>Document terminals</h3>
       <p>Automatic document agents sleep after 1 hour and expire after 36 hours by default.</p>
       <button type="button" onclick="LabDocumentTerminal.settings()">Configure document terminals…</button>
+      <h3>Objective tabs</h3>
+      <label><input id="termWipOnly" type="checkbox" checked onchange="termSetWipOnly(this.checked)"> Show only In progress task terminals</label>
       <h3>Recent tabs</h3>
         <label><input id="termRecentEnabled" type="checkbox" onchange="termSetRecentEnabled(this.checked)"> Show recency bar on terminal tabs</label>
         <label for="termRecentMinutes">

@@ -1,5 +1,9 @@
 # Memory index
 
+- [Worktree browse mode restores task assets](worktree-browse-restores-task-assets.md) — hover-folded Worktrees above Tasks, center task assignment, checkout-owned recent-file union and display-only names/colors.
+
+- [Objective terminals default to WIP tasks](objective-terminals-default-to-wip-tasks.md) — In progress tasks and inherited child terminals only; Settings can reveal all preserved sessions.
+
 - [Terminal recency bar is opt-in](terminal-recency-bar-is-opt-in.md) — disabled by default, explicit browser Settings toggle; saved window/color/activity do not enable it.
 
 - [Terminal tree mirrors tasks and inherits context](terminal-tree-mirrors-tasks-and-inherits-context.md) — one primary per task, recommended global/task rows, task-shaped nesting and independent children with inherited context.

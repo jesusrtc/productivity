@@ -427,7 +427,8 @@ def _sidebar_git_recent_files(directory: str, mode: str) -> dict:
 
 @router.get("/api/sidebar-recent-files")
 def api_sidebar_recent_files(repo: str, mode: str, request: Request, cached: bool = False,
-                             offset: int = 0, sort: str = "updated", include_dotfiles: bool = False, extensions: str = ""):
+                             offset: int = 0, sort: str = "updated", include_dotfiles: bool = False, extensions: str = "",
+                             max_age: int = 60):
     """File paths for one Git-backed Recently updated quick selector."""
     if mode not in _SIDEBAR_RECENT_GIT_MODES:
         raise HTTPException(status_code=400, detail="Unsupported recent file mode")
@@ -443,6 +444,7 @@ def api_sidebar_recent_files(repo: str, mode: str, request: Request, cached: boo
         return _sidebar_cached_response(request.app.state.sidebar_cache.read(
             root, ("recent", str(resolved), mode),
             lambda: _sidebar_project_recent(resolved, mode), group=str(resolved),
+            ttl=max(5, min(max_age, 60)),
             page=_sidebar_recent_page(offset, sort, include_dotfiles, extensions),
         ))
     return _sidebar_git_recent_files(str(resolved), mode)
@@ -550,12 +552,13 @@ def api_sidebar_directory(path: str, request: Request, directory: str = ".",
 
 @router.get("/api/sidebar-mtime")
 def api_sidebar_mtime(path: str, request: Request, minutes: int = 60, offset: int = 0,
-                      sort: str = "updated", include_dotfiles: bool = False, extensions: str = ""):
+                      sort: str = "updated", include_dotfiles: bool = False, extensions: str = "", max_age: int = 60):
     root = _entry_root(path, request)
     minutes = max(1, min(minutes, 525600))
     return _sidebar_cached_response(request.app.state.sidebar_cache.read(
         auth.request_root(request), ("mtime", str(root), minutes),
         lambda: _sidebar_project_recent(root, "mtime", minutes), group=str(root),
+        ttl=max(5, min(max_age, 60)),
         page=_sidebar_recent_page(offset, sort, include_dotfiles, extensions),
     ))
 

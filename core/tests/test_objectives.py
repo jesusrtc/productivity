@@ -434,3 +434,22 @@ def test_shared_terminal_association_keeps_assistant_owner_and_launch_folder(cli
     assert response.status_code==200,response.text
     assert term._get_workspace_sessions(root,'__assistant__')==[{**before[0],'label':task['title']}]
     assert term._get_workspace_sessions(monorepo,'demo')==[] and len(live)==1
+
+
+def test_worktrees_can_belong_to_multiple_tasks_without_changing_details_or_icons(monorepo, objective_workspace, tmp_path):
+    root, oid = objective_workspace
+    data = apply(monorepo, oid, 'task', title='Parent')
+    parent = data['objectives'][0]['tasks'][0]
+    data = apply(monorepo, oid, 'task', title='Child', parent_id=parent['id'])
+    child = data['objectives'][0]['tasks'][0]['children'][0]
+    checkout = tmp_path / 'checkout'
+    checkout.mkdir()
+    data = apply(monorepo, oid, 'worktree', path=str(checkout), repo=str(root), label='Topic', kind='folder')
+    folder = data['objectives'][0]['path']
+    for task_id, path in [(parent['id'], checkout), (child['id'], checkout), (parent['id'], root), (child['id'], folder)]:
+        data = apply(monorepo, oid, 'task-asset', task_id=task_id, folder={'root':str(path),'path':'.'}, choose_icon=False)
+    tasks = data['objectives'][0]['tasks']
+    for original, updated in [(parent, tasks[0]), (child, tasks[0]['children'][0])]:
+        assert [updated.get(field) for field in ('id','title','document_id','tab_id','icon_asset_id')] == [original.get(field) for field in ('id','title','document_id','tab_id','icon_asset_id')]
+        assert len(updated['assets']) == 2
+        assert any(asset['folder']['root'] == str(checkout) for asset in updated['assets'])

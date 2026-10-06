@@ -47,7 +47,7 @@ def test_terminal_actions_live_in_settings_and_context_menus() -> None:
     assert 'onclick="termKillAll()"' in html
     assert "row('close', 'Close tab', true)" in source
     assert "html += _termNewButtonHtml()" in source
-    assert "const html = _termNewButtonHtml()" in source
+    assert "terminalHtml?.([],pill,_termNewButtonHtml()) ?? _termNewButtonHtml()" in source
 
 
 def test_framework_top_tab_is_labeled_home() -> None:

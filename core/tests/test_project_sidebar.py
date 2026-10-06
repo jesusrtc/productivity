@@ -220,3 +220,33 @@ def test_recent_git_filters_distinguish_all_three_file_groups(client, monorepo, 
         if cached:
             for response in responses.values():
                 assert {row['path'] for row in response['entries']} == set(response['files'])
+
+
+@pytest.mark.parametrize('mode', ['mtime', 'uncommitted'])
+def test_objective_recent_files_refresh_after_five_seconds_without_global_rescan(client, seed_workspace, monkeypatch, mode):
+    from core import sidebar_cache
+
+    root = seed_workspace()
+    git(root, 'init', '-b', 'main')
+    (root / 'base.txt').write_text('base')
+    git(root, 'add', '.')
+    git(root, 'commit', '-m', 'base')
+    current = [time.time()]
+    monkeypatch.setattr(sidebar_cache.time, 'time', lambda: current[0])
+    endpoint = '/api/sidebar-mtime' if mode == 'mtime' else '/api/sidebar-recent-files'
+    params = {'path': str(root), 'minutes': 60} if mode == 'mtime' else {'repo': str(root), 'mode': mode, 'cached': True}
+    initial = ready(client._inner, endpoint, **params)
+    (root / 'new-objective-file.md').write_text('new')
+    git(root, 'add', 'new-objective-file.md')
+    current[0] += 6
+    ordinary = ready(client._inner, endpoint, **params)
+    assert ordinary['cache']['updated'] == initial['cache']['updated']
+    assert 'new-objective-file.md' not in [entry['path'] for entry in ordinary['entries']]
+    deadline = time.monotonic() + 5
+    while True:
+        refreshed = ready(client._inner, endpoint, max_age=5, **params)
+        if refreshed['cache']['updated'] > initial['cache']['updated']:
+            break
+        assert time.monotonic() < deadline
+        time.sleep(.02)
+    assert 'new-objective-file.md' in [entry['path'] for entry in refreshed['entries']]

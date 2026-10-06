@@ -39,11 +39,12 @@ def test_settings_center_browser(tmp_path, viewport):
 localStorage.clear();
 const currentWorkspace={name:'same',path:'/vault-a/same',vault:'a',display_name:'Workspace Alpha'};
 const currentRepo=null, SELF_WORKSPACE_ID='__self__',SELF_REPO_PATH='/lab',ASSISTANT_WORKSPACE_ID='__assistant__',ASSISTANT_VAULT_ID='__assistant__',ASSISTANT_ROOT='/assistant';
-let _settings={},_vaultAgentPolicy=null,termSessionOrientation='vertical',termRecentEnabled=false,termRecentMinutes=60,termRecentColor='#3fb950',rendered=0,appliedOptions=0;
+let _settings={},_vaultAgentPolicy=null,termSessionOrientation='vertical',termWipOnly=true,termRecentEnabled=false,termRecentMinutes=60,termRecentColor='#3fb950',rendered=0,appliedOptions=0;
 const _TERM_TAB_HOVER_PIN_KEY='labTermTabHoverPinSeconds';let termTabHoverPinSeconds=3,_termSessionDrawer=null;
 const _termActiveWorkspaceId=()=>currentWorkspace.name,_termVaultId=()=>currentWorkspace.vault,_termGroupScopeKey=()=>_termSessionsKey(currentWorkspace.name,currentWorkspace.vault);
 const applyTheme=()=>{},termRenderSessionList=()=>++rendered,_termApplyNewOptions=()=>++appliedOptions;
 const termSetSessionView=(_,v)=>termSessionOrientation=v,termSetRecentMinutes=v=>termRecentMinutes=v,termSetRecentColor=v=>termRecentColor=v;
+const termSetWipOnly=v=>{termWipOnly=v;localStorage.setItem('labTermWipOnly',String(v));};
 const termSetRecentEnabled=v=>{termRecentEnabled=v;localStorage.setItem('labTermRecentEnabled',String(v));};
 const termKillAll=()=>{throw Error('must never stop sessions')};
 const esc=v=>String(v),escAttr=esc;
@@ -171,6 +172,7 @@ const fits=()=>{const d=document.getElementById('labSettingsCenter');const rect=
  await section('documents');field('sleepMinutes','20');field('maxRunning','2');await save();assert(cfg.documentTerminals.sleepMinutes===20&&cfg.documentTerminals.maxRunning===2,'global policy saved');
  await section('terminals');assert(form().elements.completionReadSeconds.value==='20','completion delay defaults to twenty seconds');assert(form().elements.tabHoverPinSeconds.value==='3','hover keep-open delay defaults to three seconds');
  assert(!form().elements.recentEnabled.checked,'recency bar is off by default');
+ assert(q('[name=wipOnly]').checked,'WIP only by default');field('wipOnly',false);await save();assert(!termWipOnly&&localStorage.getItem('labTermWipOnly')==='false','show all terminal setting');field('wipOnly',true);await save();assert(termWipOnly,'restore WIP filter');
  field('recentEnabled',true);await save();assert(termRecentEnabled&&localStorage.getItem('labTermRecentEnabled')==='true','settings can explicitly enable recency');
  await section('documents');await section('terminals');assert(form().elements.recentEnabled.checked,'saved recency opt-in restored');
  field('recentEnabled',false);await save();assert(!termRecentEnabled&&localStorage.getItem('labTermRecentEnabled')==='false','settings can disable recency again');

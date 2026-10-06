@@ -25,7 +25,7 @@ const second={id:'two',name:'Two',color:'#bc8cff',worktrees:[{path:'/two',label:
 const registry={enabled:true,objectives:[first,second,{id:'parked',tasks:[],worktrees:[]}],focused:['one','two'],terminal_links:{}};
 let current=first;
 const context=()=>({path:'/workspace'}),active=()=>registry.enabled,data=()=>registry,objective=()=>current;
-const tasks=o=>o?.tasks.flatMap(t=>[t,...t.children])||[],esc=value=>String(value),taskIcon=()=>'<icon>';
+const tasks=o=>o?.tasks.flatMap(t=>[t,...t.children])||[],esc=value=>String(value),taskIcon=()=>'<icon>',taskDisplayName=t=>t.title;
 const bridge=null,taskStatus=()=> 'todo',customTaskIcon=()=>'<icon>';
 const session=(name,cwd='/a',assignment)=>{
   const t={name,session_id:'uuid-'+name,logical_name:'logical-'+name,cwd,label:name,agent_session_id:'kept'};

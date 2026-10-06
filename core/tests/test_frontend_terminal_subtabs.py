@@ -33,7 +33,7 @@ const registry={enabled:true,focused:['one'],objectives:[o],terminal_links:{
 const termSessions=['global','parent','subtask','extra','grandchild'].map(name=>({name,logical_name:name,session_id:name}));
 let termCurrentSession='grandchild',selected=null,current=o;
 const data=()=>registry,context=()=>({workspace_id:'work',vault:'fixture',path:'/workspace'}),active=()=>true,objective=()=>current;
-const tasks=o=>o?.tasks.flatMap(t=>[t,...t.children])||[],taskIcon=()=>'<icon>',customTaskIcon=()=>'',taskStatus=()=> 'todo',esc=String;
+const tasks=o=>o?.tasks.flatMap(t=>[t,...t.children])||[],taskIcon=()=>'<icon>',customTaskIcon=()=>'',taskStatus=()=> 'todo',taskDisplayName=t=>t.title,esc=String;
 const view={tree:{}},state=()=>view,persistView=()=>{},paint=()=>{},scopeRows=()=>[];
 const opened=[],created=[],activated=[];
 const focusedTask=()=>tasks(current).find(task=>task.id===selected);
@@ -47,7 +47,7 @@ const bridge={parentTerminal:t=>termSessions.find(p=>p.logical_name===_termSubta
 ''' + helpers + GROUPS + r'''
 const group=_termNormalizeGroupState({order:termSessions.map(t=>'s:'+t.name),tabParents:{extra:'subtask',grandchild:'extra'}});
 window.LabObjectives={terminalParents,terminalExpanded,sameTerminalObjective:(a,b)=>terminalObjective(a)?.id===terminalObjective(b)?.id};
-const augmented=terminalSessions(termSessions),parents=_termSubtabParents(group,augmented);
+const augmented=terminalSessions(termSessions,{wipOnly:false}),parents=_termSubtabParents(group,augmented);
 const missing=augmented.find(t=>t.task_id==='missing'),binding=terminalTask(termSessions[4]);
 const original=JSON.stringify(registry.terminal_links);
 openForTerminal(termSessions[4]);const expanded=terminalExpanded(termSessions[1]);
@@ -118,7 +118,7 @@ def test_native_terminal_drop_choice_hover_reload_and_objective_folding(tmp_path
         pytest.skip('Chrome and Node required')
     setup = r'''
 let vault='fixture',workspace='demo',termCurrentSession='a',termCurrentWorkspaceId='demo';
-let termSessionOrientation=ORIENTATION;
+let termSessionOrientation=ORIENTATION,termWipOnly=false;
 let termSessions=['a','b','c','other'].map(name=>({name,logical_name:name,session_id:'uuid-'+name,cwd:'/workspace',kind:'terminal'}));
 const originalSessions=JSON.stringify(termSessions),mutations=[];
 const _TERM_GROUPS_KEY='groups',_TERM_GROUP_COLORS=['#58a6ff'];

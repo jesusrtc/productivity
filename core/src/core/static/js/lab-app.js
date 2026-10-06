@@ -3891,7 +3891,7 @@
 
   function _sidebarProjectView(baseRoot, fileRoot) {
     if (baseRoot !== _sidebarWorktreeBaseRoot() || fileRoot !== _sidebarScopedRoot(baseRoot)) return false;
-    if (fileRoot === baseRoot && !currentRepo) return false;
+    if (fileRoot === baseRoot && !currentRepo && !window.LabObjectives?.active(baseRoot)) return false;
     const sidebar = document.getElementById('sidebar');
     if (!sidebar) return false;
     if (_sidebarScopeTransition && !_sidebarScopeTransitionCurrent()) {
@@ -4021,13 +4021,63 @@
     }, current, {maxAge:window.LabObjectives?.active(baseRoot)?5000:60000});
   }
 
+  function _sidebarObjectiveRecent(view, host, scopes, mode, minutes, current) {
+    const extensions = _sidebarFileConfig.trackMode === 'extensions' ? (_sidebarFileConfig.extensions || []).join(',') || '__no_matches__' : '';
+    const projection = JSON.stringify([scopes, mode, minutes, extensions, showWorkspaceDotFiles, _sidebarCurrentSortMode('recent')]);
+    if (host._projection !== projection) {
+      host._projection = projection; host._signature = ''; host.innerHTML = '';
+      host._scopeRecent = new Map();
+    }
+    const owns = () => current() && host._projection === projection
+      && JSON.stringify(window.LabObjectives?.recentScopes?.(view._project.baseRoot)) === JSON.stringify(scopes);
+    const ready = () => { view._recentReady = true; _sidebarCommitProjectView(view); };
+    if (!scopes.length || mode === 'none') { ready(); return; }
+    const render = () => {
+      if (!owns()) return;
+      const signature = JSON.stringify([scopes.map(scope => host._scopeRecent.get(scope.id)), _workspaceDocPath]);
+      if (host._signature === signature) return;
+      host._signature = signature;
+      host.innerHTML = scopes.map(scope => {
+        const data = host._scopeRecent.get(scope.id);
+        const files = data?.entries?.filter(file => _sidebarRecentTypeAllowed(file)
+          && (showWorkspaceDotFiles || !file.path.split('/').some(part => part.startsWith('.'))))
+          .sort((a,b) => _sidebarCompareFiles(a,b,_sidebarCurrentSortMode('recent')));
+        const contents = !data ? 'Loading recent files…' : !files ? esc(data.error || data.cache?.error || 'Loading recent files…')
+          : files.length ? _sidebarRecentSectionHtml(files, _workspaceDocPath, scope.path, {resolved:true})
+          : data.available === false ? 'Comparison branch unavailable' : 'No matching recent files';
+        return `<section class="objective-worktree-recent" data-recent-root="${escAttr(scope.path)}"><div class="sidebar-title" style="--worktree-color:${escAttr(scope.color)}"><i aria-hidden="true"></i>${esc(scope.label)}</div>${contents}${data?.total > (data?.next_offset ?? files?.length) ? `<button class="sidebar-title-action" data-more-recent="${escAttr(scope.id)}">Show more (${files?.length || 0} of ${data.total})</button>` : ''}</section>`;
+      }).join('');
+      host.querySelectorAll('[data-more-recent]').forEach(button => button.onclick = () => {
+        const scope = scopes.find(row => row.id === button.dataset.moreRecent), data = host._scopeRecent.get(scope.id);
+        button.disabled = true;
+        ProjectSidebar.read(urlFor(scope) + '&offset=' + (data.next_offset ?? data.entries.length), page => {
+          if (!page.entries) { button.disabled = false; return; }
+          const known = new Set(data.entries.map(file => file.path));
+          host._scopeRecent.set(scope.id, {...page, _firstPage:data._firstPage, entries:[...data.entries,...page.entries.filter(file => !known.has(file.path))]});
+          render();
+        }, owns, {maxAge:5000});
+      });
+      if (scopes.every(scope => host._scopeRecent.has(scope.id))) ready();
+    };
+    const urlFor = scope => (mode === 'mtime' ? `/api/sidebar-mtime?path=${encodeURIComponent(scope.path)}&minutes=${minutes}`
+      : `/api/sidebar-recent-files?repo=${encodeURIComponent(scope.path)}&mode=${mode}&cached=true`)
+      + `&sort=${_sidebarCurrentSortMode('recent')}&include_dotfiles=${showWorkspaceDotFiles}&extensions=${encodeURIComponent(extensions)}&max_age=5`;
+    scopes.forEach(scope => ProjectSidebar.read(urlFor(scope), data => {
+      if (!Array.isArray(data.entries) && !data.error && !data.cache?.error) return;
+      const firstPage = JSON.stringify([data.entries, data.total, data.next_offset, data.available, data.error, data.cache?.error]);
+      if (host._scopeRecent.get(scope.id)?._firstPage !== firstPage) host._scopeRecent.set(scope.id, {...data, _firstPage:firstPage});
+      render();
+    }, owns, {maxAge:5000}));
+    render();
+  }
+
   function _sidebarProjectRecent(view = document.querySelector('#sidebar [data-project-sidebar]')) {
     if (!_sidebarProjectOwnsView(view)) return;
     const {baseRoot, fileRoot, generation} = view._project;
     for (const [key, entry] of _sidebarScopeViews) {
       if (entry.view === view && key !== _sidebarScopeCacheKey(baseRoot)) _sidebarScopeViews.delete(key);
     }
-    if (_sidebarScopeTransition?.view !== view) _sidebarMarkPainted(baseRoot, fileRoot);
+    if (_sidebarScopeTransition?.view !== view && !window.LabObjectives?.active(baseRoot)) _sidebarMarkPainted(baseRoot, fileRoot);
     const mode = _sidebarCurrentRecentMode(), minutes = _sidebarFileConfig.recentMinutes;
     const host = view.querySelector('[data-project-recent]');
     const selectors = view.querySelector('.sidebar-recent-selectors');
@@ -4039,6 +4089,13 @@
     });
     const current = () => view.contains(host) && _sidebarProjectOwnsView(view)
       && mode === _sidebarCurrentRecentMode() && minutes === _sidebarFileConfig.recentMinutes;
+    const objectiveScopes = window.LabObjectives?.recentScopes?.(baseRoot);
+    if (Array.isArray(objectiveScopes)) {
+      view.dataset.objectiveSidebarMode = window.LabObjectives.sidebarMode(baseRoot);
+      view.dataset.objectiveRecentScopes = String(objectiveScopes.length);
+      _sidebarObjectiveRecent(view, host, objectiveScopes, mode, minutes, current);
+      return;
+    }
     if (host._mode !== mode + minutes) { host.innerHTML = ''; host._mode = mode + minutes; host._signature = ''; }
     if (mode === 'none') {
       view._recentReady = true;
@@ -11003,10 +11060,11 @@
       localStorage.setItem(_TERM_NEW_OPTIONS_KEY + key, JSON.stringify(_TERM_NEW_OPTIONS.filter(value => options.includes(value))));
       if (key === _termGroupScopeKey()) _termApplyNewOptions(document.getElementById('termNewPicker'),key);
     },
-    appearance() { return {orientation:termSessionOrientation,tabHoverPinSeconds:termTabHoverPinSeconds,recentEnabled:termRecentEnabled,recentMinutes:termRecentMinutes,recentColor:termRecentColor,completionReadSeconds:window.LabTerminalCompletion?.getDelaySeconds() ?? 20}; },
+    appearance() { return {orientation:termSessionOrientation,tabHoverPinSeconds:termTabHoverPinSeconds,wipOnly:termWipOnly,recentEnabled:termRecentEnabled,recentMinutes:termRecentMinutes,recentColor:termRecentColor,completionReadSeconds:window.LabTerminalCompletion?.getDelaySeconds() ?? 20}; },
     saveAppearance(value) {
       termSetSessionView('orientation',value.orientation);
       if ('tabHoverPinSeconds' in value) termSetTabHoverPinSeconds(value.tabHoverPinSeconds);
+      if ('wipOnly' in value) termSetWipOnly(value.wipOnly);
       if ('recentEnabled' in value) termSetRecentEnabled(value.recentEnabled);
       termSetRecentMinutes(value.recentMinutes); termSetRecentColor(value.recentColor);
       if ('completionReadSeconds' in value) window.LabTerminalCompletion?.setDelaySeconds(value.completionReadSeconds);
@@ -11526,6 +11584,7 @@
   const _TERM_TAB_HOVER_PIN_KEY = 'labTermTabHoverPinSeconds';
   const _TERM_GROUPS_KEY = 'labTermGroups-v1';
   const _TERM_RECENT_ENABLED_KEY = 'labTermRecentEnabled';
+  const _TERM_WIP_ONLY_KEY = 'labTermWipOnly';
   const _TERM_RECENT_MINUTES_KEY = 'labTermRecentMinutes';
   // Keep the saved color key compatible with the earlier dot marker.
   const _TERM_RECENT_COLOR_KEY = 'labTermRecentDotColor';
@@ -11537,6 +11596,7 @@
   let termTabHoverPinSeconds = 3;
   let _termSessionDrawer = null;
   let termRecentEnabled = false;
+  let termWipOnly = true;
   let termRecentMinutes = 60;
   let termRecentColor = '#3fb950';
   let termRecentActivity = {};
@@ -11549,6 +11609,7 @@
     const storedHoverSeconds = localStorage.getItem(_TERM_TAB_HOVER_PIN_KEY);
     if (storedHoverSeconds !== null) termTabHoverPinSeconds = _termNormalizeTabHoverPinSeconds(storedHoverSeconds);
     termRecentEnabled = localStorage.getItem(_TERM_RECENT_ENABLED_KEY) === 'true';
+    termWipOnly = localStorage.getItem(_TERM_WIP_ONLY_KEY) !== 'false';
     const storedRecentMinutes = localStorage.getItem(_TERM_RECENT_MINUTES_KEY);
     if (storedRecentMinutes !== null) termRecentMinutes = _termNormalizeRecentMinutes(storedRecentMinutes);
     termRecentColor = _termNormalizeRecentColor(localStorage.getItem(_TERM_RECENT_COLOR_KEY));
@@ -11629,12 +11690,22 @@
     const panel = document.getElementById('termPanel');
     const windowLabel = termRecentEnabled ? _termRecentWindowLabel() : 'Off';
     if (enabled) enabled.checked = termRecentEnabled;
+    const wip = document.getElementById('termWipOnly');
+    if (wip) wip.checked = termWipOnly;
     if (btn) btn.title = `Recent terminal highlight: ${windowLabel}`;
     if (label) label.textContent = windowLabel;
     if (select && String(select.value) !== String(termRecentMinutes)) select.value = String(termRecentMinutes);
     if (colorInput && colorInput.value.toLowerCase() !== termRecentColor) colorInput.value = termRecentColor;
     if (colorValue) colorValue.textContent = termRecentColor;
     if (panel && panel.style) panel.style.setProperty('--term-recent-color', termRecentColor);
+  }
+
+  function termSetWipOnly(enabled) {
+    termWipOnly = enabled !== false;
+    try { localStorage.setItem(_TERM_WIP_ONLY_KEY, String(termWipOnly)); } catch {}
+    const checkbox = document.getElementById('termWipOnly');
+    if (checkbox) checkbox.checked = termWipOnly;
+    termRenderSessionList();
   }
 
   function termSetRecentEnabled(enabled) {
@@ -14350,12 +14421,12 @@
     }
     const el = document.getElementById('termSessionList');
     if (!el) return;
-    const viewSessions=window.LabObjectives?.terminalSessions?.(termSessions||[])||termSessions;
+    const viewSessions=window.LabObjectives?.terminalSessions?.(termSessions||[],{wipOnly:termWipOnly})||termSessions;
     const pill=(session,index)=>session.objective_placeholder?_termTaskPlaceholderHtml(session):_termSessionPillHtml(session,index);
     _termSyncTabSelection();
     _termRenderActiveSessionHeader();
     if (!viewSessions || viewSessions.length === 0) {
-      const html = _termNewButtonHtml();
+      const html = window.LabObjectives?.terminalHtml?.([],pill,_termNewButtonHtml()) ?? _termNewButtonHtml();
       if (el._labTabsHtml === html) return;
       el._labTabsHtml = html;
       _termHideSessionTooltip();
@@ -20878,6 +20949,7 @@
     },
     addWorktree: button => sidebarAddScope(button),
     refreshSidebar: () => currentWorkspace?.is_workspace && _refreshWorkspaceSidebar({preserveScroll:true}),
+    refreshRecent: () => _sidebarProjectRecent(),
     refreshTerminals: () => termRenderSessionList(),
     activateLinkedTerminal: identities => _termActivateObjectiveTerminal(identities),
     sessions:()=>termSessions,
