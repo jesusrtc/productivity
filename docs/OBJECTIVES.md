@@ -309,8 +309,10 @@ in Terminal settings.
 
 Task terminals use small status dots instead of checkbox/emoji badges. Their
 assigned worktree names retain each worktree's colored dot and text, including
-on recommended terminals; asset icons still appear when chosen. Independent
-children use a small dot for their inherited task status. Status names remain
+on recommended terminals. Names with existing worktree bullets use those colors
+without an additional task-status dot, including in the compact rail; asset
+icons still appear when chosen. Independent children without a worktree bullet
+use a small dot for their inherited task status. Status names remain
 available in hover text and accessible labels. The sidebar keeps its status
 controls.
 

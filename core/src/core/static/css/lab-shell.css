@@ -2073,6 +2073,8 @@
   .term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open) .sess { justify-content: center; height: 36px; padding: 0 18px 0 4px; flex-wrap: nowrap; }
   .term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open) .sess-icon { flex: none; }
   .term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open) :is(.sess-label, .term-home-association span, .term-folder-association small, .term-new-label, .term-task-link-label, .term-tab-group-label span) { display: none; }
+  .term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open) .sess-label:has(.objective-task-worktree-name) { display:block; flex:none; font-size:0; line-height:6px; }
+  .term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open) .sess-label .objective-task-worktree-name i { margin-right:3px; vertical-align:middle; }
   .term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open) .term-home-association { position: absolute; right: 3px; bottom: 3px; max-width: none; }
   .term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open) .term-task-link-pill { display: none; }
   .term-panel.term-sessions-horizontal .term-session-switcher { display: contents; }

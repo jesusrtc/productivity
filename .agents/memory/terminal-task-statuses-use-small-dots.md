@@ -3,7 +3,8 @@
 The user prefers terminal tabs to look like simple colored-dot/name rows, as in
 his October 6, 2026 screenshot. Replace terminal task-status emoji/checkbox
 badges with 5px dots, including recommended task terminals and independent
-children that inherit a parent's task. Keep status names in hover/accessibility
+children that inherit a parent's task, unless the displayed name already has a
+worktree bullet (see terminal-names-keep-existing-colored-bullets.md). Keep status names in hover/accessibility
 labels and keep the sidebar's existing status controls. Use filled dots for
 In progress/Completed and rings for Not started/Paused; Won’t do is muted.
 

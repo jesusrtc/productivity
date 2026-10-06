@@ -14408,13 +14408,16 @@
     const scope = s.linked_scope;
     const worktreeOnly = !main && !objectiveTask && scope?.worktree && !linked;
     const icon = main?.icon || (objectiveTask ? objectiveTask.assetIcon : worktreeOnly ? '' : visual.icon);
+    const nameHtml = taskOwn ? (window.LabObjectives?.terminalTaskNameHtml?.(s)||termSessEsc(display)) : termSessEsc(display);
+    const associationHtml = main||taskOwn ? '' : _termSessionAssociationHtml(s);
+    const nameHasBullet = nameHtml.includes('class="objective-task-worktree-name"') || scope?.worktree && !!associationHtml;
     const scopeAttrs = scope ? ` style="--term-scope-color:${termSessEsc(_termScopeColor(scope))}" data-linked-scope="${termSessEsc(scope.root)}"` : '';
-    return `<span${scopeAttrs} class="sess ${visual.kind}${main?' term-main-terminal':''}${objectiveTask?' objective-task-terminal':''}${active}${recent}${dead}" role="tab" aria-label="${termSessEsc(ariaLabel)}" aria-selected="${active ? 'true' : 'false'}" tabindex="${active ? '0' : '-1'}" ${main?`draggable="false" data-terminal-main="${main.kind}" title="${termSessEsc(main.kind+' main terminal · Fixed')}"`:`draggable="true" data-order-token="${termSessEsc(`s:${logical}`)}"`} data-name="${termSessEsc(s.name)}" data-logical="${termSessEsc(logical)}" data-tooltip="${termSessEsc(tooltip)}">
-      ${objectiveTask?_termTaskStatusDotHtml(objectiveTask.status):''}
+    return `<span${scopeAttrs} class="sess ${visual.kind}${main?' term-main-terminal':''}${objectiveTask?' objective-task-terminal':''}${active}${recent}${dead}" role="tab" aria-label="${termSessEsc(ariaLabel)}" aria-selected="${active ? 'true' : 'false'}" tabindex="${active ? '0' : '-1'}" ${main?`draggable="false" data-terminal-main="${main.kind}" title="${termSessEsc(main.kind+' main terminal · Fixed')}"`:`draggable="true" data-order-token="${termSessEsc(`s:${logical}`)}"`}${objectiveTask?` title="${termSessEsc(_termTaskStatusLabel(objectiveTask.status))}"`:''} data-name="${termSessEsc(s.name)}" data-logical="${termSessEsc(logical)}" data-tooltip="${termSessEsc(tooltip)}">
+      ${objectiveTask&&!nameHasBullet?_termTaskStatusDotHtml(objectiveTask.status):''}
       ${icon?`<span class="sess-icon" aria-hidden="true"${objectiveTask ? ' title="'+termSessEsc(objectiveTask.title)+'"' : ''}>${icon}</span>`:''}
       ${main?'':`<span class="sess-order" aria-hidden="true">${index + 1}</span>`}
-      ${worktreeOnly ? '' : `<span class="sess-label${s.label ? ' custom' : ''}">${taskOwn?(window.LabObjectives?.terminalTaskNameHtml?.(s)||termSessEsc(display)):termSessEsc(display)}</span>`}
-      ${main||taskOwn?'':_termSessionAssociationHtml(s)}
+      ${worktreeOnly ? '' : `<span class="sess-label${s.label ? ' custom' : ''}">${nameHtml}</span>`}
+      ${associationHtml}
       ${working ? '<span class="sess-activity sess-working" aria-hidden="true"></span>' : ''}
       ${ready ? '<span class="sess-activity sess-completion" role="button" tabindex="0" aria-label="Mark completed terminal work as reviewed" title="Click to mark completed work as reviewed"></span>' : ''}
       ${linked ? `<span class="sess-link" aria-hidden="true">&#x21C4;</span>` : ''}
@@ -14441,7 +14444,9 @@
     const main=window.LabObjectives?.terminalMain?.(session);
     const task=window.LabObjectives?.taskForTerminal(session),status=task?.status||'todo';
     const label=main?.label||session.label,description=task?_termTaskStatusLabel(status)+' · One primary terminal per task (recommended)':'Fixed '+main?.kind+' main terminal';
-    return `<button type="button" class="sess term-task-placeholder${main?' term-main-terminal':''}${task?' objective-task-terminal':''}" role="button" ${main?`data-terminal-main="${main.kind}"`:''} data-open-task-terminal="${termSessEsc(session.task_id||'')}" data-terminal-objective="${termSessEsc(session.objective_id||'')}" aria-label="Open ${termSessEsc(label)} terminal · ${termSessEsc(description)}" title="Open ${termSessEsc(label)} terminal · ${termSessEsc(description)}">${!task||task.assetIcon?`<span class="sess-icon" aria-hidden="true">${main?.icon||task?.assetIcon||'▣'}</span>`:''}${task?_termTaskStatusDotHtml(status):''}<span class="sess-label">${task?(window.LabObjectives?.terminalTaskNameHtml?.(session)||termSessEsc(label)):termSessEsc(label)}</span><span class="term-task-create" aria-hidden="true">＋</span></button>`;
+    const nameHtml=task?(window.LabObjectives?.terminalTaskNameHtml?.(session)||termSessEsc(label)):termSessEsc(label);
+    const nameHasBullet=nameHtml.includes('class="objective-task-worktree-name"');
+    return `<button type="button" class="sess term-task-placeholder${main?' term-main-terminal':''}${task?' objective-task-terminal':''}" role="button" ${main?`data-terminal-main="${main.kind}"`:''} data-open-task-terminal="${termSessEsc(session.task_id||'')}" data-terminal-objective="${termSessEsc(session.objective_id||'')}" aria-label="Open ${termSessEsc(label)} terminal · ${termSessEsc(description)}" title="Open ${termSessEsc(label)} terminal · ${termSessEsc(description)}">${!task||task.assetIcon?`<span class="sess-icon" aria-hidden="true">${main?.icon||task?.assetIcon||'▣'}</span>`:''}${task&&!nameHasBullet?_termTaskStatusDotHtml(status):''}<span class="sess-label">${nameHtml}</span><span class="term-task-create" aria-hidden="true">＋</span></button>`;
   }
 
   function termRenderSessionList() {
