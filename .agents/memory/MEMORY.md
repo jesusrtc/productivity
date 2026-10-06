@@ -1,10 +1,12 @@
 # Memory index
 
-- [Workflow and Objective mains are fixed](workflow-objective-mains-are-fixed.md) — one saved primary role each, always visible with distinct icons and fixed context/positions; extra processes preserved.
+- [Objective header reveals all its terminals](objective-header-can-reveal-all-its-terminals.md) — visible Show all / Show WIP control, scoped saved preference, unchanged task/terminal focus and compact keyboard access.
+
+- [Workflow and Objective mains are fixed](workflow-objective-mains-are-fixed.md) — one saved primary role each, workspace always visible and only active Objective main shown, with distinct icons and fixed context/positions.
 
 - [Objective tasks support Paused and Won’t do](objective-tasks-support-paused-and-wont-do.md) — persisted additional statuses, independent completion flags and parent/subtask rollups.
 
-- [Terminal menu reveals all sessions](terminal-menu-can-reveal-all-objectives.md) — Show all toggles status filtering and Objective folding, including parked sessions; fixed mains remain visible.
+- [Terminal menu reveals all sessions](terminal-menu-can-reveal-all-objectives.md) — global Show all toggles status filtering and Objective folding, including parked sessions; only the active Objective main remains visible.
 
 - [Completed-task cleanup starts after 24 hours](completed-task-terminals-qualify-after-24-hours.md) — actual completion timestamps, reviewed eligibility, retained main/active sessions and pre-kill assignment rechecks.
 

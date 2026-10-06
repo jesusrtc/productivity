@@ -1,10 +1,11 @@
 # Workflow and Objective mains are fixed
 
 Keep one primary workflow terminal at the top of the terminal tabs, and one
-primary Objective terminal immediately below each Objective divider. Use distinct
-⌂ / ◎ icons with a small diamond for the main role. Main rows stay visible when
-WIP filtering or Objective folding hides task rows; clicking a dormant row
-creates/reuses its session. Workflow means the current workspace/project.
+primary Objective terminal immediately below its active Objective divider. Use
+distinct ⌂ / ◎ icons with a small diamond for the main role. The workspace main
+always stays visible. Only the active Objective main is visible, including in
+global Show all mode; inactive Objective mains stay hidden. Clicking a dormant
+main creates/reuses its session. Workflow means the current workspace/project.
 
 Persist roles through Objective terminal actions (`main: workflow` without an
 Objective, or `main: objective`). Adopt one legacy whole-Objective link as its

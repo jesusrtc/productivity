@@ -18,16 +18,19 @@ const links={global:{objective_id:'one'},working:{objective_id:'one',task_id:'wo
 const registry={enabled:true,focused:['one'],objectives:[o],terminal_links:links};
 const data=()=>registry,active=()=>true,context=()=>({workspace_id:'work',path:'/workspace'}),tasks=o=>o?.tasks||[],taskDisplayName=t=>t.title;
 const taskStatus=t=>t.status,taskIcon=()=>'',customTaskIcon=()=>'';
+const view={terminalAll:{}},state=()=>view;
 let selected=null;const focusedTask=()=>o.tasks.find(t=>t.id===selected),objective=()=>o;
 const parents={extra:'working',grandchild:'extra'},bridge={parentTerminal:t=>sessions.find(s=>s.name===parents[t.name])};
 ''' + helpers + r'''
 const original=JSON.stringify(sessions),filtered=terminalSessions(sessions),all=terminalSessions(sessions,{wipOnly:false});
+view.terminalAll.one=true;const objectiveAll=terminalSessions(sessions);view.terminalAll.one=false;
 selected='todo';const withTodo=terminalSessions(sessions);selected='done';const withDone=terminalSessions(sessions);selected=null;
 links.working.task_id='done';const after=terminalSessions(sessions);
-console.log(JSON.stringify({withTodo:withTodo.map(s=>s.task_id||s.name),withDone:withDone.map(s=>s.task_id||s.name),filtered:filtered.map(s=>s.task_id||s.name),all:all.map(s=>s.task_id||s.name),after:after.map(s=>s.task_id||s.name),unchanged:original===JSON.stringify(sessions)}));
+console.log(JSON.stringify({objectiveAll:objectiveAll.map(s=>s.task_id||s.name),withTodo:withTodo.map(s=>s.task_id||s.name),withDone:withDone.map(s=>s.task_id||s.name),filtered:filtered.map(s=>s.task_id||s.name),all:all.map(s=>s.task_id||s.name),after:after.map(s=>s.task_id||s.name),unchanged:original===JSON.stringify(sessions)}));
 ''')
     assert result['filtered'] == ['workflow-terminal:work:main', 'global', 'working', 'recommended', 'extra', 'grandchild']
     assert set(result['all']) == {'workflow-terminal:work:main','global','working','todo','done','recommended','extra','grandchild','unassigned'}
+    assert result['objectiveAll'] == result['all']
     assert result['withTodo'] == ['workflow-terminal:work:main', 'global', 'working', 'todo', 'recommended', 'extra', 'grandchild']
     assert result['withDone'] == ['workflow-terminal:work:main', 'global', 'working', 'done', 'recommended', 'extra', 'grandchild']
     assert result['after'] == ['workflow-terminal:work:main', 'global', 'working', 'recommended']  # WIP primary is now recommended.

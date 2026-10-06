@@ -19,11 +19,11 @@
     const id = key(scope);
     if (!views.has(id)) {
       let saved;try {saved = JSON.parse(localStorage.getItem('lab.objectives.view.v1:' + id));} catch {}
-      views.set(id, {objective:saved?.objective || null, view:saved?.view || 'all', focus:saved?.focus || null, tree:saved?.tree || {}, pins:saved?.pins || {}, overview:saved?.overview || {}, revealed:new Set(), selected:null});
+      views.set(id, {objective:saved?.objective || null, view:saved?.view || 'all', focus:saved?.focus || null, tree:saved?.tree || {}, pins:saved?.pins || {}, overview:saved?.overview || {}, terminalAll:saved?.terminalAll || {}, revealed:new Set(), selected:null});
     }
     return views.get(id);
   }
-  function persistView() {const s=state();try{localStorage.setItem('lab.objectives.view.v1:'+key(context()),JSON.stringify({objective:s.objective,view:s.view,focus:s.focus,tree:s.tree,pins:s.pins,overview:s.overview}));}catch{}}
+  function persistView() {const s=state();try{localStorage.setItem('lab.objectives.view.v1:'+key(context()),JSON.stringify({objective:s.objective,view:s.view,focus:s.focus,tree:s.tree,pins:s.pins,overview:s.overview,terminalAll:s.terminalAll}));}catch{}}
   function objective() {const d=data(),s=state();return d?.objectives.find(o=>o.id===s.objective)||d?.objectives.find(o=>d.focused.includes(o.id));}
   function active(path) {return context()?.path===path&&data()?.enabled===true;}
   function taskStatus(task) {
@@ -805,7 +805,7 @@
       result.push({name:logical,logical_name:logical,objective_placeholder:true,main:'workflow',label:terminalMain({objective_placeholder:true,main:'workflow'}).label,cwd:context().path});
     }
     const ids=new Set([...data().focused,objective()?.id]);
-    for(const t of sessions)if(!wipOnly||terminalMain(t)?.kind==='objective')ids.add(terminalObjective(t)?.id);
+    for(const t of sessions)if(!wipOnly)ids.add(terminalObjective(t)?.id);
     for(const id of ids){
       const o=data().objectives.find(o=>o.id===id);if(!o)continue;
       const owned=sessions.filter(t=>terminalObjective(t)?.id===id);
@@ -820,8 +820,14 @@
     }
     const all=[...result,...sessions.filter(t=>!seen.has(t))];
     const selected=focusedTask(),selectedObjective=objective()?.id;
-    return wipOnly?all.filter(t=>{if(terminalMain(t))return true;const binding=terminalTask(t);return binding&&(taskStatus(binding.task)==='in_progress'
-      ||binding.objective.id===selectedObjective&&binding.task.id===selected?.id);}):all;
+    const showObjective=state().terminalAll?.[selectedObjective]===true;
+    return all.filter(t=>{
+      const main=terminalMain(t);
+      if(main)return main.kind==='workflow'||main.objective_id===selectedObjective;
+      if(!wipOnly||showObjective&&terminalObjective(t)?.id===selectedObjective)return true;
+      const binding=terminalTask(t);return binding&&(taskStatus(binding.task)==='in_progress'
+        ||binding.objective.id===selectedObjective&&binding.task.id===selected?.id);
+    });
   }
   function terminalParents(sessions,explicit={}) {
     const parents={...explicit};
@@ -871,7 +877,7 @@
   }
   function terminalHtml(sessions,pill,newButton,{arrange=rows=>rows,showAll=false}={}) {
     if(!active(context()?.path))return null;
-    const d=data(),current=objective()?.id,rows=sessions.map((t,index)=>({t,index,objective:terminalObjective(t)?.id}));
+    const d=data(),current=objective()?.id,rows=sessions.filter(t=>{const main=terminalMain(t);return main?.kind!=='objective'||main.objective_id===current;}).map((t,index)=>({t,index,objective:terminalObjective(t)?.id}));
     let position=0;
     const workflow=rows.filter(row=>!row.objective).sort((a,b)=>Number(!!terminalMain(b.t))-Number(!!terminalMain(a.t))).map(row=>pill(row.t,position++)).join('');
     const ids=new Set([...d.focused,current,...rows.filter(row=>showAll||terminalMain(row.t)?.kind==='objective').map(row=>row.objective)]);
@@ -902,7 +908,10 @@
         return contents?`<div class="objective-terminal-worktree" role="group" aria-label="${esc(worktree?.label||(path===context().path?'Objective folder':path.split('/').filter(Boolean).slice(-2).join('/')))}">${contents}</div>`:'';
       }).join('');
       const expanded=showAll||id===current;
-      return `<section class="objective-terminal-group" data-objective-active="${id===current}" style="--objective-color:${esc(o.color)}"><button type="button" class="objective-terminal-heading" data-select-objective="${esc(id)}" aria-expanded="${expanded}" title="${esc(o.name)}"><span aria-hidden="true">${expanded?'▾':'▸'}</span> ${esc(o.name)}</button>${mainHtml}<div class="objective-terminal-rows"${expanded?'':' hidden'}>${terminals}</div></section>`;
+      const all=showAll||state().terminalAll?.[id]===true;
+      const filterLabel=showAll?'All terminals are shown. Use the terminal menu to restore WIP + selected task terminals.':all?'Show WIP + selected task terminals in this Objective':'Show all terminals in this Objective';
+      const filter=id===current?`<button type="button" class="objective-terminal-filter" data-objective-terminals-all="${esc(id)}" aria-pressed="${all}" aria-label="${filterLabel}" title="${filterLabel}"${showAll?' disabled':''}><span aria-hidden="true">☰</span><span class="objective-terminal-filter-label">${showAll?'All shown':all?'Show WIP':'Show all'}</span></button>`:'';
+      return `<section class="objective-terminal-group" data-objective-active="${id===current}" style="--objective-color:${esc(o.color)}"><div class="objective-terminal-header"><button type="button" class="objective-terminal-heading" data-select-objective="${esc(id)}" aria-expanded="${expanded}" title="${esc(o.name)}"><span aria-hidden="true">${expanded?'▾':'▸'}</span> ${esc(o.name)}</button>${filter}</div>${mainHtml}<div class="objective-terminal-rows"${expanded?'':' hidden'}>${terminals}</div></section>`;
     }).join('')+newButton;
   }
   function openForTerminal(t) {
@@ -1010,6 +1019,11 @@
     if(node.hasAttribute('data-objective-asset')&&!node.dataset.objectiveResource){openAsset(JSON.parse(node.dataset.objectiveAsset));return;}
     if(e.target.closest('[data-toggle-objective-switch]')){switchMenu?closeSwitchMenu():showSwitchMenu();return;}
     if(node.hasAttribute('data-choose-objective-slot')){closeSwitchMenu();showAll();data()?.objectives.length?focusDialog(null,Number(node.dataset.chooseObjectiveSlot)):newObjective(Number(node.dataset.chooseObjectiveSlot));return;}
+    if(node.dataset.objectiveTerminalsAll){
+      const id=node.dataset.objectiveTerminalsAll;if(id!==objective()?.id)return;
+      const focused=document.activeElement===node,s=state();s.terminalAll||={};s.terminalAll[id]=!s.terminalAll[id];persistView();bridge.refreshTerminals?.();
+      if(focused)document.querySelector(`[data-objective-terminals-all="${CSS.escape(id)}"]`)?.focus({preventScroll:true});return;
+    }
     if(node.dataset.selectObjective){const fromMenu=!!node.closest('.objective-switch-menu');selectObjective(node.dataset.selectObjective);if(fromMenu)document.querySelector('[data-current-objective]')?.focus({preventScroll:true});return;}
     if(node.hasAttribute('data-all-objectives')){showAll();return;}
     if(node.hasAttribute('data-objective-slot')){data()?.objectives.length?focusDialog(null,Number(node.dataset.objectiveSlot)):newObjective(Number(node.dataset.objectiveSlot));return;}

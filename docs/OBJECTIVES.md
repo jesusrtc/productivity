@@ -284,8 +284,9 @@ checkouts. Objective choices save a whole-Objective terminal association;
 worktree choices save a folder association. The Home demo offers the same
 choices with simulated terminals. See [TERMINALS.md](TERMINALS.md#new-terminal-location).
 
-The terminal selector always shows one fixed **⌂ workflow main** at the top
-and one fixed **◎ Objective main** immediately after each Objective divider.
+The terminal selector always shows one fixed **⌂ workflow main** at the top.
+The fixed **◎ Objective main** appears immediately after the active Objective's
+divider; inactive Objective mains stay hidden, including in Show all mode.
 The small diamond marks a main terminal. Clicking a main row creates its
 session if needed and reuses it thereafter. These tabs cannot be moved,
 nested, renamed or reassigned through the tab controls. Existing extra
@@ -296,10 +297,15 @@ workflow links have no Objective target.
 By default, task tabs include In progress tasks and the selected task at any
 status, plus independent children that inherit those contexts. Other sessions
 keep running while hidden. Objective headers and the dropdown expand the same
-current Objective; main rows stay visible when its task rows are folded.
-**Show all terminals** in the terminal menu reveals every session and Objective,
-including parked Objectives with saved sessions. Toggle it again to restore
-the default filter. The same choice is available in Terminal settings.
+current Objective. **Show all** beside the active Objective header reveals all
+of that Objective's terminals and task recommendations, without expanding other
+Objectives or changing the selected task. Toggle **Show WIP** to restore In
+progress plus the selected task. This choice is saved separately per Objective
+in the browser. The compact rail uses a **☰** button with the same action.
+**Show all terminals** in the **+ New** terminal menu reveals every session and Objective,
+including parked Objectives with saved sessions. Toggle it again to return to
+one expanded Objective and its saved task filter. The same choice is available
+in Terminal settings.
 
 Task terminals follow the sidebar hierarchy. Drag one ordinary terminal over
 another to choose **Move below**, **Make child** or **Cancel**. Children unfold
