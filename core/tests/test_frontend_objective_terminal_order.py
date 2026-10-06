@@ -23,8 +23,10 @@ const first={id:'one',name:'One',color:'#58a6ff',worktrees:[{id:'a',path:'/a',re
   {id:'next',title:'Next task',children:[]}]};
 const second={id:'two',name:'Two',color:'#bc8cff',worktrees:[{path:'/two',label:'Two folder'}],tasks:[{id:'other',title:'Other task',children:[]}]};
 const registry={enabled:true,objectives:[first,second,{id:'parked',tasks:[],worktrees:[]}],focused:['one','two'],terminal_links:{}};
-const context=()=>({path:'/workspace'}),active=()=>registry.enabled,data=()=>registry,objective=()=>first;
+let current=first;
+const context=()=>({path:'/workspace'}),active=()=>registry.enabled,data=()=>registry,objective=()=>current;
 const tasks=o=>o?.tasks.flatMap(t=>[t,...t.children])||[],esc=value=>String(value),taskIcon=()=>'<icon>';
+const bridge=null,taskStatus=()=> 'todo',customTaskIcon=()=>'<icon>';
 const session=(name,cwd='/a',assignment)=>{
   const t={name,session_id:'uuid-'+name,logical_name:'logical-'+name,cwd,label:name,agent_session_id:'kept'};
   if(assignment)registry.terminal_links[t.session_id]={objective_id:'one',...assignment};
@@ -42,11 +44,16 @@ const names=()=>{
   const html=terminalHtml(sessions,(t,index)=>{indices.push(index);return '<tab>'+t.name+'</tab>';},'<new>');
   assert.deepEqual(indices,indices.map((_,index)=>index),'row numbers follow the displayed order');
   assert(html.endsWith('<new>'));
+  const groups=[...html.matchAll(/data-select-objective="(.*?)" aria-expanded="(.*?)"[^>]*>.*?<div class="objective-terminal-rows"( hidden)?>/g)];
+  assert.equal(groups.length,2,'every focused Objective retains its header');
+  assert.equal(groups.filter(match=>match[2]==='true').length,1,'only one Objective is expanded');
+  groups.forEach(match=>{assert.equal(match[2],String(match[1]===current.id));assert.equal(!!match[3],match[1]!==current.id);});
   return [...html.matchAll(/<tab>(.*?)<\/tab>/g)].map(match=>match[1]);
 };
 assert.deepEqual(names(),['whole','tasks-view','parent-second','parent-first','child-one','child-two','next','free','asset','missing-task','other-task','other-free']);
 assert.equal(JSON.stringify(sessions),original,'sorting preserves session identity, launch folders and conversations');
-assert.deepEqual(taskForTerminal(sessions[1]),{title:'Second child',icon:'<icon>'});
+current=second;names();current=first;
+assert.deepEqual(taskForTerminal(sessions[1]),{title:'Second child',icon:'<icon>',assetIcon:'<icon>',status:'todo',inherited:false});
 first.tasks[0].children.reverse();
 assert.deepEqual(names().slice(0,7),['whole','tasks-view','parent-second','parent-first','child-two','child-one','next'],'new task ordering is reflected on every render');
 registry.terminal_links['uuid-free']={objective_id:'one',task_id:'child-one'};

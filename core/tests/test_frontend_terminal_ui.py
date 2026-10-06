@@ -325,7 +325,7 @@ def test_terminal_tabs_support_colored_dividers() -> None:
     assert "const _TERM_GROUPS_KEY = 'labTermGroups-v1'" in source
     assert "function termCreateDivider(sessionName = termCurrentSession, position" in source
     assert "function _termReconcileGroupOrder(state)" in source
-    assert "function termReorderItems(srcToken, dstToken, placeBefore, groupId)" in source
+    assert "function termReorderItems(srcToken, dstToken, placeBefore, groupId, relation)" in source
     assert "function termAssignSessionGroup" not in source
     assert "function termToggleGroup" not in source
     assert "function termRenameGroup" not in source
@@ -2649,6 +2649,7 @@ console.log(JSON.stringify({defaults,saved,visible,other,otherVisible,otherVault
 ])
 def test_drag_preview_plan_matches_order_and_group_without_writing(destination, before, group_id, expected_order, expected_group) -> None:
     normalize = _js_between('  function _termNormalizeGroupState(raw)', '  function _termReadGroupState()')
+    parents = _js_between('  function _termSubtabParents(', '  function _termArrangeSubtabRows(')
     reconcile = _js_between('  function _termReconcileGroupOrder(state)', '  function termCreateDivider(')
     plan = _js_between('  function _termPlanItemMove(', '  function _termClearDropPreview()')
     result = _run_node(r'''
@@ -2657,7 +2658,7 @@ const termSessions = ['a','b','c'].map(logical_name => ({logical_name}));
 const original = {groups:[{id:'line',color:'#58a6ff'}],order:['s:a','s:b','s:c','g:line'],membership:{},
   tabGroups:[{id:'build',name:'Build',color:'#58a6ff',collapsed:true}],tabMembership:{b:'build',c:'build'}};
 const beforeState = JSON.stringify(original);
-''' + normalize + reconcile + plan + f'''
+''' + normalize + parents + reconcile + plan + f'''
 const planned = _termPlanItemMove(original, 's:a', {json.dumps(destination)}, {json.dumps(before)}, {json.dumps(group_id)});
 console.log(JSON.stringify({{planned,unchanged:beforeState===JSON.stringify(original),
   invalid:_termPlanItemMove(original,'s:missing','s:b',true,'build')}}));

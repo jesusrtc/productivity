@@ -8,6 +8,28 @@ import time
 import pytest
 
 
+def test_objective_directory_detects_new_files_on_the_five_second_tick():
+    from .test_frontend_terminal_ui import _run_node
+    source = (Path(__file__).resolve().parents[1] / 'src/core/static/js/lib/project-sidebar.js').read_text()
+    result = _run_node(source + r'''
+let now=1000000;Date.now=()=>now;const document={hidden:false},requests=[],updates=[];
+const fetch=async url=>{requests.push(url);return {ok:true,status:200,json:async()=>({entries:[now===1000000?'old.md':'new.md'],cache:{updated:now/1000}})}};
+const settled=()=>new Promise(r=>setImmediate(r));
+(async()=>{
+ ProjectSidebar.read('/objective-directory',data=>updates.push(data),()=>true,{maxAge:5000});
+ ProjectSidebar.read('/other-directory',()=>{},()=>true);await settled();
+ now+=4999;ProjectSidebar.read('/objective-directory',data=>updates.push(data),()=>true,{maxAge:5000});
+ const beforeTick=requests.length;now++;
+ ProjectSidebar.read('/objective-directory',data=>updates.push(data),()=>true,{maxAge:5000});
+ ProjectSidebar.read('/other-directory',()=>{},()=>true);await settled();
+ console.log(JSON.stringify({beforeTick,requests,latest:updates.at(-1).entries}));
+})();
+''')
+    assert result['beforeTick'] == 2
+    assert result['requests'] == ['/objective-directory', '/other-directory', '/objective-directory']
+    assert result['latest'] == ['new.md']
+
+
 def test_project_cache_uses_server_age_and_ignores_outgoing_responses():
     node = shutil.which('node')
     if not node:

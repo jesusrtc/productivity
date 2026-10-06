@@ -27,12 +27,12 @@ const ProjectSidebar = (() => {
     pending.set(url, promise);
     return promise;
   }
-  function read(url, update, current) {
+  function read(url, update, current, {maxAge=60000}={}) {
     if (!current()) return;
     const hit = cache.get(url);
     if (hit) update(hit.data);
     const updated = hit?.data.cache?.updated ? hit.data.cache.updated * 1000 : hit?.at;
-    if (hit && Date.now() - Math.min(hit.at, updated) < 60000 && !hit.data.cache?.refreshing && !hit.data.cache?.stale) return;
+    if (hit && Date.now() - Math.min(hit.at, updated) < maxAge && !hit.data.cache?.refreshing && !hit.data.cache?.stale) return;
     const refresh = async () => {
       if (!current() || document.hidden) return;
       try {

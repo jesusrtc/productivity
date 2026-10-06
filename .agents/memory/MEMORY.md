@@ -1,5 +1,13 @@
 # Memory index
 
+- [Terminal tree mirrors tasks and inherits context](terminal-tree-mirrors-tasks-and-inherits-context.md) — one primary per task, recommended global/task rows, task-shaped nesting and independent children with inherited context.
+
+- [Current Objective refreshes every five seconds](current-objective-refreshes-every-five-seconds.md) — scoped polling for external tasks/assets, faster directory membership checks and preserved drafts/live rows.
+
+- [Terminal Objective groups expand one at a time](terminal-objective-groups-expand-one-at-a-time.md) — headers and the dropdown select the same expanded group; inactive tabs stay folded and sessions keep running.
+
+- [Terminal subtabs use hover and an explicit drop choice](terminal-subtabs-use-hover-and-explicit-drop-choice.md) — saved nested children, Move below/Make child/Cancel, selected-child visibility, cycle guards and native browser checks.
+
 - [Objective activation follows linked terminals](objective-activation-follows-linked-terminals.md) — whole Objective ↔ terminal navigation selects the associated context without recursive switches or passive restoration overrides.
 
 - [Task clicks activate their linked terminal](task-clicks-activate-linked-terminal.md) — task/subtask clicks reveal the associated session; each terminal has one replaceable task assignment.

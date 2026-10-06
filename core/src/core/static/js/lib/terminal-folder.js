@@ -30,6 +30,8 @@
       association: {...association, folder: {root: tree.path, path: '.'}},
     }));
     return [
+      ...(objective.task?[{name:'Current task (recommended)',description:objective.task.title,kind:'Task',
+        scope:scope(objective.path,objective.name),association:{...association,task_id:objective.task.id,rename_to_task:true}}]:[]),
       {...rows[0], name: 'Current workflow', description: label, kind: 'Workflow'},
       {name: 'Current Objective', description: objective.name, kind: 'Objective',
         scope: scope(objective.path, objective.name), association},
@@ -84,7 +86,7 @@
       overlay.addEventListener('click', event => {
         if (event.target === overlay || event.target.closest('[data-cancel]')) return dismiss();
         if (event.target.closest('[data-folder-back]')) {
-          render(rows);overlay.querySelector('[data-folder-choice="2"]')?.focus({preventScroll:true});return;
+          render(rows);overlay.querySelector(`[data-folder-choice="${rows.findIndex(row=>row.children)}"]`)?.focus({preventScroll:true});return;
         }
         const button = event.target.closest('[data-folder-choice]');
         if (!button || button.disabled) return;

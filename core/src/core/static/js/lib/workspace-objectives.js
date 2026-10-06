@@ -9,6 +9,7 @@
   let bridge, dialog = null, hoverTimer, openView = null, activeDraft = null, activeLinkDraft = null, switchMenu = null, switchTimer;
   let taskCloseButton, taskCloseHost, taskCloseObserver, taskCloseResizeObserver, taskCloseFrame, taskModeHeader, taskModeSpacer;
   let taskStatusMenu, assetContextMenu;
+  let refreshTimer;
   const taskStatuses = {todo:{icon:'⬜',label:'Undo'},in_progress:{icon:'🟡',label:'In progress'},done:{icon:'✅',label:'Completed'}};
   const key = scope => (scope?.vault || '') + '::' + scope?.workspace_id;
   const context = () => bridge?.context?.();
@@ -55,7 +56,8 @@
   function terminalLaunchContext() {
     const o=objective(),scope=context();if(!active(scope?.path)||!o)return null;
     const path=o.path||scope.path+'/objectives/'+o.id;
-    return {id:o.id,name:o.name,path,context:{...scope},
+    const task=focusedTask();
+    return {id:o.id,name:o.name,path,context:{...scope},task:task?{id:task.id,title:task.title}:null,
       worktrees:o.worktrees.filter(t=>t.path!==scope.path&&t.path!==path).map(t=>({...t}))};
   }
   function associateNewTerminal(terminal,association) {
@@ -64,16 +66,32 @@
   }
   function tree(o=objective()) {return o?(scopeRows(o).find(t=>t.id===state().tree[o.id])||scopeRows(o)[0]):null;}
   function sidebarHtml(path) {return context()?.path===path?'<section data-objectives-sidebar aria-label="Workspace objectives"></section>':'';}
-  async function load(scope=context(), fresh=false) {
+  async function load(scope=context(), fresh=false, {background=false}={}) {
     if(!scope?.workspace_id||scope.workspace_id.startsWith('__'))return;
     const id=key(scope);
     if(cache.has(id)&&!fresh){paint();if(Date.now()-(loadedAt.get(id)||0)<2000)return cache.get(id);}
     if(pending.has(id))return pending.get(id);
+    const before=cache.get(id);
     const request=fetch('/api/objectives?'+new URLSearchParams({workspace_id:scope.workspace_id,...(scope.vault?{vault:scope.vault}:{})})).then(async r=>{
-      const d=await r.json();if(!r.ok)throw new Error(d.detail||'Could not load objectives');if(d.enabled)await Promise.all([bridge.readyContent?.(),scope.path&&bridge.warmWorktrees?.([{path:scope.path},...d.objectives.filter(o=>d.focused.includes(o.id)).flatMap(o=>[{path:o.path||scope.path+'/objectives/'+o.id},...o.worktrees])],scope)]);const previous=cache.get(id);cache.set(id,d);loadedAt.set(id,Date.now());
+      const d=await r.json();if(!r.ok)throw new Error(d.detail||'Could not load objectives');const previous=cache.get(id);
+      // A save started after this read owns the newer cache and UI.
+      if(background&&(queues.has(id)||previous!==before))return previous;
+      if(d.enabled&&!background)await Promise.all([bridge.readyContent?.(),scope.path&&bridge.warmWorktrees?.([{path:scope.path},...d.objectives.filter(o=>d.focused.includes(o.id)).flatMap(o=>[{path:o.path||scope.path+'/objectives/'+o.id},...o.worktrees])],scope)]);
       for(const overlay of overlays.get(id)||[])overlay.apply(d);
-      if(key(context())===id){paint();if(previous?.revision!==d.revision){bridge.refreshSidebar?.();bridge.refreshTerminals?.();if(openView?.type==='all')paintLibrary();else if(openView?.type==='overview')renderOverview();}if(!previous)bridge.openDefault?.();}return d;
-    }).catch(e=>{if(key(context())===id)notify(e.message,true);}).finally(()=>pending.delete(id));pending.set(id,request);return request;
+      const changed=JSON.stringify(previous)!==JSON.stringify(d);cache.set(id,d);loadedAt.set(id,Date.now());
+      if(key(context())===id){if(changed||!background)paint();if(changed){bridge.refreshSidebar?.();bridge.refreshTerminals?.();if(openView?.type==='all')paintLibrary();else if(openView?.type==='overview')renderOverview();else if(openView?.type==='tasks')renderTasks();}if(!previous)bridge.openDefault?.();}return d;
+    }).catch(e=>{if(!background&&key(context())===id)notify(e.message,true);}).finally(()=>pending.delete(id));pending.set(id,request);return request;
+  }
+  function refreshCurrent() {
+    const scope=context(),id=key(scope);
+    if(document.hidden||!scope?.workspace_id||!data()?.enabled||pending.has(id)||queues.has(id))return;
+    return load({...scope},true,{background:true});
+  }
+  function startRefreshing() {
+    if(refreshTimer)return;
+    refreshTimer=setInterval(()=>void refreshCurrent(),5000);
+    document.addEventListener('visibilitychange',()=>{if(!document.hidden)void refreshCurrent();});
+    window.addEventListener('focus',()=>void refreshCurrent());
   }
   function notify(text,error=false) {window.explorerToast?.(text,error);}
   function change(action,{optimistic,scope:destination}={}) {
@@ -87,7 +105,8 @@
       const d=await r.json();if(!r.ok)throw new Error(d.detail||'Could not save objective');if(d.enabled)await bridge.readyContent?.();overlays.set(id,(overlays.get(id)||[]).filter(item=>item!==overlay));cache.set(id,d);loadedAt.set(id,Date.now());
       for(const item of overlays.get(id)||[])item.apply(d);
       if(key(context())===id){paint();bridge.refreshTerminals?.();if(openView?.type==='tasks')renderTasks();else if(openView?.type==='overview')renderOverview();else if(openView?.type==='all')paintLibrary();}return d;
-    }).catch(async e=>{overlays.set(id,(overlays.get(id)||[]).filter(item=>item!==overlay));notify(e.message,true);await load(scope,true);throw e;});queues.set(id,next);return next;
+    }).catch(async e=>{overlays.set(id,(overlays.get(id)||[]).filter(item=>item!==overlay));notify(e.message,true);await load(scope,true);throw e;});queues.set(id,next);
+    const cleanup=()=>{if(queues.get(id)===next)queues.delete(id);};next.then(cleanup,cleanup);return next;
   }
   function collapse() {clearTimeout(hoverTimer);state().revealed.clear();}
   function tabsFor(resource) {
@@ -396,7 +415,7 @@
   function renderTasks() {
     const o=objective();if(!o)return;state().focus=null;state().view='objective';persistView();const host=showCenter('tasks'),p=progress(o);state().selected=null;
     host.innerHTML=`<section class="objective-working"><header><h2>Tasks</h2><button type="button" data-new-objective-task>+ Task</button></header><p class="objective-purpose">${esc(o.name)} · ${esc(o.purpose)}</p><div class="objective-task-progress">${badge(o)}<span>${esc(p.label)}</span></div><div class="objective-task-list">${o.tasks.map(t=>taskRow(t)+t.children.map(c=>taskRow(c,t)).join('')).join('')||'<p>No tasks yet. Add a task and its details document will be created with it.</p>'}</div></section>`;
-    paint();
+    paint();bridge.refreshTerminals?.();
   }
   function overviewAssets(label,assets) {
     return `<section class="objective-overview-assets" aria-label="${esc(label)}"><h3>${esc(label)}</h3><div class="objective-resources">${assets.map(assetRow).join('')||'<p class="objective-bucket-empty">No assets.</p>'}</div></section>`;
@@ -457,6 +476,7 @@
     const o=objective(),task=tasks(o).find(t=>t.id===id);if(!task)return;
     state().focus={objective:o.id,task:id,mode:['focus','semi','off'].includes(mode)?mode:'focus'};
     state().view='objective';persistView();openResource(task.document_id,task.tab_id);
+    bridge.refreshTerminals?.();
     if(activateTerminal)activateLinkedTerminal(link=>link.objective_id===o.id&&link.task_id===id);
   }
   function openTaskAssets(id) {
@@ -702,21 +722,78 @@
   function addTask(parentId=null) {const o=objective();form(parentId?'New subtask':'New task',input('Task','title')+input('Due date','due','','date',false),async values=>{await change({type:'task',objective_id:o.id,parent_id:parentId,title:values.get('title'),due:values.get('due')});renderTasks();});}
   function associate(row) {return change({type:'worktree',objective_id:objective().id,path:row.path,label:row.label||row.name||row.path.split('/').pop(),repo:row.projectPath||row.path,branch:row.branch,kind:row.kind||'worktree'}).then(d=>{const o=d.objectives.find(o=>o.id===objective().id);state().tree[o.id]=o.worktrees.at(-1).id;persistView();return o.worktrees.at(-1);});}
   function terminalIdentity(t) {return t.session_id||t.name;}
-  function taskForTerminal(t) {const d=data(),link=d?.terminal_links[terminalIdentity(t)],o=d?.objectives.find(o=>o.id===link?.objective_id),task=tasks(o).find(t=>t.id===link?.task_id);return task?{title:task.title,icon:taskIcon(task,o)}:null;}
-  function terminalObjective(t) {const d=data();if(!d?.enabled)return null;const link=d.terminal_links[terminalIdentity(t)];return d.objectives.find(o=>o.id===link?.objective_id)||d.objectives.find(o=>o.worktrees.some(w=>t.linked_scope?.root&&[w.path,w.resolved_path].includes(t.linked_scope.root)||t.cwd&&[w.path,w.resolved_path].includes(t.cwd)))||d.objectives[0];}
-  function terminalHtml(sessions,pill,newButton) {
+  function terminalLink(t) {return t.objective_placeholder?{objective_id:t.objective_id,task_id:t.task_id}:data()?.terminal_links[terminalIdentity(t)];}
+  function terminalTask(t) {
+    const seen=new Set();let source=t;
+    while(source&&!seen.has(terminalIdentity(source))){
+      seen.add(terminalIdentity(source));const link=terminalLink(source),o=data()?.objectives.find(o=>o.id===link?.objective_id),task=tasks(o).find(task=>task.id===link?.task_id);
+      if(task)return {objective:o,task,inherited:source!==t};
+      source=bridge?.parentTerminal?.(source);
+    }
+    return null;
+  }
+  function taskForTerminal(t) {const binding=terminalTask(t);return binding?{title:binding.task.title,icon:taskIcon(binding.task,binding.objective),assetIcon:customTaskIcon(binding.task,binding.objective),inherited:binding.inherited,status:taskStatus(binding.task)}:null;}
+  function terminalObjective(t) {const d=data();if(!d?.enabled)return null;const link=terminalLink(t);return d.objectives.find(o=>o.id===link?.objective_id)||d.objectives.find(o=>o.worktrees.some(w=>t.linked_scope?.root&&[w.path,w.resolved_path].includes(t.linked_scope.root)||t.cwd&&[w.path,w.resolved_path].includes(t.cwd)))||d.objectives[0];}
+  function terminalSessions(sessions) {
+    if(!active(context()?.path))return sessions;
+    const result=[],seen=new Set();
+    for(const id of data().focused){
+      const o=data().objectives.find(o=>o.id===id);if(!o)continue;
+      const owned=sessions.filter(t=>terminalObjective(t)?.id===id);
+      const add=(task=null)=>{
+        const matches=owned.filter(t=>{const link=terminalLink(t);return task?link?.task_id===task.id:link&&!link.task_id&&!link.resource_id&&!link.file&&!link.folder&&!link.view;});
+        if(matches.length){matches.forEach(t=>{result.push(t);seen.add(t);});return;}
+        const logical='objective-terminal:'+id+':'+(task?.id||'global');
+        result.push({name:logical,logical_name:logical,objective_placeholder:true,objective_id:id,task_id:task?.id||null,
+          label:task?.title||'Global · '+o.name,cwd:o.path||context().path+'/objectives/'+id});
+      };
+      add();tasks(o).forEach(task=>add(task));owned.filter(t=>!seen.has(t)).forEach(t=>{result.push(t);seen.add(t);});
+    }
+    return [...result,...sessions.filter(t=>!seen.has(t))];
+  }
+  function terminalParents(sessions,explicit={}) {
+    const parents={...explicit};
+    const find=(o,task)=>sessions.find(t=>terminalObjective(t)?.id===o.id&&terminalLink(t)?.task_id===task.id);
+    for(const o of data()?.objectives||[])for(const parent of o.tasks){
+      const terminal=find(o,parent);if(!terminal)continue;
+      for(const child of parent.children){const sub=find(o,child);if(!sub||parents[sub.logical_name])continue;
+        let ancestor=terminal.logical_name;const seen=new Set();while(parents[ancestor]&&!seen.has(ancestor)){seen.add(ancestor);ancestor=parents[ancestor];}
+        if(ancestor!==sub.logical_name)parents[sub.logical_name]=terminal.logical_name;
+      }
+    }
+    return parents;
+  }
+  function terminalExpanded(t) {
+    const link=terminalLink(t),o=terminalObjective(t),task=tasks(o).find(task=>task.id===link?.task_id);if(!task)return undefined;
+    const selected=focusedTask();return o?.id===objective()?.id&&(selected?.id===task.id||task.children.some(child=>child.id===selected?.id));
+  }
+  const openingTerminals=new Map();
+  async function openTaskTerminal(id,objectiveId=objective()?.id) {
+    const o=data()?.objectives.find(o=>o.id===objectiveId),task=id?tasks(o).find(task=>task.id===id):null;if(!o||id&&!task)return;
+    if(objective()?.id!==o.id)selectObjective(o.id,{activateTerminal:false});
+    if(task)openTask(task.id);else selectObjective(o.id,{activateTerminal:false});
+    const matches=Object.entries(data().terminal_links||{}).filter(([,link])=>link.objective_id===o.id&&(task?link.task_id===task.id:!link.task_id&&!link.resource_id&&!link.file&&!link.folder&&!link.view)).map(([session])=>session);
+    const existing=(bridge.sessions?.()||[]).find(t=>matches.includes(terminalIdentity(t)));
+    if(existing)return bridge.activateLinkedTerminal?.([terminalIdentity(existing)]);
+    const launch=terminalLaunchContext(),scope={...context()},key=JSON.stringify([scope,o.id,id]);
+    if(openingTerminals.has(key))return openingTerminals.get(key);
+    const pending=Promise.resolve(bridge.createTaskTerminal?.(launch,task)).finally(()=>openingTerminals.delete(key));openingTerminals.set(key,pending);return pending;
+  }
+  function terminalHtml(sessions,pill,newButton,{arrange=rows=>rows}={}) {
     if(!active(context()?.path))return null;
-    const d=data(),rows=sessions.map((t,index)=>({t,index,objective:terminalObjective(t)?.id}));
+    const d=data(),current=objective()?.id,rows=sessions.map((t,index)=>({t,index,objective:terminalObjective(t)?.id}));
     let position=0;
     return d.focused.map(id=>{
       const o=d.objectives.find(o=>o.id===id);if(!o)return '';
       const order=new Map(tasks(o).map((task,index)=>[task.id,index+1]));
       const rank=row=>{
-        const link=d.terminal_links[terminalIdentity(row.t)];
+        const link=terminalLink(row.t);
         if(order.has(link?.task_id))return order.get(link.task_id);
         return link&&!link.task_id&&!link.resource_id&&!link.file&&!link.folder?0:Infinity;
       };
-      const ordered=rows.filter(row=>row.objective===id).sort((a,b)=>rank(a)-rank(b)||a.index-b.index),groups=[];
+      const ranked=rows.filter(row=>row.objective===id).sort((a,b)=>rank(a)-rank(b)||a.index-b.index);
+      const bySession=new Map(ranked.map(row=>[row.t,row]));
+      const ordered=arrange(ranked.map(row=>row.t)).map(session=>bySession.get(session)),groups=[];
       // Task hierarchy takes precedence over checkout grouping. Keep spacing
       // only between consecutive runs of sessions from the same folder.
       for(const row of ordered){
@@ -726,13 +803,18 @@
         if(groups.at(-1)?.path!==path)groups.push({path,worktree,items:[]});
         groups.at(-1).items.push(row);
       }
-      const terminals=groups.map(({path,worktree,items})=>
-        `<div class="objective-terminal-worktree" role="group" aria-label="${esc(worktree?.label||(path===context().path?'Objective folder':path.split('/').filter(Boolean).slice(-2).join('/')))}">${items.map(row=>pill(row.t,position++)).join('')}</div>`).join('');
-      return `<section class="objective-terminal-group" data-objective-active="${id===objective()?.id}" style="--objective-color:${esc(o.color)}"><button type="button" class="objective-terminal-heading" data-select-objective="${esc(id)}" title="${esc(o.name)}">${esc(o.name)}</button><div class="objective-terminal-rows">${terminals}</div></section>`;
+      const terminals=groups.map(({path,worktree,items})=>{
+        const contents=items.map(row=>pill(row.t,position++)).join('');
+        return contents?`<div class="objective-terminal-worktree" role="group" aria-label="${esc(worktree?.label||(path===context().path?'Objective folder':path.split('/').filter(Boolean).slice(-2).join('/')))}">${contents}</div>`:'';
+      }).join('');
+      const expanded=id===current;
+      return `<section class="objective-terminal-group" data-objective-active="${expanded}" style="--objective-color:${esc(o.color)}"><button type="button" class="objective-terminal-heading" data-select-objective="${esc(id)}" aria-expanded="${expanded}" title="${esc(o.name)}"><span aria-hidden="true">${expanded?'▾':'▸'}</span> ${esc(o.name)}</button><div class="objective-terminal-rows"${expanded?'':' hidden'}>${terminals}</div></section>`;
     }).join('')+newButton;
   }
   function openForTerminal(t) {
-    const link=data()?.terminal_links[terminalIdentity(t)],o=terminalObjective(t);if(!o||!link)return false;
+    const binding=terminalTask(t);
+    if(binding?.inherited){state().objective=binding.objective.id;openTask(binding.task.id);paint();return true;}
+    const link=terminalLink(t),o=terminalObjective(t);if(!o||!link)return false;
     state().objective=o.id;state().view='objective';
     const resource=o.resources.find(r=>r.id===link.resource_id),root=link.folder?.root||link.file?.root||t.linked_scope?.root;
     const w=scopeRows(o).find(w=>w.id===resource?.worktree||[w.path,w.resolved_path].includes(root));
@@ -937,7 +1019,9 @@
       e.preventDefault();e.stopImmediatePropagation();try{const item=JSON.parse(project);if(item.scope!==key(context()))throw new Error('Choose an Objective in this workspace');const o=data().objectives.find(o=>o.id===item.objective_id);if(!o)throw new Error('Objective not found');void linkTerminal(bridge.session?.(e.target.closest('#termSessionList .sess').dataset.name),{},o).catch(()=>{});}catch(error){notify(error.message,true);}return;
     }
     if(project||!active(context()?.path))return;const target=e.target.closest?.(linkDropSelector);if(!target)return;
-    const raw=e.dataTransfer.getData(resourceMime),assistant=e.dataTransfer.getData(documentMime),file=e.dataTransfer.getData('application/x-lab-file-path'),terminal=e.dataTransfer.getData('application/x-lab-terminal'),external=target.closest('[data-task-id],[data-objective-bucket]')&&(e.dataTransfer.getData('text/uri-list')||e.dataTransfer.getData('application/x-lab-reference'));if(!raw&&!assistant&&!file&&!terminal&&!external)return;e.preventDefault();e.stopImmediatePropagation();
+    const raw=e.dataTransfer.getData(resourceMime),assistant=e.dataTransfer.getData(documentMime),file=e.dataTransfer.getData('application/x-lab-file-path'),terminal=e.dataTransfer.getData('application/x-lab-terminal'),external=target.closest('[data-task-id],[data-objective-bucket]')&&(e.dataTransfer.getData('text/uri-list')||e.dataTransfer.getData('application/x-lab-reference'));if(!raw&&!assistant&&!file&&!terminal&&!external)return;
+    if(terminal&&target.classList.contains('sess')&&!raw&&!assistant&&!file)return;
+    e.preventDefault();e.stopImmediatePropagation();
     if(terminal&&!target.closest('#sidebar')&&!target.classList.contains('sess'))return;
     // A worktree remains a scope drop target even when its row lives in a bucket.
     const worktree=target.closest('[data-objective-worktree]');
@@ -965,7 +1049,12 @@
       else if(terminal){const item=sidebarTarget(target);if(item)linkTerminal(bridge.session?.(terminal),item).catch(()=>{});}
     }catch(error){notify(error.message,true);}
   },true);
-  window.LabObjectives={connect(adapter){bridge=adapter;},load,active,sidebarHtml,paint,worktrees,tree,associate,terminalHtml,taskForTerminal,openForTerminal,collapse,progress,complete,change,selectObjective,renderTasks,tabsHtml,showAll,terminalLaunchContext,associateNewTerminal,
+  window.LabObjectives={connect(adapter){bridge=adapter;startRefreshing();},load,active,sidebarHtml,paint,worktrees,tree,associate,terminalHtml,taskForTerminal,openForTerminal,collapse,progress,complete,change,selectObjective,renderTasks,tabsHtml,showAll,terminalLaunchContext,associateNewTerminal,
+    terminalSessions,terminalParents,terminalExpanded,openTaskTerminal,
+    terminalTaskContext(t){const binding=terminalTask(t);return binding?taskContext(binding.task,binding.objective):null;},
+    childTerminalAssociation(t){const o=terminalObjective(t);return active(context()?.path)&&o?{context:{...context()},objective_id:o.id,view:'tasks'}:null;},
+    findTaskTerminal(sessions,target){return sessions.find(t=>{const link=terminalLink(t);return link?.objective_id===target.objective_id&&(target.task_id?link.task_id===target.task_id:!link.task_id&&!link.resource_id&&!link.file&&!link.folder&&!link.view);});},
+    sameTerminalObjective(a,b){return terminalObjective(a)?.id===terminalObjective(b)?.id;},
     openCurrent(){const params=new URLSearchParams(location.search),o=data()?.objectives.find(o=>o.id===params.get('objective'));if(o&&tasks(o).some(t=>t.id===params.get('objective_task'))){state().objective=o.id;openTask(params.get('objective_task'));return;}const f=taskFocus();if(f){openTask(f.task,f.mode);return;}state().view==='objective'&&objective()?selectObjective(objective().id,{activateTerminal:false}):showAll();},
     openOwnedFile(root,path){
       if(!active(context()?.path))return false;

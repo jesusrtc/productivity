@@ -898,6 +898,12 @@ def mutate(root, workspace_id, action, expected=None):
             if view:
                 data['terminal_links'][name]['view'] = view
             if task_id:
+                # A task owns one primary terminal. Replacing that association
+                # leaves the former terminal alive and independently usable.
+                for other, link in data['terminal_links'].items():
+                    if other != name and link.get('objective_id') == objective['id'] and link.get('task_id') == task_id:
+                        link.pop('task_id', None)
+                        link['view'] = 'tasks'
                 data['terminal_links'][name]['task_id'] = task_id
         elif operation == 'remove-resource':
             resource_id = action.get('resource_id')

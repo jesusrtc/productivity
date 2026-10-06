@@ -25,6 +25,26 @@ def apply(root, oid, type_, **fields):
     return objectives.mutate(root, 'demo', {'type':type_, 'objective_id':oid, **fields})
 
 
+def test_task_has_one_primary_terminal_and_subterminals_keep_independent_links(monorepo, objective_workspace):
+    _, oid = objective_workspace
+    data = apply(monorepo, oid, 'task', title='Parent')
+    parent = data['objectives'][0]['tasks'][0]
+    data = apply(monorepo, oid, 'task', title='Child', parent_id=parent['id'])
+    child = data['objectives'][0]['tasks'][0]['children'][0]
+    apply(monorepo, oid, 'terminal', session_id='global')
+    apply(monorepo, oid, 'terminal', session_id='former-primary', task_id=parent['id'])
+    apply(monorepo, oid, 'terminal', session_id='child-primary', task_id=child['id'])
+    apply(monorepo, oid, 'terminal', session_id='extra-child', view='tasks')
+    data = apply(monorepo, oid, 'terminal', session_id='new-primary', task_id=parent['id'])
+    links = data['terminal_links']
+    assert set(links) == {'global', 'former-primary', 'child-primary', 'extra-child', 'new-primary'}
+    assert [name for name, link in links.items() if link.get('task_id') == parent['id']] == ['new-primary']
+    assert links['former-primary']['view'] == links['extra-child']['view'] == 'tasks'
+    assert 'task_id' not in links['former-primary'] and 'task_id' not in links['extra-child']
+    assert links['child-primary']['task_id'] == child['id']
+    assert links['global']['objective_id'] == oid and 'task_id' not in links['global']
+
+
 def test_task_status_persists_and_completion_controls_remain_compatible(monorepo, objective_workspace):
     folder, oid = objective_workspace
     data = apply(monorepo, oid, 'task', title='Verify recovery')

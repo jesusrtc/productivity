@@ -4018,7 +4018,7 @@
         view._directoryReady = true;
         _sidebarCommitProjectView(view);
       }
-    }, current);
+    }, current, {maxAge:window.LabObjectives?.active(baseRoot)?5000:60000});
   }
 
   function _sidebarProjectRecent(view = document.querySelector('#sidebar [data-project-sidebar]')) {
@@ -13187,7 +13187,21 @@
     }
     const tabMembership = Object.fromEntries(Object.entries(raw?.tabMembership || {})
       .filter(([logical, id]) => logical && tabGroups.some(group => group.id === id)));
-    return {groups, order, membership, tabGroups, tabMembership};
+    const links = field => {
+      const result = Object.assign(Object.create(null), Object.fromEntries(Object.entries(raw?.[field] || {}).filter(([child, parent]) =>
+        child && child.length <= 160 && typeof parent === 'string' && parent && parent.length <= 160 && child !== parent)));
+      for (const child of Object.keys(result)) {
+        const visited = new Set([child]);
+        let parent = result[child];
+        while (parent) {
+          if (visited.has(parent)) { delete result[child]; break; }
+          visited.add(parent); parent = result[parent];
+        }
+      }
+      return result;
+    };
+    const tabRoots=[...new Set((Array.isArray(raw?.tabRoots)?raw.tabRoots:[]).filter(id=>typeof id==='string'&&id&&id.length<=160))];
+    return {groups, order, membership, tabGroups, tabMembership, tabParents:links('tabParents'), tabAfter:links('tabAfter'),tabRoots};
   }
 
   function _termReadGroupState() {
@@ -13209,6 +13223,79 @@
   function _termSessionLogical(name) {
     const session = _termSessionMeta(name);
     return session && session.logical_name || '';
+  }
+
+  function _termSubtabParents(state, sessions = termSessions) {
+    const live = new Map(sessions.filter(session => session.logical_name).map(session => [session.logical_name, session]));
+    const explicit=Object.assign(Object.create(null), Object.fromEntries(Object.entries(state.tabParents || {}).filter(([child, parent]) =>
+      live.has(child) && live.has(parent)
+      && (window.LabObjectives?.sameTerminalObjective?.(live.get(child), live.get(parent)) ?? true))));
+    const parents=window.LabObjectives?.terminalParents?.(sessions,explicit) || explicit;
+    for(const logical of state.tabRoots||[])if(!explicit[logical])delete parents[logical];
+    return parents;
+  }
+
+  function _termArrangeSubtabRows(sessions, state) {
+    const live = new Map(sessions.map(session => [session.logical_name, session]));
+    const after = Object.assign(Object.create(null), Object.fromEntries(Object.entries(state.tabAfter || {}).filter(([child, anchor]) => live.has(child) && live.has(anchor))));
+    const result = [], seen = new Set();
+    const add = session => {
+      if (seen.has(session)) return;
+      seen.add(session); result.push(session);
+      sessions.filter(child => after[child.logical_name] === session.logical_name).forEach(add);
+    };
+    sessions.filter(session => !after[session.logical_name]).forEach(add);
+    sessions.forEach(add);
+    return result;
+  }
+
+  function _termSubtabRenderer(state, sessions, pill) {
+    const parents = _termSubtabParents(state, sessions);
+    const numbered = Object.keys(parents).length > 0;
+    let position = 0;
+    const rows = new Map(sessions.map((session, index) => [session.logical_name, {session, index}]));
+    const containsActive = logical => {
+      let active = sessions.find(session => session.name === termCurrentSession)?.logical_name;
+      while (parents[active]) { active = parents[active]; if (active === logical) return true; }
+      return false;
+    };
+    const render = (session, index) => {
+      if (numbered) index = position++;
+      const logical = session.logical_name;
+      if (!logical) return pill(session, index);
+      const children = sessions.filter(child => parents[child.logical_name] === logical);
+      if (!children.length) return pill(session, index);
+      const expanded = window.LabObjectives?.terminalExpanded?.(session) === true || containsActive(logical);
+      const parent = pill(session, index).replace(/role="(tab|button)"/, `role="$1" aria-expanded="${expanded}" data-subtab-toggle`)
+        .replace(/^(<[^>]+>)/, '$1<span class="term-subtab-caret" aria-hidden="true">'+(expanded?'▾':'▸')+'</span>');
+      return `<div class="term-subtab-node${expanded?' has-active-child':''}" data-term-parent="${termSessEsc(logical)}">${parent}<div class="term-subtab-children" role="group" aria-label="Subtabs of ${termSessEsc(_termSessionDisplay(session))}"${expanded?'':' hidden'}>${children.map(child => render(child, rows.get(child.logical_name).index)).join('')}</div></div>`;
+    };
+    return (session, index) => parents[session.logical_name] ? '' : render(session, index);
+  }
+
+  function _termWireSubtabs(container, hovered = new Set()) {
+    const close = [];
+    container.querySelectorAll('.term-subtab-node').forEach(node => {
+      const pill = node.querySelector(':scope > .sess'), children = node.querySelector(':scope > .term-subtab-children');
+      const show = expanded => {
+        children.hidden = !expanded;
+        pill.setAttribute('aria-expanded', String(expanded));
+        pill.querySelector('.term-subtab-caret').textContent = expanded ? '▾' : '▸';
+      };
+      close.push(() => show(node.classList.contains('has-active-child') || node.contains(document.activeElement)));
+      if (hovered.has(node.dataset.termParent)) show(true);
+      node.addEventListener('pointerenter', () => show(true));
+      node.addEventListener('pointerleave', () => show(node.classList.contains('has-active-child') || node.contains(document.activeElement)));
+      node.addEventListener('focusin', () => show(true));
+      node.addEventListener('focusout', event => { if (!node.contains(event.relatedTarget)) show(node.matches(':hover') || node.classList.contains('has-active-child')); });
+      pill.addEventListener('keydown', event => {
+        if (event.key === 'ArrowRight') { event.preventDefault(); show(true); children.querySelector('.sess')?.focus(); }
+        if (event.key === 'ArrowLeft') { event.preventDefault(); show(false); }
+      });
+    });
+    // The rail survives row replacements. Its leave event also closes a
+    // newly rendered hovered row that has not received pointerenter yet.
+    container.onpointerleave = () => close.forEach(collapse => collapse());
   }
 
   function _termReconcileGroupOrder(state) {
@@ -13311,9 +13398,10 @@
     menu.innerHTML = html;
     menu.hidden = false;
     menu.onkeydown = event => {
+      if (event.key === 'Escape') { event.preventDefault(); termCloseGroupMenu(); anchor.focus({preventScroll:true}); return; }
       if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
       event.preventDefault();
-      const buttons = [...menu.querySelectorAll('[data-action]')];
+      const buttons = [...menu.querySelectorAll('[data-action]:not(:disabled)')];
       const index = buttons.indexOf(document.activeElement);
       const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1
         : (index + (event.key === 'ArrowUp' ? -1 : 1) + buttons.length) % buttons.length;
@@ -13407,6 +13495,22 @@
     const logicals = new Set(names.map(_termSessionLogical).filter(Boolean));
     if (!logicals.size) return;
     const state = _termReadGroupState();
+    // Move a parent together with its descendants. Moving a child to another
+    // named group makes it independent of its old parent.
+    let changed = true;
+    while (changed) {
+      changed = false;
+      Object.entries(_termSubtabParents(state)).forEach(([child, parent]) => {
+        if (logicals.has(parent) && !logicals.has(child)) { logicals.add(child); changed = true; }
+      });
+    }
+    const parents=_termSubtabParents(state);
+    for (const logical of logicals) {
+      if (parents[logical] && !logicals.has(parents[logical])) {
+        delete state.tabParents[logical]; delete state.tabAfter[logical];
+        state.tabRoots.push(logical);
+      }
+    }
     if (groupId === 'new') {
       const name = prompt('Group name', 'New group');
       if (!name?.trim()) return;
@@ -13479,11 +13583,14 @@
     const row = (action, label, danger = false) => `<button role="menuitem" class="term-group-menu-row${danger ? ' danger' : ''}" data-action="${termSessEsc(action)}">${termSessEsc(label)}</button>`;
     _termShowGroupMenu(anchor,
       row('rename', 'Rename tab…') +
+      row('new-child', 'New subterminal') +
+      (window.LabObjectives?.taskForTerminal(session)?row('task-context','Paste task context'):'') +
       (_termActiveWorkspaceId() === '__self__' ? '<hr><div class="term-group-menu-title">Associate with</div>' +
         _termHomeAssociationOptions().map(item => row('associate:' + item.id,
           (_termHomeAssociation(session) === item.id ? '✓ ' : '') + item.name)).join('') + '<hr>' : '') +
       (session?.linked_task ? row('unlink-task', 'Unlink from task/document') : '') +
       (session?.linked_file ? row('unlink-file', 'Unlink from file') : '') +
+      (_termSubtabParents(state)[logical] ? row('remove-parent', 'Remove from parent tab') : '') +
       row('new', 'Add to new group…') +
       state.tabGroups.filter(group => group.id !== membership).map(group => row(`group:${group.id}`, `Move to ${group.name}`)).join('') +
       (membership ? row('ungroup', 'Remove from group') : '') + '<hr>' +
@@ -13491,12 +13598,19 @@
       row('close', 'Close tab', true) + (membership ? row('close-group', 'Close group…', true) : ''), action => {
         termCloseGroupMenu();
         if (action === 'rename') termRenameSession(sessionName);
+        else if(action==='new-child')void _termCreateSubterminal(session);
+        else if(action==='task-context')void _termPasteTaskContext(session);
         else if (action.startsWith('associate:')) {
           _termSaveHomeAssociation(logical, action.slice(10));
           termRenderSessionList();
         }
         else if (action === 'unlink-task') void window.LabWorkspaceDocuments.unlink(session, _termLinkContext()).then(() => window.LabDocumentTerminal?.refresh()).catch(error => explorerToast(error.message,true));
         else if (action === 'unlink-file') void termUnlinkTarget(sessionName, 'file');
+        else if (action === 'remove-parent') {
+          delete state.tabParents[logical]; delete state.tabAfter[logical];
+          state.tabRoots.push(logical);
+          _termWriteGroupState(state); termRenderSessionList();
+        }
         else if (action === 'new') termAssignTabGroup(sessionName, 'new');
         else if (action.startsWith('group:')) termAssignTabGroup(sessionName, action.slice(6));
         else if (action === 'ungroup') termAssignTabGroup(sessionName, null);
@@ -14153,8 +14267,9 @@
   }
 
   function _termSessionPillHtml(s, index) {
-    const display = _termSessionDisplay(s);
     const objectiveTask = window.LabObjectives?.taskForTerminal(s);
+    const taskOwn=objectiveTask&&!objectiveTask.inherited;
+    const display = taskOwn?objectiveTask.title:_termSessionDisplay(s);
     // Compact/full visibility is CSS-controlled so switching detail never
     // rebuilds or reconnects a terminal. The active header always carries
     // the complete identity, even in compact mode.
@@ -14172,13 +14287,14 @@
     const context = _termSessionContext(s);
     const summary = _termSessionSummary(s);
     const ariaSummary = summary.length > 160 ? `${summary.slice(0, 157).trim()}...` : summary;
-    const ariaLabel = `${display} · ${visual.badge}${objectiveTask ? ' · Task: '+objectiveTask.title : ''}${working ? ' · Working' : ''}${ready ? ` · ${completion.label}` : ''}${ariaSummary ? ` · ${context.label}: ${ariaSummary}` : ''}`;
+    const ariaLabel = `${display} · ${visual.badge}${objectiveTask ? (objectiveTask.inherited?' · Parent task context: ':' · Task: ')+objectiveTask.title : ''}${working ? ' · Working' : ''}${ready ? ` · ${completion.label}` : ''}${ariaSummary ? ` · ${context.label}: ${ariaSummary}` : ''}`;
     const tooltip = _termSessionTooltipPayload(s, [statusTitle, completion?.label, recentTitle].filter(Boolean).join(' · '));
     const linked = String(s.linked_file && s.linked_file.path || '').trim();
     const scope = s.linked_scope;
     const scopeAttrs = scope ? ` style="--term-scope-color:${termSessEsc(_termScopeColor(scope))}" data-linked-scope="${termSessEsc(scope.root)}"` : '';
-    return `<span${scopeAttrs} class="sess ${visual.kind}${active}${recent}${dead}" role="tab" aria-label="${termSessEsc(ariaLabel)}" aria-selected="${active ? 'true' : 'false'}" tabindex="${active ? '0' : '-1'}" draggable="true" data-order-token="${termSessEsc(`s:${logical}`)}" data-name="${termSessEsc(s.name)}" data-logical="${termSessEsc(logical)}" data-tooltip="${termSessEsc(tooltip)}">
-      <span class="sess-icon" aria-hidden="true"${objectiveTask ? ' title="'+termSessEsc(objectiveTask.title)+'"' : ''}>${objectiveTask?.icon || visual.icon}</span>
+    return `<span${scopeAttrs} class="sess ${visual.kind}${taskOwn?' objective-task-terminal':''}${active}${recent}${dead}" role="tab" aria-label="${termSessEsc(ariaLabel)}" aria-selected="${active ? 'true' : 'false'}" tabindex="${active ? '0' : '-1'}" draggable="true" data-order-token="${termSessEsc(`s:${logical}`)}" data-name="${termSessEsc(s.name)}" data-logical="${termSessEsc(logical)}" data-tooltip="${termSessEsc(tooltip)}">
+      ${taskOwn?`<span class="sess-task-status objective-task-status-icon" data-task-status="${objectiveTask.status}" aria-hidden="true">${{done:'✅',in_progress:'🟡',todo:'⬜'}[objectiveTask.status]||'⬜'}</span>`:''}
+      ${taskOwn&&!objectiveTask.assetIcon?'':`<span class="sess-icon" aria-hidden="true"${objectiveTask ? ' title="'+termSessEsc(objectiveTask.title)+'"' : ''}>${taskOwn?objectiveTask.assetIcon:objectiveTask?.icon || visual.icon}</span>`}
       <span class="sess-order" aria-hidden="true">${index + 1}</span>
       ${scope?.worktree && !linked ? '' : `<span class="sess-label${s.label ? ' custom' : ''}">${termSessEsc(display)}</span>`}
       ${_termSessionAssociationHtml(s)}
@@ -14204,6 +14320,11 @@
     else window.LabTerminalCompletion.stopViewing();
   }
 
+  function _termTaskPlaceholderHtml(session) {
+    const task=window.LabObjectives?.taskForTerminal(session),status=task?.status||'todo';
+    return `<button type="button" class="sess term-task-placeholder${task?' objective-task-terminal':''}" role="button" data-open-task-terminal="${termSessEsc(session.task_id||'')}" data-terminal-objective="${termSessEsc(session.objective_id)}" title="Open ${termSessEsc(session.label)} terminal · One primary terminal per ${task?'task':'Objective'} (recommended)">${!task||task.assetIcon?`<span class="sess-icon" aria-hidden="true">${task?.assetIcon||'▣'}</span>`:''}${task?`<span class="sess-task-status objective-task-status-icon" data-task-status="${status}" aria-hidden="true">${{done:'✅',in_progress:'🟡',todo:'⬜'}[status]}</span>`:''}<span class="sess-label">${termSessEsc(session.label)}</span><span class="term-task-create" aria-hidden="true">＋</span></button>`;
+  }
+
   function termRenderSessionList() {
     if (typeof _sidebarPinTerminalScope === 'function') {
       for (const session of termSessions || []) _sidebarPinTerminalScope(session.linked_scope, session.logical_name || session.name);
@@ -14216,9 +14337,11 @@
     }
     const el = document.getElementById('termSessionList');
     if (!el) return;
+    const viewSessions=window.LabObjectives?.terminalSessions?.(termSessions||[])||termSessions;
+    const pill=(session,index)=>session.objective_placeholder?_termTaskPlaceholderHtml(session):_termSessionPillHtml(session,index);
     _termSyncTabSelection();
     _termRenderActiveSessionHeader();
-    if (!termSessions || termSessions.length === 0) {
+    if (!viewSessions || viewSessions.length === 0) {
       const html = _termNewButtonHtml();
       if (el._labTabsHtml === html) return;
       el._labTabsHtml = html;
@@ -14227,6 +14350,7 @@
       return;
     }
     const groupState = _termReadGroupState();
+    const subtabPill = _termSubtabRenderer(groupState, termSessions, _termSessionPillHtml);
     const order = _termReconcileGroupOrder(groupState);
     if (JSON.stringify(order) !== JSON.stringify(groupState.order)) {
       groupState.order = order;
@@ -14250,7 +14374,7 @@
     const renderRow = row => {
       const groupId = groupState.tabMembership[row.session.logical_name];
       const group = groupState.tabGroups.find(item => item.id === groupId);
-      if (!group) return _termSessionPillHtml(row.session, row.index);
+      if (!group) return subtabPill(row.session, row.index);
       if (renderedGroups.has(groupId)) return '';
       renderedGroups.add(groupId);
       const members = order.filter(token => token.startsWith('s:') && groupState.tabMembership[token.slice(2)] === groupId)
@@ -14260,7 +14384,7 @@
         if (dividerOwners.get(token) === groupId) return dividerHtml(groupsById.get(token.slice(2)));
         if (!token.startsWith('s:') || groupState.tabMembership[token.slice(2)] !== groupId) return '';
         const member = sessionsByLogical.get(token.slice(2));
-        return member && !member.session.document_source ? _termSessionPillHtml(member.session, member.index) : '';
+        return member && !member.session.document_source ? subtabPill(member.session, member.index) : '';
       }).join('');
       return `<div class="term-tab-group" style="--term-group-color:${termSessEsc(group.color)}">
         <button class="term-tab-group-label${active ? ' has-active' : ''}" data-tab-group="${termSessEsc(group.id)}" aria-expanded="${!group.collapsed}" title="${termSessEsc(group.name)} · Right-click for group options">${group.collapsed ? '▸' : '▾'} <span>${termSessEsc(group.name)}</span><small>${members.length}</small></button>
@@ -14296,13 +14420,15 @@
     });
     flushDivider();
     const borrowed = termSessions.map((session,index) => ({session,index})).filter(row => row.session.document_source);
-    if (borrowed.length) html += '<div class="term-document-section"><span class="term-document-section-label" title="Shared through linked documents">Document terminals</span>' + borrowed.map(row => _termSessionPillHtml(row.session,row.index)).join('') + '</div>';
+    if (borrowed.length) html += '<div class="term-document-section"><span class="term-document-section-label" title="Shared through linked documents">Document terminals</span>' + borrowed.map(row => subtabPill(row.session,row.index)).join('') + '</div>';
     html += _termNewButtonHtml();
-    html = window.LabObjectives?.terminalHtml(termSessions, (session, index) => _termSessionPillHtml(session, index), _termNewButtonHtml()) ?? html;
+    html = window.LabObjectives?.terminalHtml(viewSessions, _termSubtabRenderer(groupState, viewSessions, pill), _termNewButtonHtml(),
+      {arrange:sessions => _termArrangeSubtabRows(sessions, groupState)}) ?? html;
     // Unchanged polls must not recreate every tab or dismiss its tooltip.
     if (el._labTabsHtml === html) return;
     el._labTabsHtml = html;
     _termHideSessionTooltip();
+    const hoveredSubtabs = new Set([...el.querySelectorAll('.term-subtab-node:hover')].map(node => node.dataset.termParent));
     el.innerHTML = html;
     _termSyncTabSelection();
     el.querySelectorAll('[data-tab-group]').forEach(node => {
@@ -14313,6 +14439,10 @@
       });
     });
     el.querySelectorAll('.sess').forEach(node => {
+      if(node.hasAttribute('data-open-task-terminal')) {
+        node.addEventListener('click',()=>void window.LabObjectives.openTaskTerminal(node.dataset.openTaskTerminal||null,node.dataset.terminalObjective));
+        return;
+      }
       const completionDot = node.querySelector('.sess-completion');
       if (completionDot) {
         const acknowledge = event => {
@@ -14382,26 +14512,53 @@
         openOptions(e);
       });
     });
+    _termWireSubtabs(el, hoveredSubtabs);
     termWireSessionDnD(el);
   }
 
   // One move plan is used by the preview and by the committed drop.
-  function _termPlanItemMove(state, srcToken, dstToken, placeBefore, groupId) {
+  function _termPlanItemMove(state, srcToken, dstToken, placeBefore, groupId, relation) {
     const next = _termNormalizeGroupState(state);
     const order = _termReconcileGroupOrder(next);
     if (!order.includes(srcToken) || srcToken === dstToken) return null;
     if (dstToken && !order.includes(dstToken)) return null;
-    order.splice(order.indexOf(srcToken), 1);
-    const index = dstToken ? order.indexOf(dstToken) + (placeBefore ? 0 : 1) : order.length;
-    order.splice(index, 0, srcToken);
-    next.order = order;
+    const source = srcToken.slice(2), destination = dstToken?.startsWith('s:') ? dstToken.slice(2) : null;
+    const parents=_termSubtabParents(next);
+    const descendants = logical => {
+      const all = new Set([logical]);
+      let changed = true;
+      while (changed) { changed = false; Object.entries(parents).forEach(([child, parent]) => { if (all.has(parent) && !all.has(child)) { all.add(child); changed = true; } }); }
+      return all;
+    };
+    const moving = srcToken.startsWith('s:') ? descendants(source) : new Set();
+    if (destination && moving.has(destination)) return null;
+    if (relation === 'child' && (!destination || !(window.LabObjectives?.sameTerminalObjective?.(
+      termSessions.find(session => session.logical_name === source), termSessions.find(session => session.logical_name === destination)) ?? true))) return null;
+    const tokens = order.filter(token => token === srcToken || token.startsWith('s:') && moving.has(token.slice(2)));
+    next.order = order.filter(token => !tokens.includes(token));
+    const destinationTree = destination ? descendants(destination) : new Set();
+    const last = destination && !placeBefore ? next.order.filter(token => token.startsWith('s:') && destinationTree.has(token.slice(2))).at(-1) : dstToken;
+    const index = dstToken ? next.order.indexOf(last || dstToken) + (placeBefore ? 0 : 1) : next.order.length;
+    next.order.splice(index, 0, ...tokens);
     next.membership = {};
     if (srcToken.startsWith('s:')) {
+      delete next.tabAfter[source];
+      delete next.tabParents[source];
+      next.tabRoots=next.tabRoots.filter(logical=>logical!==source);
+      if (destination && relation === 'child') next.tabParents[source] = destination;
+      else if (destination && parents[destination]) next.tabParents[source] = parents[destination];
+      else next.tabRoots.push(source);
+      if (destination && relation === 'below') {
+        // Reanchoring a sibling must not leave a reciprocal ordering link.
+        for (const logical of moving) delete next.tabAfter[logical];
+        if (next.tabAfter[destination] === source) delete next.tabAfter[destination];
+        next.tabAfter[source] = destination;
+      }
       const destinationGroup = groupId === undefined
         ? (dstToken?.startsWith('s:') ? next.tabMembership[dstToken.slice(2)] : '') : groupId;
       if (destinationGroup && next.tabGroups.some(group => group.id === destinationGroup)) {
-        next.tabMembership[srcToken.slice(2)] = destinationGroup;
-      } else delete next.tabMembership[srcToken.slice(2)];
+        for (const logical of moving) next.tabMembership[logical] = destinationGroup;
+      } else for (const logical of moving) delete next.tabMembership[logical];
     }
     return next;
   }
@@ -14464,7 +14621,9 @@
     hint.setAttribute('role', 'status');
     const session = termSessions.find(item => `s:${item.logical_name}` === _termDragLogical);
     const label = session ? _termSessionDisplay(session) : 'Divider';
-    hint.textContent = `${label} → ${group ? group.name : 'Ungrouped tabs'}`;
+    hint.textContent = target.chooseRelation
+      ? `${label} → Move below or make child`
+      : `${label} → ${group ? group.name : 'Ungrouped tabs'}`;
     document.body.appendChild(hint);
     hint.style.left = `${Math.max(8, Math.min(event.clientX + 16, window.innerWidth - hint.offsetWidth - 8))}px`;
     hint.style.top = `${Math.max(8, Math.min(event.clientY + 18, window.innerHeight - hint.offsetHeight - 8))}px`;
@@ -14504,8 +14663,10 @@
         const before = termSessionOrientation === 'horizontal'
           ? (e.clientX - rect.left) < rect.width / 2
           : (e.clientY - rect.top) < rect.height / 2;
-        target = {token: item.dataset.orderToken, before, groupId,
-          parent: item.parentElement, beforeNode: before ? item : item.nextSibling};
+        const chooseRelation = _termDragLogical.startsWith('s:') && item.dataset.orderToken.startsWith('s:');
+        const row = item.closest('.term-subtab-node')?.querySelector(':scope > .sess') === item ? item.parentElement : item;
+        target = {token: item.dataset.orderToken, before: chooseRelation ? false : before, groupId, chooseRelation,
+          parent: row.parentElement, beforeNode: chooseRelation || !before ? row.nextSibling : row};
       } else if (groupNode && _termDragLogical.startsWith('s:')) {
         // Group labels are drop targets too, including collapsed groups.
         const children = groupNode.querySelector('.term-tab-group-tabs');
@@ -14541,14 +14702,46 @@
       const src = _termDragLogical;
       const sameScope = drag.scope === _termGroupScopeKey();
       _termFinishDrag(false);
-      if (sameScope && target) await termReorderItems(src, target.token, target.before, target.groupId);
+      if (sameScope && target?.chooseRelation) {
+        termRenderSessionList();
+        const anchor = [...container.querySelectorAll('[data-order-token]')].find(node => node.dataset.orderToken === target.token);
+        termOpenDropChoice(src, target.token, target.groupId, anchor);
+      }
+      else if (sameScope && target) await termReorderItems(src, target.token, target.before, target.groupId);
       else termRenderSessionList();
     };
   }
 
-  async function termReorderItems(srcToken, dstToken, placeBefore, groupId) {
-    const groupState = _termPlanItemMove(_termReadGroupState(), srcToken, dstToken, placeBefore, groupId);
-    if (!groupState) { termRenderSessionList(); return; }
+  function termOpenDropChoice(srcToken, dstToken, groupId, anchor) {
+    if (!anchor) return;
+    const scope = _termGroupScopeKey();
+    const identity = token => {
+      const session = termSessions.find(item => `s:${item.logical_name}` === token);
+      return session && (session.session_id || session.name);
+    };
+    const source = identity(srcToken), destination = identity(dstToken);
+    const childPlan = _termPlanItemMove(_termReadGroupState(), srcToken, dstToken, false, groupId, 'child');
+    _termShowGroupMenu(anchor,
+      '<div class="term-group-menu-title">Place terminal tab</div>' +
+      '<button role="menuitem" class="term-group-menu-row" data-action="below">Move below</button>' +
+      `<button role="menuitem" class="term-group-menu-row" data-action="child"${childPlan?'':' disabled'}>Make child</button>` +
+      '<button role="menuitem" class="term-group-menu-row" data-action="cancel">Cancel</button>', action => {
+        termCloseGroupMenu();
+        if (scope !== _termGroupScopeKey() || action === 'cancel' || !source || !destination
+            || identity(srcToken) !== source || identity(dstToken) !== destination) return;
+        void termReorderItems(srcToken, dstToken, false, groupId, action).then(moved => {
+          if (!moved || action !== 'child' || scope !== _termGroupScopeKey() || identity(srcToken) !== source) return;
+          const session = termSessions.find(item => `s:${item.logical_name}` === srcToken);
+          _termSelectTab(null);
+          const objectiveLink = window.LabObjectives?.openForTerminal(session);
+          return _termActivateTab(session.name, {openDocument:!objectiveLink});
+        });
+      });
+  }
+
+  async function termReorderItems(srcToken, dstToken, placeBefore, groupId, relation) {
+    const groupState = _termPlanItemMove(_termReadGroupState(), srcToken, dstToken, placeBefore, groupId, relation);
+    if (!groupState) { termRenderSessionList(); return false; }
     const current = groupState.order;
     _termWriteGroupState(groupState);
     window.labFeatureUsage?.(srcToken.startsWith('g:') ? 'Move terminal divider (drag and drop)' : 'Move terminal tab (drag and drop)');
@@ -14564,11 +14757,11 @@
     termRenderSessionList();
 
     // Divider moves are browser-local and do not need a server write.
-    if (srcToken.startsWith('g:')) return;
+    if (srcToken.startsWith('g:')) return true;
 
     // Persist server-side. Same workspace-id resolution used elsewhere.
     const workspaceId = _termActiveWorkspaceId();
-    if (!workspaceId) return;
+    if (!workspaceId) return true;
     // Suspend the periodic refresh while the POST is in flight: otherwise a
     // 5s-tick GET can race the POST and re-paint the old order, making the
     // reorder appear to "snap back".
@@ -14582,10 +14775,28 @@
     } catch (e) { /* best-effort; local order already reflects */ }
     // Small grace so filesystem writes + watcher ignore-list settle.
     setTimeout(() => { _termReorderPending = false; }, 250);
+    return true;
   }
 
   function termReorderSessions(srcLogical, dstLogical, placeBefore) {
     return termReorderItems(`s:${srcLogical}`, `s:${dstLogical}`, placeBefore);
+  }
+
+  async function _termCreateSubterminal(parent) {
+    const scopeKey=_termGroupScopeKey(),identity=parent.session_id||parent.name;
+    const scope={...(parent.linked_scope||_termSelectedScope()),root:parent.cwd||parent.linked_scope?.root||_termSelectedScope()?.root};
+    const association=window.LabObjectives?.childTerminalAssociation?.(parent)||undefined;
+    const created=await termSpawnSession('terminal',{startFresh:true,launchChoice:{scope,association}});
+    if(!created||scopeKey!==_termGroupScopeKey()||!termSessions.some(t=>(t.session_id||t.name)===identity))return;
+    await termReorderItems(`s:${created.logical_name}`,`s:${parent.logical_name}`,false,undefined,'child');
+    window.LabObjectives?.openForTerminal(created);
+  }
+
+  async function _termPasteTaskContext(session) {
+    const scope=_termGroupScopeKey(),payload=window.LabObjectives?.terminalTaskContext?.(session);if(!payload)return;
+    const linked=window.LabObjectives.openForTerminal(session);
+    await _termActivateTab(session.name,{openDocument:!linked});
+    if(scope===_termGroupScopeKey()&&termCurrentSession===session.name)termXterm?.paste(window.LabTaskContext.format(payload));
   }
 
   function termSessEsc(s) {
@@ -15601,7 +15812,7 @@
     await window.LabObjectives?.load();
     if (!current() || base !== currentWorkspace?.path || configScope !== _sidebarFileConfigScope) return null;
     const objective = window.LabObjectives?.terminalLaunchContext();
-    const identity = row => JSON.stringify([row?.id, row?.path,
+    const identity = row => JSON.stringify([row?.id, row?.path,row?.task?.id,
       row?.worktrees.map(tree => [tree.id, tree.path, tree.repo, tree.kind])]);
     const objectiveIdentity = identity(objective);
     const rows = window.LabTerminalFolder.choices(base, _workspaceDisplayName(currentWorkspace),
@@ -15612,7 +15823,7 @@
       && objectiveIdentity === identity(window.LabObjectives?.terminalLaunchContext()), {selection:true});
   }
 
-  async function termSpawnSession(kind, { startFresh = false, agent = null, name = null, linkedScope = null } = {}) {
+  async function termSpawnSession(kind, { startFresh = false, agent = null, name = null, linkedScope = null, launchChoice = null } = {}) {
     const workspaceId = _termActiveWorkspaceId();
     if (!workspaceId) return;
     const vaultId = _termVaultId();
@@ -15620,8 +15831,12 @@
 
     const current = () => workspaceId === _termActiveWorkspaceId() && vaultId === _termVaultId()
       && homeSection === _termHomeSection();
-    const choice = await _termChooseNewScope(linkedScope || _termSelectedScope(), current);
+    const choice = launchChoice || await _termChooseNewScope(linkedScope || _termSelectedScope(), current);
     if (!current() || choice === null) return null;
+    if(choice.association&&!choice.association.folder&&!choice.association.view) {
+      const existing=window.LabObjectives?.findTaskTerminal?.(termSessions,choice.association);
+      if(existing){await window.LabObjectives.openTaskTerminal(choice.association.task_id||null,choice.association.objective_id);return existing;}
+    }
     const scope = choice.scope;
     termSetStatus('idle', kind === 'claude' ? `creating ${agent || 'claude'}…` : 'creating terminal…');
     try {
@@ -20652,6 +20867,14 @@
     refreshSidebar: () => currentWorkspace?.is_workspace && _refreshWorkspaceSidebar({preserveScroll:true}),
     refreshTerminals: () => termRenderSessionList(),
     activateLinkedTerminal: identities => _termActivateObjectiveTerminal(identities),
+    sessions:()=>termSessions,
+    parentTerminal:session=>{
+      const parent=_termSubtabParents(_termReadGroupState(),termSessions)[session.logical_name];
+      return termSessions.find(item=>item.logical_name===parent);
+    },
+    createTaskTerminal:(launch,task)=>termSpawnSession('terminal',{startFresh:true,launchChoice:{
+      scope:{base_root:launch.context.path,project_root:launch.context.path,root:launch.path,label:launch.name,color:'#8b949e',config_scope:_sidebarFileConfigScope},
+      association:{context:launch.context,objective_id:launch.id,...(task?{task_id:task.id,rename_to_task:true}:{})}}}),
     prepareCenter: type => {
       window.AssistantView?.prepareExternalLink();
       window.LabScopeLinks?.closeExternal();

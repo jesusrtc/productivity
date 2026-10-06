@@ -13,6 +13,20 @@ from .test_frontend_terminal_ui import ROOT, _js_between, _run_node
 STATIC = ROOT / 'core/src/core/static'
 
 
+def test_current_task_launch_is_recommended_and_captures_one_primary_assignment():
+    result = _run_node((STATIC / 'js/lib/terminal-folder.js').read_text() + r'''
+const rows=LabTerminalFolder.choices('/workspace','Workflow',{},'one::work',{
+ id:'objective',name:'Objective',path:'/workspace/objectives/one',context:{workspace_id:'work',vault:'one',path:'/workspace'},
+ task:{id:'task',title:'Verify the fix'},worktrees:[]});
+console.log(JSON.stringify(rows));
+'''.replace('LabTerminalFolder.choices', 'window.LabTerminalFolder.choices'))
+    assert [row['kind'] for row in result] == ['Task', 'Workflow', 'Objective', 'Worktree']
+    assert result[0]['name'] == 'Current task (recommended)'
+    assert result[0]['association']['task_id'] == 'task'
+    assert result[0]['association']['rename_to_task'] is True
+    assert result[0]['scope']['root'] == '/workspace/objectives/one'
+
+
 def test_choices_include_workspace_and_exact_pins_only():
     result = _run_node((STATIC / 'js/lib/terminal-folder.js').read_text() + r'''
 const config={folderScopes:[{path:'/repo',label:'Project',color:'#123abc'},
@@ -38,7 +52,7 @@ const o={id:'one',name:'Current objective',path:'/workspace/objectives/one',work
  {id:'root',path:'/workspace'},{id:'self',path:'/workspace/objectives/one'},
  {id:'feature',path:'/trees/feature',resolved_path:'/real/feature',repo:'/repo',kind:'worktree',label:'Feature',color:'#58a6ff'},
  {id:'folder',path:'/project',repo:'/project',kind:'folder',label:'Project'}]};
-const context=()=>origin,objective=()=>o,active=()=>true;
+const context=()=>origin,objective=()=>o,active=()=>true,focusedTask=()=>null;
 const mutations=[],change=(action,options)=>mutations.push({action,...options}),terminalIdentity=t=>t.session_id;
 ''' + helpers + r'''
 const launch=terminalLaunchContext();
