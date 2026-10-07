@@ -14392,9 +14392,10 @@
 
   function _termSessionPillHtml(s, index) {
     const main = window.LabObjectives?.terminalMain?.(s);
+    const automation = !main && /^automation-[0-9a-f]{32}-[1-9]\d*$/.test(s.logical_name || '');
     const objectiveTask = window.LabObjectives?.taskForTerminal(s);
     const taskOwn=objectiveTask&&!objectiveTask.inherited;
-    const display = main?.label || (taskOwn?objectiveTask.title:_termSessionDisplay(s));
+    const display = main?.label || (!automation&&taskOwn?objectiveTask.title:_termSessionDisplay(s));
     // Compact/full visibility is CSS-controlled so switching detail never
     // rebuilds or reconnects a terminal. The active header always carries
     // the complete identity, even in compact mode.
@@ -14414,6 +14415,9 @@
     const ariaSummary = summary.length > 160 ? `${summary.slice(0, 157).trim()}...` : summary;
     const ariaLabel = `${display} · ${main ? main.kind+' main terminal · Fixed' : visual.badge}${objectiveTask ? (objectiveTask.inherited?' · Parent task context: ':' · Task: ')+objectiveTask.title+' · '+_termTaskStatusLabel(objectiveTask.status) : ''}${working ? ' · Working' : ''}${ready ? ` · ${completion.label}` : ''}${ariaSummary ? ` · ${context.label}: ${ariaSummary}` : ''}`;
     const tooltip = _termSessionTooltipPayload(s, [statusTitle, completion?.label, recentTitle].filter(Boolean).join(' · '));
+    if (automation) {
+      return `<span class="sess ${visual.kind} term-automation-terminal${active}${dead}" role="tab" aria-label="${termSessEsc(ariaLabel)}" aria-selected="${active ? 'true' : 'false'}" tabindex="${active ? '0' : '-1'}" draggable="true" data-order-token="${termSessEsc('s:'+logical)}" data-name="${termSessEsc(s.name)}" data-logical="${termSessEsc(logical)}" data-tooltip="${termSessEsc(tooltip)}"><span class="sess-label custom">${termSessEsc(display)}</span></span>`;
+    }
     const linked = String(s.linked_file && s.linked_file.path || '').trim();
     const scope = s.linked_scope;
     const worktreeOnly = !main && !objectiveTask && scope?.worktree && !linked;

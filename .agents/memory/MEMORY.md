@@ -1,5 +1,7 @@
 # Memory index
 
+- [Automation terminal tabs show only white names](automation-terminal-tabs-show-only-white-names.md) — name-only rows in full/compact rails, with hierarchy and context preserved.
+
 - [Terminal automations belong to the workspace](terminal-automations-belong-to-the-workspace.md) — saved commands/paths, explicit launch picker, child context and preserved logs.
 
 - [Task name overrides need one worktree](task-name-overrides-need-one-worktree.md) — preserve task names with multiple worktrees across task views and terminal tabs.

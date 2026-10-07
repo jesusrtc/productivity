@@ -2182,6 +2182,9 @@
   .term-sessions .term-task-placeholder { border-style: dashed; color: var(--text-secondary); text-align:left; }
   .term-task-create { order: 4; color: var(--accent); font-size: 14px; }
   .term-sessions .sess .term-subtab-caret { position: absolute; left: 2px; top: 2px; font-size: 9px; color: var(--text-dim); line-height: 1; }
+  .term-panel .term-sessions .sess.term-automation-terminal { justify-content:flex-start; padding:7px 8px; color:var(--text-primary); }
+  .term-panel .term-session-switcher .term-sessions .sess.term-automation-terminal .sess-label { display:block; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text-primary); font-weight:600; }
+  .term-sessions .sess.term-automation-terminal .term-subtab-caret { display:none; }
   .term-sessions-horizontal .term-subtab-node, .term-sessions-horizontal .term-subtab-children { flex-direction: row; align-items: center; }
   .term-sessions-horizontal .term-subtab-children { margin-left: 0; padding-left: 4px; }
   .term-sessions-horizontal .term-tab-group, .term-sessions-horizontal .term-tab-group-tabs { flex-direction: row; }

@@ -42,7 +42,9 @@ Every directory is checked before any command starts. Commands start in list
 order in separate tmux sessions and run independently. For dependent operations,
 combine them in one command, for example `npm run build && npm run dev`.
 An exited command prints its exit code and leaves an interactive shell with the
-logs retained. Ordinary child tabs, hover expansion and terminal controls apply.
+logs retained. Automation tabs show only their saved names in white, without
+bullets, icons, status badges or folder captions. Names remain visible in the
+compact rail. Child-tab hover expansion and terminal controls still apply.
 
 Children inherit the parent task's Objective context without taking its primary
 task association. Children of a workspace main remain visible; children of an
