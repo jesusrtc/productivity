@@ -27,13 +27,16 @@ console.log(JSON.stringify({selected,saved,html,included,otherVault,restored,aft
  unchanged:before===JSON.stringify(termSessions),parentsUnchanged:originalParents===JSON.stringify(saved.tabParents)}));
 ''')
     assert result['selected'] and result['restored'] and result['renders'] == 2
-    assert result['saved']['tabDisplayMains'] == {'parent': 'nested'}
+    assert result['saved']['tabDisplayMains'] == {'child': 'nested'}
+    assert result['saved']['tabDisplayMainVersion'] == 2
     assert not result['after']['tabDisplayMains'] and not result['otherVault']
     assert result['unchanged'] and result['parentsUnchanged']
-    assert result['html'].index('data-name="nested"') < result['html'].index('data-name="parent"')
-    assert 'data-display-main-parent="parent" data-color="#ff7b72"' in result['html']
+    assert result['html'].index('data-name="parent"') < result['html'].index('data-name="nested"') < result['html'].index('data-name="child"')
+    assert 'data-term-parent="parent"><span class="sess" role="tab" aria-expanded="true" data-subtab-toggle data-name="parent"' in result['html']
+    assert 'data-display-main-parent="child" data-color="#ff7b72"' in result['html']
     assert result['html'].count('data-name="parent"') == 1
     assert result['html'].count('data-name="nested"') == 1
+    assert result['html'].count('data-name="child"') == 1
     assert result['included'] == ['other', 'nested', 'child', 'parent']
 
 
@@ -65,3 +68,52 @@ console.log(JSON.stringify({html:termSessions.map(_termSubtabRenderer(state,term
 ''')
     assert result['html'].index(f'data-name="{result["automation"]}"') < result['html'].index('data-name="parent"')
     assert ' hidden' not in result['html']
+
+
+def test_saved_grandparent_swap_corrects_to_immediate_parent_and_restores():
+    result = _run_node(r'''
+const _TERM_GROUP_COLORS=['#58a6ff'],_TERM_GROUPS_KEY='groups';
+const stored={},localStorage={getItem:key=>stored[key],setItem:(key,value)=>stored[key]=value};
+const termSessions=['grandparent','parent','child'].map(name=>({name,logical_name:name}));
+const _termActiveWorkspaceId=()=> 'demo',_termVaultId=()=> 'one',_termSessionsKey=(w,v)=>v+'::'+w;
+const _termSessionMeta=name=>termSessions.find(s=>s.name===name),termRenderSessionList=()=>{};
+window.LabObjectives={};
+''' + GROUPS + r'''
+const legacy=_termNormalizeGroupState({tabParents:{parent:'grandparent',child:'parent'},tabDisplayMains:{grandparent:'child'}});
+_termWriteGroupState(legacy);
+const corrected=[..._termDisplayMains(_termReadGroupState())];
+const staleNewPreference=[..._termDisplayMains({...legacy,tabDisplayMainVersion:2})];
+const restore=_termSetDisplayMain('parent',true),saved=_termReadGroupState();
+console.log(JSON.stringify({corrected,staleNewPreference,restore,saved}));
+''')
+    assert result['corrected'] == [['parent', 'child']]
+    assert result['staleNewPreference'] == []
+    assert result['restore'] and not result['saved']['tabDisplayMains']
+    assert result['saved']['tabDisplayMainVersion'] == 2
+    assert result['saved']['tabParents'] == {'parent': 'grandparent', 'child': 'parent'}
+
+
+def test_adjacent_swaps_replace_conflicting_pair_without_duplicating_sessions():
+    result = _run_node(r'''
+const _TERM_GROUP_COLORS=['#58a6ff'],_TERM_GROUPS_KEY='groups';
+const stored={},localStorage={getItem:key=>stored[key],setItem:(key,value)=>stored[key]=value};
+const termSessions=['grandparent','parent','child','nested','sibling','other-parent','other-child'].map(name=>({name,logical_name:name}));
+const _termActiveWorkspaceId=()=> 'demo',_termVaultId=()=> 'one',_termSessionsKey=(w,v)=>v+'::'+w;
+const _termSessionMeta=name=>termSessions.find(s=>s.name===name),termRenderSessionList=()=>{};
+const termSessEsc=String,_termSessionDisplay=s=>s.name;
+window.LabObjectives={};
+''' + GROUPS + r'''
+const state=_termNormalizeGroupState({tabParents:{parent:'grandparent',child:'parent',nested:'child',sibling:'parent','other-child':'other-parent'}});
+_termWriteGroupState(state);
+_termSetDisplayMain('child');const first=_termReadGroupState().tabDisplayMains;
+_termSetDisplayMain('nested');const second=_termReadGroupState().tabDisplayMains;
+_termSetDisplayMain('other-child');_termSetDisplayMain('sibling');const saved=_termReadGroupState();
+const html=termSessions.map(_termSubtabRenderer(saved,termSessions,s=>`<span class="sess" role="tab" data-name="${s.name}">${s.name}</span>`)).join('');
+console.log(JSON.stringify({first,second,saved,counts:Object.fromEntries(termSessions.map(s=>[s.name,html.split('data-name="'+s.name+'"').length-1]))}));
+''')
+    assert result['first'] == {'parent': 'child'}
+    assert result['second'] == {'child': 'nested'}
+    assert result['saved']['tabDisplayMains'] == {
+        'child': 'nested', 'other-parent': 'other-child', 'parent': 'sibling',
+    }
+    assert all(count == 1 for count in result['counts'].values())

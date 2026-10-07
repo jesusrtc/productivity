@@ -13352,7 +13352,7 @@
       return result;
     };
     const tabRoots=[...new Set((Array.isArray(raw?.tabRoots)?raw.tabRoots:[]).filter(id=>typeof id==='string'&&id&&id.length<=160))];
-    return {groups, order, membership, tabGroups, tabMembership, tabParents:links('tabParents'), tabAfter:links('tabAfter'),tabRoots,tabDisplayMains:links('tabDisplayMains')};
+    return {groups, order, membership, tabGroups, tabMembership, tabParents:links('tabParents'), tabAfter:links('tabAfter'),tabRoots,tabDisplayMains:links('tabDisplayMains'),tabDisplayMainVersion:raw?.tabDisplayMainVersion === 2 ? 2 : 1};
   }
 
   function _termReadGroupState(scope = _termGroupScopeKey()) {
@@ -13402,12 +13402,23 @@
 
   function _termDisplayMains(state, sessions = termSessions, parents = _termSubtabParents(state, sessions)) {
     const live = new Set(sessions.map(session => session.logical_name)), result = new Map();
-    for (const [root, child] of Object.entries(state.tabDisplayMains || {})) {
-      if (!live.has(root) || !live.has(child) || parents[root]) continue;
-      let ancestor = parents[child];
-      const seen = new Set();
-      while (ancestor && ancestor !== root && !seen.has(ancestor)) { seen.add(ancestor); ancestor = parents[ancestor]; }
-      if (ancestor === root) result.set(root, child);
+    for (const [savedParent, child] of Object.entries(state.tabDisplayMains || {})) {
+      const parent = parents[child];
+      if (!live.has(savedParent) || !live.has(child) || !parent) continue;
+      if (savedParent !== parent) {
+        // Older preferences targeted the tree root. Keep the chosen child,
+        // but correct its display swap to the immediate parent.
+        if (state.tabDisplayMainVersion === 2) continue;
+        let ancestor = parent;
+        const seen = new Set();
+        while (ancestor && ancestor !== savedParent && !seen.has(ancestor)) { seen.add(ancestor); ancestor = parents[ancestor]; }
+        if (ancestor !== savedParent) continue;
+      }
+      // A terminal can occupy only one swapped pair at a time.
+      for (const [otherParent, otherChild] of result) {
+        if ([parent, child].includes(otherParent) || [parent, child].includes(otherChild)) result.delete(otherParent);
+      }
+      result.set(parent, child);
     }
     return result;
   }
@@ -13415,15 +13426,16 @@
   function _termIncludeDisplayMains(view, sessions, state) {
     const result = [...view], live = new Map(sessions.map(session => [session.logical_name, session]));
     const parents = _termSubtabParents(state, sessions), visible = new Set(view.map(session => session.logical_name));
-    for (const [root, child] of _termDisplayMains(state, sessions, parents)) {
-      // Objective mains retain the existing active-Objective visibility rule.
-      if (!visible.has(root) && window.LabObjectives?.terminalMain?.(live.get(root))) continue;
+    for (const [, child] of _termDisplayMains(state, sessions, parents)) {
+      const chain = [];
       let logical = child;
       while (logical) {
-        if (!visible.has(logical)) { result.push(live.get(logical)); visible.add(logical); }
-        if (logical === root) break;
+        chain.push(logical);
         logical = parents[logical];
       }
+      // Keep the nested path without exposing an inactive Objective main.
+      if (chain.some(id => !visible.has(id) && window.LabObjectives?.terminalMain?.(live.get(id)))) continue;
+      for (const id of chain) if (!visible.has(id)) { result.push(live.get(id)); visible.add(id); }
     }
     return result;
   }
@@ -13431,16 +13443,18 @@
   function _termSetDisplayMain(sessionName, restore = false) {
     const session = _termSessionMeta(sessionName), logical = session?.logical_name;
     if (!logical) return false;
-    const state = _termReadGroupState(), parents = _termSubtabParents(state);
+    const state = _termReadGroupState(), parents = _termSubtabParents(state), mains = _termDisplayMains(state, termSessions, parents);
+    const parent = restore ? [...mains].find(([parent, child]) => [parent, child].includes(logical))?.[0] : parents[logical];
+    if (!parent) return false;
+    state.tabDisplayMains = Object.fromEntries(mains);
+    state.tabDisplayMainVersion = 2;
     if (restore) {
-      const root = [..._termDisplayMains(state, termSessions, parents)].find(([parent, child]) => [parent, child].includes(logical))?.[0];
-      if (!root) return false;
-      delete state.tabDisplayMains[root];
+      delete state.tabDisplayMains[parent];
     } else {
-      if (!parents[logical]) return false;
-      let root = parents[logical];
-      while (parents[root]) root = parents[root];
-      state.tabDisplayMains[root] = logical;
+      for (const [otherParent, otherChild] of mains) {
+        if ([parent, logical].includes(otherParent) || [parent, logical].includes(otherChild)) delete state.tabDisplayMains[otherParent];
+      }
+      state.tabDisplayMains[parent] = logical;
     }
     _termWriteGroupState(state); termRenderSessionList();
     return true;
@@ -13449,9 +13463,10 @@
   function _termSubtabRenderer(state, sessions, pill) {
     const parents = _termSubtabParents(state, sessions);
     const mains = _termDisplayMains(state, sessions, parents), swaps = new Map();
-    for (const [root, child] of mains) { swaps.set(root, child); swaps.set(child, root); }
+    for (const [parent, child] of mains) { swaps.set(parent, child); swaps.set(child, parent); }
     const sessionsByLogical = new Map(sessions.map(session => [session.logical_name, session]));
-    const workingRows = new Set();
+    // A nominated child's immediate-parent slot stays visible at that depth.
+    const workingRows = new Set(mains.keys());
     for (const session of sessions) {
       const represented = sessionsByLogical.get(swaps.get(session.logical_name)) || session;
       const task = window.LabObjectives?.taskForTerminal?.(represented);
