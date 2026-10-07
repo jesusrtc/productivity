@@ -208,7 +208,10 @@ drafts. The selected mode is browser-local.
 
 Task Markdown opens in **View** mode with rendered, read-only content. Use the
 separate **View · Edit** switch beside the focus controls to enable the native
-editor. View disables document Rename/Save/Revert/new-subtab actions and the
+editor. Both modes share document typography, heading sizes, column width,
+links, quotes, code and table styling; View also keeps the editor's paragraph
+spacing and text inset. View disables document Rename/Save/Revert/new-subtab
+actions and the
 task header's completion, icon changes and Edit task controls. Reading, links,
 disclosures and focus controls remain available. Edit returns to View after
 three minutes without interaction with the document, header or its edit dialog;

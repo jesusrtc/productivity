@@ -190,7 +190,24 @@
 .objective-task-tab-icon { display:inline-flex; align-items:center; margin-right:6px; flex-shrink:0; }
 .objective-document-context { display:flex; align-items:center; gap:8px; margin:12px 0; }
 .objective-note-editor { --lab-document-font-size:13px; }
-.objective-document-preview { font-size:var(--lab-document-font-size); line-height:1.65; user-select:text; }
+.objective-document-preview { box-sizing:border-box; min-height:320px; padding:4px 4px 100px; user-select:text; overflow-wrap:anywhere; }
+/* Match the editor's blank source lines and 4px text inset while keeping the
+   rendered document selectable and free of editing widgets. */
+.objective-document-preview :is(h1,h2,h3,h4,h5,h6,p,ul,ol,blockquote,details,.markdown-code-block,table) { margin:0 0 calc(var(--lab-document-font-size) * 1.7); }
+.objective-document-preview :is(p,li) { font-size:inherit; line-height:inherit; }
+.objective-document-preview :is(ul,ol) { padding-left:calc(6px + 1.3em); }
+.objective-document-preview li { margin:0; }
+.objective-document-preview li::marker { color:var(--text-secondary); }
+.objective-document-preview li:has(> input[type=checkbox]) { list-style:none; margin-left:-1.3em; }
+.objective-document-preview li > :is(p,ul,ol):last-child { margin-bottom:0; }
+.objective-document-preview blockquote { margin-left:-4px; }
+.objective-document-preview blockquote > :last-child { margin-bottom:0; }
+.objective-document-preview .markdown-code-block { margin-left:-4px; margin-right:-4px; padding-top:42px; }
+.objective-note-editor .objective-document-preview pre { margin:0; padding-top:8px; padding-bottom:10px; border:1px solid var(--border); border-radius:6px; line-height:1.7; overflow:auto; }
+.objective-note-editor .objective-document-preview .markdown-code-block > pre { border:0; border-radius:0 0 6px 6px; }
+.objective-document-preview pre code { font:inherit; }
+.objective-note-editor :is(.objective-document-preview,.lab-live-markdown-block) table { font-size:inherit; }
+.objective-document-preview table { width:calc(100% + 8px); margin-left:-4px; margin-right:-4px; }
 .objective-document-actions [hidden] { display:none; }
 .objective-document-actions { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin-top:18px; }
 .objective-document-status { font-size:11px; color:var(--text-secondary); }.objective-document-status.error { color:var(--red); }

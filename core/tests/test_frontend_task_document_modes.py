@@ -22,7 +22,8 @@ window.clearTimeout=id=>{if(!idleTimers.delete(id))nativeClear(id)};
 const advance=ms=>{elapsed+=ms;for(const [id,timer] of idleTimers)if(timer.at<=Date.now()){idleTimers.delete(id);timer.callback();}};
 const task=(id,children=[])=>({id,title:id,children,status:'todo',done:false,assets:[],document_id:'details',tab_id:id});
 const parent=task('parent',[task('child')]),second=task('second');
-const documentResource={id:'details',kind:'document',title:'Details',path:'details.md',content:{revision:'doc',body:'Root body',tabs:[parent,...parent.children,second].map(t=>({id:t.id,title:t.title,body:'# '+t.title+'\n\n**Read** the details.\n\n- [ ] Keep this unchanged\n',parent:{id:'details'}}))}};
+const sample='\n## Scope\n\nA [reference](https://example.com) with `inline code`.\n\n### Goals\n\n#### Notes\n\n##### More notes\n\n###### Detail\n\n> Quoted context\n\n| Name | Value |\n| --- | --- |\n| One | Two |\n\n```text\nCode sample\n```\n';
+const documentResource={id:'details',kind:'document',title:'Details',path:'details.md',content:{revision:'doc',body:'Root body',tabs:[parent,...parent.children,second].map(t=>({id:t.id,title:t.title,body:'# '+t.title+'\n\n**Read** the details.\n\n- [ ] Keep this unchanged\n'+sample,parent:{id:'details'}}))}};
 const objective={id:'one',name:'One',color:'#58a6ff',path:'/workspace/objectives/one',purpose:'',tasks:[parent,second],resources:[documentResource],worktrees:[],shared_assets:[],archived_assets:[],trashed_assets:[]};
 const fixture={enabled:true,revision:'fixture',objectives:[objective],focused:['one'],terminal_links:{}};
 let rejectSave=false;
@@ -48,6 +49,7 @@ const mode=()=>document.querySelector('.objective-document').dataset.documentMod
 const preview=()=>document.querySelector('.objective-document-preview');
 const append=text=>{const view=editor().view;view.dispatch({changes:{from:view.state.doc.length,insert:text}})};
 const saved=id=>documentResource.content.tabs.find(t=>t.id===id).body;
+const style=node=>{assert(node,'Missing formatted element');const computed=getComputedStyle(node);return ['fontFamily','fontSize','fontWeight','lineHeight','color'].map(property=>computed[property]).join('|')};
 LabObjectives.connect({context:()=>({workspace_id:'workspace',vault:'fixture',path:'/workspace'}),prepareCenter:()=>{}});
 (async()=>{try{
  await LabObjectives.load();LabObjectives.selectObjective('one',{activateTerminal:false});open('parent');await tick();
@@ -60,8 +62,17 @@ LabObjectives.connect({context:()=>({workspace_id:'workspace',vault:'fixture',pa
  const completion=document.querySelector('.objective-task-mode-head [data-task-done]');completion.dispatchEvent(new Event('change',{bubbles:true}));
  assert(actions.length===0&&!document.querySelector('dialog'),'View cannot mutate task/document metadata');
  assert(document.querySelector('[data-save-objective-document]').hidden&&document.querySelector('[data-revert-objective-document]').hidden,'editing actions hidden in View');
+ const readStyles=[...Array.from({length:6},(_,i)=>style(preview().querySelector('h'+(i+1)))),...['strong','a','code:not(pre code)','blockquote','td','pre code'].map(selector=>style(preview().querySelector(selector)))];
+ const readColumn=preview().getBoundingClientRect();
+ const readBody=preview().getBoundingClientRect();const readHeadingOffset=preview().querySelector('h2').getBoundingClientRect().top-readBody.top;
+ const readCheckOffset=preview().querySelector('input').getBoundingClientRect().left-readBody.left;
  click('[data-task-document-mode=edit]');await tick();const firstEditor=editor();
  assert(mode()==='edit'&&firstEditor&&!document.querySelector('[data-rename-objective-resource]').disabled,'explicit Edit restores native editing');
+ const editStyles=[...Array.from({length:6},(_,i)=>style(firstEditor.view.dom.querySelector('.lab-live-heading-'+(i+1)))),...['strong','a','.lab-live-code-inline','.lab-live-quote','.lab-live-table-row:not(.lab-live-table-header) .lab-live-table-cell','.lab-live-code-line'].map(selector=>style(firstEditor.view.dom.querySelector(selector)))];
+ assert(JSON.stringify(readStyles)===JSON.stringify(editStyles),'View/Edit typography matches: '+JSON.stringify({readStyles,editStyles}));
+ const editColumn=firstEditor.view.dom.getBoundingClientRect();assert(Math.abs(readColumn.width-editColumn.width)<1&&Math.abs(readColumn.left-editColumn.left)<1,'View/Edit document column matches');
+ assert(Math.abs(readHeadingOffset-(firstEditor.view.dom.querySelector('.lab-live-heading-2').getBoundingClientRect().top-editColumn.top))<1,'View/Edit paragraph and list spacing matches');
+ assert(Math.abs(readCheckOffset-(firstEditor.view.dom.querySelector('.lab-live-task-check').getBoundingClientRect().left-editColumn.left))<1,'View/Edit task checkbox indentation matches without an extra bullet');
  append('\n\nA preserved draft.');click('[data-task-document-mode=view]');await tick();await tick();
  assert(mode()==='view'&&!editor()&&preview().textContent.includes('A preserved draft.')&&saved('parent').includes('A preserved draft.'),'manual View saves and renders the draft');
  click('[data-task-document-mode=edit]');await tick();
