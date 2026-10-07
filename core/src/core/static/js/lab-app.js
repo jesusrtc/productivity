@@ -2916,14 +2916,59 @@
       : '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M2.5 6V4.5h5l2 2h8v9h-15V6Z"/></svg>';
   }
 
+  const _sidebarWorktreeRebases = new Set();
+
   function _sidebarScopeActionsHtml(scope, baseRoot) {
     const active = scope.path === _sidebarScopedRoot(baseRoot);
     const switching = active && _sidebarScopeTransition?.baseRoot === baseRoot;
     const scopeAttrs = `data-base-root="${escAttr(baseRoot)}" data-folder-path="${escAttr(scope.path === baseRoot ? '' : scope.path)}"`;
     const label = _sidebarScopeDisplayLabel(scope);
     const attachIcon = '<svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="2" y="3" width="16" height="14" rx="2"/><path d="m5 7 3 3-3 3m5 0h5"/></svg>';
-    return `<button type="button" class="sidebar-repo-history" ${scopeAttrs} onclick="sidebarOpenRepositoryHistory(this)" ${active && !switching ? '' : 'disabled'} aria-label="Open Git history for ${escAttr(label)}" title="${active ? 'Open Git history' : 'Select this folder to open Git history'}">${_SIDEBAR_GITHUB_ICON}</button><button type="button" class="sidebar-link-terminal" ${scopeAttrs} onclick="termToggleNewPicker(event)" ${active && !switching ? '' : 'disabled'} aria-label="Open a new terminal" title="${active ? 'Open a new terminal…' : 'Select this folder to open the terminal menu'}">${attachIcon}</button>`;
+    const path = scope.resolved_path || scope.path, busy = _sidebarWorktreeRebases.has(path);
+    const pull = scope.kind === 'worktree' && window.LAB_IS_ADMIN !== false ? `<button type="button" class="sidebar-worktree-pull" ${scopeAttrs} data-worktree-rebase-path="${escAttr(path)}" data-worktree-rebase-label="${escAttr(label)}" onclick="sidebarPullRebaseWorktree(this)" ${active && !switching && !busy ? '' : 'disabled'} aria-busy="${busy}" aria-label="Pull and rebase origin/master for ${escAttr(label)}" title="${busy ? 'Pull/rebase in progress' : active ? 'Fetch origin/master and rebase this worktree' : 'Select this worktree to pull and rebase origin/master'}"><svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M10 2v11m-4-4 4 4 4-4M3 14v3h14v-3"/></svg></button>` : '';
+    return `<button type="button" class="sidebar-repo-history" ${scopeAttrs} onclick="sidebarOpenRepositoryHistory(this)" ${active && !switching ? '' : 'disabled'} aria-label="Open Git history for ${escAttr(label)}" title="${active ? 'Open Git history' : 'Select this folder to open Git history'}">${_SIDEBAR_GITHUB_ICON}</button><button type="button" class="sidebar-link-terminal" ${scopeAttrs} onclick="termToggleNewPicker(event)" ${active && !switching ? '' : 'disabled'} aria-label="Open a new terminal" title="${active ? 'Open a new terminal…' : 'Select this folder to open the terminal menu'}">${attachIcon}</button>${pull}`;
   }
+
+  async function sidebarPullRebaseWorktree(button) {
+    if (!button || button.disabled || window.LAB_IS_ADMIN === false) return;
+    const path = button.getAttribute('data-worktree-rebase-path'), baseRoot = button.getAttribute('data-base-root');
+    const selected = button.getAttribute('data-folder-path') || baseRoot;
+    if (!path || !baseRoot || selected !== _sidebarScopedRoot(baseRoot) || _sidebarWorktreeRebases.has(path)) return;
+    const configScope = _sidebarFileConfigScope, label = button.getAttribute('data-worktree-rebase-label') || path;
+    _sidebarWorktreeRebases.add(path);
+    _sidebarRenderScopeButtons();
+    const dialog = document.createElement('dialog');
+    dialog.className = 'sidebar-worktree-rebase-result';
+    dialog.innerHTML = '<header><h2>Pull + rebase master</h2><button type="button" data-close aria-label="Close pull/rebase result">×</button></header><p data-worktree></p><p data-status role="status" aria-live="polite">Fetching origin/master and rebasing…</p><pre data-output aria-label="Git output"></pre><p data-guidance hidden>Resolve conflicts in this worktree, then run <code>git rebase --continue</code>, or use <code>git rebase --abort</code> to return to the original branch state.</p>';
+    dialog.querySelector('[data-worktree]').textContent = path;
+    dialog.querySelector('[data-close]').onclick = () => { dialog.close(); dialog.remove(); };
+    dialog.addEventListener('cancel', () => dialog.remove());
+    document.body.append(dialog);
+    dialog.showModal();
+    const report = (data, success) => {
+      const message = data.message || (typeof data.detail === 'string' ? data.detail : 'Could not update this worktree.');
+      dialog.querySelector('[data-status]').textContent = message;
+      dialog.classList.toggle('error', !success);
+      dialog.querySelector('[data-output]').textContent = data.output || message;
+      dialog.querySelector('[data-guidance]').hidden = !data.rebase_paused;
+      if (!dialog.isConnected) explorerToast(`${label}: ${message}`, !success);
+    };
+    try {
+      const response = await fetch('/api/git/worktree-pull-rebase', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({path})});
+      const data = await response.json().catch(() => ({}));
+      report(data, response.ok && data.status === 'ok');
+    } catch (error) {
+      report({message:error.message || 'Could not update this worktree.'}, false);
+    } finally {
+      _sidebarWorktreeRebases.delete(path);
+      _sidebarRenderScopeButtons();
+      if (configScope === _sidebarFileConfigScope && baseRoot === _sidebarWorktreeBaseRoot() && selected === _sidebarScopedRoot(baseRoot)) {
+        if (typeof ProjectSidebar !== 'undefined') ProjectSidebar.clear();
+        try { await _refreshSidebarAfterFileConfig(); } catch (error) { console.warn('Could not refresh worktree files after pull/rebase', error); }
+      }
+    }
+  }
+  window.sidebarPullRebaseWorktree = sidebarPullRebaseWorktree;
 
   function _sidebarFileScopeButtonsHtml(baseRoot) {
     if (window.LabObjectives?.active(baseRoot)) return window.LabObjectives.sidebarHtml(baseRoot);

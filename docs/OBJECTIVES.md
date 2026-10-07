@@ -43,6 +43,12 @@ The sidebar order is:
 1. The **Objective name**, followed by **Objective · pinned** assets when any
    are starred. Pinned assets stay above Tasks in every working view.
 2. **Worktrees**, folded by default and revealed on hover or keyboard focus.
+   Each worktree has a down-arrow beside Terminal. Select its row, then click
+   the arrow to fetch `origin/master` and rebase the current worktree branch onto
+   that fetched commit. The result window shows Git output. Local tracked edits
+   use Git's autostash; conflicts remain available to resolve, continue or abort.
+   This does not switch branches, update sibling branches or push. A repository
+   without remote `master` reports an error rather than substituting a branch.
 3. **Tasks**, completion/status badge, task links and status context menu.
 4. **Task assets**, including the selected task's mandatory details and attachments.
 5. **Unassigned** assets with neither a shared star nor a task association,

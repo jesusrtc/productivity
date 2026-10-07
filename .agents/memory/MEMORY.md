@@ -1,5 +1,7 @@
 # Memory index
 
+- [Worktree pull/rebase arrow](worktree-pull-rebase-arrow.md) — selected worktree fetches origin/master and rebases its own branch, with retained edits/conflicts and no push or sibling ref updates.
+
 - [Task focus options removed](task-focus-options-removed.md) — remove Off/Semi/Focus controls, sidebar hiding and context highlighting.
 
 - [Task Markdown Command-click Edit/View](task-markdown-command-click-edit.md) — toggle task Markdown View/Edit with drafts preserved and pending edits saved.

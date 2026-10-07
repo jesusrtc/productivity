@@ -5,6 +5,9 @@ buttons. The Makefile is the single source of truth for what each button
 does; this module just shells out via `make <target>` and surfaces
 stdout/stderr to the UI.
 
+The sidebar's worktree arrow fetches origin/master and rebases the selected
+linked checkout, preserving its feature branch and reporting paused conflicts.
+
 The top-bar update control is deliberately different: it pulls ``origin/main``
 in the framework checkout, then replaces the running Python process with a
 fresh ``python -m core`` process. Replacing the process in-place avoids the
@@ -23,6 +26,8 @@ import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 from lab import paths
 
 from core import auth
@@ -129,6 +134,24 @@ def sync_content(request: Request) -> dict:
     """Stage, commit (if needed), and push the content repo."""
     root = request.app.state.index_cache.root
     return _run_make(root, "push-content")
+
+
+class WorktreeRebaseBody(BaseModel):
+    path: str = Field(min_length=1, max_length=4096)
+
+
+@router.post("/api/git/worktree-pull-rebase")
+def worktree_pull_rebase(body: WorktreeRebaseBody, request: Request):
+    """Fetch master and rebase only the requested, approved linked checkout."""
+    from core import worktree_rebase
+    from core.routes.diff import _entry_git_context, _entry_root
+
+    auth.require_admin(request)
+    selected = _entry_root(body.path, request)
+    checkout, _ = _entry_git_context(selected, selected)
+    _entry_root(str(checkout), request)  # A selected subfolder cannot authorize its parent repository.
+    result = worktree_rebase.pull_rebase_master(checkout)
+    return JSONResponse(result, status_code=200 if result["status"] == "ok" else 409)
 
 
 @router.get("/api/git/runtime")
