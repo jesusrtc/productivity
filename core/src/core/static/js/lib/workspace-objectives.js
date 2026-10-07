@@ -865,14 +865,16 @@
       const main=terminalMain(t);
       if(main)return main.kind==='workflow'||main.objective_id===selectedObjective;
       if(!wipOnly||showObjective&&terminalObjective(t)?.id===selectedObjective)return true;
-      const binding=terminalTask(t);return binding&&(taskStatus(binding.task)==='in_progress'
-        ||binding.objective.id===selectedObjective&&binding.task.id===selected?.id);
+      const binding=terminalTask(t);
+      if(binding)return taskStatus(binding.task)==='in_progress'
+        ||binding.objective.id===selectedObjective&&binding.task.id===selected?.id;
+      return terminalParentMain(t,selectedObjective);
     });
   }
   function terminalParents(sessions,explicit={}) {
     const parents={...explicit};
     const fixed=new Set(sessions.filter(t=>terminalMain(t)).map(t=>t.logical_name));
-    for(const [child,parent] of Object.entries(parents))if(fixed.has(child)||fixed.has(parent))delete parents[child];
+    for(const child of Object.keys(parents))if(fixed.has(child))delete parents[child];
     const find=(o,task)=>sessions.find(t=>terminalObjective(t)?.id===o.id&&terminalLink(t)?.task_id===task.id);
     for(const o of data()?.objectives||[])for(const parent of o.tasks){
       const terminal=find(o,parent);if(!terminal)continue;
@@ -882,6 +884,14 @@
       }
     }
     return parents;
+  }
+  function terminalParentMain(t,selectedObjective) {
+    const seen=new Set();
+    while(t&&!seen.has(terminalIdentity(t))){
+      seen.add(terminalIdentity(t));t=bridge?.parentTerminal?.(t);
+      const main=terminalMain(t);if(main)return main.kind==='workflow'||main.objective_id===selectedObjective;
+    }
+    return false;
   }
   function terminalExpanded(t) {
     const link=terminalLink(t),o=terminalObjective(t),task=tasks(o).find(task=>task.id===link?.task_id);if(!task)return undefined;
@@ -919,7 +929,8 @@
     if(!active(context()?.path))return null;
     const d=data(),current=objective()?.id,rows=sessions.filter(t=>{const main=terminalMain(t);return main?.kind!=='objective'||main.objective_id===current;}).map((t,index)=>({t,index,objective:terminalObjective(t)?.id}));
     let position=0;
-    const workflow=rows.filter(row=>!row.objective).sort((a,b)=>Number(!!terminalMain(b.t))-Number(!!terminalMain(a.t))).map(row=>pill(row.t,position++)).join('');
+    const workflowRows=rows.filter(row=>!row.objective).sort((a,b)=>Number(!!terminalMain(b.t))-Number(!!terminalMain(a.t))).map(row=>row.t);
+    const workflow=arrange(workflowRows).map(t=>pill(t,position++)).join('');
     const ids=new Set([...d.focused,current,...rows.filter(row=>showAll||terminalMain(row.t)?.kind==='objective').map(row=>row.objective)]);
     return workflow+[...ids].map(id=>{
       const o=d.objectives.find(o=>o.id===id);if(!o)return '';
@@ -1214,7 +1225,7 @@
   window.LabObjectives={connect(adapter){bridge=adapter;startRefreshing();},load,active,sidebarHtml,paint,worktrees,tree,associate,terminalHtml,taskForTerminal,openForTerminal,collapse,progress,complete,change,selectObjective,renderTasks,tabsHtml,showAll,terminalLaunchContext,associateNewTerminal,
     terminalSessions,terminalParents,terminalExpanded,terminalMain,openMainTerminal,openTaskTerminal,terminalTaskNameHtml,sidebarMode,recentScopes,
     terminalTaskContext(t){const binding=terminalTask(t);return binding?taskContext(binding.task,binding.objective):null;},
-    childTerminalAssociation(t){const o=terminalObjective(t);return active(context()?.path)&&o?{context:{...context()},objective_id:o.id,view:'tasks'}:null;},
+    childTerminalAssociation(t){const o=terminalObjective(t);return !active(context()?.path)?null:o?{context:{...context()},objective_id:o.id,view:'tasks'}:{context:{...context()},view:'workflow'};},
     findTaskTerminal(sessions,target){return sessions.find(t=>{if(target.main==='workflow')return terminalMain(t)?.kind==='workflow';const link=terminalLink(t);return link?.objective_id===target.objective_id&&(target.task_id?link.task_id===target.task_id:terminalMain(t)?.kind==='objective');});},
     sameTerminalObjective(a,b){return terminalObjective(a)?.id===terminalObjective(b)?.id;},
     openCurrent(){const params=new URLSearchParams(location.search),o=data()?.objectives.find(o=>o.id===params.get('objective'));if(o&&tasks(o).some(t=>t.id===params.get('objective_task'))){state().objective=o.id;openTask(params.get('objective_task'));return;}const f=taskFocus();if(f){openTask(f.task,f.mode);return;}state().view==='objective'&&objective()?selectObjective(objective().id,{activateTerminal:false}):showAll();},

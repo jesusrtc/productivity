@@ -73,7 +73,7 @@ from lab import paths as lab_paths
 from lab import settings as lab_settings
 from lab import tmux_sockets
 
-from core import auth, copilot_identity, fsguard
+from core import auth, copilot_identity, fsguard, terminal_automations
 from core import vault_config
 
 
@@ -2175,6 +2175,9 @@ class NewSession(BaseModel):
     # When True, ignore any saved claude_session_id and start a brand-new
     # conversation (new UUID). Used by the manual "+ New Claude" picker.
     start_fresh: bool = False
+    label: str | None = Field(default=None, max_length=120)
+    # Explicit launches only. Never saved or replayed by a session restore.
+    startup_command: str | None = Field(default=None, min_length=1, max_length=16000)
 
 
 class AttachSession(BaseModel):
@@ -3216,6 +3219,9 @@ def create_session(body: NewSession, request: Request) -> dict:
     kind = (body.kind or "claude").lower()
     if kind not in ("claude", "terminal"):
         raise HTTPException(status_code=400, detail=f"unknown kind: {kind}")
+    if body.startup_command is not None and (kind != "terminal" or not body.startup_command.strip()
+                                             or "\x00" in body.startup_command):
+        raise HTTPException(400, "Startup commands require a plain terminal and a non-empty command")
 
     active_root = auth.request_root(request)
     root = _vault_root_for(active_root, body.vault)
@@ -3432,7 +3438,8 @@ def create_session(body: NewSession, request: Request) -> dict:
     else:
         # kind == "terminal"
         shell = os.environ.get("SHELL") or shutil.which("bash") or "/bin/sh"
-        cmd_argv = [shell, "-l"]
+        cmd_argv = (terminal_automations.shell_command(shell, cwd, body.startup_command)
+                    if body.startup_command is not None else [shell, "-l"])
 
     if kind == "claude":
         # The wrapper execs the provider with process-local framework context.
@@ -3507,6 +3514,8 @@ def create_session(body: NewSession, request: Request) -> dict:
         "created_at": int(time.time()),
         "tmux_socket": socket_name,
     }
+    if body.label and body.label.strip():
+        meta[tmux_name]["label"] = body.label.strip()
     _save_meta(root, meta)
     _invalidate_workspace_term_caches()
 
@@ -3514,6 +3523,8 @@ def create_session(body: NewSession, request: Request) -> dict:
     # display-name lookup even though reopening still starts a fresh session).
     if body.workspace_id:
         entry: dict = {"name": logical, "kind": kind, "cwd": str(cwd)}
+        if body.label and body.label.strip():
+            entry["label"] = body.label.strip()
         if linked_scope:
             entry["linked_scope"] = linked_scope
         if agent:
@@ -3545,6 +3556,105 @@ def create_session(body: NewSession, request: Request) -> dict:
         **meta[tmux_name],
         "attach_command": _attach_command(tmux_name, socket_name),
     }
+
+
+class AutomationSave(terminal_automations.Catalog):
+    workspace_id: str
+    vault: str | None = None
+    revision: str
+
+
+class AutomationLaunch(BaseModel):
+    workspace_id: str
+    vault: str | None = None
+    parent: str
+    automation_id: str
+    revision: str
+    run_id: uuid.UUID
+    preview: bool = False
+
+
+def _automation_folder(request: Request, workspace_id: str, vault: str | None) -> tuple[Path, Path]:
+    active_root = auth.request_root(request)
+    root = _vault_root_for(active_root, vault)
+    _require_workspace_access(request, active_root, root, workspace_id)
+    if _load_workspace(root, workspace_id) is None:
+        raise HTTPException(404, "Workspace not found")
+    folder = _workspace_cwd(root, workspace_id)
+    if not folder.is_dir():
+        raise HTTPException(404, "Workspace folder not found")
+    return root, folder
+
+
+@router.get("/api/term/automations")
+def get_terminal_automations(request: Request, workspace_id: str, vault: str | None = None) -> dict:
+    _, folder = _automation_folder(request, workspace_id, vault)
+    try:
+        return terminal_automations.read(folder)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@router.post("/api/term/automations")
+@_with_workspace_lease
+def save_terminal_automations(body: AutomationSave, request: Request) -> dict:
+    _, folder = _automation_folder(request, body.workspace_id, body.vault)
+    try:
+        return terminal_automations.save(folder, body, body.revision)
+    except FileExistsError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@router.post("/api/term/automations/launch")
+def launch_terminal_automation(body: AutomationLaunch, request: Request) -> dict:
+    root, folder = _automation_folder(request, body.workspace_id, body.vault)
+    # Serialize duplicate submissions. Session names include the run UUID, so
+    # a repeated request adopts the same live children without replaying input.
+    with terminal_automations.lock:
+        try:
+            catalog = terminal_automations.read(folder)
+            if body.revision != catalog["revision"]:
+                raise HTTPException(409, "Automations changed. Reopen the launcher to review the saved commands.")
+            row = next((row for row in catalog["automations"] if row["id"] == body.automation_id), None)
+            if row is None:
+                raise HTTPException(404, "Automation not found")
+            parent = _load_meta(root).get(body.parent)
+            if not parent or parent.get("workspace_id") != body.workspace_id:
+                # Shared document terminals retain their canonical owner. Only
+                # accept one explicitly borrowed by this workspace's references.
+                from core.workspace_documents import borrowed_terminals
+                parent = next((row for row in borrowed_terminals(request, root, body.workspace_id, [])
+                               if row["name"] == body.parent), None)
+                if parent is None:
+                    raise HTTPException(404, "Parent terminal is no longer in this workspace")
+            if not _tmux_has_session(body.parent, parent.get("tmux_socket")):
+                raise HTTPException(409, "Open the parent terminal before launching an automation")
+            if parent.get("document_source"):
+                cwd = Path(parent["cwd"]).resolve()
+            else:
+                saved = _workspace_session_by_name(root, body.workspace_id).get(parent["logical_name"], parent)
+                cwd = _session_launch_folder(root, body.workspace_id, saved)
+            steps = terminal_automations.resolve_steps(terminal_automations.Automation.model_validate(row), cwd)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        if body.preview:
+            return {"name": row["name"], "steps": steps}
+        created = []
+        for index, step in enumerate(steps):
+            try:
+                created.append(create_session(NewSession(
+                    workspace_id=body.workspace_id, vault=body.vault, kind="terminal",
+                    name=f"automation-{body.run_id.hex}-{index + 1}",
+                    label=step["label"], cwd=step["cwd"], startup_command=step["command"],
+                ), request))
+            except HTTPException as exc:
+                # Preserve running services and expose them even after a partial failure.
+                return {"sessions": created, "error": f"{step['label']}: {exc.detail}"}
+            except OSError as exc:
+                return {"sessions": created, "error": f"{step['label']}: {exc}"}
+        return {"sessions": created}
 
 
 @router.delete("/api/term/sessions/{name}")

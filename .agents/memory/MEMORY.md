@@ -1,5 +1,7 @@
 # Memory index
 
+- [Terminal automations belong to the workspace](terminal-automations-belong-to-the-workspace.md) — saved commands/paths, explicit launch picker, child context and preserved logs.
+
 - [Task name overrides need one worktree](task-name-overrides-need-one-worktree.md) — preserve task names with multiple worktrees across task views and terminal tabs.
 
 - [Objective comparison notices stay compact](objective-comparison-notices-stay-compact.md) — one quiet unavailable/empty notice across assigned scopes, with successful results retained.

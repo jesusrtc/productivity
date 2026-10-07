@@ -55,6 +55,22 @@
 .settings-folder { margin:12px 0; border:1px solid var(--border,#30363d); border-radius:8px; padding:15px; display:flex; flex-direction:column; gap:6px; }
 .settings-folder code { font-size:.85em; overflow-wrap:anywhere; }
 .settings-folder button { align-self:flex-start; }
+.term-automation-field { display:flex; flex-direction:column; gap:6px; min-width:0; margin:12px 0; }
+.term-automation-field > span { font-weight:500; }
+.lab-settings-center textarea { box-sizing:border-box; width:100%; resize:vertical; min-height:72px; padding:8px 10px; color:inherit; background:var(--bg-primary); border:1px solid var(--border); border-radius:7px; font:12px/1.5 var(--font-mono,monospace); }
+.settings-form .term-automation-recipe { display:block; border:1px solid var(--border); margin:12px 0; padding:15px; }
+.term-automation-recipe summary { font-weight:600; }
+.term-automation-step { margin:14px 0; padding:12px; background:var(--bg-primary); border:1px solid var(--border); border-radius:8px; }
+.term-automation-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.term-automation-launcher { width:min(700px,calc(100vw - 24px)); height:auto; max-height:90dvh; }
+.term-automation-body { overflow:auto; padding:16px 22px; min-height:0; }
+.term-automation-body > p { margin:0 0 14px; }
+.term-automation-launcher footer { align-items:flex-start; flex-wrap:wrap; }
+.term-automation-launcher footer [data-status] { flex:1; min-width:140px; overflow-wrap:anywhere; }
+.term-automation-preview { margin:12px 0; border:1px solid var(--border); padding:12px; border-radius:8px; background:var(--bg-primary); }
+.term-automation-preview strong,.term-automation-preview small { display:block; overflow-wrap:anywhere; }
+.term-automation-preview small { color:var(--text-secondary); font:11px/1.5 var(--font-mono,monospace); margin-top:5px; }
+.term-automation-preview pre { margin:10px 0 0; white-space:pre-wrap; overflow-wrap:anywhere; font:12px/1.5 var(--font-mono,monospace); }
 .settings-domain-heading { display:grid; grid-template-columns:minmax(0,1fr) minmax(150px,220px); gap:16px; }
 .settings-domain-heading > label { min-width:0; }
 .settings-domain-heading input,.settings-icon-choice { margin-top:6px; }

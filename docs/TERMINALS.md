@@ -23,6 +23,41 @@ The launch folder stays fixed, and restoring an existing terminal keeps its
 original folder without asking again. Workspaces without Objectives retain
 the workspace-root and pinned-folder chooser.
 
+## Terminal automations
+
+Configure saved command groups in **Settings → workspace → Terminal automations**.
+The workspace's **Terminal sessions** section also has a shortcut. Each automation
+has a name and an ordered list of child terminals, each with a terminal name,
+working directory and shell command. Add, edit, reorder or remove entries, then
+save. Saving and opening settings never launch commands.
+
+Secondary-click a terminal, including a fixed workspace or Objective main, and
+choose **Launch automation…**. The picker lists this workspace's saved groups and
+previews every command with its resolved directory before **Launch**. Its
+**Configure automations** button opens the same workspace settings.
+
+An empty directory uses the parent terminal's fixed launch folder. Relative paths
+resolve against that folder; absolute paths and `~/folder` are also supported.
+Every directory is checked before any command starts. Commands start in list
+order in separate tmux sessions and run independently. For dependent operations,
+combine them in one command, for example `npm run build && npm run dev`.
+An exited command prints its exit code and leaves an interactive shell with the
+logs retained. Ordinary child tabs, hover expansion and terminal controls apply.
+
+Children inherit the parent task's Objective context without taking its primary
+task association. Children of a workspace main remain visible; children of an
+Objective main appear with the active Objective. Task children follow the usual
+WIP/selected-task filter. The fixed main itself remains a root. A launch selects
+the first child unless the user has navigated to another task or workspace.
+
+Definitions live in the workspace's `.lab/terminal-automations.json`, so every
+browser sees the same saved recipes. This is separate from browser-owned tab
+appearance and hierarchy. Saves reject stale revisions rather than overwriting
+another settings edit. Repeating the same launch request adopts its children;
+an explicit later launch starts a new group. If a later child fails to spawn,
+earlier children remain running and the picker reports the failure. Restoring a
+stopped terminal opens a shell without automatically replaying its command.
+
 ## Terminal tab names
 
 Vertical tabs normally show a compact icon rail with status dots. Hover reveals

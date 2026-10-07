@@ -13306,18 +13306,18 @@
     return {groups, order, membership, tabGroups, tabMembership, tabParents:links('tabParents'), tabAfter:links('tabAfter'),tabRoots};
   }
 
-  function _termReadGroupState() {
+  function _termReadGroupState(scope = _termGroupScopeKey()) {
     try {
       const all = JSON.parse(localStorage.getItem(_TERM_GROUPS_KEY) || '{}');
-      return _termNormalizeGroupState(all && all[_termGroupScopeKey()]);
+      return _termNormalizeGroupState(all && all[scope]);
     } catch { return _termNormalizeGroupState(null); }
   }
 
-  function _termWriteGroupState(state) {
+  function _termWriteGroupState(state, scope = _termGroupScopeKey()) {
     try {
       let all = {};
       try { all = JSON.parse(localStorage.getItem(_TERM_GROUPS_KEY) || '{}') || {}; } catch {}
-      all[_termGroupScopeKey()] = _termNormalizeGroupState(state);
+      all[scope] = _termNormalizeGroupState(state);
       localStorage.setItem(_TERM_GROUPS_KEY, JSON.stringify(all));
     } catch {}
   }
@@ -13679,12 +13679,13 @@
     const horizontal = termSessionOrientation === 'horizontal';
     const session = (termSessions || []).find(item => item.name === sessionName);
     if(window.LabObjectives?.terminalMain?.(session)){
-      _termShowGroupMenu(anchor,'<div class="term-group-menu-title">Fixed main terminal</div><button role="menuitem" class="term-group-menu-row" data-action="all">'+(termWipOnly?'Show all terminals':'Show WIP + selected task terminals')+'</button>',()=>{termCloseGroupMenu();termToggleAllTerminals();});return;
+      _termShowGroupMenu(anchor,'<div class="term-group-menu-title">Fixed main terminal</div><button role="menuitem" class="term-group-menu-row" data-action="automation">Launch automation…</button><button role="menuitem" class="term-group-menu-row" data-action="all">'+(termWipOnly?'Show all terminals':'Show WIP + selected task terminals')+'</button>',action=>{termCloseGroupMenu();if(action==='automation')void _termLaunchAutomation(session);else termToggleAllTerminals();});return;
     }
     if (session?.document_source) {
-      _termShowGroupMenu(anchor, '<button role="menuitem" class="term-group-menu-row" data-action="open">Open document</button><button role="menuitem" class="term-group-menu-row" data-action="unlink">Unlink from document…</button>', action => {
+      _termShowGroupMenu(anchor, '<button role="menuitem" class="term-group-menu-row" data-action="automation">Launch automation…</button><button role="menuitem" class="term-group-menu-row" data-action="open">Open document</button><button role="menuitem" class="term-group-menu-row" data-action="unlink">Unlink from document…</button>', action => {
         termCloseGroupMenu();
-        if (action === 'open') void window.AssistantView.openLinkedTask(session.linked_task);
+        if(action==='automation')void _termLaunchAutomation(session);
+        else if (action === 'open') void window.AssistantView.openLinkedTask(session.linked_task);
         else void window.LabWorkspaceDocuments.unlink(session).catch(error => explorerToast(error.message,true));
       });
       return;
@@ -13693,6 +13694,7 @@
     _termShowGroupMenu(anchor,
       row('rename', 'Rename tab…') +
       row('new-child', 'New subterminal') +
+      row('automation', 'Launch automation…') +
       (window.LabObjectives?.taskForTerminal(session)?row('task-context','Paste task context'):'') +
       (_termActiveWorkspaceId() === '__self__' ? '<hr><div class="term-group-menu-title">Associate with</div>' +
         _termHomeAssociationOptions().map(item => row('associate:' + item.id,
@@ -13708,6 +13710,7 @@
         termCloseGroupMenu();
         if (action === 'rename') termRenameSession(sessionName);
         else if(action==='new-child')void _termCreateSubterminal(session);
+        else if(action==='automation')void _termLaunchAutomation(session);
         else if(action==='task-context')void _termPasteTaskContext(session);
         else if (action.startsWith('associate:')) {
           _termSaveHomeAssociation(logical, action.slice(10));
@@ -14926,6 +14929,49 @@
     if(!created||scopeKey!==_termGroupScopeKey()||!termSessions.some(t=>(t.session_id||t.name)===identity))return;
     await termReorderItems(`s:${created.logical_name}`,`s:${parent.logical_name}`,false,undefined,'child');
     window.LabObjectives?.openForTerminal(created);
+  }
+
+  async function _termLaunchAutomation(parent) {
+    if(!parent?.logical_name||!window.LabTerminalAutomations)return;
+    const scope={...LabSettingsBridge.currentScope()},scopeKey=_termGroupScopeKey();
+    const identity=parent.session_id||parent.name,association=window.LabObjectives?.childTerminalAssociation?.(parent);
+    const selection=()=>JSON.stringify([window.LabObjectives?.terminalLaunchContext?.()?.id,window.LabObjectives?.terminalLaunchContext?.()?.task?.id]);
+    const selected=selection(),homeSection=_termHomeSection();
+    const current=()=>scopeKey===_termGroupScopeKey()&&selected===selection()&&homeSection===_termHomeSection()
+      &&termSessions.some(t=>(t.session_id||t.name)===identity);
+    await window.LabTerminalAutomations.open({scope,parent,current,
+      configure:()=>window.LabSettings?.open({scope,section:'automations'}),
+      async adopt(rows) {
+        const state=_termReadGroupState(scopeKey),logicals=rows.map(t=>t.logical_name);
+        if(!state.order.length&&scopeKey===_termGroupScopeKey())state.order=termSessions.map(t=>'s:'+t.logical_name);
+        const parentToken='s:'+parent.logical_name;
+        if(!state.order.includes(parentToken))state.order.push(parentToken);
+        state.order=state.order.filter(token=>!logicals.some(id=>token==='s:'+id));
+        state.order.splice(state.order.indexOf(parentToken)+1,0,...logicals.map(id=>'s:'+id));
+        for(const row of rows){
+          state.tabParents[row.logical_name]=parent.logical_name;
+          delete state.tabAfter[row.logical_name];
+          state.tabRoots=state.tabRoots.filter(id=>id!==row.logical_name);
+          if(state.tabMembership[parent.logical_name])state.tabMembership[row.logical_name]=state.tabMembership[parent.logical_name];
+        }
+        _termWriteGroupState(state,scopeKey);
+        if(rows.length)await termSetAutoSpawnEnabled(scope.id,true,scope.vault);
+        const failures=[];
+        for(const row of rows){
+          if(association)try{await window.LabObjectives.associateNewTerminal(row,association);}catch(error){failures.push(error.message);}
+          if(homeSection)_termSaveHomeAssociation(row.logical_name,homeSection);
+        }
+        _termInvalidateSessionReads(scopeKey);
+        _termSessionsCache.delete(scopeKey);
+        if(scopeKey===_termGroupScopeKey()){
+          for(const row of rows)if(!termSessions.some(t=>t.name===row.name))termSessions.push(row);
+          _termSessionsCache.set(scopeKey,termSessions);
+          if(current()&&rows.length)await _termActivateTab(rows[0].name);
+          await _termRefreshSessionsForWorkspaceId(scope.id);
+        }
+        if(failures.length)throw new Error('Terminals started, but some Objective links could not be saved: '+failures.join('; '));
+      },
+    });
   }
 
   async function _termPasteTaskContext(session) {

@@ -6,7 +6,7 @@
   const globalScope = {key:'global',label:'Global',kind:'global'};
   const sections = scope => scope.kind === 'global'
     ? [['general','General'],['projects','Projects and worktrees'],['links','Links and icons'],['appearance','Appearance'],['terminals','Terminal appearance'],['documents','Document terminals']]
-    : [['general','Agent'],['terminals','Terminal sessions'],['files','File sidebar']];
+    : [['general','Agent'],['terminals','Terminal sessions'],['automations','Terminal automations'],['files','File sidebar']];
   const esc = value => String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   let state = null;
   const typographyKey = 'labModalTypography-v1';
@@ -74,6 +74,7 @@
       else if(section==='appearance') appearance(panel);
       else if(section==='documents') documents(panel,s);
       else if(section==='terminals') terminals(panel,scope,s);
+      else if(section==='automations') await automations(panel,scope,s,token);
       else files(panel,scope);
     } catch(error) {
       if (s===state&&token===s.version&&error.name!=='AbortError') {panel.innerHTML='';message(error.message,true);}
@@ -297,9 +298,19 @@
     form(panel,`<p class="settings-intro">Options shown in <strong>+ New</strong> for ${esc(scope.label)}, in this browser. These switches control the menu; choose the default under <strong>Agent</strong>.</p>
       ${Object.entries(labels).map(([id,label])=>check(id,label,selected.includes(id),id in s.available?(s.available[id]?'Installed':'Not installed on the computer running Lab'):'')).join('')}
       <button type="button" data-appearance>Configure Lab-wide tab appearance</button>
+      <button type="button" data-automations>Configure terminal automations</button>
       <details class="settings-danger"><summary>Stop terminal sessions</summary><p>Running work will stop. Attached external sessions are detached without stopping their originals.</p><button type="button" data-stop ${bridge().canStop(scope)?'':'disabled'}>Stop sessions in ${esc(scope.label)}</button>${bridge().canStop(scope)?'':'<small>Open this workspace first to stop its sessions.</small>'}</details>`,async f=>bridge().saveTerminalOptions(scope,Object.keys(labels).filter(id=>f.elements[id].checked)));
     panel.querySelector('[data-appearance]').onclick=()=>select(globalScope,'terminals');
+    panel.querySelector('[data-automations]').onclick=()=>select(scope,'automations');
     panel.querySelector('[data-stop]').onclick=()=>bridge().stop(scope);
+  }
+  async function automations(panel,scope,s,token) {
+    let catalog=await api(window.LabTerminalAutomations.url(scope),undefined,s.abort.signal);
+    if(s!==state||token!==s.version)return;
+    const node=form(panel,`<p class="settings-intro">Save command groups with <strong>${esc(scope.label)}</strong>, available from every browser. Right-click a terminal and choose <strong>Launch automation…</strong> to review and start a group as child terminals.</p><p class="settings-hint">Each terminal has its own command and fixed working directory. Leave the path empty to use its parent’s folder, use a relative path within that folder, or specify an absolute path or ~/folder. Commands start in order and run independently. Saving never launches commands.</p><div data-automation-editor></div>`,async()=>{
+      catalog=await api('/api/term/automations',{workspace_id:scope.id,vault:scope.vault,revision:catalog.revision,automations:read()},s.abort.signal);
+    });
+    const read=window.LabTerminalAutomations.editor(node.querySelector('[data-automation-editor]'),catalog.automations,()=>{s.dirty=true;message('Unsaved changes');});
   }
   function files(panel,scope) {
     const draft=bridge().sidebar(scope);

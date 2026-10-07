@@ -313,6 +313,35 @@ const fs=require('node:fs');
         server.shutdown(); server.server_close()
 
 
+def test_automation_children_of_mains_remain_visible_and_task_children_inherit_status():
+    source = OBJECTIVES.read_text()
+    helpers = source[source.index('  function terminalIdentity('):source.index('  function sidebarTarget(')]
+    result = _run_node(r'''
+const _TERM_GROUP_COLORS=['#58a6ff'],tasks=o=>o?.tasks||[],taskStatus=t=>t.status,taskDisplayName=t=>t.title,taskIcon=()=>'',customTaskIcon=()=>'',esc=String,termSessEsc=String,_termSessionDisplay=t=>t.name;
+const o={id:'one',name:'One',tasks:[{id:'wip',title:'Working',status:'in_progress',children:[]},{id:'done',title:'Done',status:'done',children:[]}],worktrees:[],resources:[]};
+const two={id:'two',name:'Two',tasks:[],worktrees:[],resources:[]};
+const registry={enabled:true,focused:['one','two'],objectives:[o,two],terminal_links:{workflow:{main:'workflow'},main:{objective_id:'one',main:'objective'},other:{objective_id:'two',main:'objective'},
+ 'workflow-service':{view:'workflow'},nested:{view:'workflow'},'main-service':{objective_id:'one',view:'tasks'},'other-service':{objective_id:'two',view:'tasks'},
+ wip:{objective_id:'one',task_id:'wip'},'wip-service':{objective_id:'one',view:'tasks'},done:{objective_id:'one',task_id:'done'},'done-service':{objective_id:'one',view:'tasks'}}};
+const sessions=Object.keys(registry.terminal_links).map(name=>({name,logical_name:name,session_id:name})),termSessions=sessions;
+let termCurrentSession='workflow-service',selected=null;
+const context=()=>({path:'/fixture',workspace_id:'demo'}),data=()=>registry,active=()=>true,objective=()=>o,focusedTask=()=>selected,state=()=>({});
+const explicit={'workflow-service':'workflow',nested:'workflow-service','main-service':'main','other-service':'other','wip-service':'wip','done-service':'done'};
+const bridge={parentTerminal:t=>sessions.find(s=>s.logical_name===explicit[t.logical_name])};
+''' + helpers + GROUPS + r'''
+window.LabObjectives={terminalParents,terminalMain,terminalExpanded,sameTerminalObjective:(a,b)=>terminalObjective(a)?.id===terminalObjective(b)?.id};
+const defaults=terminalSessions(sessions),group=_termNormalizeGroupState({order:sessions.map(s=>'s:'+s.name),tabParents:explicit});
+const html=terminalHtml(defaults,_termSubtabRenderer(group,defaults,t=>`<span class="sess" role="tab" data-name="${t.name}">${t.name}</span>`),'',{arrange:rows=>_termArrangeSubtabRows(rows,group)});
+selected=o.tasks[1];const withSelected=terminalSessions(sessions);
+console.log(JSON.stringify({names:defaults.map(t=>t.name),selected:withSelected.map(t=>t.name),parents:terminalParents(sessions,{...explicit,workflow:'nested'}),html}));
+''')
+    assert set(result['names']) == {'workflow','main','wip','workflow-service','nested','main-service','wip-service'}
+    assert {'done','done-service'} <= set(result['selected'])
+    assert result['parents']['workflow-service'] == 'workflow' and 'workflow' not in result['parents']
+    assert result['html'].index('data-name="workflow"') < result['html'].index('data-name="workflow-service"')
+    assert 'data-term-parent="main"' in result['html'] and 'data-name="other-service"' not in result['html']
+
+
 def test_main_rows_pin_workflow_and_active_objective_and_reuse_workflow_creation():
     source = OBJECTIVES.read_text()
     helpers = source[source.index('  function terminalIdentity('):source.index('  function sidebarTarget(')]
@@ -349,7 +378,8 @@ const parents=terminalParents(all,{main:'done',done:'main'});
     assert result['switched'] == ['workflow-terminal:work:main', 'two-main']
     assert result['objectiveAll'] == ['workflow-terminal:work:main', 'main', 'done', 'duplicate']
     assert dict(result['roles']) == {'duplicate':None,'done':None,'main':'objective','two-main':'objective','parked':None,'workflow':'workflow'}
-    assert result['parents'] == {}
+    # A main stays a root, but can host automation children.
+    assert result['parents'] == {'done': 'main'}
     assert result['html'].startswith('<tab data-name="workflow-terminal:work:main"')
     assert '</div><tab data-name="main" data-main="objective"></tab><div class="objective-terminal-rows">' in result['html']
     assert 'data-select-objective="two"' in result['html'] and 'data-name="objective-terminal:two:global"' not in result['html']

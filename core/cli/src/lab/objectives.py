@@ -673,6 +673,10 @@ def mutate(root, workspace_id, action, expected=None):
                     link.clear()
                     link['view'] = 'workflow'
             data['terminal_links'][name] = {'main': 'workflow'}
+        elif operation == 'terminal' and action.get('view') == 'workflow':
+            if action.get('objective_id') or any(action.get(field) for field in targets if field != 'view'):
+                raise ValueError('Choose only the workflow context for this terminal')
+            data['terminal_links'][name] = {'view': 'workflow'}
         elif objective is None:
             raise ValueError('Objective not found')
         elif operation == 'focus':

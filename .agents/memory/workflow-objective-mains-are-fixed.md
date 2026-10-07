@@ -17,3 +17,6 @@ independent; only the primary main role is unique.
 
 A delayed main-terminal creation must preserve a newer selected task or
 Objective; keep the new session available without taking focus back.
+
+Fixed mains may host automation children while remaining roots in their fixed
+positions; see terminal-automations-belong-to-the-workspace.md.
