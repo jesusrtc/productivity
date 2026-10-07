@@ -106,6 +106,14 @@ Set **Keep tab names open after hovering (seconds)** in
 is 3 seconds; zero keeps names open immediately on hover. This preference is
 saved in the current browser. Horizontal tabs retain their normal layout.
 
+Secondary-click a child terminal and choose **Set as main** to swap its visible
+row with the top parent row. The chosen child stays visible and uses its
+worktree's color for its name and bullet. Its real parent and task context stay
+unchanged, and **Relaunch stopped automations** remains on that real parent's
+row. Choose **Restore parent as main** on either swapped row to undo the display
+choice. This preference is saved in the current browser for each workspace and
+vault; it does not change the fixed workspace or Objective main roles.
+
 ## Request history
 
 Click **Requests** above the terminal to open its submitted-message history.

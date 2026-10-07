@@ -13352,7 +13352,7 @@
       return result;
     };
     const tabRoots=[...new Set((Array.isArray(raw?.tabRoots)?raw.tabRoots:[]).filter(id=>typeof id==='string'&&id&&id.length<=160))];
-    return {groups, order, membership, tabGroups, tabMembership, tabParents:links('tabParents'), tabAfter:links('tabAfter'),tabRoots};
+    return {groups, order, membership, tabGroups, tabMembership, tabParents:links('tabParents'), tabAfter:links('tabAfter'),tabRoots,tabDisplayMains:links('tabDisplayMains')};
   }
 
   function _termReadGroupState(scope = _termGroupScopeKey()) {
@@ -13400,14 +13400,64 @@
     return result;
   }
 
+  function _termDisplayMains(state, sessions = termSessions, parents = _termSubtabParents(state, sessions)) {
+    const live = new Set(sessions.map(session => session.logical_name)), result = new Map();
+    for (const [root, child] of Object.entries(state.tabDisplayMains || {})) {
+      if (!live.has(root) || !live.has(child) || parents[root]) continue;
+      let ancestor = parents[child];
+      const seen = new Set();
+      while (ancestor && ancestor !== root && !seen.has(ancestor)) { seen.add(ancestor); ancestor = parents[ancestor]; }
+      if (ancestor === root) result.set(root, child);
+    }
+    return result;
+  }
+
+  function _termIncludeDisplayMains(view, sessions, state) {
+    const result = [...view], live = new Map(sessions.map(session => [session.logical_name, session]));
+    const parents = _termSubtabParents(state, sessions), visible = new Set(view.map(session => session.logical_name));
+    for (const [root, child] of _termDisplayMains(state, sessions, parents)) {
+      // Objective mains retain the existing active-Objective visibility rule.
+      if (!visible.has(root) && window.LabObjectives?.terminalMain?.(live.get(root))) continue;
+      let logical = child;
+      while (logical) {
+        if (!visible.has(logical)) { result.push(live.get(logical)); visible.add(logical); }
+        if (logical === root) break;
+        logical = parents[logical];
+      }
+    }
+    return result;
+  }
+
+  function _termSetDisplayMain(sessionName, restore = false) {
+    const session = _termSessionMeta(sessionName), logical = session?.logical_name;
+    if (!logical) return false;
+    const state = _termReadGroupState(), parents = _termSubtabParents(state);
+    if (restore) {
+      const root = [..._termDisplayMains(state, termSessions, parents)].find(([parent, child]) => [parent, child].includes(logical))?.[0];
+      if (!root) return false;
+      delete state.tabDisplayMains[root];
+    } else {
+      if (!parents[logical]) return false;
+      let root = parents[logical];
+      while (parents[root]) root = parents[root];
+      state.tabDisplayMains[root] = logical;
+    }
+    _termWriteGroupState(state); termRenderSessionList();
+    return true;
+  }
+
   function _termSubtabRenderer(state, sessions, pill) {
     const parents = _termSubtabParents(state, sessions);
+    const mains = _termDisplayMains(state, sessions, parents), swaps = new Map();
+    for (const [root, child] of mains) { swaps.set(root, child); swaps.set(child, root); }
+    const sessionsByLogical = new Map(sessions.map(session => [session.logical_name, session]));
     const workingRows = new Set();
     for (const session of sessions) {
-      const task = window.LabObjectives?.taskForTerminal?.(session);
+      const represented = sessionsByLogical.get(swaps.get(session.logical_name)) || session;
+      const task = window.LabObjectives?.taskForTerminal?.(represented);
       // Inherited context does not give an independent child its own WIP task.
       // Automation children always use parent disclosure, including while active.
-      if (task?.status === 'in_progress' && !task.inherited && !/^automation-[0-9a-f]{32}-[1-9]\d*$/.test(session.logical_name || '')) workingRows.add(session.logical_name);
+      if (task?.status === 'in_progress' && !task.inherited && !/^automation-[0-9a-f]{32}-[1-9]\d*$/.test(represented.logical_name || '')) workingRows.add(session.logical_name);
     }
     const workingBranches = new Set();
     for (const logical of workingRows) {
@@ -13419,18 +13469,28 @@
     const numbered = Object.keys(parents).length > 0;
     let position = 0;
     const rows = new Map(sessions.map((session, index) => [session.logical_name, {session, index}]));
+    const displayPill = (session, index) => {
+      const represented = sessionsByLogical.get(swaps.get(session.logical_name)) || session;
+      if (!mains.has(session.logical_name)) return pill(represented, index);
+      let owner = represented;
+      while (owner && !owner.linked_scope?.worktree) owner = sessionsByLogical.get(parents[owner.logical_name]);
+      const scope = owner?.linked_scope || session.linked_scope;
+      const assignedColor = !owner && window.LabObjectives?.terminalWorktreeColor?.(represented);
+      const color = assignedColor || (scope && typeof _termScopeColor === 'function' ? _termScopeColor(scope) : scope?.color || '#8b949e');
+      return pill({...represented, display_main:{parent:session.logical_name,color}}, index);
+    };
     const render = (session, index) => {
       if (numbered) index = position++;
       const logical = session.logical_name;
-      if (!logical) return pill(session, index);
+      if (!logical) return displayPill(session, index);
       const disclosure = parents[logical] && !workingRows.has(logical) ? ' data-subtab-hover-only hidden' : '';
       const children = sessions.filter(child => parents[child.logical_name] === logical);
-      if (!children.length) return pill(session, index).replace(/^(<[^>]+)(>)/, '$1'+disclosure+'$2');
+      if (!children.length) return displayPill(session, index).replace(/^(<[^>]+)(>)/, '$1'+disclosure+'$2');
       const expanded = workingBranches.has(logical);
       // Keep the path to a nested WIP row visible without showing a hover-only
       // ancestor's label. Its parent still controls disclosure of that label.
       const labelOnly = expanded && !!disclosure;
-      const parent = pill(session, index).replace(/^(<[^>]+)(>)/, '$1'+(labelOnly?disclosure:'')+'$2')
+      const parent = displayPill(session, index).replace(/^(<[^>]+)(>)/, '$1'+(labelOnly?disclosure:'')+'$2')
         .replace(/role="(tab|button)"/, `role="$1" aria-expanded="${expanded}" data-subtab-toggle`)
         .replace(/^(<[^>]+>)/, '$1<span class="term-subtab-caret" aria-hidden="true">'+(expanded?'▾':'▸')+'</span>');
       return `<div class="term-subtab-node${expanded?' has-wip-child':''}" data-term-parent="${termSessEsc(logical)}"${labelOnly?' data-subtab-hover-parent':disclosure}>${parent}<div class="term-subtab-children" role="group" aria-label="Subtabs of ${termSessEsc(_termSessionDisplay(session))}"${expanded?'':' hidden'}>${children.map(child => render(child, rows.get(child.logical_name).index)).join('')}</div></div>`;
@@ -13746,12 +13806,22 @@
     const membership = state.tabMembership[logical];
     const horizontal = termSessionOrientation === 'horizontal';
     const session = (termSessions || []).find(item => item.name === sessionName);
+    const menuScope = _termGroupScopeKey(), mains = _termDisplayMains(state);
+    const restoreMain = [...mains].some(([root, child]) => [root, child].includes(logical));
+    const mainAction = restoreMain ? 'restore-display-main' : _termSubtabParents(state)[logical] ? 'display-main' : '';
+    const mainChoice = mainAction ? `<button role="menuitem" class="term-group-menu-row" data-action="${mainAction}">${restoreMain?'Restore parent as main':'Set as main'}</button>` : '';
+    const chooseMain = action => {
+      if (!['display-main','restore-display-main'].includes(action)) return false;
+      if (menuScope === _termGroupScopeKey()) _termSetDisplayMain(sessionName, action === 'restore-display-main');
+      return true;
+    };
     if(window.LabObjectives?.terminalMain?.(session)){
-      _termShowGroupMenu(anchor,'<div class="term-group-menu-title">Fixed main terminal</div><button role="menuitem" class="term-group-menu-row" data-action="automation">Launch automation…</button><button role="menuitem" class="term-group-menu-row" data-action="all">'+(termWipOnly?'Show all terminals':'Show WIP + selected task terminals')+'</button>',action=>{termCloseGroupMenu();if(action==='automation')void _termLaunchAutomation(session);else termToggleAllTerminals();});return;
+      _termShowGroupMenu(anchor,'<div class="term-group-menu-title">Fixed main terminal</div>'+mainChoice+'<button role="menuitem" class="term-group-menu-row" data-action="automation">Launch automation…</button><button role="menuitem" class="term-group-menu-row" data-action="all">'+(termWipOnly?'Show all terminals':'Show WIP + selected task terminals')+'</button>',action=>{termCloseGroupMenu();if(chooseMain(action))return;if(action==='automation')void _termLaunchAutomation(session);else termToggleAllTerminals();});return;
     }
     if (session?.document_source) {
-      _termShowGroupMenu(anchor, '<button role="menuitem" class="term-group-menu-row" data-action="automation">Launch automation…</button><button role="menuitem" class="term-group-menu-row" data-action="open">Open document</button><button role="menuitem" class="term-group-menu-row" data-action="unlink">Unlink from document…</button>', action => {
+      _termShowGroupMenu(anchor, mainChoice+'<button role="menuitem" class="term-group-menu-row" data-action="automation">Launch automation…</button><button role="menuitem" class="term-group-menu-row" data-action="open">Open document</button><button role="menuitem" class="term-group-menu-row" data-action="unlink">Unlink from document…</button>', action => {
         termCloseGroupMenu();
+        if(chooseMain(action))return;
         if(action==='automation')void _termLaunchAutomation(session);
         else if (action === 'open') void window.AssistantView.openLinkedTask(session.linked_task);
         else void window.LabWorkspaceDocuments.unlink(session).catch(error => explorerToast(error.message,true));
@@ -13762,6 +13832,7 @@
     _termShowGroupMenu(anchor,
       row('rename', 'Rename tab…') +
       row('new-child', 'New subterminal') +
+      mainChoice +
       row('automation', 'Launch automation…') +
       (window.LabObjectives?.taskForTerminal(session)?row('task-context','Paste task context'):'') +
       (_termActiveWorkspaceId() === '__self__' ? '<hr><div class="term-group-menu-title">Associate with</div>' +
@@ -13776,6 +13847,7 @@
       row('before', `Add divider ${horizontal ? 'before' : 'above'}`) + row('after', `Add divider ${horizontal ? 'after' : 'below'}`) + '<hr>' +
       row('close', 'Close tab', true) + (membership ? row('close-group', 'Close group…', true) : ''), action => {
         termCloseGroupMenu();
+        if(chooseMain(action))return;
         if (action === 'rename') termRenameSession(sessionName);
         else if(action==='new-child')void _termCreateSubterminal(session);
         else if(action==='automation')void _termLaunchAutomation(session);
@@ -14513,6 +14585,9 @@
     const ariaSummary = summary.length > 160 ? `${summary.slice(0, 157).trim()}...` : summary;
     const ariaLabel = `${display} · ${main ? main.kind+' main terminal · Fixed' : visual.badge}${s.automation?' · '+s.automation.reason:''}${objectiveTask ? (objectiveTask.inherited?' · Parent task context: ':' · Task: ')+objectiveTask.title+' · '+_termTaskStatusLabel(objectiveTask.status) : ''}${working ? ' · Working' : ''}${ready ? ` · ${completion.label}` : ''}${ariaSummary ? ` · ${context.label}: ${ariaSummary}` : ''}`;
     const tooltip = _termSessionTooltipPayload(s, [statusTitle, completion?.label, recentTitle].filter(Boolean).join(' · '));
+    if (s.display_main) {
+      return `<span class="sess ${visual.kind} term-display-main${active}${dead}" style="--term-display-main-color:${termSessEsc(s.display_main.color)}" role="tab" aria-label="${termSessEsc(ariaLabel+' · Main display · Child of '+s.display_main.parent)}" aria-selected="${active ? 'true' : 'false'}" tabindex="${active ? '0' : '-1'}" draggable="true" data-order-token="${termSessEsc('s:'+logical)}" data-name="${termSessEsc(s.name)}" data-logical="${termSessEsc(logical)}" data-display-main-parent="${termSessEsc(s.display_main.parent)}" data-tooltip="${termSessEsc(tooltip)}"><span class="term-display-main-dot" aria-hidden="true"></span><span class="sess-label custom">${termSessEsc(display)}</span>${_termAutomationRelaunchHtml(s)}</span>`;
+    }
     if (automation) {
       return `<span class="sess ${visual.kind} term-automation-terminal${active}${dead}" role="tab" aria-label="${termSessEsc(ariaLabel)}" aria-selected="${active ? 'true' : 'false'}" tabindex="${active ? '0' : '-1'}" draggable="true" data-order-token="${termSessEsc('s:'+logical)}" data-name="${termSessEsc(s.name)}" data-logical="${termSessEsc(logical)}" data-tooltip="${termSessEsc(tooltip)}"><span class="sess-label custom">${termSessEsc(display)}</span>${_termAutomationRelaunchHtml(s)}</span>`;
     }
@@ -14574,7 +14649,8 @@
     }
     const el = document.getElementById('termSessionList');
     if (!el) return;
-    const viewSessions=window.LabObjectives?.terminalSessions?.(termSessions||[],{wipOnly:termWipOnly})||termSessions;
+    const groupState = _termReadGroupState();
+    const viewSessions=_termIncludeDisplayMains(window.LabObjectives?.terminalSessions?.(termSessions||[],{wipOnly:termWipOnly})||termSessions,termSessions,groupState);
     const pill=(session,index)=>session.objective_placeholder?_termTaskPlaceholderHtml(session):_termSessionPillHtml(session,index);
     _termSyncTabSelection();
     _termRenderActiveSessionHeader();
@@ -14586,7 +14662,6 @@
       el.innerHTML = html;
       return;
     }
-    const groupState = _termReadGroupState();
     const subtabPill = _termSubtabRenderer(groupState, termSessions, _termSessionPillHtml);
     const order = _termReconcileGroupOrder(groupState);
     if (JSON.stringify(order) !== JSON.stringify(groupState.order)) {
@@ -14914,7 +14989,8 @@
           ? (e.clientX - rect.left) < rect.width / 2
           : (e.clientY - rect.top) < rect.height / 2;
         const chooseRelation = _termDragLogical.startsWith('s:') && item.dataset.orderToken.startsWith('s:');
-        const row = item.closest('.term-subtab-node')?.querySelector(':scope > .sess') === item ? item.parentElement : item;
+        const branch = item.closest('.term-subtab-node');
+        const row = branch?.dataset.termParent === item.dataset.logical && branch.querySelector(':scope > .sess') === item ? branch : item;
         target = {token: item.dataset.orderToken, before: chooseRelation ? false : before, groupId, chooseRelation,
           parent: row.parentElement, beforeNode: chooseRelation || !before ? row.nextSibling : row};
       } else if (groupNode && _termDragLogical.startsWith('s:')) {

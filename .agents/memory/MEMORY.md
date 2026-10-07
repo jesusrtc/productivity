@@ -1,5 +1,7 @@
 # Memory index
 
+- [Child terminal main is display only](child-terminal-main-is-display-only.md) — swap a nominated child into the colored top row; retain its real parent and relaunch ownership, with browser-scoped restore.
+
 - [Worktree pull/rebase arrow](worktree-pull-rebase-arrow.md) — selected worktree fetches origin/master and rebases its own branch, with retained edits/conflicts and no push or sibling ref updates.
 
 - [Task focus options removed](task-focus-options-removed.md) — remove Off/Semi/Focus controls, sidebar hiding and context highlighting.

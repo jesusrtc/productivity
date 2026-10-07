@@ -21,6 +21,7 @@ ASSOCIATION = _js_between('  function _termSessionAssociationHtml(', '  function
 ALL_TOGGLE = _js_between('  function termSetWipOnly(', '  function termSetRecentEnabled(')
 OBJECTIVE_ACTIVATE = _js_between('  function _termActivateObjectiveTerminal(', '  async function _termActivateTab(')
 OBJECTIVES = LAB_APP.parent / 'lib/workspace-objectives.js'
+AUTOMATIONS = (LAB_APP.parent / 'lib/terminal-automations.js').read_text()
 
 
 def test_task_terminal_rows_inherit_context_reuse_primaries_and_preserve_manual_layout():
@@ -159,12 +160,13 @@ def test_native_terminal_drop_choice_hover_reload_and_objective_folding(tmp_path
 let vault='fixture',workspace='demo',termCurrentSession='a',termCurrentWorkspaceId='demo';
 let termSessionOrientation=ORIENTATION,termWipOnly=true;
 let termSessions=['a','b','c','other'].map(name=>({name,logical_name:name,session_id:'uuid-'+name,cwd:'/workspace',kind:'terminal'}));
+if(localStorage.getItem('displayMainFixture'))termSessions=JSON.parse(localStorage.getItem('displayMainFixture'));
 const originalSessions=JSON.stringify(termSessions),mutations=[];
 const _TERM_WIP_ONLY_KEY='labTermWipOnly';
 const _TERM_GROUPS_KEY='groups',_TERM_GROUP_COLORS=['#58a6ff'];
 let _termDragState=null,_termDragLogical=null,_termReorderPending=false,_termGroupMenuOutside=null;
 const _termActiveWorkspaceId=()=>workspace,_termVaultId=()=>vault,_termSessionsKey=(w,v)=>v+'::'+w;
-const _termSessionMeta=name=>termSessions.find(s=>s.name===name),_termSessionDisplay=s=>s.name,_termRecentScopeKey=()=>workspace;
+const _termSessionMeta=name=>termSessions.find(s=>s.name===name),_termSessionDisplay=s=>s.label||s.name,_termRecentScopeKey=()=>workspace;
 const termSessEsc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const _termRenderActiveSessionHeader=()=>{},_termHideSessionTooltip=()=>{},_termShowSessionTooltip=()=>{},_termScheduleSessionTooltipHide=()=>{},_termClearLinkDropTarget=()=>{};
 const termDeadSessions=new Set(),_termSessionVisual=()=>({kind:'terminal',badge:'Terminal',icon:'▣'}),_termSessionRecentMeta=()=>null,_termSessionIsWorking=()=>false;
@@ -186,7 +188,7 @@ LabObjectives.connect({context:()=>({workspace_id:workspace,vault,path:'/workspa
 (async()=>{await LabObjectives.load();LabObjectives.openCurrent();termRenderSessionList();document.body.dataset.ready='true'})();
 '''.replace('ORIENTATION', repr(orientation))
     css = LAB_SHELL_CSS.read_text() + (LAB_SHELL_CSS.parent / 'workspace-objectives.css').read_text()
-    page = '<!doctype html><meta charset="utf-8"><style>'+css+' .term-panel{width:680px}.term-tabs-open{--term-sessions-width:230px}#sidebar{position:fixed;left:0;top:40px;width:230px;height:calc(100vh - 40px);overflow:auto}#content{margin-left:240px;width:calc(100vw - 920px)}</style><body class="term-open"><button id="outside">Outside</button><button id="termShowAllBtn" onclick="termToggleAllTerminals()">Show all terminals</button><div class="repo-tabs"></div><aside id="sidebar"><section data-objectives-sidebar></section></aside><main id="content"></main><section class="term-panel term-sessions-full '+('term-sessions-horizontal' if orientation=='horizontal' else '')+'"><div class="term-stage"><div class="term-session-switcher term-tabs-open"><div class="term-sessions" id="termSessionList"></div></div></div></section><div id="termGroupMenu" class="term-group-menu" hidden></div><script>'+OBJECTIVES.read_text()+'</script><script>'+GROUPS+MOVES+RENDER+ASSOCIATION+PILL+ALL_TOGGLE+OBJECTIVE_ACTIVATE+setup+'</script>'
+    page = '<!doctype html><meta charset="utf-8"><style>'+css+' .term-panel{width:680px}.term-tabs-open{--term-sessions-width:230px}#sidebar{position:fixed;left:0;top:40px;width:230px;height:calc(100vh - 40px);overflow:auto}#content{margin-left:240px;width:calc(100vw - 920px)}</style><body class="term-open"><button id="outside">Outside</button><button id="termShowAllBtn" onclick="termToggleAllTerminals()">Show all terminals</button><div class="repo-tabs"></div><aside id="sidebar"><section data-objectives-sidebar></section></aside><main id="content"></main><section class="term-panel term-sessions-full '+('term-sessions-horizontal' if orientation=='horizontal' else '')+'"><div class="term-stage"><div class="term-session-switcher term-tabs-open"><div class="term-sessions" id="termSessionList"></div></div></div></section><div id="termGroupMenu" class="term-group-menu" hidden></div><script>'+OBJECTIVES.read_text()+AUTOMATIONS+'</script><script>'+GROUPS+MOVES+RENDER+ASSOCIATION+PILL+ALL_TOGGLE+OBJECTIVE_ACTIVATE+setup+'</script>'
     (tmp_path / 'fixture.html').write_text(page)
     class Handler(SimpleHTTPRequestHandler):
         def log_message(self, *args): pass
@@ -209,6 +211,7 @@ const fs=require('node:fs');
  const point=async selector=>evaluate(`(()=>{const n=document.querySelector(${JSON.stringify(selector)});if(!n?.getClientRects().length)throw Error('Invisible '+${JSON.stringify(selector)}+' '+JSON.stringify({wip:termWipOnly,node:n?.outerHTML,ancestors:n?[...(()=>{const a=[];for(let p=n.parentElement;p;p=p.parentElement)a.push([p.className,p.hidden,getComputedStyle(p).display]);return a})()]:[]}));n.scrollIntoView({block:'nearest'});const r=n.getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2}})()`);
  const move=p=>send('Input.dispatchMouseEvent',{type:'mouseMoved',...p});
  async function click(selector){const p=await point(selector);await move(p);await send('Input.dispatchMouseEvent',{type:'mousePressed',...p,button:'left',clickCount:1});await send('Input.dispatchMouseEvent',{type:'mouseReleased',...p,button:'left',clickCount:1});}
+ async function secondaryClick(selector){const p=await point(selector);await move(p);await send('Input.dispatchMouseEvent',{type:'mousePressed',...p,button:'right',clickCount:1});await send('Input.dispatchMouseEvent',{type:'mouseReleased',...p,button:'right',clickCount:1});}
  async function drag(source,destination){dragData=null;const a=await point(source);await send('Input.setInterceptDrags',{enabled:true});await move(a);await send('Input.dispatchMouseEvent',{type:'mousePressed',...a,button:'left',buttons:1,clickCount:1});await send('Input.dispatchMouseEvent',{type:'mouseMoved',x:a.x+25,y:a.y+3,button:'left',buttons:1});for(let i=0;i<100&&!dragData;i++)await sleep(10);assert(dragData,'trusted drag starts');const b=await point(destination);await send('Input.dispatchDragEvent',{type:'dragEnter',...b,data:dragData});await send('Input.dispatchDragEvent',{type:'dragOver',...b,data:dragData});assert(await evaluate('mutations.length===0'),'hover sends no mutation');await send('Input.dispatchDragEvent',{type:'drop',...b,data:dragData});await send('Input.dispatchMouseEvent',{type:'mouseReleased',...b,button:'left',clickCount:1});await send('Input.setInterceptDrags',{enabled:false});}
  const tab=name=>'.sess[data-name="'+name+'"]';
  await send('Emulation.setDeviceMetricsOverride',{width:1500,height:1000,deviceScaleFactor:1,mobile:false});await send('Page.navigate',{url:process.argv[2]});await waitReady();
@@ -374,6 +377,31 @@ const fs=require('node:fs');
  await evaluate(`(async()=>{fixture.objectives[0].tasks.pop();termSessions=termSessions.filter(s=>s.name!=='deep-wip');delete fixture.terminal_links['uuid-deep-wip'];fixture.revision+='remove-deep-fixture';await LabObjectives.load(undefined,true)})()`);
  await evaluate(`(async()=>{const o=fixture.objectives[0];o.tasks[0].children[0].status='done';o.tasks[0].children[0].done=true;o.tasks.at(-1).children[0].status='done';o.tasks.at(-1).children[0].done=true;fixture.revision+='wip-completed';await LabObjectives.load(undefined,true);LabObjectives.renderTasks()})()`);
  assert(await evaluate(`!document.querySelector('.objective-sidebar-task[data-task-id="Subtask"],.objective-sidebar-task[data-task-id="Second WIP"]')&&!document.querySelector('.sess[data-name=b],.sess[data-name=c],[data-open-task-terminal="Second WIP"]')&&created.length===5&&errors.length===0`),'completed children return to normal disclosure and filtering after refresh');
+ await evaluate(`(async()=>{
+ const parent=termSessions.find(s=>s.name==='a');parent.linked_scope={root:'/trees/display',worktree:'/trees/display',color:'#ff7b72',config_scope:'fixture'};
+ const main=termSessions.find(s=>s.name===automationName);main.label='Web process';main.automation={can_relaunch:false,launch_id:'web',reason:'Running'};
+ const name='automation-'+('a'.repeat(32))+'-2';termSessions.push({name,logical_name:name,session_id:'uuid-'+name,label:'Stopped logs',kind:'terminal',automation:{can_relaunch:true,launch_id:'logs',reason:'Process exited'}});fixture.terminal_links['uuid-'+name]={objective_id:'one',view:'tasks'};const group=_termReadGroupState();group.tabParents[name]='a';_termWriteGroupState(group);window.stoppedName=name;fixture.revision+='display-main';await LabObjectives.load(undefined,true);
+ window.parentLinksBefore=JSON.stringify(_termReadGroupState().tabParents);window.identitiesBefore=JSON.stringify(termSessions);window.writesBefore=mutations.length;
+ _termRelaunchAutomations=async button=>{window.recoveryClicked=JSON.parse(button.dataset.automationRelaunch)};
+ })()`);
+ await move(await point(tab('a')));await secondaryClick(tab(await evaluate('automationName')));await click('[data-action=display-main]');await move(await point('#outside'));
+ assert(await evaluate(`document.querySelector('[data-term-parent=a] > .sess').dataset.name===automationName&&document.querySelector('.sess[data-name="'+automationName+'"]').getClientRects().length>0&&getComputedStyle(document.querySelector('.term-display-main .sess-label')).color==='rgb(255, 123, 114)'&&getComputedStyle(document.querySelector('.term-display-main-dot')).backgroundColor==='rgb(255, 123, 114)'`),'chosen child occupies the top slot and uses its real parent worktree color for its name and bullet');
+ assert(await evaluate(`document.querySelectorAll('.sess[data-name=a]').length===1&&document.querySelectorAll('.sess[data-name="'+automationName+'"]').length===1&&JSON.stringify(_termReadGroupState().tabParents)===parentLinksBefore&&JSON.stringify(termSessions)===identitiesBefore&&mutations.length===writesBefore&&created.length===5`),'main display swaps rows without reparenting, editing sessions or starting work');
+ assert(await evaluate(`document.querySelector('.sess[data-name=a] [data-automation-relaunch]')&&!document.querySelector('.term-display-main [data-automation-relaunch]')&&document.querySelector('.sess[data-name=a]').getClientRects().length>0`),'WIP real parent remains visible and retains recovery while running display main has none');
+ await click('.sess[data-name=a] [data-automation-relaunch]');
+ assert(await evaluate(`recoveryClicked.length===1&&recoveryClicked[0].logical_name===stoppedName&&recoveryClicked[0].launch_id==='logs'`),'real parent recovery still targets only its stopped automation child');
+ await evaluate(`termRenderSessionList();window.polledMain=document.querySelector('.term-display-main');termRenderSessionList()`);
+ assert(await evaluate(`polledMain===document.querySelector('.term-display-main')&&LabObjectives.taskForTerminal(termSessions.find(s=>s.name===automationName)).inherited`),'unchanged polls preserve the promoted row and task inheritance');
+ await evaluate(`(async()=>{termSessions.find(s=>s.name==='a').linked_scope=null;const o=fixture.objectives[0];o.worktrees.push({id:'display',label:'project/ticket',path:'/trees/display',repo:'/workspace',kind:'worktree',color:'#bc8cff'});o.tasks.find(t=>t.id==='Parent task').assets=[{id:'display-asset',folder:{root:'/trees/display',path:'.'}}];fixture.revision+='assigned-main-color';await LabObjectives.load(undefined,true)})()`);
+ assert(await evaluate(`getComputedStyle(document.querySelector('.term-display-main .sess-label')).color==='rgb(188, 140, 255)'&&getComputedStyle(document.querySelector('.term-display-main-dot')).backgroundColor==='rgb(188, 140, 255)'`),'main display name and bullet follow the assigned worktree color when no terminal scope is linked');
+ await evaluate(`document.querySelector('.term-panel').classList.remove('term-sessions-full');document.querySelector('.term-session-switcher').classList.remove('term-tabs-open')`);
+ assert(await evaluate(`document.querySelector('.term-display-main-dot').getClientRects().length>0&&getComputedStyle(document.querySelector('.term-display-main-dot')).backgroundColor==='rgb(188, 140, 255)'`),'folded main display retains its worktree bullet');
+ await evaluate(`document.querySelector('.term-panel').classList.add('term-sessions-full');document.querySelector('.term-session-switcher').classList.add('term-tabs-open')`);
+ fs.writeFileSync(process.argv[1]+'/../display-main.png',Buffer.from((await send('Page.captureScreenshot',{format:'png'})).data,'base64'));
+ await evaluate(`localStorage.setItem('displayMainFixture',JSON.stringify(termSessions));document.body.dataset.ready='false'`);await send('Page.reload');await waitReady();await move(await point('#outside'));
+ assert(await evaluate(`document.querySelector('[data-term-parent=a] > .sess').dataset.name.startsWith('automation-')&&document.querySelector('.term-display-main').getClientRects().length>0&&_termSubtabParents(_termReadGroupState())[document.querySelector('.term-display-main').dataset.logical]==='a'`),'reload preserves the chosen top row and its real parent');
+ await secondaryClick('.term-display-main');await click('[data-action=restore-display-main]');await move(await point('#outside'));
+ assert(await evaluate(`document.querySelector('[data-term-parent=a] > .sess').dataset.name==='a'&&!document.querySelector('.term-display-main')&&!Object.keys(_termReadGroupState().tabDisplayMains).length&&errors.length===0`),'restore parent resets only the display preference');
  ws.close();console.log('PASS');
 })().catch(e=>{console.error(e.stack);process.exit(1)});
 '''
