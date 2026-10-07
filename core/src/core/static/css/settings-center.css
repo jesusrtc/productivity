@@ -62,6 +62,9 @@
 .term-automation-recipe summary { font-weight:600; }
 .term-automation-step { margin:14px 0; padding:12px; background:var(--bg-primary); border:1px solid var(--border); border-radius:8px; }
 .term-automation-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.term-automation-step details { margin:14px 0; }
+.term-automation-step summary { cursor:pointer; }
+.term-automation-guide-editor { margin:12px 0; padding:12px; border:1px solid var(--border); border-radius:5px; }
 .term-automation-launcher { width:min(700px,calc(100vw - 24px)); height:auto; max-height:90dvh; }
 .term-automation-body { overflow:auto; padding:16px 22px; min-height:0; }
 .term-automation-body > p { margin:0 0 14px; }

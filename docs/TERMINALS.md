@@ -28,7 +28,12 @@ the workspace-root and pinned-folder chooser.
 Configure saved command groups in **Settings → workspace → Terminal automations**.
 The workspace's **Terminal sessions** section also has a shortcut. Each automation
 has a name and an ordered list of child terminals, each with a terminal name,
-working directory and shell command. Add, edit, reorder or remove entries, then
+working directory and shell command. Each child can also have optional guidelines:
+labeled notes or commands shown above its console, beside the request history.
+Use **Copy** to copy an entry and paste it into the terminal yourself. Guidelines
+are never executed by launching or relaunching the automation. For example, save
+`ssh my-project` as the launch command, then add separate guidelines for starting
+the app normally or with a debugger. Add, edit, reorder or remove entries, then
 save. Saving and opening settings never launch commands.
 
 Secondary-click a terminal, including a fixed workspace or Objective main, and
@@ -42,9 +47,27 @@ Every directory is checked before any command starts. Commands start in list
 order in separate tmux sessions and run independently. For dependent operations,
 combine them in one command, for example `npm run build && npm run dev`.
 An exited command prints its exit code and leaves an interactive shell with the
-logs retained. Automation tabs show only their saved names in white, without
-bullets, icons, status badges or folder captions. Names remain visible in the
-compact rail. Child-tab hover expansion and terminal controls still apply.
+logs retained. Expanded automation tabs show only their saved names in white,
+without icons, status badges or folder captions. The folded rail shows one white
+bullet per automation terminal, with names revealed on expansion. Child-tab hover
+expansion and terminal controls still apply. A stopped automation adds a **↻**
+relaunch button beside its tab. Its parent gets the same control to relaunch all
+stopped descendants together; running or unknown children are skipped.
+
+Recovery follows the launched foreground process, SSH connection or tmux client.
+An idle shell after that command exits, a detached nested tmux client, or a missing
+terminal session makes recovery available. A browser disconnect alone does not.
+Reattaching a nested tmux client uses the original command, allowing an existing
+inner session to keep running. Apps started manually inside a live SSH connection
+are not individually monitored. Multiple panes/windows and unavailable process
+status leave recovery disabled. Lab checks again immediately before replacing an
+idle pane, keeps its tab identity and saves previous output under
+`.lab/terminal-automation-logs/`. Repeat clicks cannot replay the same launch.
+
+If the launch command returns while a background service keeps running, configure
+the child's optional **Background service check**. This check runs in the original
+working directory: exit 0 means running, exit 1 means stopped, and other failures
+or a timeout mean unknown. It is only used when no foreground process remains.
 
 Children inherit the parent task's Objective context without taking its primary
 task association. Children of a workspace main remain visible; children of an
@@ -59,6 +82,9 @@ another settings edit. Repeating the same launch request adopts its children;
 an explicit later launch starts a new group. If a later child fails to spawn,
 earlier children remain running and the picker reports the failure. Restoring a
 stopped terminal opens a shell without automatically replaying its command.
+Original commands and launch-time guidelines are kept privately in
+`.lab/terminal-automation-runs.json` for explicit recovery; refresh, reconnect and
+status polling never replay them.
 
 ## Terminal tab names
 

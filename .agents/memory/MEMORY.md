@@ -1,5 +1,7 @@
 # Memory index
 
+- [Automation terminals show white bullets when folded](automation-terminal-folded-white-bullets.md) — one compact marker per terminal; expanded rows retain plain white names.
+
 - [Automation terminal tabs show only white names](automation-terminal-tabs-show-only-white-names.md) — name-only rows in full/compact rails, with hierarchy and context preserved.
 
 - [Terminal automations belong to the workspace](terminal-automations-belong-to-the-workspace.md) — saved commands/paths, explicit launch picker, child context and preserved logs.
@@ -695,3 +697,7 @@
 - [Markdown toolbars theme the tooltip itself](markdown-toolbars-theme-the-tooltip-itself.md) — CodeMirror places both classes on one element; theme contrast and interface type sizes need native checks.
 
 - [Inline code uses Slack-style highlighting](inline-code-uses-slack-style-highlighting.md) — orange text, filled rounded outline, shared across live and rendered Markdown with readable light-mode colors.
+
+- [Automation recovery only for stopped work](automation-recovery-only-for-stopped-work.md) — explicit child/parent recovery, fresh TTY checks, running-work protection and retained output.
+
+- [Automation guidelines are copy-only](automation-guidelines-are-copy-only.md) — optional labeled commands near requests, exact copy and manual execution.

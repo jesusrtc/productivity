@@ -2183,8 +2183,20 @@
   .term-task-create { order: 4; color: var(--accent); font-size: 14px; }
   .term-sessions .sess .term-subtab-caret { position: absolute; left: 2px; top: 2px; font-size: 9px; color: var(--text-dim); line-height: 1; }
   .term-panel .term-sessions .sess.term-automation-terminal { justify-content:flex-start; padding:7px 8px; color:var(--text-primary); }
-  .term-panel .term-session-switcher .term-sessions .sess.term-automation-terminal .sess-label { display:block; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text-primary); font-weight:600; }
+  .term-sessions .sess.term-automation-terminal::before { content:''; display:none; flex:none; width:6px; height:6px; border-radius:50%; background:var(--text-primary); }
+  .term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open) .sess.term-automation-terminal::before,
+  .term-panel.term-sessions-horizontal:not(.term-sessions-full) .sess.term-automation-terminal::before { display:block; }
+  .term-panel.term-sessions-horizontal:not(.term-sessions-full) .term-sessions .sess.term-automation-terminal { justify-content:center; padding:0; }
   .term-sessions .sess.term-automation-terminal .term-subtab-caret { display:none; }
+  .term-sessions .sess .term-automation-relaunch { position:absolute; right:1px; top:50%; transform:translateY(-50%); width:16px; height:20px; padding:0; border:0; border-radius:3px; background:transparent; color:var(--accent); font:15px/20px sans-serif; cursor:pointer; }
+  .term-sessions .sess .term-automation-relaunch:hover { background:var(--bg-tertiary); }
+  .term-sessions .sess .term-automation-relaunch:focus-visible { outline:1px solid var(--accent); }
+  .term-sessions .sess .term-automation-relaunch:disabled { opacity:.4; cursor:wait; }
+  .term-panel.term-sessions-full .term-sessions .sess:has(.term-automation-relaunch) { padding-right:22px; }
+  .term-sessions .sess:has(.term-automation-relaunch) .sess-activity { right:21px; }
+  .term-sessions .sess:has(.term-automation-relaunch) .sess-working:has(+ .sess-completion) { right:30px; }
+  .term-panel.term-sessions-full .term-sessions .sess:has(.term-automation-relaunch):has(.sess-activity) { padding-right:32px; }
+  .term-panel.term-sessions-full .term-sessions .sess:has(.term-automation-relaunch):has(.sess-working + .sess-completion) { padding-right:41px; }
   .term-sessions-horizontal .term-subtab-node, .term-sessions-horizontal .term-subtab-children { flex-direction: row; align-items: center; }
   .term-sessions-horizontal .term-subtab-children { margin-left: 0; padding-left: 4px; }
   .term-sessions-horizontal .term-tab-group, .term-sessions-horizontal .term-tab-group-tabs { flex-direction: row; }
@@ -2281,6 +2293,13 @@
   #termStatusText { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .term-status-summary { display: grid; grid-template-columns: 56px minmax(0, 1fr); align-items: start; gap: 9px; padding: 7px 10px 8px; color: var(--text-primary); background: var(--bg-primary); border-bottom: 1px solid var(--border); font: 11px/1.4 ui-monospace, monospace; flex-shrink: 0; }
   .term-status-summary[hidden] { display: none; }
+  .term-automation-guidelines { flex-shrink:0; padding:7px 10px; background:var(--bg-primary); border-bottom:1px solid var(--border); font:11px/1.4 ui-monospace,monospace; max-height:26vh; overflow:auto; }
+  .term-automation-guidelines[hidden] { display:none; }
+  .term-automation-guidelines summary { color:var(--accent); font-weight:600; cursor:pointer; }
+  .term-automation-guideline { position:relative; margin-top:8px; padding:7px 60px 7px 8px; background:var(--bg-secondary); border:1px solid var(--border); border-radius:4px; }
+  .term-automation-guideline strong { display:block; margin-bottom:4px; }
+  .term-automation-guideline pre { white-space:pre-wrap; overflow-wrap:anywhere; font:inherit; }
+  .term-automation-guideline button { position:absolute; right:7px; top:7px; padding:2px 5px; border:1px solid var(--border); border-radius:3px; background:var(--bg-tertiary); color:var(--text-primary); cursor:pointer; }
   .term-status-summary-label { color: var(--accent); font: inherit; font-size: 9px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; background: transparent; border: 0; padding: 0; text-align: left; cursor: pointer; }
   .term-status-summary-label:hover { text-decoration: underline; }
   .term-status-summary-label:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 2px; }

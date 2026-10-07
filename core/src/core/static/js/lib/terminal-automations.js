@@ -23,6 +23,18 @@
       function step(row={}) {
         const child=document.createElement('div');child.className='term-automation-step';child.dataset.step='';
         child.innerHTML=`${label('Terminal name',`<input data-label value="${esc(row.label)}" required maxlength="120" placeholder="Frontend">`)}${label('Working directory',`<input data-cwd value="${esc(row.cwd)}" maxlength="4096" placeholder="Parent folder, or e.g. ./frontend">`)}${label('Command',`<textarea data-command rows="3" required maxlength="16000" spellcheck="false" placeholder="npm run dev">${esc(row.command)}</textarea>`)}<div class="term-automation-actions"><button type="button" data-up aria-label="Start this terminal earlier">↑</button><button type="button" data-down aria-label="Start this terminal later">↓</button><button type="button" data-remove-step>Remove terminal</button></div>`;
+        const extras=document.createElement('div');
+        extras.innerHTML=`<details class="term-automation-guides-editor" ${row.guidelines?.length?'open':''}><summary>Guidelines (optional)</summary><p class="settings-hint">Notes and commands to copy after opening this terminal. These are never executed automatically.</p><div data-guides></div><button type="button" data-add-guide>+ Guideline</button></details><details><summary>Background service check (optional)</summary><p class="settings-hint">Use when the launch command returns while its service keeps running. The check runs in this terminal's working directory: exit 0 means running, exit 1 means stopped. Other errors leave its status unknown.</p>${label('Health check',`<textarea data-health-command rows="2" maxlength="16000" spellcheck="false">${esc(row.health_command)}</textarea>`)}</details>`;
+        child.append(extras);
+        const guides=child.querySelector('[data-guides]');
+        const addGuide=(guide={})=>{
+          const node=document.createElement('div');node.className='term-automation-guide-editor';node.dataset.guide='';
+          node.innerHTML=label('Label (optional)',`<input data-guide-title maxlength="160" value="${esc(guide.title)}" placeholder="Launch with debugger">`)+label('Instructions or command',`<textarea data-guide-text rows="3" required maxlength="16000" spellcheck="false">${esc(guide.text)}</textarea>`)+'<button type="button" data-remove-guide>Remove guideline</button>';
+          node.querySelector('[data-remove-guide]').onclick=()=>{node.remove();child.querySelector('[data-add-guide]').disabled=false;dirty();};guides.append(node);
+          child.querySelector('[data-add-guide]').disabled=guides.children.length>=20;return node;
+        };
+        (row.guidelines||[]).forEach(addGuide);
+        child.querySelector('[data-add-guide]').onclick=()=>{addGuide().querySelector('textarea').focus();dirty();};
         child.querySelector('[data-remove-step]').onclick=()=>{child.remove();reorder();dirty();};
         child.querySelector('[data-up]').onclick=()=>{if(child.previousElementSibling)steps.insertBefore(child,child.previousElementSibling);reorder();dirty();};
         child.querySelector('[data-down]').onclick=()=>{if(child.nextElementSibling)steps.insertBefore(child.nextElementSibling,child);reorder();dirty();};
@@ -37,9 +49,10 @@
     rows.forEach(add);refresh();
     host.querySelector('[data-add-automation]').onclick=()=>{add().querySelector('input').focus();dirty();};
     return () => [...list.children].map(card=>{
-      const steps=[...card.querySelector('[data-steps]').children].map(step=>({label:step.querySelector('[data-label]').value.trim(),cwd:step.querySelector('[data-cwd]').value.trim(),command:step.querySelector('[data-command]').value}));
+      const steps=[...card.querySelector('[data-steps]').children].map(step=>({label:step.querySelector('[data-label]').value.trim(),cwd:step.querySelector('[data-cwd]').value.trim(),command:step.querySelector('[data-command]').value,health_command:step.querySelector('[data-health-command]').value,guidelines:[...step.querySelector('[data-guides]').children].map(guide=>({title:guide.querySelector('[data-guide-title]').value.trim(),text:guide.querySelector('[data-guide-text]').value}))}));
       const name=card.querySelector('[data-name]').value.trim();
       if(!name||!steps.length||steps.some(step=>!step.label||!step.command.trim()))throw new Error('Each automation needs a name and at least one named terminal with a command.');
+      if(steps.some(step=>step.guidelines.some(guide=>!guide.text.trim())))throw new Error('Enter instructions or a command for each guideline, or remove it.');
       return {id:card.dataset.automation,name,steps};
     });
   }
@@ -93,5 +106,54 @@
       if(catalog.automations.length){choice.focus();await show();}else message('Add an automation in this workspace’s settings first.');
     }catch(error){message(error.message,true);}
   }
-  window.LabTerminalAutomations={editor,open,url};
+  async function status(scope, rows) {
+    const data=await api('/api/term/automations/status?'+new URLSearchParams({workspace_id:scope.id,...(scope.vault?{vault:scope.vault}:{})}));
+    const merged=new Map(rows.map(row=>[row.logical_name,row]));
+    for(const row of data.sessions||[]) merged.set(row.logical_name,{...(merged.get(row.logical_name)||{}),...row});
+    return [...merged.values()];
+  }
+
+  function recoveryTargets(parent, sessions, parents) {
+    const descendants=new Set([parent.logical_name]);
+    let changed=true;
+    while(changed){changed=false;for(const [child,owner] of Object.entries(parents)){if(descendants.has(owner)&&!descendants.has(child)){descendants.add(child);changed=true;}}}
+    return sessions.filter(row=>descendants.has(row.logical_name)&&row.automation?.can_relaunch&&!row.document_source)
+      .map(row=>({logical_name:row.logical_name,launch_id:row.automation.launch_id}));
+  }
+
+  const pending=new Set();
+  async function relaunch(scope, targets) {
+    const context={id:scope.id,vault:scope.vault},key=(context.vault||'')+'::'+context.id;
+    if(pending.has(key))throw Error('A relaunch is already in progress');
+    pending.add(key);
+    try{
+      const result={sessions:[],skipped:[],errors:[]},request_id=crypto.randomUUID();
+      for(let offset=0;offset<targets.length;offset+=100){
+        const batch=await api('/api/term/automations/relaunch',{workspace_id:context.id,vault:context.vault,targets:targets.slice(offset,offset+100),request_id});
+        for(const name of ['sessions','skipped','errors'])result[name].push(...(batch[name]||[]));
+      }
+      return result;
+    }
+    finally{pending.delete(key);}
+  }
+
+  function renderGuidelines(host, session) {
+    if(!host)return;
+    const guides=session?.automation?.guidelines||[],key=JSON.stringify([session?.name,guides]);
+    host.hidden=!guides.length;
+    if(host.dataset.guidelinesKey===key)return;
+    host.dataset.guidelinesKey=key;host.replaceChildren();
+    if(!guides.length)return;
+    const details=document.createElement('details');details.open=true;details.innerHTML='<summary>Guidelines</summary>';
+    for(const guide of guides){
+      const row=document.createElement('div');row.className='term-automation-guideline';
+      row.innerHTML=`${guide.title?`<strong>${esc(guide.title)}</strong>`:''}<pre>${esc(guide.text)}</pre><button type="button">Copy</button>`;
+      const button=row.querySelector('button');
+      button.onclick=async()=>{try{await navigator.clipboard.writeText(guide.text);button.textContent='Copied';setTimeout(()=>{if(button.isConnected)button.textContent='Copy';},1500);}catch{button.textContent='Select text to copy';}};
+      details.append(row);
+    }
+    host.append(details);
+  }
+
+  window.LabTerminalAutomations={editor,open,url,status,recoveryTargets,relaunch,renderGuidelines};
 })();

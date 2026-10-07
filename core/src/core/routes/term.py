@@ -73,7 +73,7 @@ from lab import paths as lab_paths
 from lab import settings as lab_settings
 from lab import tmux_sockets
 
-from core import auth, copilot_identity, fsguard, terminal_automations
+from core import auth, copilot_identity, fsguard, terminal_automations, terminal_automation_lifecycle
 from core import vault_config
 
 
@@ -1812,6 +1812,7 @@ def _tmux_list(
                         "#{session_name}|#{session_created}|#{session_attached}|"
                         "#{session_windows}|#{pane_tty}|#{pane_pid}"
                         + ("|#{session_activity}|#{session_last_attached}|#{@lab_last_access}|#{session_id}" if activity else "")
+                        + "|#{pane_id}|#{pane_dead}|#{window_panes}"
                     ),
                 ),
                 capture_output=True,
@@ -1855,6 +1856,9 @@ def _tmux_list(
                 "windows": int(parts[3]) if len(parts) > 3 and parts[3].isdigit() else 1,
                 "pane_tty": parts[4] if len(parts) > 4 else "",
                 "pane_pid": int(parts[5]) if len(parts) > 5 and parts[5].isdigit() else 0,
+                "pane_id": parts[10 if activity else 6] if len(parts) > (10 if activity else 6) else "",
+                "pane_dead": len(parts) > (11 if activity else 7) and parts[11 if activity else 7] == "1",
+                "pane_count": int(parts[12 if activity else 8]) if len(parts) > (12 if activity else 8) and parts[12 if activity else 8].isdigit() else 1,
                 "tmux_socket": socket_name,
                 **({
                     "activity_known": len(parts) >= 10 and parts[6].isdigit(),
@@ -2178,6 +2182,8 @@ class NewSession(BaseModel):
     label: str | None = Field(default=None, max_length=120)
     # Explicit launches only. Never saved or replayed by a session restore.
     startup_command: str | None = Field(default=None, min_length=1, max_length=16000)
+    startup_health_command: str = Field(default="", max_length=16000)
+    startup_guidelines: list[terminal_automations.Guideline] = Field(default_factory=list, max_length=20)
 
 
 class AttachSession(BaseModel):
@@ -3551,6 +3557,12 @@ def create_session(body: NewSession, request: Request) -> dict:
             "target": tmux_name,
         },
     )
+    if body.startup_command is not None and body.workspace_id and terminal_automation_lifecycle.NAME.fullmatch(logical):
+        terminal_automation_lifecycle.remember(
+            _workspace_cwd(root, body.workspace_id), {"name": tmux_name, **meta[tmux_name]},
+            body.startup_command, shell, body.startup_health_command,
+            [guide.model_dump() for guide in body.startup_guidelines],
+        )
     return {
         "name": tmux_name,
         **meta[tmux_name],
@@ -3648,6 +3660,7 @@ def launch_terminal_automation(body: AutomationLaunch, request: Request) -> dict
                     workspace_id=body.workspace_id, vault=body.vault, kind="terminal",
                     name=f"automation-{body.run_id.hex}-{index + 1}",
                     label=step["label"], cwd=step["cwd"], startup_command=step["command"],
+                    startup_health_command=step["health_command"], startup_guidelines=step["guidelines"],
                 ), request))
             except HTTPException as exc:
                 # Preserve running services and expose them even after a partial failure.
@@ -3655,6 +3668,141 @@ def launch_terminal_automation(body: AutomationLaunch, request: Request) -> dict
             except OSError as exc:
                 return {"sessions": created, "error": f"{step['label']}: {exc}"}
         return {"sessions": created}
+
+
+def _automation_status_rows(root: Path, folder: Path, workspace_id: str, logical_name: str | None = None) -> list[dict]:
+    meta = {name: {"name": name, **row} for name, row in _load_meta(root).items()}
+    runs = terminal_automation_lifecycle.adopt_legacy(folder, meta, workspace_id)
+    if not runs:
+        return []
+    saved = _workspace_session_by_name(root, workspace_id)
+    listing = _tmux_list(_tmux_discovery_prefixes(root))
+    # Recover attribution before declaring a session missing. Losing the
+    # runtime registry must never turn a live SSH or tmux client into a retry.
+    meta = {name: {"name": name, **row} for name, row in _sync_meta(root, listing).items()}
+    owned = {name: row for name, row in meta.items() if row.get("workspace_id") == workspace_id}
+    live = {row["name"]: row for row in (listing or []) if row["name"] in owned}
+    by_logical = {owned[name].get("logical_name"): {**owned[name], **row} for name, row in live.items()}
+    selected = {logical: run for logical, run in runs.items()
+                if (logical_name is None or logical == logical_name) and (logical in saved or logical in by_logical)}
+    snapshot = terminal_automation_lifecycle.processes([by_logical[key] for key in selected if key in by_logical])
+    rows = []
+    deadline = time.monotonic() + 3
+    for logical, run in selected.items():
+        current = by_logical.get(logical)
+        entry = saved.get(logical, {})
+        name = current["name"] if current else run.get("name") or _tmux_name_for(workspace_id, logical, root)
+        state = terminal_automation_lifecycle.status(run, current, listing is not None and time.monotonic() < deadline, snapshot)
+        rows.append({"name": name, "logical_name": logical, "kind": "terminal",
+                     "workspace_id": workspace_id, "session_id": entry.get("session_id"),
+                     "label": entry.get("label") or run["label"], "cwd": run["cwd"],
+                     "tmux_socket": (current or run).get("tmux_socket", tmux_sockets.DEFAULT_SOCKET),
+                     "automation_missing": current is None and listing is not None,
+                     "pane_id": (current or {}).get("pane_id"), "pane_pid": (current or {}).get("pane_pid"),
+                     "automation": {**state, "guidelines": run.get("guidelines", [])}})
+    return rows
+
+
+@router.get("/api/term/automations/status")
+def terminal_automation_status(request: Request, workspace_id: str, vault: str | None = None) -> dict:
+    root, folder = _automation_folder(request, workspace_id, vault)
+    try:
+        return {"sessions": _automation_status_rows(root, folder, workspace_id)}
+    except (OSError, ValueError) as exc:
+        raise HTTPException(503, "Automation status unavailable") from exc
+
+
+class AutomationRecoveryTarget(BaseModel):
+    logical_name: str = Field(pattern=r"^automation-[0-9a-f]{32}-[1-9]\d*$")
+    launch_id: str = Field(min_length=1, max_length=80)
+
+
+class AutomationRecovery(BaseModel):
+    workspace_id: str
+    vault: str | None = None
+    targets: list[AutomationRecoveryTarget] = Field(min_length=1, max_length=100)
+    request_id: uuid.UUID
+
+
+@router.post("/api/term/automations/relaunch")
+@_with_workspace_lease
+def relaunch_terminal_automations(body: AutomationRecovery, request: Request) -> dict:
+    root, folder = _automation_folder(request, body.workspace_id, body.vault)
+    sessions, skipped, errors = [], [], []
+    # One lock covers the fresh liveness check, respawn and generation update;
+    # concurrent browser clicks cannot start a second copy of the same command.
+    with terminal_automations.lock:
+        for target in body.targets:
+            logical = target.logical_name
+            try:
+                runs = terminal_automation_lifecycle.read(folder)
+                run = runs.get(logical)
+                if run is None or logical not in _workspace_session_by_name(root, body.workspace_id):
+                    raise HTTPException(404, "Automation terminal not found in this workspace")
+                if run.get("request_id") == str(body.request_id):
+                    skipped.append({"logical_name": logical, "reason": "Already relaunched"})
+                    continue
+                if run["launch_id"] != target.launch_id:
+                    skipped.append({"logical_name": logical, "reason": "Launch changed; refresh the terminal list"})
+                    continue
+                fresh = next((row for row in _automation_status_rows(root, folder, body.workspace_id, logical)
+                              if row["logical_name"] == logical), None)
+                if fresh is None or not fresh["automation"]["can_relaunch"]:
+                    skipped.append({"logical_name": logical, "reason": (fresh or {}).get("automation", {}).get("reason", "Status unavailable")})
+                    continue
+                cwd = Path(run["cwd"])
+                if not cwd.is_dir():
+                    raise HTTPException(400, "Automation working directory no longer exists")
+                if fresh["automation_missing"]:
+                    session = create_session(NewSession(
+                        workspace_id=body.workspace_id, vault=body.vault, kind="terminal", name=logical,
+                        label=fresh["label"], cwd=str(cwd), startup_command=run["command"],
+                        startup_health_command=run.get("health_command", ""), startup_guidelines=run.get("guidelines", []),
+                    ), request)
+                    # If a session appeared between listing and creation, adopt
+                    # it without replaying its command.
+                    if session.get("already_running"):
+                        skipped.append({"logical_name": logical, "reason": "Terminal is already running"})
+                        continue
+                else:
+                    name, socket = fresh["name"], fresh["tmux_socket"]
+                    # Keep previous output before replacing the proven idle shell.
+                    output = subprocess.run(_tmux_command(socket, "capture-pane", "-p", "-J", "-t", name, "-S", "-10000"),
+                                            capture_output=True, text=True, env=_tmux_child_env(), timeout=2)
+                    if output.returncode != 0:
+                        raise HTTPException(409, "Terminal changed; refresh before relaunching")
+                    logs = folder / ".lab" / "terminal-automation-logs"
+                    logs.mkdir(parents=True, exist_ok=True)
+                    log_path = logs / f"{logical}-{run['launch_id']}.txt"
+                    log_path.write_text(output.stdout)
+                    os.chmod(log_path, 0o600)
+                    # Recheck after capturing output too, so a newly started SSH,
+                    # tmux client or manual process prevents replacement.
+                    check = next((row for row in _automation_status_rows(root, folder, body.workspace_id, logical)
+                                  if row["logical_name"] == logical), None)
+                    if (check is None or check["automation_missing"] or not check["automation"]["can_relaunch"]
+                            or (check["pane_id"], check["pane_pid"]) != (fresh["pane_id"], fresh["pane_pid"])):
+                        skipped.append({"logical_name": logical, "reason": "Terminal is no longer idle"})
+                        continue
+                    argv = terminal_automations.shell_command(run["shell"], cwd, run["command"])
+                    command = " ".join(_shell_quote(arg) for arg in argv)
+                    proc = subprocess.run(_tmux_command(socket, "respawn-pane", "-k", "-t", check["pane_id"] or name, "-c", str(cwd), command),
+                                          capture_output=True, text=True, env=_tmux_child_env(), timeout=3)
+                    if proc.returncode != 0:
+                        raise HTTPException(409, "Terminal could not be relaunched")
+                    meta = _load_meta(root)
+                    if name not in meta:
+                        raise HTTPException(409, "Terminal ownership changed")
+                    meta[name]["cmd"] = command
+                    _save_meta(root, meta)
+                    session = {"name": name, **meta[name]}
+                terminal_automation_lifecycle.remember(folder, session, run["command"], run["shell"],
+                    run.get("health_command", ""), run.get("guidelines", []), str(body.request_id))
+                sessions.append(session)
+            except (HTTPException, OSError, ValueError, subprocess.TimeoutExpired) as exc:
+                errors.append({"logical_name": logical, "reason": str(exc.detail if isinstance(exc, HTTPException) else exc)})
+        _invalidate_workspace_term_caches()
+    return {"sessions": sessions, "skipped": skipped, "errors": errors}
 
 
 @router.delete("/api/term/sessions/{name}")

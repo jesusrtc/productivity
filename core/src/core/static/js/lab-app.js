@@ -11565,7 +11565,11 @@
     const entry = {version};
     entry.promise = (async () => {
       const response = await fetch('/api/term/sessions?workspace_id=' + encodeURIComponent(workspaceId) + _vaultQuery(vaultId));
-      return {ok: response.ok, rows: response.ok ? await response.json() : []};
+      let rows=response.ok?await response.json():[];
+      if(response.ok&&window.LabTerminalAutomations?.status){
+        try{rows=await window.LabTerminalAutomations.status({id:workspaceId,vault:vaultId},rows);}catch{/* Unknown status never enables recovery. */}
+      }
+      return {ok: response.ok, rows};
     })().finally(() => {
       if (_termSessionFetches.get(key) === entry) _termSessionFetches.delete(key);
     });
@@ -14215,6 +14219,7 @@
     const session = (termSessions || []).find(s =>
       s.name === termCurrentSession && _termActiveWorkspaceId() === termCurrentWorkspaceId
     );
+    window.LabTerminalAutomations?.renderGuidelines?.(document.getElementById('termAutomationGuidelines'),session);
     window.LabWorkspaceDocuments?.selectTerminal(session, {workspace_id:_termActiveWorkspaceId(),vault:_termVaultId()});
     if (!el && !statusSummary) return;
     if (!session) {
@@ -14390,6 +14395,35 @@
     return `<span class="sess-task-status" data-task-status="${termSessEsc(status)}" title="${termSessEsc(_termTaskStatusLabel(status))}" aria-hidden="true"></span>`;
   }
 
+  function _termAutomationRelaunchHtml(session) {
+    if(!window.LabTerminalAutomations?.recoveryTargets)return '';
+    const targets=window.LabTerminalAutomations.recoveryTargets(session,termSessions,_termSubtabParents(_termReadGroupState(),termSessions));
+    if(!targets.length)return '';
+    const own=targets.length===1&&targets[0].logical_name===session.logical_name;
+    const title=own?'Relaunch '+_termSessionDisplay(session)+' · '+session.automation.reason:'Relaunch '+targets.length+' stopped child terminal'+(targets.length===1?'':'s');
+    return `<button type="button" class="term-automation-relaunch" data-automation-relaunch="${termSessEsc(JSON.stringify(targets))}" aria-label="${termSessEsc(title)}" title="${termSessEsc(title)}">↻</button>`;
+  }
+
+  async function _termRelaunchAutomations(button) {
+    const scope={id:_termActiveWorkspaceId(),vault:_termVaultId()},selected=termCurrentSession;
+    const active=()=>scope.id===_termActiveWorkspaceId()&&scope.vault===_termVaultId();
+    const targets=JSON.parse(button.dataset.automationRelaunch);
+    button.disabled=true;
+    try{
+      const before=new Map(termSessions.map(row=>[row.name,row]));
+      const result=await window.LabTerminalAutomations.relaunch(scope,targets);
+      _termInvalidateSessionReads(_termSessionsKey(scope.id,scope.vault));
+      for(const row of result.sessions||[])if(before.get(row.name)?.automation_missing){_termEvictCache(row.name,scope.id);_termClearDead(row.name);}
+      if(active()){
+        await _termRefreshSessionsForWorkspaceId(scope.id);
+        if(active()&&selected===termCurrentSession&&(result.sessions||[]).some(row=>row.name===selected)&&before.get(selected)?.automation_missing)void _termActivateTab(selected);
+        const errors=(result.errors||[]).map(row=>row.reason),skipped=(result.skipped||[]).map(row=>row.reason);
+        explorerToast(`${result.sessions?.length||0} relaunched${errors.length?' · '+errors.join('; '):skipped.length?' · '+skipped.join('; '):''}`,!!errors.length);
+      }
+    }catch(error){if(active())explorerToast(error.message,true);}
+    finally{if(button.isConnected)button.disabled=false;}
+  }
+
   function _termSessionPillHtml(s, index) {
     const main = window.LabObjectives?.terminalMain?.(s);
     const automation = !main && /^automation-[0-9a-f]{32}-[1-9]\d*$/.test(s.logical_name || '');
@@ -14413,10 +14447,10 @@
     const context = _termSessionContext(s);
     const summary = _termSessionSummary(s);
     const ariaSummary = summary.length > 160 ? `${summary.slice(0, 157).trim()}...` : summary;
-    const ariaLabel = `${display} · ${main ? main.kind+' main terminal · Fixed' : visual.badge}${objectiveTask ? (objectiveTask.inherited?' · Parent task context: ':' · Task: ')+objectiveTask.title+' · '+_termTaskStatusLabel(objectiveTask.status) : ''}${working ? ' · Working' : ''}${ready ? ` · ${completion.label}` : ''}${ariaSummary ? ` · ${context.label}: ${ariaSummary}` : ''}`;
+    const ariaLabel = `${display} · ${main ? main.kind+' main terminal · Fixed' : visual.badge}${s.automation?' · '+s.automation.reason:''}${objectiveTask ? (objectiveTask.inherited?' · Parent task context: ':' · Task: ')+objectiveTask.title+' · '+_termTaskStatusLabel(objectiveTask.status) : ''}${working ? ' · Working' : ''}${ready ? ` · ${completion.label}` : ''}${ariaSummary ? ` · ${context.label}: ${ariaSummary}` : ''}`;
     const tooltip = _termSessionTooltipPayload(s, [statusTitle, completion?.label, recentTitle].filter(Boolean).join(' · '));
     if (automation) {
-      return `<span class="sess ${visual.kind} term-automation-terminal${active}${dead}" role="tab" aria-label="${termSessEsc(ariaLabel)}" aria-selected="${active ? 'true' : 'false'}" tabindex="${active ? '0' : '-1'}" draggable="true" data-order-token="${termSessEsc('s:'+logical)}" data-name="${termSessEsc(s.name)}" data-logical="${termSessEsc(logical)}" data-tooltip="${termSessEsc(tooltip)}"><span class="sess-label custom">${termSessEsc(display)}</span></span>`;
+      return `<span class="sess ${visual.kind} term-automation-terminal${active}${dead}" role="tab" aria-label="${termSessEsc(ariaLabel)}" aria-selected="${active ? 'true' : 'false'}" tabindex="${active ? '0' : '-1'}" draggable="true" data-order-token="${termSessEsc('s:'+logical)}" data-name="${termSessEsc(s.name)}" data-logical="${termSessEsc(logical)}" data-tooltip="${termSessEsc(tooltip)}"><span class="sess-label custom">${termSessEsc(display)}</span>${_termAutomationRelaunchHtml(s)}</span>`;
     }
     const linked = String(s.linked_file && s.linked_file.path || '').trim();
     const scope = s.linked_scope;
@@ -14435,6 +14469,7 @@
       ${working ? '<span class="sess-activity sess-working" aria-hidden="true"></span>' : ''}
       ${ready ? '<span class="sess-activity sess-completion" role="button" tabindex="0" aria-label="Mark completed terminal work as reviewed" title="Click to mark completed work as reviewed"></span>' : ''}
       ${linked ? `<span class="sess-link" aria-hidden="true">&#x21C4;</span>` : ''}
+      ${_termAutomationRelaunchHtml(s)}
     </span>`;
   }
 
@@ -14584,6 +14619,13 @@
         return;
       }
       const completionDot = node.querySelector('.sess-completion');
+      const relaunch=node.querySelector('[data-automation-relaunch]');
+      if(relaunch){
+        relaunch.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();void _termRelaunchAutomations(relaunch);});
+        relaunch.addEventListener('keydown',event=>event.stopPropagation());
+        relaunch.addEventListener('dblclick',event=>{event.preventDefault();event.stopPropagation();});
+        relaunch.addEventListener('dragstart',event=>{event.preventDefault();event.stopPropagation();});
+      }
       if (completionDot) {
         const acknowledge = event => {
           event.preventDefault(); event.stopPropagation();
@@ -14635,6 +14677,7 @@
         }
         _termSelectTab(null);
         const session = termSessions.find(row => row.name === name);
+        if(session?.automation_missing){explorerToast('Terminal session ended. Use Relaunch to run its automation again.');return;}
         const objectiveLink = session && window.LabObjectives?.openForTerminal(session);
         void _termActivateTab(name, {openDocument:!objectiveLink});
       });

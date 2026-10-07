@@ -12,12 +12,35 @@ from pydantic import BaseModel, Field, field_validator
 lock = threading.RLock()
 
 
+class Guideline(BaseModel):
+    title: str = Field(default="", max_length=160)
+    text: str = Field(min_length=1, max_length=16000)
+
+    @field_validator("title")
+    @classmethod
+    def clean_text(cls, value: str) -> str:
+        if "\x00" in value:
+            raise ValueError("NUL characters are not allowed")
+        return value.strip()
+
+    @field_validator("text")
+    @classmethod
+    def required_text(cls, value: str) -> str:
+        if "\x00" in value:
+            raise ValueError("NUL characters are not allowed")
+        if not value.strip():
+            raise ValueError("Enter guideline instructions or a command")
+        return value
+
+
 class Step(BaseModel):
     label: str = Field(min_length=1, max_length=120)
     cwd: str = Field(default="", max_length=4096)
     command: str = Field(min_length=1, max_length=16000)
+    health_command: str = Field(default="", max_length=16000)
+    guidelines: list[Guideline] = Field(default_factory=list, max_length=20)
 
-    @field_validator("label", "cwd")
+    @field_validator("label", "cwd", "health_command")
     @classmethod
     def clean_text(cls, value: str) -> str:
         if "\x00" in value:
