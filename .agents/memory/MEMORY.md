@@ -1,5 +1,9 @@
 # Memory index
 
+- [Task focus options removed](task-focus-options-removed.md) — remove Off/Semi/Focus controls, sidebar hiding and context highlighting.
+
+- [Task Markdown Command-click Edit/View](task-markdown-command-click-edit.md) — toggle task Markdown View/Edit with drafts preserved and pending edits saved.
+
 - [WIP tasks and terminals stay visible](wip-tasks-and-terminals-stay-visible.md) — permanent WIP subtask rows and open terminal ancestors, with no hover or automatic launch.
 
 - [Automation terminals show white bullets when folded](automation-terminal-folded-white-bullets.md) — one compact marker per terminal; expanded rows retain plain white names.

@@ -204,25 +204,25 @@ Refreshing or restoring task details does not spawn another terminal.
 
 Task titles are hyperlinks to their required details document/subtab. Clicking
 a title opens those details and enters task mode. Its working-area header keeps
-the task's name, completion checkbox, **Edit task** and **Off · Semi · Focus**
-visible while browsing assets. Click the header's task name to return to details.
-Focus hides the native Files tree; the four asset/task buckets remain available.
-Semi keeps the full sidebar and highlights shared, parent and task context in
-its existing order. Off shows the full sidebar without highlights. Returning
+the task's name, completion checkbox and **Edit task** visible while browsing
+assets. Click the header's task name to return to details. Returning
 to Tasks or switching objectives exits task mode. The red **×** in the working
 area's upper-right corner closes task mode and returns to the task list. It
 remains available while browsing native assets, follows the working viewport,
 and stays above the native notebook toolbar. Navigation saves outgoing document
-drafts. The selected mode is browser-local.
+drafts. The Off/Semi/Focus feature has been removed; task selection no longer
+adds focus-specific sidebar hiding or asset highlights.
 
 Task Markdown opens in **View** mode with rendered, read-only content. Use the
-separate **View · Edit** switch beside the focus controls to enable the native
-editor. Both modes share document typography, heading sizes, column width,
+**View · Edit** switch or **Cmd-click inside the task Markdown** to toggle the
+native editor (Ctrl-click on other platforms). The shortcut preserves the draft
+and saves pending edits when returning to View. Both modes share document
+typography, heading sizes, column width,
 links, quotes, code and table styling; View also keeps the editor's paragraph
 spacing and text inset. View disables document Rename/Save/Revert/new-subtab
 actions and the
 task header's completion, icon changes and Edit task controls. Reading, links,
-disclosures and focus controls remain available. Edit returns to View after
+disclosures and View/Edit controls remain available. Edit returns to View after
 three minutes without interaction with the document, header or its edit dialog;
 pending edits save and remain visible, including drafts with a save conflict.
 An open edit dialog locks its fields while preserving their values. Switching

@@ -184,8 +184,6 @@
 .objective-task-modes button { padding:3px 6px; border:1px solid transparent; border-radius:4px; background:none; color:var(--text-secondary); cursor:pointer; font-size:11px; }
 .objective-task-modes button[aria-pressed=true] { border-color:var(--accent); color:var(--accent); background:color-mix(in srgb,var(--accent) 10%,var(--bg-secondary)); }
 .objective-task-modes [data-task-assets] { margin-left:auto; white-space:nowrap; }
-#sidebar [data-objectives-sidebar][data-task-focus-mode=focus] ~ :not(.sidebar-recent-selectors):not([data-project-recent]) { display:none !important; }
-.objective-task-asset-highlight { background:color-mix(in srgb,var(--accent) 12%,var(--bg-secondary)) !important; box-shadow:inset 2px 0 var(--accent); }
 .objective-task-asset-choice { display:flex; align-items:center; gap:8px; padding:6px 0; border-bottom:1px solid var(--border); }
 .objective-task-asset-choice button { padding:4px; border:1px solid transparent; border-radius:4px; background:none; color:var(--text-secondary); cursor:pointer; font:inherit; }
 .objective-task-asset-choice [data-pick-task-icon] { display:flex; align-items:center; justify-content:center; width:28px; height:28px; flex-shrink:0; }

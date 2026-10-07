@@ -95,7 +95,7 @@
     const s=state(),browse=s.worktreeBrowse;s.worktreesOpen=false;s.worktreeBrowse=null;
     if(browse?.focus&&tasks().some(t=>t.id===browse.focus.task)) {
       s.focus=browse.focus;s.view='objective';persistView();
-      openTask(browse.focus.task,browse.focus.mode);
+      openTask(browse.focus.task);
     }else if(browse){renderTasks();}else paint();
   }
   function resetWorktreeBrowse() {clearTimeout(worktreeFoldTimer);state().worktreeBrowse=null;state().worktreesOpen=false;}
@@ -250,19 +250,8 @@
   }
   function customTaskIcon(task,o=objective()) {const asset=taskAssets(task).find(a=>a.id===task.icon_asset_id);return (asset&&assetInfo(asset,o)?.icon)||'';}
   function taskIcon(task,o=objective()) {const status=taskStatus(task);return customTaskIcon(task,o)||`<span class="objective-task-default-icon objective-task-status-icon" data-task-status="${status}" aria-hidden="true">${taskStatuses[status].icon}</span>`;}
-  function associatedAsset(target) {const t=focusedTask();return !!t&&contextAssets(t).some(a=>sameAsset(a,target));}
   function markTaskAssets(host) {
-    host.querySelectorAll('[data-objective-resource]').forEach(node=>node.classList.toggle('objective-task-asset-highlight',taskFocus()?.mode==='semi'&&associatedAsset(sidebarTarget(node))));
     const sidebar=document.getElementById('sidebar');if(!sidebar)return;
-    sidebar.dataset.objectiveTaskMode=state().worktreeBrowse?'off':taskFocus()?.mode||'off';
-    const references=new Set(taskFocus()?.mode==='semi'?contextAssets(focusedTask()).map(a=>assetInfo(a)?.reference?.split('#')[0]).filter(Boolean):[]);
-    host.querySelectorAll('[data-select-worktree]').forEach(node=>{const scope=scopeRows().find(t=>t.id===node.dataset.selectWorktree);node.closest('.sidebar-scope-chip').classList.toggle('objective-task-asset-highlight',references.has(scope?.path)||references.has(scope?.resolved_path));});
-    sidebar.querySelectorAll('[data-filepath]').forEach(node=>{
-      const path=node.dataset.filepath,root=node.dataset.entryRoot||bridge.scopeRoot?.()||context()?.path;
-      const full=path?.startsWith('/')?path:root?.replace(/\/$/,'')+'/'+path;
-      node.classList.toggle('objective-task-asset-highlight',references.has(full));
-    });
-    sidebar.querySelectorAll('[data-entry-kind=folder]').forEach(node=>{const root=node.dataset.entryRoot||bridge.scopeRoot?.(),path=node.dataset.entryPath;node.classList.toggle('objective-task-asset-highlight',references.has(root?.replace(/\/$/,'')+'/'+path));});
     sidebar.querySelectorAll('[data-native-asset-tools]').forEach(n=>n.remove());
   }
   function nativeAssetTarget(node) {
@@ -308,7 +297,7 @@
     host.classList.add('objective-task-center');
     const draft=taskDocumentDraft(),editable=!draft||draftEditable(draft);
     taskModeHeader ||= document.createElement('div');taskModeHeader.className='objective-task-mode-head';taskModeHeader.dataset.taskModeHead='';
-    taskModeHeader.innerHTML=`<div class="objective-task-mode-title"><button type="button" data-task-icon="${esc(task.id)}" data-task-id="${esc(task.id)}" data-open-task="${esc(task.id)}" aria-label="Open ${esc(task.title)}" title="Drop an asset here to use its icon" draggable="${editable}">${taskIcon(task)}</button><a href="${esc(taskHref(task))}" data-open-task="${esc(task.id)}">${taskNameHtml(task)}</a><label><input type="checkbox" data-task-done="${esc(task.id)}" aria-label="Complete ${esc(task.title)}" ${complete(task)?'checked':''}${editable?'':' disabled'}> Completed</label></div><div class="objective-task-mode-actions"><span>${esc(objective().name)}</span><div class="objective-task-modes" role="group" aria-label="Task focus mode">${['off','semi','focus'].map(mode=>`<button type="button" data-task-focus-mode="${mode}" aria-pressed="${taskFocus().mode===mode}">${mode[0].toUpperCase()+mode.slice(1)}</button>`).join('')}</div>${draft?`<div class="objective-task-modes objective-document-modes" role="group" aria-label="Document mode">${['view','edit'].map(mode=>`<button type="button" data-task-document-mode="${mode}" aria-pressed="${(mode==='edit')===editable}" title="${mode==='edit'?'Enable editing · returns to View after 3 minutes of inactivity':'Read only'}">${mode==='edit'?'Edit':'View'}</button>`).join('')}</div>`:''}<button type="button" data-edit-objective-task="${esc(task.id)}"${editable?'':' disabled'}>Edit task</button></div>`;
+    taskModeHeader.innerHTML=`<div class="objective-task-mode-title"><button type="button" data-task-icon="${esc(task.id)}" data-task-id="${esc(task.id)}" data-open-task="${esc(task.id)}" aria-label="Open ${esc(task.title)}" title="Drop an asset here to use its icon" draggable="${editable}">${taskIcon(task)}</button><a href="${esc(taskHref(task))}" data-open-task="${esc(task.id)}">${taskNameHtml(task)}</a><label><input type="checkbox" data-task-done="${esc(task.id)}" aria-label="Complete ${esc(task.title)}" ${complete(task)?'checked':''}${editable?'':' disabled'}> Completed</label></div><div class="objective-task-mode-actions"><span>${esc(objective().name)}</span>${draft?`<div class="objective-task-modes objective-document-modes" role="group" aria-label="Document mode">${['view','edit'].map(mode=>`<button type="button" data-task-document-mode="${mode}" aria-pressed="${(mode==='edit')===editable}" title="${mode==='edit'?'Enable editing · returns to View after 3 minutes of inactivity':'Read only'}">${mode==='edit'?'Edit':'View'}</button>`).join('')}</div>`:''}<button type="button" data-edit-objective-task="${esc(task.id)}"${editable?'':' disabled'}>Edit task</button></div>`;
     taskModeSpacer ||= document.createElement('div');taskModeSpacer.className='objective-task-mode-spacer';taskModeSpacer.setAttribute('aria-hidden','true');
     if(taskModeSpacer.parentElement!==host)host.prepend(taskModeSpacer);
     if(taskModeHeader.parentElement!==host)host.append(taskModeHeader);
@@ -364,7 +353,6 @@
     const d=data();if(!d)return;
     if(!d.enabled){host.innerHTML='<button type="button" class="sidebar-objective-add" data-new-objective>+ Objective</button>';return;}
     const o=objective();if(!o)return;state().objective=o.id;
-    host.dataset.taskFocusMode=state().worktreeBrowse?'off':taskFocus()?.mode||'off';
     host.dataset.worktreeBrowse=String(!!state().worktreeBrowse);
     const task=focusedTask(),expanded=task&&(task.children.length?task:o.tasks.find(t=>t.children.some(c=>c.id===task.id)));
     const workingChildren=t=>t.children.filter(child=>taskStatus(child)==='in_progress');
@@ -518,10 +506,10 @@
     renderTasks();
     Promise.resolve(bridge.selectWorktree?.(row)).catch(error=>notify(error.message,true));
   }
-  function openTask(id,mode='focus',{activateTerminal=false}={}) {
+  function openTask(id,{activateTerminal=false}={}) {
     const o=objective(),task=tasks(o).find(t=>t.id===id);if(!task)return;
     resetWorktreeBrowse();
-    state().focus={objective:o.id,task:id,mode:['focus','semi','off'].includes(mode)?mode:'focus'};
+    state().focus={objective:o.id,task:id};
     state().view='objective';persistView();openResource(task.document_id,task.tab_id);
     bridge.refreshTerminals?.();
     if(activateTerminal)void openTaskTerminal(id,o.id,{openTaskView:false}).catch(error=>notify(error.message,true));
@@ -696,7 +684,7 @@
     host.querySelector('[data-revert-objective-document]').hidden=!editable;
     host.querySelector('[data-revert-objective-document]').disabled=!editable||draft.saving;
     host.querySelectorAll('[data-rename-objective-resource],[data-add-objective-subtab]').forEach(node=>node.disabled=!editable);
-    status.textContent=draft.error||draft.loadingError||(draft.saving?'Saving…':dirtyDraft(draft)?'Unsaved · saves after 10s idle':!editable?'View mode · enable Edit to make changes':draft.saved?'Saved at '+new Date(draft.saved).toLocaleTimeString():'Click to edit · / for commands');
+    status.textContent=draft.error||draft.loadingError||(draft.saving?'Saving…':dirtyDraft(draft)?'Unsaved · saves after 10s idle':!editable?'View mode · Cmd/Ctrl-click Markdown to edit':draft.saved?'Saved at '+new Date(draft.saved).toLocaleTimeString():'Click to edit · / for commands');
     status.classList.toggle('error',!!(draft.error||draft.loadingError));
   }
   function scheduleDraft(draft) {
@@ -1066,8 +1054,7 @@
     if(node.hasAttribute('data-show-unassigned')){collapse();Object.assign(overviewState(),{mode:'unassigned',query:''});persistView();renderOverview();return;}
     if(node.hasAttribute('data-task-document-mode')){const draft=taskDocumentDraft();if(draft)setDraftEditMode(draft,node.dataset.taskDocumentMode==='edit');return;}
     if(node.dataset.editObjectiveTask){const draft=taskDocumentDraft();if(draft&&!draftEditable(draft))return;const task=tasks().find(t=>t.id===node.dataset.editObjectiveTask);draftEditDialog(draft,form('Edit task',input('Task','title',task.title)+input('Due date','due',task.due||'','date',false),async values=>{requireDraftEditing(draft);await change({type:'task-update',objective_id:objective().id,task_id:task.id,title:values.get('title'),due:values.get('due')});}));return;}
-    if(node.dataset.openTask){if(node.tagName==='A'&&(e.metaKey||e.ctrlKey||e.shiftKey||e.altKey))return;e.preventDefault();openTask(node.dataset.openTask,'focus',{activateTerminal:true});return;}
-    if(node.hasAttribute('data-task-focus-mode')){const f=taskFocus();if(f){f.mode=node.dataset.taskFocusMode;persistView();paint();}return;}
+    if(node.dataset.openTask){if(node.tagName==='A'&&(e.metaKey||e.ctrlKey||e.shiftKey||e.altKey))return;e.preventDefault();openTask(node.dataset.openTask,{activateTerminal:true});return;}
     if(node.dataset.taskAssets){openTaskAssets(node.dataset.taskAssets);return;}
     if(node.dataset.removeTaskAsset){const id=node.dataset.assetTask;void change({type:'task-remove-asset',objective_id:objective().id,task_id:id,asset_id:node.dataset.removeTaskAsset}).then(()=>openTaskAssets(id)).catch(()=>{});return;}
     if(node.dataset.openTaskAsset){const task=tasks().find(t=>t.id===node.dataset.assetTask),asset=task&&taskAssets(task).find(a=>a.id===node.dataset.openTaskAsset);if(asset){const info=assetInfo(asset);if(info?.resource?.kind==='link'&&!e.metaKey&&!e.ctrlKey){openLinkUrl(info.reference);return;}dialog?.remove();dialog=null;openTask(task.id);openAsset(asset);}return;}
@@ -1103,13 +1090,18 @@
     if(node.dataset.addResource){addResource(node.dataset.addResource);return;}
     if(node.hasAttribute('data-new-objective-task')){addTask();return;}
     if(node.dataset.addSubtask){addTask(node.dataset.addSubtask);return;}
-    if(node.dataset.taskDocument){openTask(node.dataset.taskDocument,'focus',{activateTerminal:true});return;}
+    if(node.dataset.taskDocument){openTask(node.dataset.taskDocument,{activateTerminal:true});return;}
     if(node.hasAttribute('data-objective-settings')){const o=objective();form('Objective settings',input('Name','name',o.name)+input('Outcome','purpose',o.purpose,'text',false),v=>change({type:'settings',objective_id:o.id,name:v.get('name'),purpose:v.get('purpose')}));return;}
     if(node.dataset.renameObjectiveResource){const draft=activeDraft;if(draft&&!draftEditable(draft))return;const r=objective().resources.find(r=>r.id===node.dataset.renameObjectiveResource),tab=r.kind==='document'&&openView?.resource===r.id?openView.tab:null;draftEditDialog(draft,form(tab?'Rename subtab':'Rename resource',input('Name','title',r.content?.tabs?.find(t=>t.id===tab)?.title||r.title),async v=>{requireDraftEditing(draft);await change({type:'rename',objective_id:objective().id,resource_id:r.id,tab_id:tab,title:v.get('title')});openResource(r.id,tab);}));return;}
     if(node.dataset.addObjectiveSubtab){const draft=activeDraft;if(draft&&!draftEditable(draft))return;draftEditDialog(draft,form('New document subtab',input('Name','title'),async v=>{requireDraftEditing(draft);await change({type:'subtab',objective_id:objective().id,resource_id:node.dataset.addObjectiveSubtab,title:v.get('title'),body:''});openResource(node.dataset.addObjectiveSubtab);}));return;}
     if(node.hasAttribute('data-save-objective-document')&&activeDraft&&draftEditable(activeDraft))void saveDraft(activeDraft,true);
     if(node.hasAttribute('data-revert-objective-document'))void revertDraft(activeDraft);
   }
+  document.addEventListener('click',event=>{
+    if(event.button!==0||!event.metaKey&&!event.ctrlKey)return;
+    const draft=taskDocumentDraft();if(!draft?.node.contains(event.target))return;
+    event.preventDefault();event.stopImmediatePropagation();setDraftEditMode(draft,!draft.editMode);
+  },true);
   document.addEventListener('click',handleClick);
   for(const type of ['pointerdown','keydown','input','scroll'])document.addEventListener(type,event=>{
     const draft=taskDocumentDraft();
@@ -1230,7 +1222,7 @@
     childTerminalAssociation(t){const o=terminalObjective(t);return !active(context()?.path)?null:o?{context:{...context()},objective_id:o.id,view:'tasks'}:{context:{...context()},view:'workflow'};},
     findTaskTerminal(sessions,target){return sessions.find(t=>{if(target.main==='workflow')return terminalMain(t)?.kind==='workflow';const link=terminalLink(t);return link?.objective_id===target.objective_id&&(target.task_id?link.task_id===target.task_id:terminalMain(t)?.kind==='objective');});},
     sameTerminalObjective(a,b){return terminalObjective(a)?.id===terminalObjective(b)?.id;},
-    openCurrent(){const params=new URLSearchParams(location.search),o=data()?.objectives.find(o=>o.id===params.get('objective'));if(o&&tasks(o).some(t=>t.id===params.get('objective_task'))){state().objective=o.id;openTask(params.get('objective_task'));return;}const f=taskFocus();if(f){openTask(f.task,f.mode);return;}state().view==='objective'&&objective()?selectObjective(objective().id,{activateTerminal:false}):showAll();},
+    openCurrent(){const params=new URLSearchParams(location.search),o=data()?.objectives.find(o=>o.id===params.get('objective'));if(o&&tasks(o).some(t=>t.id===params.get('objective_task'))){state().objective=o.id;openTask(params.get('objective_task'));return;}const f=taskFocus();if(f){openTask(f.task);return;}state().view==='objective'&&objective()?selectObjective(objective().id,{activateTerminal:false}):showAll();},
     openOwnedFile(root,path){
       if(!active(context()?.path))return false;
       const scope=context(),full=root.replace(/\/$/,'')+'/'+path;
