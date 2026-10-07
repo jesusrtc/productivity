@@ -13357,6 +13357,14 @@
 
   function _termSubtabRenderer(state, sessions, pill) {
     const parents = _termSubtabParents(state, sessions);
+    const workingBranches = new Set();
+    for (const session of sessions) {
+      if (window.LabObjectives?.taskForTerminal?.(session)?.status !== 'in_progress') continue;
+      let ancestor = parents[session.logical_name];
+      while (ancestor && !workingBranches.has(ancestor)) {
+        workingBranches.add(ancestor); ancestor = parents[ancestor];
+      }
+    }
     const numbered = Object.keys(parents).length > 0;
     let position = 0;
     const rows = new Map(sessions.map((session, index) => [session.logical_name, {session, index}]));
@@ -13371,10 +13379,11 @@
       if (!logical) return pill(session, index);
       const children = sessions.filter(child => parents[child.logical_name] === logical);
       if (!children.length) return pill(session, index);
-      const expanded = window.LabObjectives?.terminalExpanded?.(session) === true || containsActive(logical);
+      const working = workingBranches.has(logical);
+      const expanded = working || window.LabObjectives?.terminalExpanded?.(session) === true || containsActive(logical);
       const parent = pill(session, index).replace(/role="(tab|button)"/, `role="$1" aria-expanded="${expanded}" data-subtab-toggle`)
         .replace(/^(<[^>]+>)/, '$1<span class="term-subtab-caret" aria-hidden="true">'+(expanded?'▾':'▸')+'</span>');
-      return `<div class="term-subtab-node${expanded?' has-active-child':''}" data-term-parent="${termSessEsc(logical)}">${parent}<div class="term-subtab-children" role="group" aria-label="Subtabs of ${termSessEsc(_termSessionDisplay(session))}"${expanded?'':' hidden'}>${children.map(child => render(child, rows.get(child.logical_name).index)).join('')}</div></div>`;
+      return `<div class="term-subtab-node${expanded?' has-active-child':''}${working?' has-wip-child':''}" data-term-parent="${termSessEsc(logical)}">${parent}<div class="term-subtab-children" role="group" aria-label="Subtabs of ${termSessEsc(_termSessionDisplay(session))}"${expanded?'':' hidden'}>${children.map(child => render(child, rows.get(child.logical_name).index)).join('')}</div></div>`;
     };
     return (session, index) => parents[session.logical_name] ? '' : render(session, index);
   }
@@ -13384,6 +13393,7 @@
     container.querySelectorAll('.term-subtab-node').forEach(node => {
       const pill = node.querySelector(':scope > .sess'), children = node.querySelector(':scope > .term-subtab-children');
       const show = expanded => {
+        expanded = expanded || node.classList.contains('has-wip-child');
         children.hidden = !expanded;
         pill.setAttribute('aria-expanded', String(expanded));
         pill.querySelector('.term-subtab-caret').textContent = expanded ? '▾' : '▸';

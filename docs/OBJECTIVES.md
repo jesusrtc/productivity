@@ -187,9 +187,11 @@ subtab in an objective-owned `Tasks.md` document. Subtask details nest beneath
 their parent's subtab. Clicking the task title opens those details as an
 independent working view. Editing one subtab preserves its siblings.
 
-The left task list opens task details on a normal click. Selecting a task expands just that
-parent's subtasks and displays its own assets beneath the list. Selecting
-another parent collapses the previous group. Task details are not duplicated
+The left task list opens task details on a normal click. In progress subtasks
+stay visible under every parent, even without hover or selection. Selecting a
+task also reveals its parent's other subtasks and displays its own assets beneath
+the list. Selecting another parent returns non-WIP children to their collapsed
+state. Task details are not duplicated
 as a separate `Tasks.md` tree in Unassigned.
 
 Clicking a task or subtask activates its primary terminal and reveals the
@@ -339,7 +341,9 @@ controls.
 
 Task terminals follow the sidebar hierarchy. Drag one ordinary terminal over
 another to choose **Move below**, **Make child** or **Cancel**. Children unfold
-on parent hover or keyboard focus, and selected children stay visible. An
+on parent hover or keyboard focus. In progress children and their inherited
+terminals stay visible through every ancestor, including after leaving the rail
+or pressing the collapse key. Selected children also stay visible. An
 independent child opens its parent's task context without taking the parent's
 1:1 task assignment. Task and terminal navigation preserves the original
 process, checkout and agent conversation.
@@ -535,9 +539,11 @@ and worktrees all use this reference-based classification.
 
 The left task list opens details and has the same secondary-click status menu
 as the live workspace. Completion and editing also remain available in the
-middle task view. Selecting a task expands only that task's subtasks; selecting
-another collapses the previous group. The live and demo lists reserve space
-for the largest subtask group in the Objective, so **Task assets** stays at the
+middle task view. Selecting a task reveals that task's subtasks; selecting
+another collapses the previous group. The live workspace also keeps In progress
+subtasks visible under every parent. The live list reserves space for these
+permanent rows plus the largest additional subtask group; the demo reserves its
+largest group, so **Task assets** stays at the
 same position while navigating tasks, subtasks or closing task mode. Task mode keeps the task's name, icon,
 completion control and red corner close visible while browsing its assets.
 Click the task name in that header to return to its details.

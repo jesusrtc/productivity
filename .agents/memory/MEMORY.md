@@ -1,5 +1,7 @@
 # Memory index
 
+- [WIP tasks and terminals stay visible](wip-tasks-and-terminals-stay-visible.md) — permanent WIP subtask rows and open terminal ancestors, with no hover or automatic launch.
+
 - [Automation terminals show white bullets when folded](automation-terminal-folded-white-bullets.md) — one compact marker per terminal; expanded rows retain plain white names.
 
 - [Automation terminal tabs show only white names](automation-terminal-tabs-show-only-white-names.md) — name-only rows in full/compact rails, with hierarchy and context preserved.
