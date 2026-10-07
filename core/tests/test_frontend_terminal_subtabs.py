@@ -113,8 +113,41 @@ console.log(JSON.stringify({nested,sibling,html,activeHtml,unchanged:before===JS
     assert result['orphanParents'] == {}
     assert result['normalized'] == {'b': 'a'}
     assert result['html'].count('data-term-parent=') == 2
-    assert result['html'].count(' hidden') == 2
-    assert ' hidden' not in result['activeHtml']
+    assert result['html'].count('data-subtab-hover-only hidden') == 2
+    assert result['activeHtml'] == result['html']
+
+
+def test_subtab_disclosure_requires_own_wip_task_and_always_folds_automation():
+    result = _run_node(r'''
+const _TERM_GROUP_COLORS=['#58a6ff'],termSessEsc=String,_termSessionDisplay=s=>s.name;
+const automation='automation-'+('a'.repeat(32))+'-1';
+const termSessions=['parent','wip','todo','done','paused','none','inherited',automation].map(name=>({name,logical_name:name}));
+const bindings={wip:{status:'in_progress',inherited:false},todo:{status:'todo'},done:{status:'done'},paused:{status:'paused'},inherited:{status:'in_progress',inherited:true},[automation]:{status:'in_progress',inherited:false}};
+window.LabObjectives={taskForTerminal:s=>bindings[s.name],terminalExpanded:()=>true};
+''' + GROUPS + r'''
+const state=_termNormalizeGroupState({tabParents:Object.fromEntries(termSessions.slice(1).map(s=>[s.name,'parent']))});
+const html=termSessions.map(_termSubtabRenderer(state,termSessions,s=>`<span class="sess" role="tab" data-name="${s.name}">${s.name}</span>`)).join('');
+console.log(JSON.stringify({html,automation}));
+''')
+    assert '<div class="term-subtab-node has-wip-child" data-term-parent="parent">' in result['html']
+    assert 'data-name="wip" data-subtab-hover-only' not in result['html']
+    for name in ('todo', 'done', 'paused', 'none', 'inherited', result['automation']):
+        assert f'data-name="{name}" data-subtab-hover-only hidden' in result['html']
+
+
+def test_nested_wip_paths_do_not_reveal_hover_only_ancestor_rows():
+    result = _run_node(r'''
+const _TERM_GROUP_COLORS=['#58a6ff'],termSessEsc=String,_termSessionDisplay=s=>s.name;
+const termSessions=['parent','unassigned','working'].map(name=>({name,logical_name:name}));
+window.LabObjectives={taskForTerminal:s=>s.name==='working'?{status:'in_progress',inherited:false}:null};
+''' + GROUPS + r'''
+const state=_termNormalizeGroupState({tabParents:{unassigned:'parent',working:'unassigned'}});
+console.log(JSON.stringify({html:termSessions.map(_termSubtabRenderer(state,termSessions,s=>`<span class="sess" role="tab" data-name="${s.name}">${s.name}</span>`)).join('')}));
+''')
+    assert 'data-term-parent="unassigned" data-subtab-hover-parent>' in result['html']
+    assert 'data-name="unassigned" data-subtab-hover-only hidden' in result['html']
+    assert 'data-name="working" data-subtab-hover-only' not in result['html']
+    assert result['html'].count(' hidden') == 1
 
 
 @pytest.mark.parametrize('orientation', ['vertical', 'horizontal'])
@@ -196,7 +229,7 @@ const fs=require('node:fs');
  await move(await point(tab('a')));
  assert(await evaluate(`!document.querySelector('[data-term-parent=a] > .term-subtab-children').hidden&&document.querySelector('.sess[data-name=a]').getAttribute('aria-expanded')==='true'`),'hover unfolds child');
  const nodeIdentity=await evaluate(`window.oldChild=document.querySelector('.sess[data-name=b]');termRenderSessionList();oldChild===document.querySelector('.sess[data-name=b]')`);assert(nodeIdentity,'unchanged poll preserves hovered rows');
- await click(tab('b'));await move(await point('#outside'));assert(await evaluate(`document.querySelector('.sess[data-name=b]').getClientRects().length>0&&termCurrentSession==='b'`),'selected child remains available');
+ await click(tab('b'));await move(await point('#outside'));assert(await evaluate(`!document.querySelector('.sess[data-name=b]').getClientRects().length&&termCurrentSession==='b'`),'selected non-WIP child folds without changing the active terminal');
  await evaluate(`(async()=>{termWipOnly=true;fixture.objectives[0].tasks.find(t=>t.id==='b').status='in_progress';fixture.revision+='wip-again';await LabObjectives.load(undefined,true)})()`);
  await evaluate(`(async()=>{fixture.enabled=false;await LabObjectives.load(undefined,true);termRenderSessionList()})()`);
  assert(await evaluate(`document.querySelector('[data-term-parent=a] .sess[data-name=b]')&&document.querySelector('.sess[data-name=other]').getClientRects().length>0`),'ordinary terminal rails preserve the same hierarchy');
@@ -227,7 +260,7 @@ const fs=require('node:fs');
  await move(await point(tab('a')));await move(await point(tab('b')));await click(tab('c'));
  assert(await evaluate(`LabObjectives.terminalLaunchContext().task.id==='Subtask'&&document.querySelector('.objective-task-mode-head').textContent.includes('Subtask')&&termCurrentSession==='c'&&!fixture.terminal_links['uuid-c'].task_id&&document.querySelector('.sess[data-name=c]').getAttribute('aria-label').includes('Parent task context: Subtask')`),'unassigned child selects inherited task and retains independent association');
  await move(await point('#outside'));await evaluate('document.activeElement?.blur()');await sleep(80);
- assert(await evaluate(`!document.querySelector('[data-term-parent=a] > .term-subtab-children').hidden&&!document.querySelector('[data-term-parent=b] > .term-subtab-children').hidden&&document.querySelector('.sess[data-name=c]').getClientRects().length>0`),'task ancestors keep the selected extra subterminal unfolded after leaving the rail');
+ assert(await evaluate(`document.querySelector('[data-term-parent=a] > .term-subtab-children').hidden&&document.querySelector('[data-term-parent=b] > .term-subtab-children').hidden&&!document.querySelector('.sess[data-name=c]').getClientRects().length&&termCurrentSession==='c'`),'selected unassigned child and non-WIP ancestor fold after leaving the rail');
  fs.writeFileSync(process.argv[1]+'/../tasks.png',Buffer.from((await send('Page.captureScreenshot',{format:'png'})).data,'base64'));
  await click('[data-open-task-terminal="Needs terminal"]');await sleep(100);
  assert(await evaluate(`created.length===1&&created[0].task.id==='Needs terminal'&&fixture.terminal_links['uuid-new-Needs terminal'].task_id==='Needs terminal'&&termCurrentSession==='new-Needs terminal'&&!document.querySelector('[data-open-task-terminal="Needs terminal"]')`),'recommended task row starts one primary terminal');
@@ -304,14 +337,41 @@ const fs=require('node:fs');
  await evaluate(`(async()=>{
  const o=fixture.objectives[0],parent=o.tasks.find(t=>t.id==='Parent task');parent.status='in_progress';parent.done=false;parent.children[0].status='in_progress';parent.children[0].done=false;
  o.tasks.push({id:'Second parent',title:'Second parent',status:'todo',done:false,assets:[],children:[{id:'Second WIP',title:'Second WIP',status:'in_progress',done:false,children:[],assets:[]},{id:'Second Todo',title:'Second Todo',status:'todo',done:false,children:[],assets:[]}]});
+ const name='automation-'+('a'.repeat(32))+'-1';termSessions.push({name,logical_name:name,session_id:'uuid-'+name,kind:'terminal',cwd:'/workspace'});fixture.terminal_links['uuid-'+name]={objective_id:'one',view:'tasks'};const group=_termReadGroupState();group.tabParents[name]='a';_termWriteGroupState(group);window.automationName=name;
  fixture.revision+='persistent-wip';termWipOnly=true;await LabObjectives.load(undefined,true);LabObjectives.renderTasks();await _termActivateTab('workflow-main');
  const filter=document.querySelector('[data-objective-terminals-all=one]');if(filter.getAttribute('aria-pressed')==='true')filter.click();
  })()`);
  await move(await point('#outside'));await evaluate('document.activeElement?.blur()');
  assert(await evaluate(`['Subtask','Second WIP'].every(id=>document.querySelector('.objective-sidebar-task[data-task-id="'+id+'"]').getClientRects().length>0)&&!document.querySelector('.objective-sidebar-task[data-task-id="Second Todo"]')`),'WIP subtasks under multiple parents remain in Tasks without selection');
- assert(await evaluate(`document.querySelector('.sess[data-name=b]').getClientRects().length>0&&document.querySelector('.sess[data-name=c]').getClientRects().length>0&&document.querySelector('[data-open-task-terminal="Second WIP"]').getClientRects().length>0&&created.length===5`),'WIP primaries, nested inherited terminals and recommendations stay visible without launching work');
+ assert(await evaluate(`document.querySelector('.sess[data-name=b]').getClientRects().length>0&&!document.querySelector('.sess[data-name=c]').getClientRects().length&&!document.querySelector('.sess[data-name="'+automationName+'"]').getClientRects().length&&document.querySelector('[data-open-task-terminal="Second WIP"]').getClientRects().length>0&&created.length===5`),'own WIP primaries and recommendations stay visible while inherited and automation siblings fold');
  await evaluate(`document.querySelector('.sess[data-name=a]').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowLeft',bubbles:true}))`);
- assert(await evaluate(`!document.querySelector('[data-term-parent=a] > .term-subtab-children').hidden&&!document.querySelector('[data-term-parent=b] > .term-subtab-children').hidden`),'keyboard collapse cannot hide WIP descendants');
+ assert(await evaluate(`!document.querySelector('[data-term-parent=a] > .term-subtab-children').hidden&&document.querySelector('[data-term-parent=b] > .term-subtab-children').hidden`),'keyboard collapse keeps own WIP children visible without exposing inherited children');
+ await move(await point(tab('a')));
+ assert(await evaluate(`document.querySelector('.sess[data-name=b]').getClientRects().length>0&&document.querySelector('.sess[data-name="'+automationName+'"]').getClientRects().length>0&&!document.querySelector('.sess[data-name=c]').getClientRects().length`),'parent hover reveals only its own automation children beside WIP rows');
+ await evaluate(`termSessions.find(s=>s.name===automationName).label='Automation changed';termRenderSessionList()`);
+ assert(await evaluate(`document.querySelector('.sess[data-name="'+automationName+'"]').getClientRects().length>0`),'changed polling restores the hovered parent');
+ await move(await point(tab('b')));
+ assert(await evaluate(`document.querySelector('.sess[data-name=c]').getClientRects().length>0`),'nested parent hover reveals inherited child');
+ await move(await point('#outside'));
+ assert(await evaluate(`document.querySelector('.sess[data-name=b]').getClientRects().length>0&&!document.querySelector('.sess[data-name=c]').getClientRects().length&&!document.querySelector('.sess[data-name="'+automationName+'"]').getClientRects().length`),'leaving mixed nested branches folds hover-only rows and retains WIP');
+ await move(await point(tab('a')));await click(tab(await evaluate('automationName')));await move(await point('#outside'));
+ assert(await evaluate(`termCurrentSession===automationName&&!document.querySelector('.sess[data-name="'+automationName+'"]').getClientRects().length&&document.querySelector('.sess[data-name=b]').getClientRects().length>0`),'selected automation also folds while its terminal remains active');
+ await evaluate(`document.querySelector('.sess[data-name=a]').focus()`);await send('Input.dispatchKeyEvent',{type:'keyDown',key:'ArrowRight',code:'ArrowRight',windowsVirtualKeyCode:39});await send('Input.dispatchKeyEvent',{type:'keyUp',key:'ArrowRight',code:'ArrowRight',windowsVirtualKeyCode:39});
+ assert(await evaluate(`document.querySelector('.sess[data-name="'+automationName+'"]').getClientRects().length>0`),'keyboard navigation can reveal hover-only children');
+ await click('#outside');
+ assert(await evaluate(`!document.querySelector('.sess[data-name="'+automationName+'"]').getClientRects().length&&document.querySelector('.sess[data-name=b]').getClientRects().length>0`),'leaving keyboard focus folds only hover-only children');
+ await evaluate(`_termActivateTab('workflow-main')`);
+ await evaluate(`(async()=>{
+ const o=fixture.objectives[0];o.tasks.push({id:'Deep WIP',title:'Deep WIP',status:'in_progress',done:false,children:[],assets:[]});
+ const name='deep-wip';termSessions.push({name,logical_name:name,session_id:'uuid-'+name,kind:'terminal',cwd:'/workspace'});fixture.terminal_links['uuid-'+name]={objective_id:'one',task_id:'Deep WIP'};
+ const group=_termReadGroupState();group.tabParents[name]='c';_termWriteGroupState(group);fixture.revision+='deep-wip';await LabObjectives.load(undefined,true);
+ })()`);
+ assert(await evaluate(`document.querySelector('.sess[data-name=deep-wip]').getClientRects().length>0&&!document.querySelector('.sess[data-name=c]').getClientRects().length&&document.querySelector('.sess[data-name=b]').getClientRects().length>0`),'deep own-WIP terminal stays visible without exposing its unassigned ancestor row');
+ await move(await point(tab('b')));
+ assert(await evaluate(`document.querySelector('.sess[data-name=c]').getClientRects().length>0&&document.querySelector('.sess[data-name=deep-wip]').getClientRects().length>0`),'ancestor row is still available on its parent hover');
+ await move(await point('#outside'));
+ assert(await evaluate(`!document.querySelector('.sess[data-name=c]').getClientRects().length&&document.querySelector('.sess[data-name=deep-wip]').getClientRects().length>0`),'leaving hides the ancestor row while preserving deep WIP visibility');
+ await evaluate(`(async()=>{fixture.objectives[0].tasks.pop();termSessions=termSessions.filter(s=>s.name!=='deep-wip');delete fixture.terminal_links['uuid-deep-wip'];fixture.revision+='remove-deep-fixture';await LabObjectives.load(undefined,true)})()`);
  await evaluate(`(async()=>{const o=fixture.objectives[0];o.tasks[0].children[0].status='done';o.tasks[0].children[0].done=true;o.tasks.at(-1).children[0].status='done';o.tasks.at(-1).children[0].done=true;fixture.revision+='wip-completed';await LabObjectives.load(undefined,true);LabObjectives.renderTasks()})()`);
  assert(await evaluate(`!document.querySelector('.objective-sidebar-task[data-task-id="Subtask"],.objective-sidebar-task[data-task-id="Second WIP"]')&&!document.querySelector('.sess[data-name=b],.sess[data-name=c],[data-open-task-terminal="Second WIP"]')&&created.length===5&&errors.length===0`),'completed children return to normal disclosure and filtering after refresh');
  ws.close();console.log('PASS');
@@ -330,7 +390,7 @@ const fs=require('node:fs');
         server.shutdown(); server.server_close()
 
 
-def test_automation_children_of_mains_remain_visible_and_task_children_inherit_status():
+def test_automation_children_of_mains_remain_available_on_hover_and_inherit_status():
     source = OBJECTIVES.read_text()
     helpers = source[source.index('  function terminalIdentity('):source.index('  function sidebarTarget(')]
     result = _run_node(r'''

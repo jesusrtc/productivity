@@ -13357,10 +13357,16 @@
 
   function _termSubtabRenderer(state, sessions, pill) {
     const parents = _termSubtabParents(state, sessions);
-    const workingBranches = new Set();
+    const workingRows = new Set();
     for (const session of sessions) {
-      if (window.LabObjectives?.taskForTerminal?.(session)?.status !== 'in_progress') continue;
-      let ancestor = parents[session.logical_name];
+      const task = window.LabObjectives?.taskForTerminal?.(session);
+      // Inherited context does not give an independent child its own WIP task.
+      // Automation children always use parent disclosure, including while active.
+      if (task?.status === 'in_progress' && !task.inherited && !/^automation-[0-9a-f]{32}-[1-9]\d*$/.test(session.logical_name || '')) workingRows.add(session.logical_name);
+    }
+    const workingBranches = new Set();
+    for (const logical of workingRows) {
+      let ancestor = parents[logical];
       while (ancestor && !workingBranches.has(ancestor)) {
         workingBranches.add(ancestor); ancestor = parents[ancestor];
       }
@@ -13368,22 +13374,21 @@
     const numbered = Object.keys(parents).length > 0;
     let position = 0;
     const rows = new Map(sessions.map((session, index) => [session.logical_name, {session, index}]));
-    const containsActive = logical => {
-      let active = sessions.find(session => session.name === termCurrentSession)?.logical_name;
-      while (parents[active]) { active = parents[active]; if (active === logical) return true; }
-      return false;
-    };
     const render = (session, index) => {
       if (numbered) index = position++;
       const logical = session.logical_name;
       if (!logical) return pill(session, index);
+      const disclosure = parents[logical] && !workingRows.has(logical) ? ' data-subtab-hover-only hidden' : '';
       const children = sessions.filter(child => parents[child.logical_name] === logical);
-      if (!children.length) return pill(session, index);
-      const working = workingBranches.has(logical);
-      const expanded = working || window.LabObjectives?.terminalExpanded?.(session) === true || containsActive(logical);
-      const parent = pill(session, index).replace(/role="(tab|button)"/, `role="$1" aria-expanded="${expanded}" data-subtab-toggle`)
+      if (!children.length) return pill(session, index).replace(/^(<[^>]+)(>)/, '$1'+disclosure+'$2');
+      const expanded = workingBranches.has(logical);
+      // Keep the path to a nested WIP row visible without showing a hover-only
+      // ancestor's label. Its parent still controls disclosure of that label.
+      const labelOnly = expanded && !!disclosure;
+      const parent = pill(session, index).replace(/^(<[^>]+)(>)/, '$1'+(labelOnly?disclosure:'')+'$2')
+        .replace(/role="(tab|button)"/, `role="$1" aria-expanded="${expanded}" data-subtab-toggle`)
         .replace(/^(<[^>]+>)/, '$1<span class="term-subtab-caret" aria-hidden="true">'+(expanded?'▾':'▸')+'</span>');
-      return `<div class="term-subtab-node${expanded?' has-active-child':''}${working?' has-wip-child':''}" data-term-parent="${termSessEsc(logical)}">${parent}<div class="term-subtab-children" role="group" aria-label="Subtabs of ${termSessEsc(_termSessionDisplay(session))}"${expanded?'':' hidden'}>${children.map(child => render(child, rows.get(child.logical_name).index)).join('')}</div></div>`;
+      return `<div class="term-subtab-node${expanded?' has-wip-child':''}" data-term-parent="${termSessEsc(logical)}"${labelOnly?' data-subtab-hover-parent':disclosure}>${parent}<div class="term-subtab-children" role="group" aria-label="Subtabs of ${termSessEsc(_termSessionDisplay(session))}"${expanded?'':' hidden'}>${children.map(child => render(child, rows.get(child.logical_name).index)).join('')}</div></div>`;
     };
     return (session, index) => parents[session.logical_name] ? '' : render(session, index);
   }
@@ -13392,20 +13397,24 @@
     const close = [];
     container.querySelectorAll('.term-subtab-node').forEach(node => {
       const pill = node.querySelector(':scope > .sess'), children = node.querySelector(':scope > .term-subtab-children');
-      const show = expanded => {
-        expanded = expanded || node.classList.contains('has-wip-child');
+      const show = revealed => {
+        for (const row of children.children) {
+          const target = row.hasAttribute('data-subtab-hover-parent') ? row.querySelector(':scope > .sess') : row;
+          if (target.hasAttribute('data-subtab-hover-only')) target.hidden = !revealed;
+        }
+        const expanded = [...children.children].some(row => !row.hidden);
         children.hidden = !expanded;
         pill.setAttribute('aria-expanded', String(expanded));
         pill.querySelector('.term-subtab-caret').textContent = expanded ? '▾' : '▸';
       };
-      close.push(() => show(node.classList.contains('has-active-child') || node.contains(document.activeElement)));
+      close.push(() => show(false));
       if (hovered.has(node.dataset.termParent)) show(true);
       node.addEventListener('pointerenter', () => show(true));
-      node.addEventListener('pointerleave', () => show(node.classList.contains('has-active-child') || node.contains(document.activeElement)));
+      node.addEventListener('pointerleave', () => show(false));
       node.addEventListener('focusin', () => show(true));
-      node.addEventListener('focusout', event => { if (!node.contains(event.relatedTarget)) show(node.matches(':hover') || node.classList.contains('has-active-child')); });
+      node.addEventListener('focusout', event => { if (!node.contains(event.relatedTarget)) show(node.matches(':hover')); });
       pill.addEventListener('keydown', event => {
-        if (event.key === 'ArrowRight') { event.preventDefault(); show(true); children.querySelector('.sess')?.focus(); }
+        if (event.key === 'ArrowRight') { event.preventDefault(); show(true); [...children.querySelectorAll('.sess')].find(row => row.getClientRects().length)?.focus(); }
         if (event.key === 'ArrowLeft') { event.preventDefault(); show(false); }
       });
     });

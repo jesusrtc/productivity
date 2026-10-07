@@ -4,7 +4,9 @@
 
 - [Task Markdown Command-click Edit/View](task-markdown-command-click-edit.md) — toggle task Markdown View/Edit with drafts preserved and pending edits saved.
 
-- [WIP tasks and terminals stay visible](wip-tasks-and-terminals-stay-visible.md) — permanent WIP subtask rows and open terminal ancestors, with no hover or automatic launch.
+- [Subterminals without own WIP use parent hover](subterminals-without-own-wip-task-use-parent-hover.md) — own-WIP children stay visible; automation, inherited and non-WIP children fold even when selected.
+
+- [WIP tasks and terminals stay visible](wip-tasks-and-terminals-stay-visible.md) — permanent WIP subtask rows; terminal inheritance superseded by the parent-hover clarification.
 
 - [Automation terminals show white bullets when folded](automation-terminal-folded-white-bullets.md) — one compact marker per terminal; expanded rows retain plain white names.
 
@@ -46,7 +48,7 @@
 
 - [Terminal Objective groups expand one at a time](terminal-objective-groups-expand-one-at-a-time.md) — headers and the dropdown select the same expanded group; inactive tabs stay folded and sessions keep running.
 
-- [Terminal subtabs use hover and an explicit drop choice](terminal-subtabs-use-hover-and-explicit-drop-choice.md) — saved nested children, Move below/Make child/Cancel, selected-child visibility, cycle guards and native browser checks.
+- [Terminal subtabs use hover and an explicit drop choice](terminal-subtabs-use-hover-and-explicit-drop-choice.md) — saved nested children, Move below/Make child/Cancel, cycle guards and native browser checks; selected-child visibility superseded above.
 
 - [Objective activation follows linked terminals](objective-activation-follows-linked-terminals.md) — whole Objective ↔ terminal navigation selects the associated context without recursive switches or passive restoration overrides.
 

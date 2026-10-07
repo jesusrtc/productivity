@@ -50,7 +50,9 @@ An exited command prints its exit code and leaves an interactive shell with the
 logs retained. Expanded automation tabs show only their saved names in white,
 without icons, status badges or folder captions. The folded rail shows one white
 bullet per automation terminal, with names revealed on expansion. Child-tab hover
-expansion and terminal controls still apply. A stopped automation adds a **↻**
+expansion and terminal controls still apply. Automation children appear only
+while hovering over their parent or using keyboard disclosure, even when active
+or inheriting a WIP task. A stopped automation adds a **↻**
 relaunch button beside its tab. Its parent gets the same control to relaunch all
 stopped descendants together; running or unknown children are skipped.
 
@@ -70,9 +72,10 @@ working directory: exit 0 means running, exit 1 means stopped, and other failure
 or a timeout mean unknown. It is only used when no foreground process remains.
 
 Children inherit the parent task's Objective context without taking its primary
-task association. Children of a workspace main remain visible; children of an
-Objective main appear with the active Objective. Task children follow the usual
-WIP/selected-task filter. The fixed main itself remains a root. A launch selects
+task association. Children of a workspace main remain available under that main;
+children of an Objective main appear under the active Objective's main on hover.
+Task children follow the usual WIP/selected-task filter and the same parent-hover
+disclosure. The fixed main itself remains a root. A launch selects
 the first child unless the user has navigated to another task or workspace.
 
 Definitions live in the workspace's `.lab/terminal-automations.json`, so every

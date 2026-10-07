@@ -18,3 +18,7 @@ branches and close inactive branches when leaving the stable rail. The Objective
 resource-drop handler must let terminal-to-terminal drops reach the rail handler.
 Native disposable Chrome checks cover both orientations, hover, cancel, selection,
 Objective headers/dropdown, ordinary rails, reload and preserved identities.
+
+The user's October 7, 2026 clarification supersedes keeping an active child
+visible when it has no own WIP task or is an automation. See
+[Subterminals without their own WIP task use parent hover](subterminals-without-own-wip-task-use-parent-hover.md).
