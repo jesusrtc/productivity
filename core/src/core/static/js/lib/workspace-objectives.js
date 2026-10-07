@@ -10,6 +10,7 @@
   let taskCloseButton, taskCloseHost, taskCloseObserver, taskCloseResizeObserver, taskCloseFrame, taskModeHeader, taskModeSpacer;
   let taskStatusMenu, assetContextMenu;
   let refreshTimer;
+  const taskEditIdleMs = 3 * 60 * 1000;
   let worktreeFoldTimer, draggingWorktree = false;
   const taskStatuses = {todo:{icon:'⬜',label:'Undo'},in_progress:{icon:'🟡',label:'In progress'},done:{icon:'✅',label:'Completed'},paused:{icon:'⏸',label:'Paused'},wont_do:{icon:'🚫',label:"Won’t do"}};
   const key = scope => (scope?.vault || '') + '::' + scope?.workspace_id;
@@ -279,7 +280,7 @@
     const size=taskCloseButton.getBoundingClientRect().width||36;
     taskCloseButton.style.top=Math.max(box.top,tabs?.bottom||0)+16+'px';
     taskCloseButton.style.left=Math.max(box.left+8,box.right-size-16)+'px';
-    if(taskModeHeader){taskModeHeader.style.top=Math.max(box.top,tabs?.bottom||0)+8+'px';taskModeHeader.style.left=box.left+12+'px';taskModeHeader.style.width=Math.max(0,box.width-24)+'px';}
+    if(taskModeHeader){taskModeHeader.style.top=Math.max(box.top,tabs?.bottom||0)+8+'px';taskModeHeader.style.left=box.left+12+'px';taskModeHeader.style.width=Math.max(0,box.width-24)+'px';const height=Math.max(64,taskModeHeader.getBoundingClientRect().height+16);taskModeSpacer.style.height=height+'px';taskCloseHost.style.setProperty('--objective-task-header-height',height+'px');}
   }
   function scheduleTaskClosePosition() {
     if(taskCloseHost&&!taskCloseFrame)taskCloseFrame=requestAnimationFrame(()=>{taskCloseFrame=null;positionTaskClose();});
@@ -305,8 +306,9 @@
       taskCloseResizeObserver?.disconnect();taskCloseResizeObserver ||= new ResizeObserver(scheduleTaskClosePosition);taskCloseResizeObserver.observe(host);
     }
     host.classList.add('objective-task-center');
+    const draft=taskDocumentDraft(),editable=!draft||draftEditable(draft);
     taskModeHeader ||= document.createElement('div');taskModeHeader.className='objective-task-mode-head';taskModeHeader.dataset.taskModeHead='';
-    taskModeHeader.innerHTML=`<div class="objective-task-mode-title"><button type="button" data-task-icon="${esc(task.id)}" data-task-id="${esc(task.id)}" data-open-task="${esc(task.id)}" aria-label="Open ${esc(task.title)}" title="Drop an asset here to use its icon" draggable="true">${taskIcon(task)}</button><a href="${esc(taskHref(task))}" data-open-task="${esc(task.id)}">${taskNameHtml(task)}</a><label><input type="checkbox" data-task-done="${esc(task.id)}" aria-label="Complete ${esc(task.title)}" ${complete(task)?'checked':''}> Completed</label></div><div class="objective-task-mode-actions"><span>${esc(objective().name)}</span><div class="objective-task-modes" role="group" aria-label="Task focus mode">${['off','semi','focus'].map(mode=>`<button type="button" data-task-focus-mode="${mode}" aria-pressed="${taskFocus().mode===mode}">${mode[0].toUpperCase()+mode.slice(1)}</button>`).join('')}</div><button type="button" data-edit-objective-task="${esc(task.id)}">Edit task</button></div>`;
+    taskModeHeader.innerHTML=`<div class="objective-task-mode-title"><button type="button" data-task-icon="${esc(task.id)}" data-task-id="${esc(task.id)}" data-open-task="${esc(task.id)}" aria-label="Open ${esc(task.title)}" title="Drop an asset here to use its icon" draggable="${editable}">${taskIcon(task)}</button><a href="${esc(taskHref(task))}" data-open-task="${esc(task.id)}">${taskNameHtml(task)}</a><label><input type="checkbox" data-task-done="${esc(task.id)}" aria-label="Complete ${esc(task.title)}" ${complete(task)?'checked':''}${editable?'':' disabled'}> Completed</label></div><div class="objective-task-mode-actions"><span>${esc(objective().name)}</span><div class="objective-task-modes" role="group" aria-label="Task focus mode">${['off','semi','focus'].map(mode=>`<button type="button" data-task-focus-mode="${mode}" aria-pressed="${taskFocus().mode===mode}">${mode[0].toUpperCase()+mode.slice(1)}</button>`).join('')}</div>${draft?`<div class="objective-task-modes objective-document-modes" role="group" aria-label="Document mode">${['view','edit'].map(mode=>`<button type="button" data-task-document-mode="${mode}" aria-pressed="${(mode==='edit')===editable}" title="${mode==='edit'?'Enable editing · returns to View after 3 minutes of inactivity':'Read only'}">${mode==='edit'?'Edit':'View'}</button>`).join('')}</div>`:''}<button type="button" data-edit-objective-task="${esc(task.id)}"${editable?'':' disabled'}>Edit task</button></div>`;
     taskModeSpacer ||= document.createElement('div');taskModeSpacer.className='objective-task-mode-spacer';taskModeSpacer.setAttribute('aria-hidden','true');
     if(taskModeSpacer.parentElement!==host)host.prepend(taskModeSpacer);
     if(taskModeHeader.parentElement!==host)host.append(taskModeHeader);
@@ -655,14 +657,44 @@
     resetLinkDraft(d,r);if(activeLinkDraft===d&&d.node?.isConnected)mountLinkDetails(d,o,r,document.getElementById('content'));
   }
   const dirtyDraft=draft=>draft.body!==draft.base;
+  const draftEditable=draft=>!draft.taskMode||draft.editMode;
+  function taskDocumentDraft() {return activeDraft?.taskMode&&activeDraft.node.isConnected&&activeDraft.objective===objective()?.id&&taskFocus()?activeDraft:null;}
+  function touchDraftEditing(draft) {
+    if(activeDraft!==draft||!draft.taskMode||!draft.editMode)return;
+    draft.activity=Date.now();clearTimeout(draft.editTimer);
+    draft.editTimer=setTimeout(()=>{
+      if(activeDraft!==draft||!draft.editMode)return;
+      const remaining=draft.activity+taskEditIdleMs-Date.now();
+      if(remaining>0){draft.editTimer=setTimeout(()=>setDraftEditMode(draft,false),remaining);return;}
+      setDraftEditMode(draft,false);
+    },taskEditIdleMs);
+  }
+  function setDraftEditMode(draft,edit) {
+    if(activeDraft!==draft||!draft.taskMode||!draft.node.isConnected)return;
+    draft.editMode=edit;clearTimeout(draft.editTimer);
+    if(edit)touchDraftEditing(draft);
+    else void(async()=>{if(draft.saving)await draft.pending;await saveDraft(draft);})();
+    if(draft.editDialog?.isConnected){
+      draft.editDialog.querySelectorAll('input,textarea,select,[type=submit]').forEach(node=>node.disabled=!edit);
+      draft.editDialog.querySelector('[role=status]').textContent=edit?'':'View mode · close this dialog and enable Edit to continue.';
+    }
+    renderDraftSurface(draft);paintTaskClose();
+  }
+  function draftEditDialog(draft,node) {if(draft?.taskMode){draft.editDialog=node;node._editDraft=draft;node.dataset.documentEditDialog='';}return node;}
+  function requireDraftEditing(draft) {if(draft&&(activeDraft!==draft||!draft.node.isConnected||!draftEditable(draft)))throw new Error('Enable Edit mode to make changes.');}
   function draftResource(draft,value=cache.get(key(draft.scope))) {return value?.objectives.find(o=>o.id===draft.objective)?.resources.find(r=>r.id===draft.resource);}
   function draftBody(resource,tab) {return tab?resource?.content?.tabs.find(t=>t.id===tab)?.body:resource?.content?.body;}
   function draftControls(draft) {
     if(activeDraft!==draft||!draft.node.isConnected)return;
     const host=draft.node.closest('.objective-document'),status=host.querySelector('.objective-document-status');
-    host.querySelector('[data-save-objective-document]').disabled=!dirtyDraft(draft)||draft.saving;
-    host.querySelector('[data-revert-objective-document]').disabled=draft.saving;
-    status.textContent=draft.error||draft.loadingError||(draft.saving?'Saving…':dirtyDraft(draft)?'Unsaved · saves after 10s idle':draft.saved?'Saved at '+new Date(draft.saved).toLocaleTimeString():'Click to edit · / for commands');
+    const editable=draftEditable(draft);
+    host.dataset.documentMode=editable?'edit':'view';
+    host.querySelector('[data-save-objective-document]').hidden=!editable;
+    host.querySelector('[data-save-objective-document]').disabled=!editable||!dirtyDraft(draft)||draft.saving;
+    host.querySelector('[data-revert-objective-document]').hidden=!editable;
+    host.querySelector('[data-revert-objective-document]').disabled=!editable||draft.saving;
+    host.querySelectorAll('[data-rename-objective-resource],[data-add-objective-subtab]').forEach(node=>node.disabled=!editable);
+    status.textContent=draft.error||draft.loadingError||(draft.saving?'Saving…':dirtyDraft(draft)?'Unsaved · saves after 10s idle':!editable?'View mode · enable Edit to make changes':draft.saved?'Saved at '+new Date(draft.saved).toLocaleTimeString():'Click to edit · / for commands');
     status.classList.toggle('error',!!(draft.error||draft.loadingError));
   }
   function scheduleDraft(draft) {
@@ -689,7 +721,7 @@
   function releaseDraft() {
     activeLinkDraft=null;
     const draft=activeDraft;if(!draft)return;
-    activeDraft=null;clearTimeout(draft.timer);
+    activeDraft=null;clearTimeout(draft.timer);clearTimeout(draft.editTimer);draft.editMode=false;
     // Navigation paints immediately. Capture the outgoing body and retain a
     // newer draft even when its preceding save has not finished yet.
     void (async()=>{if(draft.saving)await draft.pending;await saveDraft(draft);})();
@@ -703,45 +735,52 @@
     }else if(!dirtyDraft(draft)&&!draft.saving&&draft.base!==body){
       draft.base=draft.body=body;draft.syncing=true;if(draft.input)draft.input.value=body;draft.syncing=false;
     }
-    activeDraft=draft;host.replaceChildren(draft.node);
-    const mount=()=>{
-      if(activeDraft!==draft||!draft.node.isConnected||draft.input)return;
-      draft.loadingError='';
-      draft.node.replaceChildren();
-      draft.input=window.LabMarkdownEditor.create(draft.node,{body:draft.body,
-        onChange:text=>{if(draft.syncing)return;draft.body=text;draft.edited=Date.now();draftControls(draft);scheduleDraft(draft);},
-        onSave:()=>saveDraft(draft,true)});
-      draftControls(draft);
-    };
-    if(window.LabMarkdownEditor&&window.marked&&window.DOMPurify)mount();
-    else{
-      // Resources can open while the lazy editor/parser scripts are still in
-      // flight. Rendering the preview also needs Marked and DOMPurify.
-      draft.node.textContent='Loading document…';
-      Promise.resolve().then(()=>bridge.readyContent?.()).then(()=>{
-        if(activeDraft!==draft||!draft.node.isConnected||draft.input)return;
-        if(!window.marked||!window.DOMPurify)throw new Error('Could not load Markdown rendering');
-        if(window.LabMarkdownEditor)mount();
-        else{
-          draft.node.innerHTML=window.LabMarkdown.render(draft.body);
-          return window.ensureLiveMarkdownEditor().then(mount);
-        }
-      }).catch(error=>{draft.loadingError=error.message;if(activeDraft===draft&&!draft.input)draft.node.textContent=draft.body;draftControls(draft);});
-    }
+    draft.taskMode=!!taskFocus();draft.editMode=!draft.taskMode;
+    activeDraft=draft;host.replaceChildren(draft.node);renderDraftSurface(draft);paintTaskClose();
     draftControls(draft);scheduleDraft(draft);
     for(const [entry,value] of drafts){
       if(drafts.size<=32)break;
       if(value!==activeDraft&&!value.saving&&!dirtyDraft(value)){value.input?.destroy();drafts.delete(entry);}
     }
   }
+  function renderDraftSurface(draft) {
+    if(activeDraft!==draft||!draft.node.isConnected)return;
+    if(!window.marked||!window.DOMPurify||draftEditable(draft)&&!window.LabMarkdownEditor){
+      // Resources can open while the lazy editor/parser scripts are still in
+      // flight. Rendering the preview also needs Marked and DOMPurify.
+      draft.node.textContent='Loading document…';
+      draft.loading ||= Promise.resolve().then(()=>bridge.readyContent?.()).then(()=>{
+        if(activeDraft!==draft||!draft.node.isConnected)return;
+        if(!window.marked||!window.DOMPurify)throw new Error('Could not load Markdown rendering');
+        if(draftEditable(draft)&&!window.LabMarkdownEditor)return window.ensureLiveMarkdownEditor();
+      }).then(()=>{draft.loading=null;if(activeDraft===draft&&draft.node.isConnected)renderDraftSurface(draft);})
+        .catch(error=>{draft.loading=null;draft.loadingError=error.message;if(activeDraft===draft)draft.node.textContent=draft.body;draftControls(draft);});
+      draftControls(draft);return;
+    }
+    draft.loadingError='';
+    if(!draftEditable(draft)){
+      draft.preview ||= document.createElement('div');draft.preview.className='assistant-markdown objective-document-preview';
+      draft.preview.innerHTML=window.LabMarkdown?.render(draft.body)??esc(draft.body);
+      draft.preview.querySelectorAll('[contenteditable]').forEach(node=>node.removeAttribute('contenteditable'));
+      draft.preview.querySelectorAll('input,textarea,select').forEach(node=>node.disabled=true);
+      draft.node.replaceChildren(draft.preview);
+    }else{
+      draft.editorNode ||= document.createElement('div');draft.editorNode.className='assistant-note-editor';draft.node.replaceChildren(draft.editorNode);
+      if(!draft.input)draft.input=window.LabMarkdownEditor.create(draft.editorNode,{body:draft.body,
+        onChange:text=>{if(draft.syncing||!draftEditable(draft))return;draft.body=text;draft.edited=Date.now();touchDraftEditing(draft);draftControls(draft);scheduleDraft(draft);},
+        onSave:()=>draftEditable(draft)&&saveDraft(draft,true)});
+      else draft.input.view?.requestMeasure();
+    }
+    draftControls(draft);
+  }
   async function revertDraft(draft) {
-    if(!draft||draft.saving)return;
+    if(!draft||!draftEditable(draft)||draft.saving)return;
     clearTimeout(draft.timer);await load(draft.scope,true);
     const body=draftBody(draftResource(draft),draft.tab);if(typeof body!=='string')return;
-    draft.base=draft.body=body;draft.error='';draft.syncing=true;if(draft.input)draft.input.value=body;draft.syncing=false;draftControls(draft);
+    draft.base=draft.body=body;draft.error='';draft.syncing=true;if(draft.input)draft.input.value=body;draft.syncing=false;renderDraftSurface(draft);
   }
   function form(title,fields,submit) {
-    dialog?.remove();const node=document.createElement('dialog');node.className='objective-dialog';node.innerHTML=`<form><header><h2>${esc(title)}</h2></header>${fields}<footer><button type="button" data-cancel>Cancel</button><button type="submit">Save</button></footer><p role="status"></p></form>`;document.body.append(node);dialog=node;node.showModal();node.querySelector('[data-cancel]').onclick=()=>{node.close();node.remove();};node.querySelector('form').onsubmit=async e=>{e.preventDefault();const button=node.querySelector('[type=submit]');button.disabled=true;try{await submit(new FormData(e.target));node.close();node.remove();}catch(error){node.querySelector('[role=status]').textContent=error.message;button.disabled=false;}};return node;
+    dialog?.remove();const node=document.createElement('dialog');node.className='objective-dialog';node.innerHTML=`<form><header><h2>${esc(title)}</h2></header>${fields}<footer><button type="button" data-cancel>Cancel</button><button type="submit">Save</button></footer><p role="status"></p></form>`;document.body.append(node);dialog=node;node.showModal();node.querySelector('[data-cancel]').onclick=()=>{node.close();node.remove();};node.querySelector('form').onsubmit=async e=>{e.preventDefault();const button=node.querySelector('[type=submit]');button.disabled=true;try{await submit(new FormData(e.target));node.close();node.remove();}catch(error){node.querySelector('[role=status]').textContent=error.message;button.disabled=!!node._editDraft&&!draftEditable(node._editDraft);}};return node;
   }
   const input=(label,name,value='',type='text',required=true)=>`<label>${esc(label)}<input name="${name}" type="${type}" value="${esc(value)}" ${required?'required':''}></label>`;
   function newObjective(slot=null) {const d=data();if(!d){const scope=key(context());void load().then(result=>{if(result&&key(context())===scope)newObjective(slot);});return;}form('New objective',input('Name','name')+input('Outcome','purpose','','text',false)+(d.objectives.length?'':'<label><span><input name="import_existing" type="checkbox" checked> Bring current workspace worktrees, files and links</span></label>')+(slot===null&&d.focused.filter(Boolean).length===focusSlots?`<label>Insert at<select name="slot">${d.focused.map((id,i)=>`<option value="${i}">Slot ${i+1} · ${esc(d.objectives.find(o=>o.id===id).name)}</option>`).join('')}</select></label>`:''),async values=>{const result=await change({type:'create',name:values.get('name'),purpose:values.get('purpose'),slot:values.has('slot')?Number(values.get('slot')):slot,import_existing:values.has('import_existing')});selectObjective(result.objectives.at(-1).id);bridge.refreshSidebar?.();});}
@@ -1002,6 +1041,7 @@
     const host=e.target.closest?.('[data-objectives-sidebar],.objective-working,.objective-task-mode-head,.objective-dialog,.objective-terminal-group,[data-objective-notebook-controls],.repo-tabs,.objective-switch-menu,.objective-asset-context-menu');
     if(!host)return;
     const node=e.target.closest('button,input,a');if(!node)return;
+    if(node.disabled)return;
     if(node.closest('.objective-asset-context-menu'))closeAssetContextMenu();
     if(node.dataset.menuAssignment){classifyAsset(JSON.parse(node.dataset.menuAsset),node.dataset.menuAssignment);return;}
     if(node.dataset.menuBucket){void change({type:'asset-bucket',objective_id:objective().id,...JSON.parse(node.dataset.menuAsset),bucket:node.dataset.menuBucket}).catch(()=>{});return;}
@@ -1011,7 +1051,8 @@
     if(node.hasAttribute('data-trash-objective-asset')){trashAsset(JSON.parse(node.dataset.trashObjectiveAsset));return;}
     if(node.hasAttribute('data-archive-objective-asset')||node.hasAttribute('data-restore-objective-asset')){void change({type:'asset-bucket',objective_id:objective().id,...JSON.parse(node.dataset.archiveObjectiveAsset||node.dataset.restoreObjectiveAsset),bucket:node.hasAttribute('data-archive-objective-asset')?'archive':'unassigned'}).catch(()=>{});return;}
     if(node.hasAttribute('data-show-unassigned')){collapse();Object.assign(overviewState(),{mode:'unassigned',query:''});persistView();renderOverview();return;}
-    if(node.dataset.editObjectiveTask){const task=tasks().find(t=>t.id===node.dataset.editObjectiveTask);form('Edit task',input('Task','title',task.title)+input('Due date','due',task.due||'','date',false),async values=>{await change({type:'task-update',objective_id:objective().id,task_id:task.id,title:values.get('title'),due:values.get('due')});});return;}
+    if(node.hasAttribute('data-task-document-mode')){const draft=taskDocumentDraft();if(draft)setDraftEditMode(draft,node.dataset.taskDocumentMode==='edit');return;}
+    if(node.dataset.editObjectiveTask){const draft=taskDocumentDraft();if(draft&&!draftEditable(draft))return;const task=tasks().find(t=>t.id===node.dataset.editObjectiveTask);draftEditDialog(draft,form('Edit task',input('Task','title',task.title)+input('Due date','due',task.due||'','date',false),async values=>{requireDraftEditing(draft);await change({type:'task-update',objective_id:objective().id,task_id:task.id,title:values.get('title'),due:values.get('due')});}));return;}
     if(node.dataset.openTask){if(node.tagName==='A'&&(e.metaKey||e.ctrlKey||e.shiftKey||e.altKey))return;e.preventDefault();openTask(node.dataset.openTask,'focus',{activateTerminal:true});return;}
     if(node.hasAttribute('data-task-focus-mode')){const f=taskFocus();if(f){f.mode=node.dataset.taskFocusMode;persistView();paint();}return;}
     if(node.dataset.taskAssets){openTaskAssets(node.dataset.taskAssets);return;}
@@ -1051,12 +1092,17 @@
     if(node.dataset.addSubtask){addTask(node.dataset.addSubtask);return;}
     if(node.dataset.taskDocument){openTask(node.dataset.taskDocument,'focus',{activateTerminal:true});return;}
     if(node.hasAttribute('data-objective-settings')){const o=objective();form('Objective settings',input('Name','name',o.name)+input('Outcome','purpose',o.purpose,'text',false),v=>change({type:'settings',objective_id:o.id,name:v.get('name'),purpose:v.get('purpose')}));return;}
-    if(node.dataset.renameObjectiveResource){const r=objective().resources.find(r=>r.id===node.dataset.renameObjectiveResource),tab=r.kind==='document'&&openView?.resource===r.id?openView.tab:null;form(tab?'Rename subtab':'Rename resource',input('Name','title',r.content?.tabs?.find(t=>t.id===tab)?.title||r.title),async v=>{await change({type:'rename',objective_id:objective().id,resource_id:r.id,tab_id:tab,title:v.get('title')});openResource(r.id,tab);});return;}
-    if(node.dataset.addObjectiveSubtab){form('New document subtab',input('Name','title'),async v=>{await change({type:'subtab',objective_id:objective().id,resource_id:node.dataset.addObjectiveSubtab,title:v.get('title'),body:''});openResource(node.dataset.addObjectiveSubtab);});return;}
-    if(node.hasAttribute('data-save-objective-document'))void saveDraft(activeDraft,true);
+    if(node.dataset.renameObjectiveResource){const draft=activeDraft;if(draft&&!draftEditable(draft))return;const r=objective().resources.find(r=>r.id===node.dataset.renameObjectiveResource),tab=r.kind==='document'&&openView?.resource===r.id?openView.tab:null;draftEditDialog(draft,form(tab?'Rename subtab':'Rename resource',input('Name','title',r.content?.tabs?.find(t=>t.id===tab)?.title||r.title),async v=>{requireDraftEditing(draft);await change({type:'rename',objective_id:objective().id,resource_id:r.id,tab_id:tab,title:v.get('title')});openResource(r.id,tab);}));return;}
+    if(node.dataset.addObjectiveSubtab){const draft=activeDraft;if(draft&&!draftEditable(draft))return;draftEditDialog(draft,form('New document subtab',input('Name','title'),async v=>{requireDraftEditing(draft);await change({type:'subtab',objective_id:objective().id,resource_id:node.dataset.addObjectiveSubtab,title:v.get('title'),body:''});openResource(node.dataset.addObjectiveSubtab);}));return;}
+    if(node.hasAttribute('data-save-objective-document')&&activeDraft&&draftEditable(activeDraft))void saveDraft(activeDraft,true);
     if(node.hasAttribute('data-revert-objective-document'))void revertDraft(activeDraft);
   }
   document.addEventListener('click',handleClick);
+  for(const type of ['pointerdown','keydown','input','scroll'])document.addEventListener(type,event=>{
+    const draft=taskDocumentDraft();
+    if(draft&&(event.target.closest?.('.objective-document,.objective-task-mode-head,[data-document-edit-dialog]')
+      ||type==='scroll'&&event.target.contains?.(draft.node)))touchDraftEditing(draft);
+  },true);
   document.addEventListener('mouseover',event=>{
     const target=event.target.closest?.('[data-current-objective],.objective-switch-menu');
     if(target){clearTimeout(switchTimer);if(target.hasAttribute('data-current-objective'))showSwitchMenu();}
@@ -1079,7 +1125,7 @@
   document.addEventListener('scroll',event=>{if(switchMenu&&event.target.matches?.('.repo-tabs'))closeSwitchMenu();},true);
   document.addEventListener('click',event=>{
     if(active(context()?.path)&&event.target.closest?.('#sidebar,.repo-tabs,#termSessionList')
-      &&!event.target.closest('[data-objectives-sidebar],.objective-tab')){
+      &&!event.target.closest('[data-objectives-sidebar],.objective-tab,[data-objective-terminals-all]')){
       releaseDraft();collapse();state().selected=null;if(event.target.closest('[data-open-file],#termSessionList .sess')){state().view='objective';persistView();}paint();
     }
   },true);
@@ -1094,7 +1140,7 @@
     if(!node.matches('[data-objective-search],[data-objective-filter],[data-objective-status-filter]'))return;
     state()[node.hasAttribute('data-objective-search')?'query':node.hasAttribute('data-objective-filter')?'filter':'statusFilter']=node.value;paintLibrary();
   });
-  document.addEventListener('change',e=>{const node=e.target;if(node.hasAttribute('data-objective-overview-mode')){overviewState().mode=node.value;persistView();paintOverviewResults();return;}if(!node.matches('[data-task-done],[data-task-due]'))return;const o=objective(),id=node.dataset.taskDone||node.dataset.taskDue,patch=node.dataset.taskDone?{done:node.checked}:{due:node.value};change({type:'task-update',objective_id:o.id,task_id:id,...patch},{optimistic:d=>{const owner=d.objectives.find(item=>item.id===o.id);if('done'in patch)patchTaskStatus(owner,id,patch.done?'done':'todo');else Object.assign(tasks(owner).find(t=>t.id===id),patch);}}).catch(()=>{});});
+  document.addEventListener('change',e=>{const node=e.target;if(node.disabled)return;if(node.hasAttribute('data-objective-overview-mode')){overviewState().mode=node.value;persistView();paintOverviewResults();return;}if(!node.matches('[data-task-done],[data-task-due]'))return;const o=objective(),id=node.dataset.taskDone||node.dataset.taskDue,patch=node.dataset.taskDone?{done:node.checked}:{due:node.value};change({type:'task-update',objective_id:o.id,task_id:id,...patch},{optimistic:d=>{const owner=d.objectives.find(item=>item.id===o.id);if('done'in patch)patchTaskStatus(owner,id,patch.done?'done':'todo');else Object.assign(tasks(owner).find(t=>t.id===id),patch);}}).catch(()=>{});});
   document.addEventListener('dragstart',e=>{
     const project=e.target.closest?.('[data-drag-objective],.objective-tab[data-select-objective]');
     if(project){
@@ -1123,9 +1169,10 @@
   document.addEventListener('dragleave',e=>e.target.closest?.('[data-objective-slot]')?.classList.remove('objective-drop-target'));
   document.addEventListener('dragend',()=>{const wasDragging=draggingWorktree;draggingWorktree=false;document.querySelectorAll('.objective-drop-target').forEach(n=>n.classList.remove('objective-drop-target'));if(wasDragging&&context()&&!state().worktreeBrowse&&!document.querySelector('.objective-worktree-navigation:hover'))worktreeFoldTimer=setTimeout(()=>foldWorktrees(),250);});
   const linkDropSelector='[data-task-id],[data-task-icon],[data-objective-asset],[data-objective-resource],[data-objective-root],[data-objective-worktree],[data-objective-bucket],.objective-archive,[data-objectives-sidebar] [data-select-objective],[data-objectives-sidebar] [data-open-objective-tasks],#sidebar [data-entry-kind],[data-open-file][data-filepath],#termSessionList .sess';
-  document.addEventListener('dragover',e=>{if(!active(context()?.path))return;const target=e.target.closest?.(linkDropSelector);if(e.dataTransfer.types.includes('application/x-lab-terminal')&&e.target.closest('#content,.assistant-inline-host')&&!e.target.closest('#sidebar')){e.preventDefault();e.stopImmediatePropagation();e.dataTransfer.dropEffect='none';return;}if(target&&[resourceMime,documentMime,'application/x-lab-file-path','application/x-lab-terminal',...(target.classList.contains('sess')?[objectiveMime]:[]),...(target.closest('[data-task-id],[data-objective-bucket]')?['text/uri-list','application/x-lab-reference']:[])].some(m=>e.dataTransfer.types.includes(m))){e.preventDefault();e.dataTransfer.dropEffect='link';if(target.hasAttribute('data-task-id'))target.classList.add('objective-drop-target');}},true);
+  document.addEventListener('dragover',e=>{if(!active(context()?.path))return;const draft=taskDocumentDraft();if(e.target.closest?.('.objective-task-mode-head')&&draft&&!draftEditable(draft)){e.preventDefault();e.stopImmediatePropagation();e.dataTransfer.dropEffect='none';return;}const target=e.target.closest?.(linkDropSelector);if(e.dataTransfer.types.includes('application/x-lab-terminal')&&e.target.closest('#content,.assistant-inline-host')&&!e.target.closest('#sidebar')){e.preventDefault();e.stopImmediatePropagation();e.dataTransfer.dropEffect='none';return;}if(target&&[resourceMime,documentMime,'application/x-lab-file-path','application/x-lab-terminal',...(target.classList.contains('sess')?[objectiveMime]:[]),...(target.closest('[data-task-id],[data-objective-bucket]')?['text/uri-list','application/x-lab-reference']:[])].some(m=>e.dataTransfer.types.includes(m))){e.preventDefault();e.dataTransfer.dropEffect='link';if(target.hasAttribute('data-task-id'))target.classList.add('objective-drop-target');}},true);
   document.addEventListener('dragleave',e=>{const row=e.target.closest?.('[data-task-id]');if(row&&!row.contains(e.relatedTarget))row.classList.remove('objective-drop-target');});
   document.addEventListener('drop',e=>{
+    const draft=taskDocumentDraft();if(e.target.closest?.('.objective-task-mode-head')&&draft&&!draftEditable(draft)){e.preventDefault();e.stopImmediatePropagation();return;}
     if(active(context()?.path)&&e.target.closest?.('#termSessionList [data-terminal-main]')){e.preventDefault();e.stopImmediatePropagation();notify('Main terminals have a fixed workflow or Objective context',true);return;}
     const project=e.dataTransfer.getData(objectiveMime),slot=e.target.closest?.('[data-objective-slot]');
     if(project&&slot){e.preventDefault();e.stopImmediatePropagation();slot.classList.remove('objective-drop-target');try{const item=JSON.parse(project);if(item.scope!==key(context()))throw new Error('Choose an objective in this workspace');void placeObjective(item.objective_id,Number(slot.dataset.objectiveSlot)).catch(()=>{});}catch(error){notify(error.message,true);}return;}

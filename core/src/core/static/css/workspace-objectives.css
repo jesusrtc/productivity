@@ -134,12 +134,14 @@
 .objective-task-mode-title input { accent-color:var(--accent); }
 .objective-task-mode-head button { border:0; background:none; color:var(--accent); padding:2px 4px; font-size:11px; cursor:pointer; }
 .objective-task-mode-title > button { flex-shrink:0; }
-.objective-task-mode-actions { margin-top:4px; }
+.objective-task-mode-actions { margin-top:4px; flex-wrap:wrap; }
+.objective-task-mode-head .objective-document-modes { padding-left:6px; border-left:1px solid var(--border); }
+.objective-task-mode-head button:disabled { color:var(--text-dim); cursor:default; }
 .objective-task-mode-actions > span { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text-dim); font-size:11px; }
 .objective-task-mode-head .objective-task-modes { margin:0; flex-wrap:nowrap; }
 .objective-task-center > .objective-working > header { padding-right:46px; min-height:36px; }
 .objective-task-center .nb-notebook-header { padding-right:60px; }
-.objective-task-center .nb-jump-controls { padding-right:60px; box-sizing:border-box; margin-top:64px; }
+.objective-task-center .nb-jump-controls { padding-right:60px; box-sizing:border-box; margin-top:var(--objective-task-header-height,64px); }
 .objective-task-center > .objective-task-close { position:fixed; right:auto; z-index:80; display:grid; place-items:center; width:36px; height:36px; padding:0; border:1px solid color-mix(in srgb,var(--red,#ff7b72) 45%,transparent); border-radius:7px; background:color-mix(in srgb,var(--red,#ff7b72) 12%,var(--bg-primary)); color:var(--red,#ff7b72); font-size:25px; line-height:1; cursor:pointer; }
 .objective-task-center > .objective-task-close:hover { border-color:var(--red,#ff7b72); background:color-mix(in srgb,var(--red,#ff7b72) 22%,var(--bg-primary)); }
 .objective-task-close:focus-visible { outline:2px solid var(--red,#ff7b72); outline-offset:3px; }
@@ -188,6 +190,8 @@
 .objective-task-tab-icon { display:inline-flex; align-items:center; margin-right:6px; flex-shrink:0; }
 .objective-document-context { display:flex; align-items:center; gap:8px; margin:12px 0; }
 .objective-note-editor { --lab-document-font-size:13px; }
+.objective-document-preview { font-size:var(--lab-document-font-size); line-height:1.65; user-select:text; }
+.objective-document-actions [hidden] { display:none; }
 .objective-document-actions { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin-top:18px; }
 .objective-document-status { font-size:11px; color:var(--text-secondary); }.objective-document-status.error { color:var(--red); }
 .objective-link-heading { display:flex; align-items:center; gap:8px; min-width:0; }

@@ -206,6 +206,16 @@ remains available while browsing native assets, follows the working viewport,
 and stays above the native notebook toolbar. Navigation saves outgoing document
 drafts. The selected mode is browser-local.
 
+Task Markdown opens in **View** mode with rendered, read-only content. Use the
+separate **View · Edit** switch beside the focus controls to enable the native
+editor. View disables document Rename/Save/Revert/new-subtab actions and the
+task header's completion, icon changes and Edit task controls. Reading, links,
+disclosures and focus controls remain available. Edit returns to View after
+three minutes without interaction with the document, header or its edit dialog;
+pending edits save and remain visible, including drafts with a save conflict.
+An open edit dialog locks its fields while preserving their values. Switching
+tasks or reopening details starts in View again; edit permission is not stored.
+
 Drag documents, document subtabs, notebooks, links, sublinks, files, folders or
 worktrees onto a task row to attach references. Assets can also be dropped onto
 the selected Task assets bucket or the task's asset-list dialog. Existing files
@@ -234,12 +244,13 @@ removing the chosen asset restores the status icon.
 
 The Unassigned **+** creates Markdown documents or `.ipynb` files,
 or links an existing workspace file. Owned documents support Rename and new
-subtabs. They open directly in the existing live Markdown editor:
+subtabs. Outside task mode, they open directly in the existing live Markdown editor:
 click formatted text to edit it in place, type `/` for commands, or use the
 editor's formatting shortcuts. **Save** and Cmd/Ctrl-S save immediately;
 autosave runs after ten seconds without typing, and navigation saves the
 outgoing draft. **Revert** loads the current saved version of that tab.
 Unsaved drafts and editor undo remain available when switching between tabs.
+Task-mode View/Edit switches preserve the same draft and editor undo.
 Conflicts retain the draft and halt automatic retries until the user saves or
 reverts; editing a subtab preserves its sibling content. Opening an owned
 Markdown file from Files uses the same editor.

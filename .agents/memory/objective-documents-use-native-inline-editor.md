@@ -1,7 +1,8 @@
 # Objective documents use the native inline editor
 
-Objective-owned Markdown opens directly in `LabMarkdownEditor`, reusing the
-existing formatted editing, slash commands and shortcuts. Subtabs live only in
+Outside task mode, Objective-owned Markdown opens directly in `LabMarkdownEditor`,
+reusing the existing formatted editing, slash commands and shortcuts. Task-mode
+documents now default to View; see [task document modes](task-documents-default-to-view-mode.md). Subtabs live only in
 the workspace's left menu. Linked Assistant documents keep their native editor
 and ownership, but their Objective inline presentation hides the inner tab rail
 and drawer; ordinary Assistant opens retain those controls.
