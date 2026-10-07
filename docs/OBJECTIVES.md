@@ -123,9 +123,16 @@ Clicking Root, Objective or a worktree exits task focus, selects that exact file
 scope and shows the native Files tree, including when it was already the selected
 scope. Recently updated appears on the left and all tasks/subtasks unfold in
 the middle so a worktree can be dragged onto multiple tasks. Folding Worktrees
-restores the previous task and its assets. Assigned worktree names and colors
-replace only a task's displayed name; its own Markdown, icon and assets remain.
+restores the previous task and its assets. Exactly one assigned worktree replaces
+a task's displayed name with its name and color. With zero or multiple assigned
+worktrees, the task keeps its own name, including in task headers and terminal
+tabs. Its own Markdown, icon, context and assets remain.
 Recently updated, vs main and Uncommitted retain their current settings.
+Unavailable comparisons share one compact notice instead of repeating a message
+under every worktree. Available checkout file results remain visible; empty
+scopes are omitted, and an entirely empty list shows one quiet message. Local
+main still compares with the exact local `main` ref. Choose Uncommitted or a time
+filter when that comparison is unavailable; there is no remote-branch fallback.
 Plain scope clicks do not open a folder modal. GitHub history and terminal
 actions remain explicit buttons on the selected scope row.
 
@@ -321,9 +328,9 @@ including parked Objectives with saved sessions. Toggle it again to return to
 one expanded Objective and its saved task filter. The same choice is available
 in Terminal settings.
 
-Task terminals use small status dots instead of checkbox/emoji badges. Their
-assigned worktree names retain each worktree's colored dot and text, including
-on recommended terminals. Names with existing worktree bullets use those colors
+Task terminals use small status dots instead of checkbox/emoji badges. A task
+with exactly one assigned worktree uses that worktree's colored dot and name,
+including on recommended terminals. Names with existing worktree bullets use those colors
 without an additional task-status dot, including in the compact rail; asset
 icons still appear when chosen. Independent children without a worktree bullet
 use a small dot for their inherited task status. Status names remain

@@ -43,6 +43,10 @@
 .objective-task-worktree-name { color:var(--worktree-color); }
 .objective-task-worktree-name i,.objective-worktree-recent > .sidebar-title i { display:inline-block; width:7px; height:7px; margin-right:5px; border-radius:50%; background:var(--worktree-color); }
 .objective-worktree-recent { margin-bottom:8px; }
+.objective-worktree-recent > .sidebar-title { display:flex; align-items:center; text-transform:none; letter-spacing:0; font-size:11px; }
+.objective-worktree-recent > .sidebar-title > i { flex-shrink:0; }
+.objective-worktree-recent > .sidebar-title > span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.objective-recent-status { padding:4px 16px 8px; color:var(--text-secondary); font:12px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; overflow-wrap:anywhere; }
 .objective-worktree-assignment-help { color:var(--text-secondary); font-size:13px; }
 [data-project-sidebar][data-objective-sidebar-mode]:not([data-objective-sidebar-mode=worktree]) > [data-project-directory],
 [data-project-sidebar][data-objective-sidebar-mode]:not([data-objective-sidebar-mode=worktree]) > .sidebar-scan-status,

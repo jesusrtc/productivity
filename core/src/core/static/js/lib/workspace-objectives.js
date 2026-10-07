@@ -77,10 +77,10 @@
     if(!task||!o)return [];
     return scopeRows(o).filter(row=>!isArchived({folder:{root:row.path,path:'.'}},o)&&(task.assets||[]).some(asset=>sameAsset(asset,{folder:{root:row.path,path:'.'}},o)));
   }
-  function taskDisplayName(task,o=objective()) {return taskWorktrees(task,o).map(row=>row.label).join(' + ')||task.title;}
+  function taskDisplayName(task,o=objective()) {const assigned=taskWorktrees(task,o);return assigned.length===1?assigned[0].label:task.title;}
   function taskNameHtml(task,o=objective()) {
     const assigned=taskWorktrees(task,o);
-    return assigned.length?assigned.map(row=>`<span class="objective-task-worktree-name" style="--worktree-color:${esc(row.color)}"><i aria-hidden="true"></i>${esc(row.label)}</span>`).join(' + '):esc(task.title);
+    return assigned.length===1?`<span class="objective-task-worktree-name" style="--worktree-color:${esc(assigned[0].color)}"><i aria-hidden="true"></i>${esc(assigned[0].label)}</span>`:esc(task.title);
   }
   function sidebarMode(path) {
     if(!active(path))return null;

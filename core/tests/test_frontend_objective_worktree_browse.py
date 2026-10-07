@@ -67,7 +67,7 @@ const _sidebarRecentSectionHtml=(files,active,root)=>files.map(f=>`<a data-entry
 const ProjectSidebar={read:(url,update,current,options)=>requests.push({url,update,current,options})};
 const view=document.querySelector('[data-project-sidebar]');view._project={baseRoot:'/workspace'};
 const host=view.querySelector('[data-project-recent]');
-function refresh(){const scopes=LabObjectives.recentScopes('/workspace');view.dataset.objectiveSidebarMode=LabObjectives.sidebarMode('/workspace');view.dataset.objectiveRecentScopes=scopes.length;_sidebarObjectiveRecent(view,host,scopes,'mtime',60,()=>true);}
+function refresh(mode='mtime'){const scopes=LabObjectives.recentScopes('/workspace');view.dataset.objectiveSidebarMode=LabObjectives.sidebarMode('/workspace');view.dataset.objectiveRecentScopes=scopes.length;_sidebarObjectiveRecent(view,host,scopes,mode,60,()=>true);}
 LabObjectives.connect({context:()=>({workspace_id:'workspace',vault:'fixture',path:'/workspace'}),prepareCenter:()=>{},scopeRoot:()=>fileRoot,selectWorktree:row=>{fileRoot=row.path},refreshRecent:refresh});
 const click=selector=>{const node=document.querySelector(selector);assert(node,'missing '+selector);node.click()};
 const drop=(tree,id)=>{const transfer=new DataTransfer();document.querySelector('.objective-worktrees [data-select-worktree="'+tree+'"]').dispatchEvent(new DragEvent('dragstart',{bubbles:true,cancelable:true,dataTransfer:transfer}));document.querySelector('#content [data-task-id="'+id+'"]').dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:transfer}));document.dispatchEvent(new DragEvent('dragend',{bubbles:true}));};
@@ -79,8 +79,7 @@ const reply=(request,path)=>{if(request.current())request.update({entries:[{path
  assert(document.querySelectorAll('.objective-worktrees [data-select-worktree]').length===3,'Root, Objective and Objective worktree tracked');
  assert(!document.querySelector('.objective-worktrees h4'),'clean worktree buttons without assignment headings');
  click('.objective-sidebar-task [data-open-task="parent"]');await tick();
- assert(document.querySelector('.objective-sidebar-task-title').textContent==='Root + topic','task display uses assigned scope names');
- assert(document.querySelector('.objective-sidebar-task-title i').style.background===''&&document.querySelector('.objective-task-worktree-name').style.getPropertyValue('--worktree-color')==='#8b949e','scope colors kept');
+ assert(document.querySelector('.objective-sidebar-task-title').textContent==='Original task'&&!document.querySelector('.objective-sidebar-task.active .objective-task-worktree-name'),'multiple worktrees preserve the task name');
  assert(document.querySelector('#content').textContent.includes('Details of Original task'),'original task Markdown is opened: '+errors.join(' / '));
  const oldRequests=requests.slice();
  document.querySelector('.objective-worktree-navigation').dispatchEvent(new MouseEvent('mouseenter'));
@@ -96,6 +95,7 @@ const reply=(request,path)=>{if(request.current())request.update({entries:[{path
  drop('topic','second');await tick();await tick();
  drop('objective-root','child');await tick();await tick();
  assert(actions.length===2&&actions.every(a=>!a.choose_icon),'worktree drag assigns many tasks without changing icons');
+ assert(document.querySelector('.objective-sidebar-task[data-task-id=second] .objective-task-worktree-name').textContent==='topic'&&document.querySelector('.objective-sidebar-task[data-task-id=second] .objective-task-worktree-name').style.getPropertyValue('--worktree-color')==='#bc8cff','one worktree replaces the task label with its own name and color');
  assert(second.assets.some(a=>a.folder.root==='/trees/topic')&&parent.children[0].assets.some(a=>a.folder.root===o.path),'task and subtask memberships persist');
  assert(parent.assets.length===2&&second.title==='Second task'&&parent.title==='Original task','assignment retains earlier owners and canonical titles');
  assert(LabObjectives.sidebarMode('/workspace')==='worktree','assignments keep browse mode open');
@@ -113,6 +113,16 @@ const reply=(request,path)=>{if(request.current())request.update({entries:[{path
  first.update(page);host.querySelector('[data-more-recent="workspace-root"]').click();
  const more=requests.at(-1);assert(more.url.includes('&offset=1')&&more.current(),'root-specific pagination');more.update({entries:[{path:'second.md',type:'file'}],total:2,next_offset:null});
  const loaded=host.querySelector('[data-recent-root="/workspace"]');first.update({...page,cache:{updated:2}});assert(host.querySelector('[data-recent-root="/workspace"]')===loaded&&loaded.textContent.includes('second.md'),'unchanged fresh snapshot preserves loaded pages and DOM');
+ refresh('local-main');
+ const comparisons=roots.map(root=>requests.filter(r=>r.url.includes('repo='+encodeURIComponent(root.path)+'&mode=local-main')).at(-1));
+ comparisons[0].update({entries:[],total:0,available:false,base_ref:'main'});
+ reply(comparisons[1],'still-visible.md');
+ assert(host.querySelectorAll('.objective-recent-status').length===1&&host.textContent.includes('Local main comparison unavailable')&&host.querySelector('[data-entry-root="/trees/topic"]'),'unavailable comparison stays compact and keeps successful checkout files visible');
+ comparisons[1].update({entries:[],total:0,available:false,base_ref:'main'});
+ assert(!host.querySelector('[data-recent-root]')&&host.querySelectorAll('.objective-recent-status').length===1&&host.textContent.includes('for 2 folders'),'many missing branches share one notice, without repeated empty worktree headings');
+ assert(getComputedStyle(host.querySelector('.objective-recent-status')).fontSize==='12px'&&host.textContent.includes('Choose Uncommitted or a time filter'),'comparison notice has explicit compact typography and explains alternate filters');
+ comparisons[0].update({entries:[],total:0,available:true});comparisons[1].update({entries:[],total:0,available:true});
+ assert(host.querySelectorAll('.objective-recent-status').length===1&&host.textContent==='No matching recent files','empty results share one quiet message');
  assert(errors.length===0,'no browser errors: '+errors.join('\n'));document.body.dataset.result='pass';
 }catch(error){document.body.dataset.result='fail';document.body.append(String(error.stack||error));}})();
 '''

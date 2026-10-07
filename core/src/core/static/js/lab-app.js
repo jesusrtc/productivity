@@ -4037,16 +4037,23 @@
       const signature = JSON.stringify([scopes.map(scope => host._scopeRecent.get(scope.id)), _workspaceDocPath]);
       if (host._signature === signature) return;
       host._signature = signature;
+      const unavailable = [], empty = [];
+      const status = message => `<div class="objective-recent-status" role="status">${esc(message)}</div>`;
       host.innerHTML = scopes.map(scope => {
         const data = host._scopeRecent.get(scope.id);
         const files = data?.entries?.filter(file => _sidebarRecentTypeAllowed(file)
           && (showWorkspaceDotFiles || !file.path.split('/').some(part => part.startsWith('.'))))
           .sort((a,b) => _sidebarCompareFiles(a,b,_sidebarCurrentSortMode('recent')));
-        const contents = !data ? 'Loading recent files…' : !files ? esc(data.error || data.cache?.error || 'Loading recent files…')
-          : files.length ? _sidebarRecentSectionHtml(files, _workspaceDocPath, scope.path, {resolved:true})
-          : data.available === false ? 'Comparison branch unavailable' : 'No matching recent files';
-        return `<section class="objective-worktree-recent" data-recent-root="${escAttr(scope.path)}"><div class="sidebar-title" style="--worktree-color:${escAttr(scope.color)}"><i aria-hidden="true"></i>${esc(scope.label)}</div>${contents}${data?.total > (data?.next_offset ?? files?.length) ? `<button class="sidebar-title-action" data-more-recent="${escAttr(scope.id)}">Show more (${files?.length || 0} of ${data.total})</button>` : ''}</section>`;
+        const more = data?.total > (data?.next_offset ?? files?.length);
+        if (files && !files.length && !more) { (data.available === false ? unavailable : empty).push(scope); return ''; }
+        const contents = !data ? status('Loading recent files…') : !files ? status(data.error || data.cache?.error || 'Loading recent files…')
+          : _sidebarRecentSectionHtml(files, _workspaceDocPath, scope.path, {resolved:true});
+        return `<section class="objective-worktree-recent" data-recent-root="${escAttr(scope.path)}"><div class="sidebar-title" style="--worktree-color:${escAttr(scope.color)}" title="${escAttr(scope.label)}"><i aria-hidden="true"></i><span>${esc(scope.label)}</span></div>${contents}${more ? `<button class="sidebar-title-action" data-more-recent="${escAttr(scope.id)}">Show more (${files?.length || 0} of ${data.total})</button>` : ''}</section>`;
       }).join('');
+      if (unavailable.length) {
+        const label = mode === 'local-main' ? 'Local main comparison' : 'Git comparison';
+        host.insertAdjacentHTML('beforeend', `<div class="objective-recent-status" role="status" title="${escAttr(unavailable.map(scope => scope.label).join('\n'))}">${esc(label)} unavailable${unavailable.length > 1 ? ` for ${unavailable.length} folders` : ''}. ${mode === 'local-main' ? 'Choose Uncommitted or a time filter.' : 'Choose a time filter.'}</div>`);
+      } else if (empty.length === scopes.length) host.innerHTML = status('No matching recent files');
       host.querySelectorAll('[data-more-recent]').forEach(button => button.onclick = () => {
         const scope = scopes.find(row => row.id === button.dataset.moreRecent), data = host._scopeRecent.get(scope.id);
         button.disabled = true;

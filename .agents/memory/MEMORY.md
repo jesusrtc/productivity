@@ -1,5 +1,9 @@
 # Memory index
 
+- [Task name overrides need one worktree](task-name-overrides-need-one-worktree.md) — preserve task names with multiple worktrees across task views and terminal tabs.
+
+- [Objective comparison notices stay compact](objective-comparison-notices-stay-compact.md) — one quiet unavailable/empty notice across assigned scopes, with successful results retained.
+
 - [Terminal names keep existing colored bullets](terminal-names-keep-existing-colored-bullets.md) — retain red/blue worktree bullets without another status dot, including recommended terminals and the compact rail.
 
 - [Terminal task statuses use small dots](terminal-task-statuses-use-small-dots.md) — simple dot/name rows, 5px task dots including inherited children, colored worktree names and accessible status labels.
