@@ -29,6 +29,7 @@ def test_index_does_not_hot_load_a_new_backend_context_contract(monorepo, tmp_pa
         assert 'window.newSetting' not in first.text
         assert 'window.LAB_LINK_SERVICES = [' in first.text
         assert 'window.LAB_NATIVE_BROWSER_REUSE = false;' in first.text
+        assert '/static/js/lib/sidebar-drawer.js?v=' in first.text
         # Cache invalidation still picks up asset changes without changing the
         # process's template/context pair, including uncached shell variants.
         index.write_text(index.read_text() + '<!-- second pull -->')
@@ -46,6 +47,7 @@ def test_objective_assets_invalidate_shell_and_sandbox(monorepo, tmp_path, monke
     assets = (
         'js/lib/task-context.js', 'js/lib/workspace-objectives.js', 'css/workspace-objectives.css',
         'js/views/objectives-demo.js', 'css/objectives-demo.css',
+        'js/lib/sidebar-drawer.js',
         'demos/objectives/index.html', 'demos/objectives/objectives.js',
         'demos/objectives/objectives.css',
     )

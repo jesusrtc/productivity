@@ -11686,6 +11686,7 @@
     const input = document.getElementById('termTabHoverPinSeconds');
     if (input) input.value = String(termTabHoverPinSeconds);
     _termSessionDrawer?.refreshHoverDelay();
+    window.LabSidebarDrawer?.refreshHoverDelay();
   }
 
   function _termNormalizeRecentMinutes(value) {
@@ -12002,6 +12003,12 @@
   // initial `?view=…` dispatch.
   const _SIDEBAR_VIS_KEY_PREFIX = 'labSidebarShown:';
   const _SIDEBAR_PCT_KEY_PREFIX = 'labSidebarPct:';
+  window.LabSidebarDrawer?.connect({
+    hoverSeconds: () => termTabHoverPinSeconds,
+    beforeWidthChange: () => _resetSidebarLayout(document.getElementById('sidebar')),
+    afterWidthChange: () => _primeSidebarLayout(document.getElementById('sidebar')),
+    applyView: () => _sidebarApplyForView(),
+  });
   _termApplyRecentSettings();
 
   // Productivity Admin's Servers / Terminals sections. Independent poll loop
@@ -13056,6 +13063,7 @@
     return 'unknown';
   }
   function sidebarToggleCollapse() {
+    if (window.LabSidebarDrawer?.toggle()) return;
     document.body.classList.toggle('sidebar-collapsed');
     const shown = !document.body.classList.contains('sidebar-collapsed');
     try { localStorage.setItem(_SIDEBAR_VIS_KEY_PREFIX + _sidebarViewSuffix(), shown ? '1' : '0'); } catch {}
@@ -13084,6 +13092,7 @@
       // drag.
       document.documentElement.style.removeProperty('--sidebar-width');
     }
+    window.LabSidebarDrawer?.applyForView(sfx);
   }
 
   // Percentage-based resize of the two vertical dividers between the
@@ -13174,7 +13183,7 @@
     // Main/terminal divider: dragging left grows this workspace's terminal.
     wire('termResizer', 'term-resizing', (dx, _startSidebar, startTerm) => {
       const nextPx = Math.max(MIN_TERM_PX, (startTerm * vw() / 100) - dx);
-      const sidebarPx = currentSidebarPct() * vw() / 100;
+      const sidebarPx = window.LabSidebarDrawer?.layoutWidth() ?? currentSidebarPct() * vw() / 100;
       const maxPx = vw() - sidebarPx - MIN_MAIN_PX;
       const clamped = Math.min(nextPx, Math.max(MIN_TERM_PX, maxPx));
       setTermPct(pxToPct(clamped));

@@ -2683,7 +2683,7 @@ console.log(JSON.stringify({defaults,saved,visible,other,otherVisible,otherVault
     ('g:line', True, 'build', ['s:b','s:c','s:a','g:line'], 'build'),
 ])
 def test_drag_preview_plan_matches_order_and_group_without_writing(destination, before, group_id, expected_order, expected_group) -> None:
-    normalize = _js_between('  function _termNormalizeGroupState(raw)', '  function _termReadGroupState()')
+    normalize = _js_between('  function _termNormalizeGroupState(raw)', '  function _termReadGroupState(')
     parents = _js_between('  function _termSubtabParents(', '  function _termArrangeSubtabRows(')
     reconcile = _js_between('  function _termReconcileGroupOrder(state)', '  function termCreateDivider(')
     plan = _js_between('  function _termPlanItemMove(', '  function _termClearDropPreview()')

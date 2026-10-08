@@ -686,6 +686,7 @@ def create_app() -> FastAPI:
         _STATIC_DIR / "js" / "lib" / "resources.js",
         _STATIC_DIR / "css" / "resources.css",
         _STATIC_DIR / "js" / "lib" / "log-alert.js",
+        _STATIC_DIR / "js" / "lib" / "sidebar-drawer.js",
         _STATIC_DIR / "css" / "lab-shell.css",
         _STATIC_DIR / "js" / "lib" / "error-report.js",
     )

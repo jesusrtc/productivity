@@ -2375,6 +2375,40 @@
   body.sidebar-collapsed .main { margin-left: 0; }
   body.sidebar-collapsed .sidebar-toggle { left: 0; }
 
+  /* The first column mirrors the terminal name rail. Its full width is an
+     overlay; the working area always reserves only the compact 62px slot. */
+  body.sidebar-drawer-enabled { --sidebar-rail-width: 62px; --sidebar-drawer-width: max(150px, min(var(--sidebar-width), calc(100vw - 62px))); }
+  body.sidebar-drawer-enabled .sidebar { box-sizing: border-box; width: var(--sidebar-rail-width); min-width: 0; overflow-x: hidden; z-index: 70; scrollbar-width: thin; }
+  body.sidebar-drawer-enabled .main { margin-left: var(--sidebar-rail-width); }
+  body.sidebar-drawer-enabled .sidebar-resizer { display: none; }
+  body.sidebar-drawer-enabled .sidebar-toggle { left: var(--sidebar-rail-width); z-index: 72; }
+  body.sidebar-drawer-enabled .nb-jump-controls { left: var(--sidebar-rail-width); }
+  body.sidebar-drawer-enabled.sidebar-drawer-open .sidebar { width: var(--sidebar-drawer-width); box-shadow: 8px 0 20px #0004; }
+  body.sidebar-drawer-enabled.sidebar-drawer-open .sidebar-resizer { display: block; left: var(--sidebar-drawer-width); z-index: 73; }
+  body.sidebar-drawer-enabled.sidebar-drawer-open .sidebar-toggle { left: var(--sidebar-drawer-width); }
+  body.sidebar-drawer-enabled.has-repo-tabs .sidebar-resizer { top: 124px; }
+  body.sidebar-drawer-enabled.has-repo-tabs:not(.has-diff-tabs) .sidebar-resizer { top: 84px; }
+  body.sidebar-drawer-enabled:not(.sidebar-drawer-open) .sidebar :is(.sidebar-title, .sidebar-agent-instructions-label) { display: block; padding-left: 6px; padding-right: 6px; font-size: 9px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  body.sidebar-drawer-enabled:not(.sidebar-drawer-open) .sidebar :is(.sidebar-title-actions, .sidebar-title-action, .sidebar-actions, .sidebar-file-config-cog, .sidebar-agent-instructions-note, .symlink-legend, .sidebar-create, .objective-asset-tools, .objective-sidebar-task-count, .objective-progress) { display: none; }
+  body.sidebar-drawer-enabled:not(.sidebar-drawer-open) .sidebar :is(.sidebar-file, .sidebar-folder) { padding-left: 6px; padding-right: 3px; gap: 2px; }
+  body.sidebar-drawer-enabled:not(.sidebar-drawer-open) .sidebar .ft-icon { margin-right: 0; }
+  body.sidebar-drawer-enabled:not(.sidebar-drawer-open) .sidebar .sidebar-folder-children { padding-left: 2px; }
+  body.sidebar-drawer-enabled:not(.sidebar-drawer-open) .sidebar .sidebar-folder-children::before { display: none; }
+  body.sidebar-drawer-enabled:not(.sidebar-drawer-open) .sidebar :is(.sidebar-recent-selectors, .objective-resources, .objective-worktrees, .objective-sidebar-task-list) { padding-left: 4px; padding-right: 4px; }
+  body.sidebar-drawer-enabled:not(.sidebar-drawer-open) .sidebar .sidebar-scope-chip { padding: 0; }
+  body.sidebar-drawer-enabled:not(.sidebar-drawer-open) .sidebar .sidebar-scope-chip :is(.sidebar-scope-color, .sidebar-scope-pin, .sidebar-repo-history, .sidebar-link-terminal, .sidebar-worktree-pull) { display: none; }
+  body.sidebar-drawer-enabled:not(.sidebar-drawer-open) .sidebar .sidebar-file-scope-button { padding: 4px; overflow: hidden; }
+  body.sidebar-drawer-enabled:not(.sidebar-drawer-open) .sidebar .objective-sidebar-heading { margin-left: 4px; margin-right: 4px; gap: 0; }
+  body.sidebar-drawer-enabled:not(.sidebar-drawer-open) .sidebar .objective-sidebar-heading > [data-objective-settings] { display: none; }
+  body.sidebar-drawer-enabled:not(.sidebar-drawer-open) .sidebar .objective-sidebar-heading > [data-select-objective] { gap: 3px; padding: 7px 0; font-size: 10px; }
+  body.sidebar-drawer-enabled:not(.sidebar-drawer-open) .sidebar .objective-title > button { font-size: 9px !important; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  body.sidebar-drawer-enabled:not(.sidebar-drawer-open) .sidebar .objective-title > button:not(:first-child) { display: none; }
+  body.sidebar-drawer-enabled:not(.sidebar-drawer-open) .sidebar .objective-sidebar-task { gap: 2px; }
+  body.sidebar-drawer-enabled:not(.sidebar-drawer-open) .sidebar .objective-sidebar-task.child { margin-left: 3px; }
+  body.sidebar-drawer-enabled:not(.sidebar-drawer-open) .sidebar .objective-sidebar-task > button { width: 18px; padding: 0; }
+  body.sidebar-drawer-enabled:not(.sidebar-drawer-open) .sidebar .objective-sidebar-task > button:empty { display: none; }
+  body.sidebar-drawer-enabled:not(.sidebar-drawer-open) .sidebar .objective-sidebar-task-title { font-size: 10px; }
+
   /* Workspace proxy iframe — fullscreen mode hides the rest of the lab
      UI chrome (sidebar, attrs/repo/diff bars, terminal panel, topbar)
      so the proxied app fills the viewport. Pure CSS toggle; the JS

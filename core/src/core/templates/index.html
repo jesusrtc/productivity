@@ -39,6 +39,7 @@ window.ensureLiveMarkdownEditor = (function () {
 <script src="/static/js/lib/terminal-automations.js?v={{ ASSET_V }}" defer></script>
 <script src="/static/js/lib/project-sidebar.js?v={{ ASSET_V }}" defer></script>
 <script src="/static/js/lib/sidebar-scope-picker.js?v={{ ASSET_V }}" defer></script>
+<script src="/static/js/lib/sidebar-drawer.js?v={{ ASSET_V }}" defer></script>
 <script>window.LAB_LINK_SERVICES = {{ LINK_SERVICES | tojson }};</script>
 <script src="/static/js/lib/scope-links.js?v={{ ASSET_V }}" defer></script>
 <link rel="stylesheet" href="/static/css/settings-center.css?v={{ ASSET_V }}">
@@ -391,7 +392,7 @@ window.ensureLiveMarkdownEditor = (function () {
 <div class="nb-toolbar-tooltip" id="nbToolbarTooltip" role="tooltip" hidden></div>
 <div class="term-session-tooltip" id="termSessionTooltip" role="tooltip" hidden></div>
 <div class="term-toggle" id="termToggle" onclick="termToggleCollapse()" title="Show/hide terminal">Terminal</div>
-<div class="sidebar-toggle" id="sidebarToggle" onclick="sidebarToggleCollapse()" title="Show/hide files sidebar (remembered per workspace)">Files</div>
+<div class="sidebar-toggle" id="sidebarToggle" role="button" tabindex="0" aria-controls="sidebar" aria-expanded="false" onclick="sidebarToggleCollapse()" title="Show full sidebar">Files</div>
 
 <!-- Session chooser opened from Terminal → + New. Its target workspace is
      captured when the button is clicked so navigation cannot redirect an

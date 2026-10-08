@@ -284,7 +284,7 @@
       form(panel,`<p class="settings-intro">Appearance for terminal tabs throughout Lab in this browser.</p>
         ${field('Tab layout',choices('orientation',p.orientation,[['vertical','Vertical'],['horizontal','Horizontal']]))}
         <p class="settings-hint">Hover over vertical tabs to show their names. Click the tab bar to keep it open; click inside the terminal to hide it. Drag its border to resize the names.</p>
-        ${field('Keep tab names open after hovering (seconds)',input('tabHoverPinSeconds',p.tabHoverPinSeconds ?? 3,'number','min="0" max="60" step="0.1" required'),'Default: 3 seconds. A shorter hover closes when you leave the tab bar. Zero keeps it open immediately.')}
+        ${field('Keep terminal tabs and sidebar open after hovering (seconds)',input('tabHoverPinSeconds',p.tabHoverPinSeconds ?? 3,'number','min="0" max="60" step="0.1" required'),'Default: 3 seconds. A shorter hover closes when you leave. Clicking the sidebar keeps it open until you click the main work area. Zero keeps it open immediately.')}
         ${check('wipOnly','Show In progress and selected task terminals in Objectives',p.wipOnly ?? true)}
         <p class="settings-hint">On by default. Show In progress tasks, the selected task at any status and children that inherit its context. The workspace main stays visible; only the active Objective's main appears. Use Show all beside its header to reveal that Objective's terminals, or turn this off to reveal all Objectives and statuses.</p>
         ${check('recentEnabled','Show recency bar on terminal tabs',p.recentEnabled)}

@@ -1,5 +1,7 @@
 # Memory index
 
+- [First column mirrors the terminal rail](first-column-mirrors-terminal-rail.md) — compact 62px sidebar, shared hover delay, deliberate selection and main-area/console click dismissal with stable work-area geometry.
+
 - [Set as main swaps with the immediate parent](child-main-swaps-immediate-parent.md) — preserve grandparent rows, correct earlier root-level choices, and keep real-parent recovery ownership.
 
 - [Child terminal main is display only](child-terminal-main-is-display-only.md) — swap a nominated child into the colored top row; retain its real parent and relaunch ownership, with browser-scoped restore.
