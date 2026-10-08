@@ -4,6 +4,28 @@ Objectives own tasks, links, file/document references and worktree memberships
 in their workspace's `objectives/<folder>/.objective.json`. Use Lab's locked
 store, never hand-edit these manifests or workspace/task metadata.
 
+Tasks support automatic recurrence through **New task / Edit task** or the
+schedule control beside the due date. Configure every X days/weeks/months/years,
+a due date, deadline time, time zone and reactivation window. The default window
+is one day; daily work can use one hour. Recurrence reopens the same task ID and
+its existing subtasks/checklists. Unfinished overdue work keeps its deadline.
+Schedule a parent or its subtasks, not both. See `lab context tasks` for the
+calendar and reactivation rules shared with document-owned Assistant tasks.
+
+The `task` and `task-update` actions accept `recurrence: null` (Once) or:
+
+```json
+{"every":1,"unit":"week","time":"17:00","timezone":"America/Los_Angeles","reactivate_before_minutes":1440}
+```
+
+Task payloads expose derived `checklist` (`total`, `done`, `pending`) and
+`recurrence_state` (`due_at`, `waiting`, plus queued `next_due`, `next_due_at`,
+`reactivate_at`). These are read-only views, not fields to persist. Pending
+Markdown action items in the task's own details tab prevent completion, including
+parent completion when its own or a child's items remain pending. Checklist
+requirements are consequential: agents must use concrete user-defined actions,
+preserve their wording, and never invent, tick or remove items to fake progress.
+
 Inspect the current state with `lab objective ls --workspace <workspace-id>`.
 It returns the workspace revision, Objective IDs, task/subtask IDs, resources,
 shared assets, archived assets and `assignment_suggestions`. Read asset titles,

@@ -10,6 +10,7 @@ import re
 import uuid
 
 from lab import assistant_documents as documents, assistant_records as records
+from lab import task_checklists, task_cycles
 
 FORMAT = 'document-tasks-v1'
 STATUSES = {'not_started', 'in_progress', 'blocked', 'done', 'skipped', 'cancelled'}
@@ -49,7 +50,10 @@ def validate(tasks, tab_ids):
             raise ValueError('Linked tab is not in this document')
         for field in FIELDS - {'parent_id','tab_id','status','done'}:
             if field in task:
-                records.validate_value(None, task, field, task[field])
+                if field == 'recurrence' and isinstance(task[field], dict):
+                    task_cycles.validate(task[field], task.get('due'))
+                else:
+                    records.validate_value(None, task, field, task[field])
         by_id[task['id']] = task
     for task in tasks:
         seen = {task['id']}
@@ -61,6 +65,23 @@ def validate(tasks, tab_ids):
             if len(seen) > 30:
                 raise ValueError('Task nesting is limited to 30 levels')
             parent = by_id[parent].get('parent_id')
+    task_cycles.validate_tree(tasks)
+    for task in tasks:
+        if not isinstance(task.get('recurrence'), dict):
+            continue
+        branch = branch_ids(tasks, task['id'])
+        tabs = {item.get('tab_id') for item in tasks if item['id'] in branch and item.get('tab_id')}
+        if any(item['id'] not in branch and linked_tab(tasks, item) in tabs for item in tasks):
+            raise ValueError('A recurring task needs content tabs used only by its task and subtasks')
+
+
+def branch_ids(tasks, identifier):
+    result = {identifier}
+    while True:
+        more = {task['id'] for task in tasks if task.get('parent_id') in result} - result
+        if not more:
+            return result
+        result.update(more)
 
 
 def normalize(tasks):
@@ -86,6 +107,8 @@ def normalize(tasks):
             status = 'in_progress'
         else:
             status = 'not_started'
+        if status == 'done' and task.get('checklist', {}).get('pending'):
+            status = 'in_progress' if nested else 'not_started'
         task['status'] = status
         task['done'] = status in {'done','skipped'}
         return status
@@ -106,16 +129,43 @@ def linked_tab(tasks, task):
 def summary(tasks):
     tasks = normalize(tasks)
     parents = {task.get('parent_id') for task in tasks}
-    leaves = [task for task in tasks if task['id'] not in parents]
+    leaves = [task for task in tasks if task['id'] not in parents or task.get('checklist', {}).get('total')]
     pending = [task for task in leaves if task['status'] not in CLOSED]
     def branches(recurse, task, status):
         return sum(recurse(recurse,child,status) for child in tasks if child.get('parent_id') == task['id']) or int(task['status'] == status)
     roots = [task for task in tasks if not task.get('parent_id')]
-    status = None if not tasks else 'cancelled' if all(task['status'] == 'cancelled' for task in roots) else 'done' if not pending else 'blocked' if any(task['status'] == 'blocked' for task in tasks) else 'in_progress' if any(task['status'] != 'not_started' for task in tasks) else 'not_started'
+    status = None if not tasks else 'cancelled' if all(task['status'] == 'cancelled' for task in roots) else 'done' if all(task['status'] in CLOSED for task in roots) else 'blocked' if any(task['status'] == 'blocked' for task in tasks) else 'in_progress' if any(task['status'] != 'not_started' for task in tasks) else 'not_started'
     return {'status':status,'automatic_status':status,'tracked':bool(tasks),'derived':bool(tasks),
             'completed':sum(task['status'] in {'done','skipped'} for task in leaves), 'total':len(leaves),
             'pending':len(pending),'wip':sum(branches(branches,task,'in_progress') for task in roots),
             'blocked':sum(branches(branches,task,'blocked') for task in roots)}
+
+
+def with_content(meta, body, tabs):
+    """Only an explicit tab link assigns Markdown action items to a task."""
+    bodies = {meta['id']:body, **{tab['id']:text for tab,text in tabs}}
+    tasks = deepcopy(meta.get('tasks', []))
+    counts = {identifier:task_checklists.counts(bodies.get(identifier,'')) for identifier in {task.get('tab_id') for task in tasks}}
+    for task in tasks:
+        task['checklist'] = counts[task.get('tab_id')].copy()
+        task['recurrence_state'] = task_cycles.state(task)
+    return normalize(tasks)
+
+
+def from_rows(row, rows, *, by_parent=None):
+    return with_content(row, row.get('body',''), [(tab,tab.get('body','')) for tab in records.descendants(rows,row,by_parent=by_parent)])
+
+
+def settle(meta, body, tabs):
+    tasks = with_content(meta, body, tabs)
+    for task in tasks:
+        task.pop('checklist', None)
+        task.pop('recurrence_state', None)
+        if task['status'] == 'done':
+            task_cycles.completed(task)
+        else:
+            task_cycles.reopened(task)
+    meta['tasks'] = tasks
 
 
 def read(root, reference, *, record_rows=None):
@@ -129,14 +179,16 @@ def read(root, reference, *, record_rows=None):
     return source, raw, meta, body, tabs
 
 
-def view(root, reference, *, record_rows=None):
-    source, raw, meta, _, _ = read(root, reference, record_rows=record_rows)
-    tasks = normalize(meta.get('tasks', []))
+def view(root, reference, *, record_rows=None, _refresh=True):
+    if _refresh:
+        refresh_recurring(root, reference, record_rows=record_rows)
+    source, raw, meta, body, tabs = read(root, reference, record_rows=record_rows)
+    tasks = with_content(meta, body, tabs)
     return {'document_id':meta['id'],'path':source.relative_to(root).as_posix(),
             'revision':hashlib.sha256(raw).hexdigest(),'tasks':tasks,'summary':summary(tasks)}
 
 
-def mutate(meta, tabs, values, task_id=None, delete=False):
+def mutate(meta, tabs, values, task_id=None, delete=False, *, body=''):
     unknown = set(values) - FIELDS
     if unknown:
         raise ValueError('Unknown task fields: ' + ', '.join(sorted(unknown)))
@@ -152,7 +204,9 @@ def mutate(meta, tabs, values, task_id=None, delete=False):
     parent = next((item for item in tasks if item['id'] == values.get('parent_id')),None)
     if parent and parent['status'] in {'in_progress','blocked'}:
         parent['status_override'] = parent['status']
+    previous = deepcopy(task)
     task.update({key:value for key,value in values.items() if key not in {'status','done'}})
+    task_cycles.configure(task, values, previous)
     if isinstance(task.get('title'), str):
         task['title'] = task['title'].strip()
     status = values.get('status')
@@ -182,6 +236,9 @@ def mutate(meta, tabs, values, task_id=None, delete=False):
                 visited.add(identifier)
                 for item in tasks:
                     if item['id'] == identifier:
+                        if status == 'done':
+                            content = body if item.get('tab_id') == meta['id'] else next((text for tab,text in tabs if tab['id'] == item.get('tab_id')), '')
+                            task_checklists.require_complete(content)
                         item['status'] = status
                         item.pop('status_override', None)
                     if item.get('parent_id') == identifier:
@@ -197,6 +254,7 @@ def mutate(meta, tabs, values, task_id=None, delete=False):
         tasks = [item for item in tasks if item['id'] not in removed]
     task['updated'] = now()
     meta['tasks'] = normalize(tasks)
+    settle(meta, body, tabs)
     meta['updated'] = now()
     return task['id']
 
@@ -206,10 +264,46 @@ def change(root, reference, values, *, task_id=None, expected=None, delete=False
         source, raw, meta, body, tabs = read(root, reference)
         if expected is not None and hashlib.sha256(raw).hexdigest() != expected:
             raise ValueError('This document changed elsewhere. Refresh and try again; your changes have not been saved.')
-        identifier = mutate(meta, tabs, values, task_id, delete)
+        identifier = mutate(meta, tabs, values, task_id, delete, body=body)
         records.atomic_bytes(source, documents.pack(meta, body, tabs))
         documents.snapshot(root, force=True)
-        return view(root, meta['id']) | {'task_id':identifier}
+        return view(root, meta['id'], _refresh=False) | {'task_id':identifier}
+
+
+def refresh_recurring(root, reference, *, now=None, record_rows=None):
+    source, raw, meta, body, tabs = read(root, reference, record_rows=record_rows)
+    decorated = with_content(meta, body, tabs)
+    candidates = any(task.get('done') and isinstance(task.get('recurrence'), dict) and
+                     (not task.get('recurrence_next_due') or task_cycles.ready(task, now=now)) for task in decorated)
+    corrected = any(isinstance(a.get('recurrence'), dict) and a.get('status') != b.get('status') for a,b in zip(meta.get('tasks',[]),decorated))
+    if not candidates and not corrected:
+        return False
+    with records.lock(root):
+        source, raw, meta, body, tabs = read(root, reference, record_rows=record_rows)
+        tasks = with_content(meta, body, tabs)
+        for task in tasks:
+            if task['status'] != 'done' or not task_cycles.ready(task, now=now):
+                continue
+            identifiers = branch_ids(tasks, task['id'])
+            tab_ids = {item.get('tab_id') for item in tasks if item['id'] in identifiers}
+            if meta['id'] in tab_ids:
+                body = task_checklists.reset(body)
+            tabs = [(tab,task_checklists.reset(text) if tab['id'] in tab_ids else text) for tab,text in tabs]
+            task['due'] = task.pop('recurrence_next_due')
+            for item in tasks:
+                if item['id'] in identifiers:
+                    item.update(status='not_started', done=False, updated=datetime.now(timezone.utc).isoformat())
+                    item.pop('status_override', None)
+                    task_cycles.reopened(item)
+        meta['tasks'] = tasks
+        settle(meta, body, tabs)
+        packed = documents.pack(meta, body, tabs)
+        if packed != raw:
+            meta['updated'] = datetime.now(timezone.utc).isoformat()
+            records.atomic_bytes(source, documents.pack(meta, body, tabs))
+            documents.snapshot(root, force=True)
+            return True
+    return False
 
 
 CHECKBOX = re.compile(r'^(?P<prefix>[ \t]*(?:[-*+]|\d+[.)])[ \t]+)\[(?P<done>[ xX])\][ \t]+(?P<title>.+?)(?P<end>\r?\n)?$')
@@ -381,7 +475,7 @@ def repeat(root, reference, task_id, *, expected=None):
         if not task or task['status'] != 'done':
             raise ValueError('Complete the task before creating its next occurrence')
         frequency = task.get('recurrence')
-        if frequency not in {'weekly','monthly','yearly'}:
+        if not isinstance(frequency, str) or frequency not in {'weekly','monthly','yearly'}:
             raise ValueError('Choose a repeat frequency for this task first')
         try:
             due = date.fromisoformat(task.get('due') or '')
@@ -395,7 +489,7 @@ def repeat(root, reference, task_id, *, expected=None):
             following = date(year,month,min(anchor.day,monthrange(year,month)[1]))
         existing = next((item for item in items if item.get('previous_task') == task_id and item.get('due') == following.isoformat()),None)
         if existing:
-            return view(root,reference) | {'task_id':existing['id']}
+            return view(root,reference, _refresh=False) | {'task_id':existing['id']}
         next_task = deepcopy(task)
         identifier='task_' + uuid.uuid4().hex
         next_task.update(id=identifier,status='not_started',done=False,created=now(),updated=now(),
@@ -420,4 +514,4 @@ def repeat(root, reference, task_id, *, expected=None):
         meta['updated']=now()
         records.atomic_bytes(source,documents.pack(meta,body,tabs))
         documents.snapshot(root,force=True)
-        return view(root,reference) | {'task_id':identifier}
+        return view(root,reference, _refresh=False) | {'task_id':identifier}

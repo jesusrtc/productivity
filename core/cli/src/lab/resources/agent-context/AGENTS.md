@@ -39,6 +39,17 @@ agent instruction, skill, or memory files merely to integrate with Lab.
   actions to implement inferred organization unless the user explicitly requests
   that actual change. Do not re-offer an identical rejected suggestion.
 
+- Task Markdown checklists are required action items, not minor notes. Their
+  checked and pending counts affect task progress; pending items prevent task
+  completion. Use concrete, well-defined actions grounded in the user's actual
+  requirements. Do not invent checklist scope, add filler, delete pending items
+  to claim completion, or check an item without verifying its work. Preserve
+  existing wording and change requirements only with user authorization.
+  For Assistant tasks, only an explicitly linked content tab owns its checklist;
+  an inherited navigation tab does not assign new action items to a subtask.
+  Automatic recurring tasks retain their ID, reopen before the next deadline,
+  and reset their existing checklist and subtasks for the new occurrence.
+
 - For migration instructions and expected data formats, read `lab migrations`
   or `lab agent context migrations`. Detailed guides include
   `lab migrations assistant-document-tasks` (document-owned tasks, independent content tabs),

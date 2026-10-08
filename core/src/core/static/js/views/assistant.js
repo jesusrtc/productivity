@@ -2442,6 +2442,13 @@
     let taskHost=host.querySelector(':scope > [data-document-tasks]');
     if (!taskHost) { taskHost=document.createElement('div');taskHost.dataset.documentTasks='';host.prepend(taskHost); }
     window.AssistantTasks.mount(taskHost,{database:state.data.root,root,tab,
+      beforeChange:async()=>{
+        const detail=state.modalCurrent,draft=noteDraft(detail),needed=dirtyDraft(draft)||draft?.saving;
+        await flushNoteDraft();
+        if(state.modalRoot?.path!==root.path)throw new Error('The open document changed. Reopen the task and try again.');
+        if(draft&&(draft.error||dirtyDraft(draft)))throw new Error(draft.error||'Save the Markdown before changing its task');
+        return needed?state.modalCurrent.document_tasks:null;
+      },
       navigate:id=>{ const find=row=>row.id===id ? row : (row.children || []).map(find).find(Boolean); const row=find(state.modalRoot.tree); if(row) return selectModalDocument(row.kind,row.path); },
       changed:async saved=>{
         if (state.modalRoot?.path !== saved.path) return;

@@ -448,6 +448,8 @@ async def lifespan(app: FastAPI):
     servers_route.start_supervisor(app)
     from core import document_terminals
     document_terminals.start_supervisor()
+    from core import task_schedule
+    schedule_worker = asyncio.create_task(task_schedule.run(app)) if os.environ.get('LAB_TASK_SCHEDULER') != '0' else None
 
     # Print useful URLs on boot (absorbed from gdiff's on_startup).
     try:
@@ -466,6 +468,12 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        if schedule_worker:
+            schedule_worker.cancel()
+            try:
+                await schedule_worker
+            except asyncio.CancelledError:
+                pass
         app.state.workspace_snapshots.close()
         app.state.sidebar_cache.close()
         app.state.sidebar_directories.close()
@@ -676,6 +684,8 @@ def create_app() -> FastAPI:
         _STATIC_DIR / "js" / "lib" / "terminal-completion.js",
         _STATIC_DIR / "css" / "workspace-documents.css",
         _STATIC_DIR / "js" / "lib" / "task-context.js",
+        _STATIC_DIR / "js" / "lib" / "task-schedule.js",
+        _STATIC_DIR / "css" / "task-schedule.css",
         _STATIC_DIR / "js" / "lib" / "workspace-objectives.js",
         _STATIC_DIR / "css" / "workspace-objectives.css",
         _STATIC_DIR / "js" / "views" / "objectives-demo.js",

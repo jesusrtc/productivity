@@ -6,6 +6,52 @@ document’s JSON `tasks` array. Tabs are content, with no lifecycle. Use
 `lab migrations assistant-document-tasks` for the full contract. The legacy
 tracked-tab instructions below apply only to databases not yet migrated.
 
+## Required action items and automatic repeats
+
+Task Markdown checklists contain required, well-defined action items. The UI
+shows completed and pending counts; pending items prevent completion of the
+task or a containing parent. Checking every item does not by itself complete a
+leaf task: explicitly mark the task complete after verifying the outcome.
+Only the task's explicit `tab_id` assigns a checklist; a subtask's inherited
+navigation tab does not assign the parent's checklist to it. Code examples,
+comments and quoted examples are excluded. Preserve wording and scope; agents
+must not invent requirements, add filler or tick/delete items to fake progress.
+
+Use **Schedule…** for automatic repeats, including every X days/weeks/months/
+years. Set a real due date, deadline time and IANA time zone. Reactivation
+defaults to one day before the next deadline; minutes/hours/days are configurable
+(for daily tasks, one hour leaves a quiet period). The structured configuration is:
+
+```json
+{"every":1,"unit":"week","time":"17:00","timezone":"America/Los_Angeles","reactivate_before_minutes":1440}
+```
+
+```bash
+lab assistant task set <document-id> <task-id> due 2026-10-15
+lab assistant task set <document-id> <task-id> recurrence '{"every":1,"unit":"week","time":"17:00","timezone":"America/Los_Angeles","reactivate_before_minutes":1440}'
+```
+
+Completion queues `recurrence_next_due` while retaining the current deadline.
+At reactivation, the same task returns to Todo (`not_started`), takes the queued
+deadline, and resets its existing checklist and descendant tasks. Unfinished
+overdue tasks keep their deadline; missed obligations are not silently skipped.
+Manual Undo returns to the current occurrence and cancels the queued one.
+Disabling repeats cancels the queued occurrence. Editing the due date or interval
+establishes a new calendar anchor; changing the reactivation window, time or zone
+preserves the calendar anchor. Short months clamp to the last day and restore
+the anchor day in longer months. Local deadline time stays fixed across DST;
+the reactivation window is elapsed minutes (one day = 24 hours).
+If Lab was offline, it reconciles configured tasks when restarted or viewed;
+while running, it checks every 30 seconds without needing an open UI.
+
+Schedule either a parent or its descendants, not both. Assistant recurring
+branches must use content tabs not shared with tasks outside their branch,
+so resetting work cannot alter another task's action items. Descendant statuses
+and checklist markers reset; separately entered descendant dates stay intact.
+Legacy string values `weekly`, `monthly`, and `yearly` retain the manual
+**Create next occurrence** behavior documented below; they are not converted
+to automatic schedules or duplicated silently.
+
 Current storage uses `documents/<id>.md` for all independent tasks, notes,
 meetings and series, with embedded subtabs. Older clients may still use tasks/
 and notes/. Read `lab migrations assistant-documents` before migrating; never

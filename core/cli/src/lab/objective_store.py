@@ -12,6 +12,7 @@ import fcntl
 import math
 from pathlib import Path
 import re
+from lab import task_cycles
 
 from lab import assistant_records, storage
 
@@ -105,6 +106,8 @@ def _validate(value, target):
                 raise ValueError(f'{target}: Task needs a title')
             task.setdefault('children', [])
             task.setdefault('done', False)
+            if 'recurrence' in task:
+                task_cycles.validate(task['recurrence'], task.get('due'))
             if 'status' in task:
                 if not isinstance(task['status'], str) or task['status'] not in {'todo', 'in_progress', 'done', 'paused', 'wont_do'}:
                     raise ValueError(f'{target}: Task status must be todo, in_progress, done, paused or wont_do')

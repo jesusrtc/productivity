@@ -29,10 +29,11 @@ def document_rows(root, *, record_rows=None):
             continue
         children = records.descendants(rows, row, by_parent=by_parent)
         state = progress[records.key(row)]
+        task_items = tasks.get(row['path'], {}).get('task_items', [])
         related = [item for item in rows if item.get('series') == row['id'] and not item.get('parent')]
         yield {**{k:v for k,v in row.items() if k not in {'body','legacy_metadata'}},
                **{k:v for k,v in tasks.get(row['path'], {}).items() if k not in {'body','legacy_metadata'}},
-               **({'task_items':document_tasks.normalize(row.get('tasks',[])), 'task_summary':document_tasks.summary(row.get('tasks',[]))} if row.get('task_format') == document_tasks.FORMAT else {}),
+               **({'task_items':task_items, 'task_summary':document_tasks.summary(task_items)} if row.get('task_format') == document_tasks.FORMAT else {}),
                'kind':kind(row), 'progress':state, 'status':state['status'], 'tracked':state['tracked'],
                'starred':row.get('starred') is True, 'keep_in_documents':records.keeps_document(row),
                'workspace_name':records.workspace(root,row.get('workspace')).get('name'),
@@ -96,7 +97,7 @@ def detail(root, reference, collection=None):
                 raise ValueError('Document parent cycle')
             seen.add(records.key(ancestor))
             ancestor = by_key[records.parent_key(ancestor)]
-        all_tasks = document_tasks.normalize(ancestor.get('tasks',[])) if ancestor.get('task_format') == document_tasks.FORMAT else []
+        all_tasks = document_tasks.from_rows(ancestor, rows) if ancestor.get('task_format') == document_tasks.FORMAT else []
         def node(row):
             own_tasks = [task for task in all_tasks if document_tasks.linked_tab(all_tasks,task) == row['id']]
             own_ids = {task['id'] for task in own_tasks}

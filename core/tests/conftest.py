@@ -35,6 +35,7 @@ def monorepo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     # test_servers_routes.py); never let the background thread start.
     monkeypatch.setenv("LAB_SERVER_SUPERVISOR", "0")
     monkeypatch.setenv("LAB_DOCUMENT_TERMINALS_SUPERVISOR", "0")
+    monkeypatch.setenv("LAB_TASK_SCHEDULER", "0")
     if "LAB_TMUX_PREFIX" not in os.environ:
         monkeypatch.setenv("LAB_TMUX_PREFIX", "lab-")
     monkeypatch.chdir(root)

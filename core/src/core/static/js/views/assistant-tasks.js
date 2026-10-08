@@ -21,7 +21,7 @@
     return parent ? linkedTab(doc, parent) : null;
   }
   function progress(doc, tasks = doc.tasks) {
-    const leaves = tasks.filter(task => !children(doc, task.id).length);
+    const leaves = tasks.filter(task => !children(doc, task.id).length || task.checklist?.total);
     return {done:leaves.filter(task => done(doc, task)).length, total:leaves.length};
   }
   const priorityOptions = selected => ['P0','P1','P2','P3'].map(value => `<option value="${value}"${selected === value ? ' selected' : ''}>${value} · ${{P0:'Urgent',P1:'Important',P2:'Normal',P3:'Someday'}[value]}</option>`).join('');
@@ -47,16 +47,16 @@
       <div class="assistant-tasks-task-row">
         ${nested.length && (state.showAll || highlightedBranch(doc,task)) ? `<button type="button" class="assistant-tasks-disclosure" data-collapse="${esc(task.id)}" aria-label="${expanded ? 'Hide' : 'Show'} subtasks for ${esc(label)}" aria-expanded="${expanded}">${expanded ? '▾' : '▸'}</button>` : '<span class="assistant-tasks-disclosure"></span>'}
         <input type="checkbox" data-check="${esc(task.id)}" aria-label="Complete ${esc(label)}"${completed ? ' checked' : ''}${state.busy ? ' disabled' : ''}>
-        ${tab ? `<a class="assistant-tasks-task-label" href="#assistant-tasks-tab=${encodeURIComponent(tab.id)}" data-open-tab="${esc(tab.id)}" title="Open ${esc(tab.title)}">` : '<div class="assistant-tasks-task-label">'}<span>${esc(label)}</span>${allChildren.length ? `<small>${allChildren.filter(child => done(doc, child)).length}/${allChildren.length} subtasks</small>` : ''}${tab ? '</a>' : '</div>'}
+        ${tab ? `<a class="assistant-tasks-task-label" href="#assistant-tasks-tab=${encodeURIComponent(tab.id)}" data-open-tab="${esc(tab.id)}" title="Open ${esc(tab.title)}">` : '<div class="assistant-tasks-task-label">'}<span>${esc(label)}</span>${window.LabTaskSchedule?.badges(task)||''}${allChildren.length ? `<small>${allChildren.filter(child => done(doc, child)).length}/${allChildren.length} subtasks</small>` : ''}${tab ? '</a>' : '</div>'}
         <span data-linked-terminal></span>
         ${task.due ? `<small class="assistant-tasks-task-due">${esc(task.due)}</small>` : ''}<select class="assistant-tasks-status status-${esc(taskStatus(task))}" data-status="${esc(task.id)}" aria-label="Estado de ${esc(label)}"${state.busy ? ' disabled' : ''}>${statusOptions(taskStatus(task))}</select>
         <select class="assistant-tasks-priority priority-${esc(task.priority)}" data-priority="${esc(task.id)}" aria-label="Priority for ${esc(label)}"${state.busy ? ' disabled' : ''}>${priorityOptions(task.priority)}</select>
         <details class="assistant-tasks-task-menu"><summary aria-label="Options for ${esc(label)}">⋯</summary><div>
-          <label>Title<input data-task-title="${esc(task.id)}" value="${esc(task.title)}" maxlength="2000"></label><label>Due<input type="date" data-task-due="${esc(task.id)}" value="${esc(task.due || '')}"></label><label>Owner<input data-task-owner="${esc(task.id)}" value="${esc(task.owner || '')}"></label><label>Repeats<select data-task-recurrence="${esc(task.id)}">${['','weekly','monthly','yearly'].map(value => `<option value="${value}"${(task.recurrence || '') === value ? ' selected' : ''}>${value || 'Once'}</option>`).join('')}</select></label><label>Linked tab<select data-link="${esc(task.id)}" aria-label="Linked tab for ${esc(label)}"${state.busy ? ' disabled' : ''}>${tabOptions(doc, task.tab_id, !!task.parent_id)}</select></label>
+          <label>Title<input data-task-title="${esc(task.id)}" value="${esc(task.title)}" maxlength="2000"></label><label>Due<input type="date" data-task-due="${esc(task.id)}" value="${esc(task.due || '')}"></label><label>Owner<input data-task-owner="${esc(task.id)}" value="${esc(task.owner || '')}"></label>${typeof task.recurrence !== 'string' ? '' : `<label>Manual repeats<select data-task-recurrence="${esc(task.id)}">${['','weekly','monthly','yearly'].map(value => `<option value="${value}"${(task.recurrence || '') === value ? ' selected' : ''}>${value || 'Once'}</option>`).join('')}</select></label>`}<label>Linked tab<select data-link="${esc(task.id)}" aria-label="Linked tab for ${esc(label)}"${state.busy ? ' disabled' : ''}>${tabOptions(doc, task.tab_id, !!task.parent_id)}</select></label>
           <details class="assistant-tasks-extra"><summary>More task properties</summary>${[['tldr','Summary','text'],['group','Group','text'],['scheduled','Planned','date'],['defer_until','Deferred until','date'],['waiting_on','Waiting on','text'],['follow_up_at','Follow up','date'],['reviewer','Reviewer','text'],['executor','Executor','text']].map(([field,label,type])=>`<label>${label}<input type="${type}" data-task-property="${field}" data-task-id="${esc(task.id)}" value="${esc(task[field] || '')}"></label>`).join('')}<label>Attributes<textarea data-task-attributes="${esc(task.id)}" aria-label="Task attributes">${esc(JSON.stringify(task.attributes || {},null,2))}</textarea></label></details>
           <button type="button" data-task-terminal="${esc(task.id)}">Link terminal…</button>
           <button type="button" data-add-child="${esc(task.id)}"${state.busy ? ' disabled' : ''}>+ Add subtask</button>
-        ${task.recurrence ? `<button type="button" data-repeat-task="${esc(task.id)}"${taskStatus(task) !== 'done' ? ' disabled' : ''}>Create next occurrence</button>` : ''}<button type="button" data-delete-task="${esc(task.id)}">Delete task${allChildren.length ? ' and subtasks' : ''}</button></div></details>
+        <button type="button" data-schedule-task="${esc(task.id)}">Schedule…</button>${typeof task.recurrence === 'string' ? `<button type="button" data-repeat-task="${esc(task.id)}"${taskStatus(task) !== 'done' ? ' disabled' : ''}>Create next occurrence</button>` : ''}<button type="button" data-delete-task="${esc(task.id)}">Delete task${allChildren.length ? ' and subtasks' : ''}</button></div></details>
       </div>${nested.length && expanded ? `<ul class="assistant-tasks-subtasks">${nested.map(child => taskRow(doc, child, scope, depth + 1)).join('')}</ul>` : ''}
     </li>`;
   }
@@ -177,6 +177,7 @@
       try { const attributes=JSON.parse(input.value); input.setCustomValidity(''); save({task_id:input.dataset.taskAttributes,attributes}); }
       catch (_) { input.setCustomValidity('Enter a JSON object'); input.reportValidity(); }
     });
+    host.querySelectorAll('[data-schedule-task]').forEach(button => button.onclick = () => {const task=doc.tasks.find(item=>item.id===button.dataset.scheduleTask),scope=state.scope;window.LabTaskSchedule?.edit(task,values=>{if(state.scope!==scope)throw new Error('The open document changed. Reopen the task and try again.');return save({task_id:task.id,...values},null,true);});});
     host.querySelectorAll('[data-repeat-task]').forEach(button => button.onclick = () => save({task_id:button.dataset.repeatTask, repeat:true}));
     host.querySelectorAll('[data-delete-task]').forEach(button => button.onclick = () => { if (window.confirm('Delete this task and its subtasks?')) save({task_id:button.dataset.deleteTask, delete:true}); });
     host.querySelector('[data-add-task]').onclick = () => openForm(null);
@@ -203,8 +204,8 @@
     bind(host,state.doc);
     if (attr) [...host.querySelectorAll('[' + attr + ']')].find(input => input.getAttribute(attr) === value)?.focus({preventScroll:true});
   }
-  async function save(change, onSuccess) {
-    if (state.busy) return;
+  async function save(change, onSuccess, throwErrors=false) {
+    if (state.busy) { if (throwErrors) throw new Error('A task is still saving. Try again.'); return; }
     const doc = state.doc, options = state.options;
     state.busy = true;
     const controls = [...state.host.querySelectorAll('input,select,button')];
@@ -212,6 +213,9 @@
     state.host.querySelector('[role=status]').textContent = 'Saving…';
     const {task_id,delete:remove,repeat,...values} = change;
     try {
+      const latest=await options.beforeChange?.();
+      if(state.doc.id!==doc.id||state.options.database!==options.database)throw new Error('The open document changed. Reopen the task and try again.');
+      if(latest?.document_id===doc.id){doc.tasks=latest.tasks;doc.revision=latest.revision;}
       const response = await fetch('/api/assistant/document-task' + (repeat ? '/repeat' : ''), {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({document_id:doc.id,expected:doc.revision,task_id,delete:!!remove,values})});
       const saved = await response.json();
       if (!response.ok) throw new Error(saved.detail || 'Could not save task');
@@ -222,12 +226,13 @@
       render();
     } catch (error) {
       state.busy = false;
-      if (state.doc.id !== doc.id) return;
+      if (state.doc.id !== doc.id) { if (throwErrors) throw error; return; }
       render();
       const alert = state.host.querySelector('[role=alert]');
       if (alert) { alert.hidden = false; alert.textContent = error.message; }
       const status = state.host.querySelector('[role=status]');
       if (status) status.textContent = 'Not saved';
+      if (throwErrors) throw error;
     }
   }
   function mount(host, options) {

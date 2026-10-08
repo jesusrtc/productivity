@@ -1,5 +1,8 @@
 # Memory index
 
+- [Recurring tasks reopen before the deadline](recurring-tasks-reopen-before-deadline.md) — stable task IDs, calendar anchors, one-day default lead, configurable hours/minutes and overdue obligations retained.
+- [Task checklists are required work](task-checklists-are-required-work.md) — authoritative Markdown action items, visible counts, completion gates and no invented or unverified requirements.
+
 - [Native drag sources must survive dragstart](native-drag-source-must-survive-dragstart.md) — defer reader dismissal until Chrome captures the drag; cover it with native mouse/console drops.
 - [Compact sidebar groups Files and Recently updated](compact-sidebar-groups-files-and-recent.md) — one icon per whole list, superseding compact per-file icons; expanded files and controls are preserved.
 - [Default terminals start the configured agent](default-terminals-start-configured-agent.md) — default workflow/Objective/task entries initialize the selected agent with Lab context; explicit Terminal remains a shell.

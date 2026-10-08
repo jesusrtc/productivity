@@ -343,7 +343,7 @@ def progress_map(rows):
     for row in rows:
         if row.get('task_format') != tasks.FORMAT or row.get('parent'):
             continue
-        items = tasks.normalize(row.get('tasks', []))
+        items = tasks.from_rows(row, rows, by_parent=by_parent)
         result[key(row)] = tasks.summary(items)
         for tab in descendants(rows,row,by_parent=by_parent):
             own = [item for item in items if tasks.linked_tab(items,item) == tab['id']]
@@ -370,7 +370,7 @@ def task_rows(root, children_only=False, *, record_rows=None):
         reference = workspace(root, row.get('workspace'))
         if row.get('task_format') == 'document-tasks-v1':
             from lab import assistant_tasks as tasks
-            items = tasks.normalize(row.get('tasks', []))
+            items = tasks.from_rows(row, rows, by_parent=by_parent)
             pending = [item for item in items if item['status'] not in tasks.CLOSED]
             yield {**row,'workspace':row.get('workspace') or '', 'workspace_name':reference.get('name'),
                    'document_backed':True,'status':progress[key(row)]['status'],'progress':progress[key(row)],
@@ -576,7 +576,7 @@ def update(root, reference, field, value, *, collection=None, expected=UNSET):
                 raise ValueError('Choose a task ID with lab assistant task set; tabs have no lifecycle')
             if expected is not UNSET and task.get(field) != expected:
                 raise ValueError('This property changed elsewhere. Reload the document.')
-            tasks.mutate(owner,tabs,{field:tasks.LEGACY_STATUS.get(value,value) if field == 'status' else value},task['id'])
+            tasks.mutate(owner,tabs,{field:tasks.LEGACY_STATUS.get(value,value) if field == 'status' else value},task['id'],body=main)
             atomic_bytes(physical, documents.pack(owner,main,tabs))
             documents.snapshot(root,force=True)
             return source

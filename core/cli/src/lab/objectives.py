@@ -17,6 +17,7 @@ from urllib.parse import urlparse
 import uuid
 
 from lab import assistant_documents, assistant_records, objective_store, paths, storage, workspace_identity
+from lab import task_checklists, task_cycles
 
 PALETTES = [
     ['#58a6ff', '#ff7b72', '#3fb950', '#d29922'],
@@ -56,10 +57,19 @@ def load(root, workspace_id, *, _locked=False):
     if _locked:
         data = objective_store.read(folder)
     else:
+        refresh_recurring(root, workspace_id)
         with objective_store.lock(folder):
             data = objective_store.read(folder)
     saved_revision = revision(data)
     _slot_colors(data)
+    if not _locked:
+        for objective in data['objectives']:
+            for parent in objective['tasks']:
+                for task in [*parent['children'], parent]:
+                    if task.get('done') and task_checklists.counts(_task_body(folder, objective, task))['pending']:
+                        _set_task_status(task, 'in_progress' if task['children'] else 'todo')
+                if parent.get('done') and any(not child.get('done') and child.get('status') != 'wont_do' for child in parent['children']):
+                    _set_task_status(parent, _children_status(parent['children']))
     return {**data, 'revision': saved_revision}
 
 
@@ -474,7 +484,99 @@ def payload(root, workspace_id):
                 resource['content'] = document(folder, resource)
             except (OSError, ValueError) as exc:
                 resource['error'] = str(exc)
+        for task in _tasks(objective):
+            task['checklist'] = task_checklists.counts(_task_body(folder, objective, task))
+            task['recurrence_state'] = task_cycles.state(task)
     return data
+
+
+def _task_body(folder, objective, task):
+    if not task.get('document_id'):
+        return ''
+    resource = _find(objective['resources'], task['document_id'])
+    if not resource or resource.get('kind') != 'document':
+        raise ValueError('Task details document is unavailable')
+    content = document(folder, resource)
+    if not task.get('tab_id'):
+        return content['body']
+    tab = _find(content['tabs'], task['tab_id'])
+    if tab is None:
+        raise ValueError('Task details tab is unavailable')
+    return tab['body']
+
+
+def _settle_tasks(folder, objective):
+    task_cycles.validate_tree([t | {'parent_id':parent['id'] if t is not parent else None}
+                              for parent in objective['tasks'] for t in [parent, *parent['children']]])
+    for parent in objective['tasks']:
+        for task in [*parent['children'], parent]:
+            if task.get('done') and task_checklists.counts(_task_body(folder, objective, task))['pending']:
+                _set_task_status(task, 'todo')
+            if task is parent and task['children']:
+                status = _children_status(task['children'])
+                if status == 'done' and task_checklists.counts(_task_body(folder, objective, task))['pending']:
+                    status = 'in_progress'
+                if parent.get('status') != 'in_progress' or status == 'done':
+                    _set_task_status(parent, status)
+            if task.get('done'):
+                task_cycles.completed(task)
+            else:
+                task_cycles.reopened(task)
+
+
+def refresh_recurring(root, workspace_id, *, now=None):
+    """Reconcile only explicit schedules and completion claims contradicted by Markdown."""
+    folder = directory(root, workspace_id)
+    with objective_store.lock(folder):
+        preview = objective_store.read(folder)
+        candidates = any(t.get('done') and isinstance(t.get('recurrence'), dict) and (task_cycles.ready(t, now=now)
+            or not t.get('recurrence_next_due')
+            or any(task_checklists.counts(_task_body(folder, o, item))['pending'] for item in [t,*t['children']]))
+            for o in preview['objectives'] for t in _tasks(o))
+    if not candidates:
+        return False
+    with workspace_identity.operation_lease(root, workspace_id), objective_store.lock(folder, write=True):
+        data = objective_store.read(folder)
+        before = deepcopy(data)
+        for objective in data['objectives']:
+            if not any(task.get('done') and isinstance(task.get('recurrence'), dict) and
+                       (not task.get('recurrence_next_due') or task_cycles.ready(task, now=now) or
+                        any(task_checklists.counts(_task_body(folder, objective, item))['pending'] for item in [task,*task['children']]))
+                       for task in _tasks(objective)):
+                continue
+            for task in _tasks(objective):
+                branch = [task, *task['children']]
+                if not task.get('done') or not task_cycles.ready(task, now=now) or any(task_checklists.counts(_task_body(folder, objective, item))['pending'] for item in branch):
+                    continue
+                # Read every affected file before writing any of them. Reset
+                # only this branch's tabs, retaining all unrelated content.
+                edits = {}
+                for item in branch:
+                    if not item.get('document_id'):
+                        continue
+                    resource = _find(objective['resources'], item['document_id'])
+                    target = _owned_path(folder, resource)
+                    if target not in edits:
+                        edits[target] = assistant_documents.unpack(target.read_bytes())
+                    owner, body, tabs = edits[target]
+                    if item.get('tab_id'):
+                        if not any(meta['id'] == item['tab_id'] for meta, _ in tabs):
+                            raise ValueError('Task details tab is unavailable')
+                        tabs = [(meta, task_checklists.reset(text) if meta['id'] == item['tab_id'] else text) for meta, text in tabs]
+                    else:
+                        body = task_checklists.reset(body)
+                    edits[target] = owner, body, tabs
+                for target, content in edits.items():
+                    assistant_records.atomic_bytes(target, assistant_documents.pack(*content))
+                task['due'] = task.pop('recurrence_next_due')
+                for item in branch:
+                    _set_task_status(item, 'todo')
+                    task_cycles.reopened(item)
+            _settle_tasks(folder, objective)
+        if data != before:
+            objective_store.save(folder, data)
+            return True
+    return False
 
 
 def _metadata(identifier_, title, parent=None):
@@ -807,12 +909,25 @@ def mutate(root, workspace_id, action, expected=None):
             if action.get('parent_id') and parent is None:
                 raise ValueError('Parent task not found')
             task = {'id': identifier(), 'title': _text(action.get('title')), 'done': False, 'status': 'todo', 'due': _date(action.get('due')), 'children': []}
+            if 'recurrence' in action:
+                task_cycles.validate(action['recurrence'], task.get('due'))
+                task['recurrence'] = deepcopy(action['recurrence'])
+            task_cycles.configure(task, action)
+            task_cycles.validate_tree([*(_t | {'parent_id':p['id'] if _t is not p else None} for p in objective['tasks'] for _t in [p, *p['children']]), task | {'parent_id':parent['id'] if parent else None}])
             _task_details(folder, objective, task, parent, action.get('document_id') or (parent or {}).get('document_id'))
             (parent['children'] if parent else objective['tasks']).append(task)
         elif operation in {'task-update', 'task-asset', 'task-remove-asset'}:
             task = _find(_tasks(objective), action.get('task_id'))
             if task is None:
                 raise ValueError('Task not found')
+            previous = deepcopy(task)
+            if 'due' in action:
+                task['due'] = _date(action['due'])
+            if 'recurrence' in action:
+                task_cycles.validate(action['recurrence'], task.get('due'))
+                task['recurrence'] = deepcopy(action['recurrence'])
+            task_cycles.configure(task, action, previous)
+            task_cycles.validate_tree([t | {'parent_id':p['id'] if t is not p else None} for p in objective['tasks'] for t in [p, *p['children']]])
             if operation == 'task-asset':
                 if 'choose_icon' in action and type(action['choose_icon']) is not bool:
                     raise ValueError('Icon selection must be a boolean')
@@ -841,6 +956,9 @@ def mutate(root, workspace_id, action, expected=None):
                     raise ValueError("Choose Undo, In progress, Completed, Paused or Won't do")
                 if 'done' in action and action['done'] != (status == 'done'):
                     raise ValueError('Task status and completion must agree')
+                if status == 'done':
+                    for item in [task, *task['children']]:
+                        task_checklists.require_complete(_task_body(folder, objective, item))
                 _set_task_status(task, status)
                 if status != 'in_progress':
                     for child in task['children']:
@@ -849,8 +967,6 @@ def mutate(root, workspace_id, action, expected=None):
                 if parent:
                     children = parent['children']
                     _set_task_status(parent, _children_status(children))
-            if 'due' in action:
-                task['due'] = _date(action['due'])
             if 'title' in action:
                 task['title'] = _text(action['title'])
             if 'icon_asset_id' in action:
@@ -964,5 +1080,7 @@ def mutate(root, workspace_id, action, expected=None):
             # Preserve owned files so unlinking never destroys user content.
         else:
             raise ValueError('Unsupported objective action')
+        if objective and operation in {'task', 'task-update', 'document'}:
+            _settle_tasks(folder, objective)
         objective_store.save(folder, data)
     return payload(root, workspace_id)
