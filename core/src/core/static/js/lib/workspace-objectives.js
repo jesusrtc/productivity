@@ -800,7 +800,7 @@
     const link=terminalLink(t);if(!link)return null;
     if(link.main==='workflow'){
       if(!t.objective_placeholder&&Object.entries(data().terminal_links||{}).find(([,other])=>other.main==='workflow')?.[0]!==terminalIdentity(t))return null;
-      return {kind:'workflow',label:'Main · '+(bridge?.workflowName?.()||context().path.split('/').pop()),icon:'⌂'};
+      return {kind:'workflow',label:'Main · '+(bridge?.workflowName?.()||context().path.split('/').pop()),icon:'💻'};
     }
     const o=data()?.objectives.find(o=>o.id===link.objective_id);if(!o)return null;
     if(link.task_id||link.resource_id||link.file||link.folder||link.view)return null;
@@ -811,7 +811,7 @@
       const primary=candidates.find(([,other])=>other.main==='objective')||candidates[0];
       if(primary?.[0]!==terminalIdentity(t))return null;
     }
-    return {kind:'objective',objective_id:o.id,label:'Main · '+o.name,icon:'◎'};
+    return {kind:'objective',objective_id:o.id,label:'Main · '+o.name,icon:'💻'};
   }
   function terminalTask(t) {
     const seen=new Set();let source=t;

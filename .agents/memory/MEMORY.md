@@ -1,5 +1,9 @@
 # Memory index
 
+- [Main terminals use laptop icons](main-terminals-use-laptop-icons.md) — plain 💻 for both workflow and Objective main terminals; supersedes distinct icons and diamond decoration.
+
+- [Compact sidebar uses icons and dividers](compact-sidebar-icons-and-dividers.md) — content/navigation icons and task statuses; section dividers and expanded-only filter menus, without clipped labels or extra header icons.
+
 - [First column mirrors the terminal rail](first-column-mirrors-terminal-rail.md) — compact 62px sidebar, shared hover delay, deliberate selection and main-area/console click dismissal with stable work-area geometry.
 
 - [Set as main swaps with the immediate parent](child-main-swaps-immediate-parent.md) — preserve grandparent rows, correct earlier root-level choices, and keep real-parent recovery ownership.

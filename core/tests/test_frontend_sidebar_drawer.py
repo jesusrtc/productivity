@@ -21,6 +21,7 @@ def test_sidebar_drawer_native_pointer_keyboard_resize_and_view_changes(tmp_path
         return app[at:app.index(end, at)]
     helpers = between('  function _termVisibilityKey()', '  async function termRefreshSessions(')
     helpers += between('  function _termNormalizeTabHoverPinSeconds(', '  function _termNormalizeRecentMinutes(')
+    helpers += between('  function _sidebarRecentSelectorsHtml()', '  async function sidebarSelectRecentMode(')
     bridge = between('  window.LabSidebarDrawer?.connect({', '  _termApplyRecentSettings();')
     setup = r'''
 window.errors=[];addEventListener('error',e=>errors.push(e.message));
@@ -30,6 +31,7 @@ const _TERM_TAB_HOVER_PIN_KEY='labTermTabHoverPinSeconds';
 let termTabHoverPinSeconds=Number(localStorage.getItem(_TERM_TAB_HOVER_PIN_KEY)??3),_termSessionDrawer=null;
 let currentWorkspace={name:'alpha',path:'/alpha',is_workspace:true},_workspaceDocPath=null;
 const _termHomeViewActive=()=>false,_termSessionsKey=name=>name;
+const _sidebarRecentSelectorValue=()=>'local-main',esc=v=>String(v),escAttr=esc;
 let resets=0,primes=0;
 const _resetSidebarLayout=()=>resets++,_primeSidebarLayout=()=>primes++,termSendResize=()=>{};
 const termXterm=new Terminal({fontSize:14}),termFitAddon=new FitAddon.FitAddon();
@@ -47,11 +49,12 @@ localStorage.setItem('labSidebarShown:workspace:alpha','0');
     toggle = template[template.index('<div class="sidebar-toggle"'):template.index('\n', template.index('<div class="sidebar-toggle"'))]
     html = '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>'+css+'</style><body class="workspace-active has-repo-tabs term-open">'
     html += '<div class="topbar"><button id="beta" onclick="view(\'beta\')">Beta</button></div><div class="layout"><aside class="sidebar" id="sidebar">'
-    html += '<div class="sidebar-title">Files</div><div id="selectedFile" class="sidebar-file" tabindex="0" title="Selected file"><span class="ft-icon ft-md"></span><span class="sidebar-fname">Selected file.md</span><button class="sidebar-actions">History</button></div>'
-    html += '<div class="objective-sidebar-task-list"><div class="objective-sidebar-task active"><span class="objective-sidebar-task-status">🟡</span><a class="objective-sidebar-task-title" href="#task">Selected task</a><button>◈</button></div></div>'+rows
+    html += '<div id="recentFilters"></div><div id="filesHeading" class="sidebar-title"><span>Files</span></div><div id="selectedFile" class="sidebar-file" tabindex="0" title="Selected file"><span class="ft-icon ft-md"></span><span class="sidebar-fname">Selected file.md</span><button class="sidebar-actions">History</button></div>'
+    html += '<div class="objective-sidebar-task-list"><div class="objective-sidebar-task active"><span class="objective-sidebar-task-status">🟡</span><a class="objective-sidebar-task-title" href="#task">Selected task</a><button>◈</button></div></div>'
+    html += '<div class="sidebar-scope-chip" data-scope-kind="folder" style="--sidebar-workspace-color:#58a6ff"><button id="folderScope" class="sidebar-file-scope-button"><span>Root</span></button><span class="sidebar-scope-tag">Folder</span></div><div class="sidebar-scope-chip" data-scope-kind="worktree" style="--sidebar-workspace-color:#a371f7"><button id="worktreeScope" class="sidebar-file-scope-button"><span>Worktree</span></button></div><div id="assetHeading" class="sidebar-title objective-title"><span>Assets</span><button>+</button></div>'+rows
     html += '</aside><div class="sidebar-resizer" id="sidebarResizer"></div><main class="main" id="content"><textarea id="editor" style="width:600px;height:60px">Draft stays intact</textarea><iframe id="proxy" style="width:600px;height:200px" srcdoc="<button>Embedded app</button>"></iframe></main></div>'
     html += '<section class="term-panel" id="termPanel"><div id="termResizer" class="term-resizer"></div><div class="term-header">Terminal</div><div class="term-stage"><div class="term-console"><div class="term-status">Attached</div><div id="termBody" class="term-body"></div></div></div></section>'+toggle
-    html += vendors+'<script>'+setup+'</script><script>'+(STATIC / 'js/lib/sidebar-drawer.js').read_text()+'</script><script>'+helpers+bridge+'_termApplyRememberedVisibility();termFitAddon.fit();</script>'
+    html += vendors+'<script>'+setup+'</script><script>'+(STATIC / 'js/lib/sidebar-drawer.js').read_text()+'</script><script>'+helpers+bridge+"document.getElementById('recentFilters').innerHTML=_sidebarRecentSelectorsHtml();_termApplyRememberedVisibility();termFitAddon.fit();</script>"
     page = tmp_path / 'sidebar.html'
     page.write_text(html)
     driver = r'''
@@ -73,9 +76,17 @@ const fs=require('node:fs');
  await send('Page.navigate',{url:process.argv[2]});await send('Page.bringToFront');
  for(let i=0;i<200;i++){if(await evaluate('!!window.LabSidebarDrawer&&document.querySelector(".xterm-screen")'))break;await sleep(20)}
  const baseline=await state();assert(baseline.enabled&&!baseline.open&&baseline.width===62&&baseline.mainX===62,'compact rail supersedes legacy hidden preference');
+ assert(await evaluate("getComputedStyle(document.querySelector('.sidebar-recent-selectors')).display==='none'"),'time and Git filter menus hidden in compact mode');
+ assert(await evaluate("document.querySelector('#filesHeading span').getClientRects().length===0&&document.querySelector('#assetHeading span').getClientRects().length===0&&getComputedStyle(document.getElementById('assetHeading')).borderTopWidth==='1px'"),'headings become dividers without extra header icons');
+ assert(await evaluate("document.querySelector('#selectedFile .ft-icon').getBoundingClientRect().width===16&&document.querySelector('#selectedFile .sidebar-fname').getBoundingClientRect().width===1"),'compact file shows its icon, preserving an accessible full label');
+ assert(await evaluate("getComputedStyle(document.getElementById('folderScope'),'::before').maskImage!==getComputedStyle(document.getElementById('worktreeScope'),'::before').maskImage"),'main folder and worktree navigation have distinct icons');
+ assert(await evaluate("getComputedStyle(document.querySelector('.objective-sidebar-task-title')).fontSize==='0px'&&getComputedStyle(document.querySelector('.objective-sidebar-task > button')).display==='none'&&document.querySelector('.objective-sidebar-task-status').getBoundingClientRect().width>0"),'task status remains without clipped names or additional asset icons');
+ fs.writeFileSync(process.argv[1]+'/compact.png',Buffer.from((await send('Page.captureScreenshot',{format:'png'})).data,'base64'));
  assert(await evaluate('termTabHoverPinSeconds===3'),'shared default is three seconds');
  const rail={x:25,y:135},outside={x:600,y:250};
  await move(rail);assert((await state()).open&&(await state()).width>300,'hover reveals saved full width');
+ assert(await evaluate("getComputedStyle(document.querySelector('.sidebar-recent-selectors')).display!=='none'&&document.querySelector('#filesHeading span').getClientRects().length>0"),'expansion restores the complete menus and labels');
+ fs.writeFileSync(process.argv[1]+'/expanded.png',Buffer.from((await send('Page.captureScreenshot',{format:'png'})).data,'base64'));
  await sleep(120);await move(outside);assert(!(await state()).open,'short crossing collapses');
  await sleep(3100);assert(!(await state()).open,'leave cancels pending hover timer');
  await move(rail);await sleep(3100);await move(outside);assert((await state()).pinned,'long hover keeps sidebar open');

@@ -251,7 +251,6 @@
 .objective-terminal-rows[hidden] { display:none; }
 .objective-terminal-worktree + .objective-terminal-worktree { margin-top:4px; }
 .term-main-terminal .sess-icon { font-size:19px; font-weight:600; color:var(--objective-color,var(--text-secondary)); }
-.term-main-terminal .sess-icon::after { content:'◆'; font-size:6px; margin-left:1px; vertical-align:top; }
 .objective-terminal-group[data-objective-active=false] .term-main-terminal .sess-icon { color:var(--text-secondary); }
 .term-sessions-horizontal .objective-terminal-rows,.term-sessions-horizontal .objective-terminal-worktree { flex-direction:row; align-items:center; }
 .term-sessions-horizontal .objective-terminal-worktree + .objective-terminal-worktree { margin-top:0; margin-left:4px; }
