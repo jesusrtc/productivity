@@ -55,6 +55,8 @@ const until=async fn=>{for(let i=0;i<300;i++){if(fn())return;await new Promise(r
 const cfg={homeFolder:'/home/test',projectsFolder:'~/src',worktreesFolder:'~/src/.worktrees',projectLocations:[],defaultAgent:'claude',model:null,theme:'dark',autopilot:{claude:true,codex:false,copilot:false},documentTerminals:{enabled:true,sleepMinutes:60,expireHours:36,maxRunning:3}};
 const available={claude:false,codex:true,copilot:true},calls=[];
 const overrides={a:{agent:null,model:null},b:{agent:'copilot',model:'saved-model'}};
+const policies={a:{revision:'a'},b:{revision:'b'}},policyLoads=[];
+window.LabObjectives={load:async(scope,fresh)=>policyLoads.push({scope,fresh})};
 let failSave=false,delayA=false,releaseA;
 window.fetch=async(url,opts={})=>{
  const u=new URL(url,'https://lab.test'),body=opts.body?JSON.parse(opts.body):undefined;
@@ -69,6 +71,11 @@ window.fetch=async(url,opts={})=>{
   {id:'b',name:'Vault B',workspace_rows:[{name:'same',display_name:'Workspace Beta',path:'/vault-b/same',is_workspace:true}]},
   {id:'offline',name:'Offline',unavailable:true}]};
  else if(u.pathname==='/api/vault/agents')data={supported:['claude','codex','copilot'],default:cfg.defaultAgent};
+ else if(u.pathname==='/api/objectives'){
+  const policy=policies[body?.vault||u.searchParams.get('vault')];
+  if(body){assert(body.workspace_id==='same'&&body.expected===policy.revision,'policy save captures workspace and revision');policy.task_terminals=body.action.task_terminals;policy.revision+='!';}
+  data=policy;
+ }
  else if(u.pathname==='/api/workspaces/same'){if(delayA&&u.searchParams.get('vault')==='a')await new Promise(r=>releaseA=r);data=overrides[u.searchParams.get('vault')]}
  else if(u.pathname==='/api/workspaces/same/agent'){Object.assign(overrides[u.searchParams.get('vault')],body);data={ok:true}}
  else throw Error('Unexpected API '+url);
@@ -138,6 +145,11 @@ const fits=()=>{const d=document.getElementById('labSettingsCenter');const rect=
  assert(overrides.b.agent===null&&overrides.a.agent===null&&q('[data-panel]').textContent.includes('Codex'),'clear override and refresh effective agent');
  assert(calls.filter(c=>c.path==='/api/workspaces/same/agent').every(c=>c.vault==='b'),'save correct vault for duplicate workspace ID');
  await section('terminals');field('claude',false);field('copilot',false);await save();
+ assert(!form().elements.taskTerminals.checked&&!('task_terminals' in policies.b),'task terminals default off without a write');
+ field('taskTerminals',true);await save();
+ assert(policies.b.task_terminals===true&&!policies.a.task_terminals&&policyLoads.at(-1).scope.vault==='b'&&policyLoads.at(-1).scope.workspace_id==='same'&&policyLoads.at(-1).fresh,'task policy saves and refreshes only the captured workspace');
+ await section('general');await section('terminals');
+ assert(form().elements.taskTerminals.checked,'saved task terminal policy is restored');
  assert(localStorage.getItem('labTermNewOptions-v1:a::same')==='["codex","terminal"]','active terminal options untouched');
  assert(localStorage.getItem('labTermNewOptions-v1:b::same')==='["codex","terminal","attach"]','inactive terminal options scoped');
  assert(q('[data-stop]').disabled&&!appliedOptions,'inactive workspace cannot stop active sessions');

@@ -65,7 +65,7 @@
     const o=objective(),scope=context();if(!active(scope?.path)||!o)return null;
     const path=o.path||scope.path+'/objectives/'+o.id;
     const task=focusedTask();
-    return {id:o.id,name:o.name,path,context:{...scope},task:task?{id:task.id,title:task.title}:null,
+    return {id:o.id,name:o.name,path,context:{...scope},task_terminals:taskTerminalsEnabled(),task:task?{id:task.id,title:task.title}:null,
       worktrees:o.worktrees.filter(t=>t.path!==scope.path&&t.path!==path).map(t=>({...t}))};
   }
   function associateNewTerminal(terminal,association) {
@@ -512,7 +512,10 @@
     state().focus={objective:o.id,task:id};
     state().view='objective';persistView();openResource(task.document_id,task.tab_id);
     bridge.refreshTerminals?.();
-    if(activateTerminal)void openTaskTerminal(id,o.id,{openTaskView:false}).catch(error=>notify(error.message,true));
+    if(activateTerminal){
+      if(taskTerminalsEnabled())void openTaskTerminal(id,o.id,{openTaskView:false}).catch(error=>notify(error.message,true));
+      else activateLinkedTerminal(link=>link.objective_id===o.id&&link.task_id===id);
+    }
   }
   function openTaskAssets(id) {
     const task=tasks().find(t=>t.id===id);if(!task)return;
@@ -795,6 +798,7 @@
   function associate(row) {return change({type:'worktree',objective_id:objective().id,path:row.path,label:row.label||row.name||row.path.split('/').pop(),repo:row.projectPath||row.path,branch:row.branch,kind:row.kind||'worktree'}).then(d=>{const o=d.objectives.find(o=>o.id===objective().id);state().tree[o.id]=o.worktrees.at(-1).id;persistView();return o.worktrees.at(-1);});}
   function terminalIdentity(t) {return t.session_id||t.name;}
   function terminalLink(t) {return t.objective_placeholder?{objective_id:t.objective_id,task_id:t.task_id,main:t.main}:data()?.terminal_links[terminalIdentity(t)];}
+  function taskTerminalsEnabled() {return data()?.task_terminals===true;}
   function terminalMain(t) {
     if(!t||!active(context()?.path))return null;
     const link=terminalLink(t);if(!link)return null;
@@ -843,6 +847,7 @@
       const add=(task=null)=>{
         const matches=owned.filter(t=>{const link=terminalLink(t);return task?link?.task_id===task.id:terminalMain(t)?.kind==='objective';});
         if(matches.length){matches.forEach(t=>{result.push(t);seen.add(t);});return;}
+        if(task&&!taskTerminalsEnabled())return;
         const logical='objective-terminal:'+id+':'+(task?.id||'global');
         result.push({name:logical,logical_name:logical,objective_placeholder:true,objective_id:id,task_id:task?.id||null,...(task?{}:{main:'objective'}),
           label:task?taskDisplayName(task,o):'Main · '+o.name,cwd:o.path||context().path+'/objectives/'+id});
@@ -859,6 +864,8 @@
       const binding=terminalTask(t);
       if(binding)return taskStatus(binding.task)==='in_progress'
         ||binding.objective.id===selectedObjective&&binding.task.id===selected?.id;
+      const link=terminalLink(t);
+      if(link?.view==='workflow'||link?.view==='objective')return true;
       return terminalParentMain(t,selectedObjective);
     });
   }

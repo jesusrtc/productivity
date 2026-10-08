@@ -80,7 +80,17 @@
       surface.addEventListener('pointerdown', pin, {capture: true});
       surface.addEventListener('click', pin, {capture: true});
     }
-    surface.addEventListener('focusin', () => { if (enabled) setOpen(true); });
+    surface.addEventListener('focusin', event => {
+      if (!enabled) return;
+      if (event.target.matches?.('.sidebar-section-shortcut')) {
+        // The compact button disappears on expansion. Move keyboard focus
+        // into its full section so hiding that button cannot close the drawer.
+        pin();
+        const section = event.target.nextElementSibling;
+        section?.setAttribute('tabindex', '-1');
+        section?.focus({preventScroll: true});
+      } else setOpen(true);
+    });
     surface.addEventListener('focusout', event => {
       if (!contains(event.relatedTarget) && !hovered) close();
     });

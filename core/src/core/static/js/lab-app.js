@@ -1224,7 +1224,7 @@
     const createNotebook = _canCreateExecutableNotebook(root)
       ? '<button class="sidebar-title-action" type="button" onclick="event.stopPropagation();openNewNotebookDialog()" title="Choose a repository folder and create a notebook">＋ Notebook</button>'
       : '';
-    return `<div class="sidebar-title sidebar-title-with-action"><span>Files</span><span class="sidebar-title-actions">${_sidebarSortSelectHtml('files')}${createFile}${createNotebook}</span></div><div class="sidebar-scan-status" data-workspace-scan-root="${escAttr(root)}" role="status">${_sidebarScanLabel(_sidebarScanStates.get(root))}</div>`;
+    return `<button type="button" class="sidebar-section-shortcut" data-sidebar-section-shortcut="files" aria-label="Files" title="Files"></button><div class="sidebar-title sidebar-title-with-action"><span>Files</span><span class="sidebar-title-actions">${_sidebarSortSelectHtml('files')}${createFile}${createNotebook}</span></div><div class="sidebar-scan-status" data-workspace-scan-root="${escAttr(root)}" role="status">${_sidebarScanLabel(_sidebarScanStates.get(root))}</div>`;
   }
 
   function _explorerContextFromRow(row) {
@@ -3600,7 +3600,7 @@
   function _sidebarRecentSectionHtml(files, activePath, root = '', {resolved = false, parts = null, offset = 0} = {}) {
     const recent = resolved ? (files || []) : _sidebarRecentFiles(files);
     if (!recent.length) return '';
-    let html = `<div class="sidebar-title sidebar-title-with-action"><span>Recently updated <span class="sidebar-title-count">${recent.length}</span></span><span class="sidebar-title-actions">${_sidebarSortSelectHtml('recent')}</span></div>`;
+    let html = `<button type="button" class="sidebar-section-shortcut" data-sidebar-section-shortcut="recent" aria-label="Recently updated" title="Recently updated"></button><section data-sidebar-recent-list><div class="sidebar-title sidebar-title-with-action"><span>Recently updated <span class="sidebar-title-count">${recent.length}</span></span><span class="sidebar-title-actions">${_sidebarSortSelectHtml('recent')}</span></div>`;
     const scopeRoot = root || (currentWorkspace && currentWorkspace.path ? currentWorkspace.path : 'global');
     const scope = `recent:${scopeRoot}`;
     const tree = _sidebarRecentTreeModel(recent);
@@ -3645,7 +3645,7 @@
       const childOffset = offset + html.length;
       rendered.parts.forEach(part => parts.push({id: part.id, start: childOffset + part.start, end: childOffset + part.end}));
     }
-    html += rendered.html;
+    html += rendered.html + '</section>';
     return html;
   }
 
@@ -3964,7 +3964,7 @@
         (objectiveMode ? _sidebarFileScopeButtonsHtml(baseRoot) + _sidebarRecentSelectorsHtml()
           : '<div class="sidebar-title sidebar-title-with-action"><span>Project</span>' + _sidebarFileConfigCogHtml() + '</div>' +
             _sidebarRecentSelectorsHtml() + _sidebarFileScopeButtonsHtml(baseRoot) + _sidebarWorktreePickerHtml(baseRoot)) +
-        '<section data-project-recent></section>' + _sidebarFilesTitle(fileRoot, currentRepo ? 'repo' : 'workspace') +
+        '<button type="button" class="sidebar-section-shortcut" data-sidebar-section-shortcut="recent" aria-label="Recently updated" title="Recently updated"></button><section data-project-recent></section>' + _sidebarFilesTitle(fileRoot, currentRepo ? 'repo' : 'workspace') +
         '<section data-project-directory="."><div class="sidebar-title">Loading files…</div></section></div>';
       if (transition) {
         // Build the new checkout offscreen. Both small projections must be
@@ -3976,6 +3976,12 @@
         sidebar.innerHTML = markup;
         view = sidebar.querySelector('[data-project-sidebar]');
       }
+    }
+    if (window.openAgentContext && !view.querySelector('[data-project-agent-context]')) {
+      const context = document.createElement('section');
+      context.dataset.projectAgentContext = '';
+      context.innerHTML = _agentContextRowHtml();
+      view.append(context);
     }
     view._project = {baseRoot, fileRoot, generation};
     if (transition) transition.view = view;
@@ -4660,7 +4666,7 @@
       _sidebarWorktreeScopeStartHtml(baseRoot) +
       _sidebarRecentSectionHtml(recentFiles, workspaceOpenFile, fileRoot, {resolved: true}) +
       _sidebarFilesTitle(fileRoot, 'repo') +
-      '<ul class="tree-node">' + renderTreeNodes(sortedFiles, changedFiles) + '</ul>' +
+      '<ul class="tree-node" data-sidebar-files-list>' + renderTreeNodes(sortedFiles, changedFiles) + '</ul>' +
       _sidebarWorktreeScopeEndHtml(baseRoot) + '</div>';
     _sidebarMarkPainted(baseRoot, fileRoot);
   }
@@ -7153,11 +7159,27 @@
     const groups = [{root: baseRoot, label: baseLabel}];
     if (fileRoot !== baseRoot) groups.push({root: fileRoot, label: 'Selected folder instructions'});
     return `<div class="sidebar-title" title="Instruction files on disk. Browsing another folder leaves a running agent's startup context unchanged.">Meta</div>
-      <a class="sidebar-file sidebar-file-meta" onclick="openAgentContext()" title="Read the Lab context supplied when an agent starts, including in Assistant"><span class="sidebar-fname">${fileIconHtml('AGENTS.md')}Lab agent context</span></a>`
+      ${_agentContextRowHtml()}`
       + groups.map(group => `<div class="sidebar-agent-instructions">
         <div class="sidebar-agent-instructions-label" title="${escAttr(group.root)}">${esc(group.label)}</div>
         <div data-agent-instructions-root="${escAttr(group.root)}"><div class="sidebar-agent-instructions-note">Loading…</div></div>
       </div>`).join('');
+  }
+
+  function _agentContextRowHtml() {
+    return `<a class="sidebar-file sidebar-file-meta" data-lab-agent-context draggable="true" role="button" tabindex="0" onclick="openAgentContext()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openAgentContext()}" title="Read Lab agent context, or drag its full text into a terminal">${fileIconHtml('AGENTS.md')}<span class="sidebar-fname">Lab agent context</span></a>`;
+  }
+
+  function _readAgentContextGuide() {
+    if (typeof _readAgentContextGuide.content === 'string') return Promise.resolve(_readAgentContextGuide.content);
+    if (!_readAgentContextGuide.pending) {
+      _readAgentContextGuide.pending = fetch('/api/agents/context/guide').then(async response => {
+        const data = await response.json();
+        if (!response.ok || typeof data.content !== 'string' || !data.content.trim()) throw new Error(data.detail || 'Could not load agent context.');
+        return _readAgentContextGuide.content = data.content;
+      }).finally(() => { _readAgentContextGuide.pending = null; });
+    }
+    return _readAgentContextGuide.pending;
   }
 
   function _agentInstructionRowsHtml(files, root) {
@@ -7197,10 +7219,8 @@
     _docModalEscHandler = event => { if (event.key === 'Escape') closeDocModal(); };
     document.addEventListener('keydown', _docModalEscHandler);
     try {
-      const response = await fetch('/api/agents/context/guide');
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.detail || 'Could not load agent context.');
-      body.innerHTML = `<pre style="white-space:pre-wrap;overflow-wrap:anywhere;padding:20px">${esc(data.content)}</pre>`;
+      const content = await _readAgentContextGuide();
+      body.innerHTML = `<button type="button" class="sidebar-file" data-lab-agent-context draggable="true" title="Drag the full Lab context into a terminal">Drag context to terminal</button><pre style="white-space:pre-wrap;overflow-wrap:anywhere;padding:20px">${esc(content)}</pre>`;
     } catch (error) {
       body.innerHTML = `<div class="empty">${esc(error.message)}</div>`;
     }
@@ -10046,6 +10066,9 @@
   function _sidebarMarkupNodeKey(node) {
     if (node.nodeType !== 1) return node.nodeType + ':' + node.nodeValue;
     if (node.id) return node.nodeName + ':id:' + node.id;
+    const section = node.getAttribute('data-sidebar-section-shortcut')
+      || (node.hasAttribute('data-sidebar-files-list') ? 'files' : node.hasAttribute('data-sidebar-recent-list') ? 'recent' : null);
+    if (section) return node.nodeName + ':section:' + section;
     const path = node.getAttribute('data-filepath');
     if (path !== null) return node.nodeName + ':file:' + (node.classList.contains('sidebar-file-recent') ? 'recent:' : '')
       + (node.getAttribute('data-entry-root') || '') + '\0' + path;
@@ -10094,8 +10117,8 @@
       let desired;
       if (match && (source === match.source || match.source.isEqualNode(source))) desired = match.live;
       else if (match && node.nodeType === 1
-          && node.matches('.sidebar-folder-children,.sidebar-recent-children,.sidebar-worktree-scope')
-          && match.source.matches('.sidebar-folder-children,.sidebar-recent-children,.sidebar-worktree-scope')
+          && node.matches('.sidebar-folder-children,.sidebar-recent-children,.sidebar-worktree-scope,[data-sidebar-files-list],[data-sidebar-recent-list]')
+          && match.source.matches('.sidebar-folder-children,.sidebar-recent-children,.sidebar-worktree-scope,[data-sidebar-files-list],[data-sidebar-recent-list]')
           && _reconcileSidebarChildren(match.live, match.source, node, changes)) {
         // Counts, expanded state, and scope colors can change without making
         // the unchanged children disposable. Apply only template differences.
@@ -10440,6 +10463,7 @@
       sbHtml += _sidebarWorktreeScopeStartHtml(workspacePath);
       sbHtml += _sidebarRecentSectionHtml(recentFiles, activePath, fileRoot, {resolved: true, parts: sidebarParts, offset: sbHtml.length});
       sbHtml += _sidebarFilesTitle(fileRoot);
+      sbHtml += '<section data-sidebar-files-list>';
       if (mainFiles.length > 0 || dirEntries.length > 0) {
         const tree = buildSidebarTree([...dirEntries, ...mainFiles]);
         function renderTree(node, depth, parentPath, offset) {
@@ -10501,6 +10525,7 @@
         }
         sbHtml += renderTree(tree, 0, '', sbHtml.length);
       }
+      sbHtml += '</section>';
       sbHtml += _sidebarWorktreeScopeEndHtml(workspacePath);
 
       // Virtual ``external-references/`` folder — URLs from
@@ -16205,7 +16230,7 @@
     await window.LabObjectives?.load();
     if (!current() || base !== currentWorkspace?.path || configScope !== _sidebarFileConfigScope) return null;
     const objective = window.LabObjectives?.terminalLaunchContext();
-    const identity = row => JSON.stringify([row?.id, row?.path,row?.task?.id,
+    const identity = row => JSON.stringify([row?.id, row?.path,row?.task?.id,row?.task_terminals,
       row?.worktrees.map(tree => [tree.id, tree.path, tree.repo, tree.kind])]);
     const objectiveIdentity = identity(objective);
     const rows = window.LabTerminalFolder.choices(base, _workspaceDisplayName(currentWorkspace),
@@ -16283,6 +16308,7 @@
         termSessions = [{...created, workspace_id: created.workspace_id || workspaceId}, ...termSessions];
       }
       _termSessionsCache.set(sessionCacheKey, termSessions);
+      termRenderSessionList();
       const taskTarget = choice.association?.task_id;
       const selection = taskTarget || choice.association?.main ? window.LabObjectives?.terminalLaunchContext?.() : null;
       const selected = taskTarget ? selection?.id === choice.association.objective_id && selection?.task?.id === taskTarget
@@ -16491,6 +16517,16 @@
   // Use explicit file/folder identity, never the row's displayed label (which may
   // omit its parent folders or belong to a different vault/worktree).
   document.addEventListener('dragstart', event => {
+    const context = event.target.closest?.('[data-lab-agent-context]');
+    if (context?.dataset?.labAgentContext !== undefined && event.dataTransfer) {
+      event.dataTransfer.effectAllowed = 'copy';
+      event.dataTransfer.setData('application/x-lab-agent-context', 'overview');
+      event.dataTransfer.setData('text/plain', _readAgentContextGuide.content || 'Lab agent context');
+      // Let the browser capture the dragged element before hiding its modal.
+      // Hiding the source during dragstart cancels a native Chrome drag.
+      if (context.closest('#docViewModal')) setTimeout(closeDocModal, 0);
+      return;
+    }
     const row = event.target.closest?.('[data-entry-kind="file"][data-entry-path], [data-entry-kind="folder"][data-entry-path], [data-open-file][data-filepath]');
     const folder = event.target.closest?.('.sidebar-file-scope-button[data-base-root]');
     const ctx = _explorerContextFromRow(row) || (folder ? {root:folder.dataset.folderPath || folder.dataset.baseRoot,path:'.',kind:'folder'} : null);
@@ -16561,11 +16597,28 @@
     return /^[a-zA-Z0-9_./:@%+=,-]+$/.test(path) ? path : "'" + path.replace(/'/g, "'\\''") + "'";
   }
 
+  async function _termPasteAgentContext() {
+    const terminal = termXterm, socket = termWS, session = termCurrentSession, workspace = termCurrentWorkspaceId;
+    if (!terminal || !socket || socket.readyState !== WebSocket.OPEN) {
+      explorerToast('Connect a terminal before dropping Lab context.', true);
+      return;
+    }
+    try {
+      const content = await _readAgentContextGuide();
+      if (termXterm !== terminal || termWS !== socket || termCurrentSession !== session
+          || termCurrentWorkspaceId !== workspace || socket.readyState !== WebSocket.OPEN) return;
+      const text = content.replace(/\r\n?/g, '\n');
+      terminal.paste(terminal.modes?.bracketedPasteMode ? text : text.replace(/\n/g, ' '));
+      terminal.focus();
+    } catch (error) { explorerToast(error.message, true); }
+  }
+
   function _termHandleDrop(event) {
     if (_termDragState || workspaceTabsDragId
         || Array.from(event.dataTransfer?.types || []).includes('application/x-lab-terminal')) return;
     event.preventDefault();
     event.stopPropagation();
+    if (event.dataTransfer?.getData('application/x-lab-agent-context') === 'overview') return _termPasteAgentContext();
     const references = _termDropReferences(event.dataTransfer);
     if (!references.length) {
       if (event.dataTransfer?.files?.length) explorerToast('The browser did not provide the original path. Drag the file or folder from Lab’s sidebar, or copy its pathname in Finder and paste it here.', true);
@@ -16828,7 +16881,7 @@
         body.addEventListener('copy', _termHandleCopy, { capture: true });
         body.addEventListener('dragover', event => {
           const types = Array.from(event.dataTransfer?.types || []);
-          if (!types.some(type => ['application/x-lab-reference', 'application/x-lab-file-path', 'Files', 'text/uri-list', 'text/plain'].includes(type))
+          if (!types.some(type => ['application/x-lab-agent-context', 'application/x-lab-reference', 'application/x-lab-file-path', 'Files', 'text/uri-list', 'text/plain'].includes(type))
               || types.includes('application/x-lab-terminal') || _termDragState || workspaceTabsDragId) return;
           event.preventDefault();
           event.dataTransfer.dropEffect = 'copy';
@@ -19179,7 +19232,7 @@
 
       const tree = buildSidebarTree(files);
 
-      sbHtml += renderSidebarFileTree(tree, 0, '', {scope: `self:${fileRoot}`, autoOpen: _AUTO_OPEN_SELF, activePath, root: fileRoot});
+      sbHtml += '<section data-sidebar-files-list>' + renderSidebarFileTree(tree, 0, '', {scope: `self:${fileRoot}`, autoOpen: _AUTO_OPEN_SELF, activePath, root: fileRoot}) + '</section>';
       sbHtml += _sidebarWorktreeScopeEndHtml(baseRoot);
 
       sbHtml += _agentContextMetaHtml(baseRoot, fileRoot, 'Home instructions');
@@ -20579,7 +20632,7 @@
       sbHtml += _sidebarWorktreeScopeStartHtml(rootPath);
       sbHtml += _sidebarRecentSectionHtml(recentFiles, activePath, fileRoot, {resolved: true});
       sbHtml += _sidebarFilesTitle(fileRoot);
-      sbHtml += renderSidebarFileTree(buildSidebarTree(files), 0, '', {scope: `vault:${fileRoot}`, autoOpen: _AUTO_OPEN_VAULT, activePath, root: fileRoot});
+      sbHtml += '<section data-sidebar-files-list>' + renderSidebarFileTree(buildSidebarTree(files), 0, '', {scope: `vault:${fileRoot}`, autoOpen: _AUTO_OPEN_VAULT, activePath, root: fileRoot}) + '</section>';
       sbHtml += _sidebarWorktreeScopeEndHtml(rootPath);
       sidebar.innerHTML = '<div class="sidebar-scope-view">' + sbHtml + '</div>';
       _sidebarMarkPainted(rootPath, fileRoot, files);
@@ -21276,14 +21329,14 @@
     activateLinkedTerminal: identities => _termActivateObjectiveTerminal(identities),
     sessions:()=>termSessions,
     workflowName:()=>_workspaceDisplayName(currentWorkspace),
-    createWorkflowTerminal:launch=>termSpawnSession('terminal',{startFresh:true,launchChoice:{
+    createWorkflowTerminal:launch=>termSpawnSession('claude',{startFresh:true,launchChoice:{
       scope:{base_root:launch.context.path,project_root:launch.context.path,root:launch.context.path,label:_workspaceDisplayName(currentWorkspace),color:'#8b949e',config_scope:_sidebarFileConfigScope},
       association:{context:launch.context,main:'workflow'}}}),
     parentTerminal:session=>{
       const parent=_termSubtabParents(_termReadGroupState(),termSessions)[session.logical_name];
       return termSessions.find(item=>item.logical_name===parent);
     },
-    createTaskTerminal:(launch,task)=>termSpawnSession('terminal',{startFresh:true,launchChoice:{
+    createTaskTerminal:(launch,task)=>termSpawnSession('claude',{startFresh:true,launchChoice:{
       scope:{base_root:launch.context.path,project_root:launch.context.path,root:launch.path,label:launch.name,color:'#8b949e',config_scope:_sidebarFileConfigScope},
       association:{context:launch.context,objective_id:launch.id,...(task?{task_id:task.id,rename_to_task:true}:{main:'objective'})}}}),
     prepareCenter: type => {

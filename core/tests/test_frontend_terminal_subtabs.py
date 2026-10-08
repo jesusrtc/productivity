@@ -31,7 +31,7 @@ def test_task_terminal_rows_inherit_context_reuse_primaries_and_preserve_manual_
 const _TERM_GROUP_COLORS=['#58a6ff'];
 const task=(id,children=[])=>({id,title:id,children});
 const o={id:'one',name:'Project',tasks:[task('parent',[task('subtask')]),task('missing')],resources:[],worktrees:[]};
-const registry={enabled:true,focused:['one'],objectives:[o],terminal_links:{
+const registry={enabled:true,task_terminals:true,focused:['one'],objectives:[o],terminal_links:{
  global:{objective_id:'one'},parent:{objective_id:'one',task_id:'parent'},subtask:{objective_id:'one',task_id:'subtask'},
  extra:{objective_id:'one',view:'tasks'},grandchild:{objective_id:'one',view:'tasks'}}};
 const termSessions=['global','parent','subtask','extra','grandchild'].map(name=>({name,logical_name:name,session_id:name}));
@@ -179,6 +179,7 @@ const fixture={enabled:true,revision:'fixture',focused:['one','two','empty'],ter
 window.fetch=async(url,options={})=>{if(options.method==='POST'){mutations.push(JSON.parse(options.body));return{ok:true,json:async()=>({})};}return{ok:true,json:async()=>structuredClone(fixture)}};
 window.errors=[];window.addEventListener('error',e=>errors.push(e.error?.stack||e.message));window.addEventListener('unhandledrejection',e=>errors.push(String(e.reason)));
 const created=[];
+fixture.task_terminals=true;
 LabObjectives.connect({context:()=>({workspace_id:workspace,vault,path:'/workspace'}),refreshTabs:()=>document.querySelector('.repo-tabs').innerHTML=LabObjectives.tabsHtml('/workspace'),refreshTerminals:()=>termRenderSessionList(),prepareCenter:()=>{},scopeRoot:()=>'/workspace',
  sessions:()=>termSessions,parentTerminal:t=>termSessions.find(p=>p.logical_name===_termSubtabParents(_termReadGroupState(),termSessions)[t.logical_name]),
  activateLinkedTerminal:ids=>_termActivateObjectiveTerminal(ids),
@@ -216,6 +217,7 @@ const fs=require('node:fs');
  const tab=name=>'.sess[data-name="'+name+'"]';
  await send('Emulation.setDeviceMetricsOverride',{width:1500,height:1000,deviceScaleFactor:1,mobile:false});await send('Page.navigate',{url:process.argv[2]});await waitReady();
  assert(await evaluate(`document.querySelectorAll('.objective-terminal-heading').length===3&&document.querySelectorAll('.objective-terminal-rows:not([hidden])').length===1&&!document.querySelector('.sess[data-name=other]').getClientRects().length`),'initial Objective accordion');
+ assert(await evaluate(`getComputedStyle(document.querySelector('[data-terminal-main=objective] .sess-label')).color===getComputedStyle(document.querySelector('.objective-terminal-heading[data-select-objective=one]')).color`),'Objective main text matches its Objective color');
  const saved=await evaluate('localStorage.getItem(_TERM_GROUPS_KEY)');
  await drag(tab('b'),tab('a'));
  assert(await evaluate(`!document.getElementById('termGroupMenu').hidden&&mutations.length===0&&localStorage.getItem(_TERM_GROUPS_KEY)===${JSON.stringify(saved)}`),'drop asks before changing layout');

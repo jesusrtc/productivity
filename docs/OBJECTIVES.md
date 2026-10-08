@@ -200,10 +200,14 @@ the list. Selecting another parent returns non-WIP children to their collapsed
 state. Task details are not duplicated
 as a separate `Tasks.md` tree in Unassigned.
 
-Clicking a task or subtask activates its primary terminal and reveals the
-terminal panel, regardless of status. Its details stay open. If the session
-is missing, Lab creates it automatically; repeated clicks reuse the same
-primary. A task owns one primary terminal. Extra subterminals can inherit the
+Task terminals are optional. **Settings → workspace → Terminal sessions →
+Each task gets its own terminal** is off by default and is saved for that
+workspace across browsers. With it off, task clicks open details and activate
+an existing linked terminal without creating a new one. With it on, Lab shows
+recommended task terminals and creates or reuses the primary when selecting a
+task. Explicit **+ New → Current task** remains available in either mode.
+Changing the setting preserves existing sessions. A task owns one primary
+terminal. Extra subterminals can inherit the
 parent task's context without claiming another task assignment. An ordinary
 terminal can be reassigned to a different task, including across Objectives.
 Refreshing or restoring task details does not spawn another terminal.
@@ -309,15 +313,19 @@ override the user's terminal selection.
 **+ New** asks whether to open for the current workflow (workspace root), the
 current Objective (its own directory), or a specific worktree in that Objective.
 The worktree option opens a list restricted to that Objective's associated
-checkouts. Objective choices save a whole-Objective terminal association;
+checkouts. Workflow and Objective choices create a separate terminal on each
+launch, even when their fixed main exists, and stay visible with task filtering
+enabled. Objective choices save a whole-Objective terminal association;
 worktree choices save a folder association. The Home demo offers the same
 choices with simulated terminals. See [TERMINALS.md](TERMINALS.md#new-terminal-location).
 
-The terminal selector always shows one fixed **⌂ workflow main** at the top.
-The fixed **◎ Objective main** appears immediately after the active Objective's
+The terminal selector always shows one fixed **💻 workflow main** at the top.
+The fixed **💻 Objective main** appears immediately after the active Objective's
 divider; inactive Objective mains stay hidden, including in Show all mode.
-The small diamond marks a main terminal. Clicking a main row creates its
-session if needed and reuses it thereafter. These tabs cannot be moved,
+Clicking a main row creates its session if needed and reuses it thereafter.
+Default main and task launches start the configured workspace agent with Lab
+context. Active Objective terminal names use their Objective color.
+These tabs cannot be moved,
 nested, renamed or reassigned through the tab controls. Existing extra
 sessions remain ordinary terminals. Main roles are saved as
 `main: "workflow"` or `main: "objective"` in the workspace terminal links;

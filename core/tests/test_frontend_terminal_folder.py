@@ -9,15 +9,103 @@ import time
 import pytest
 
 from .test_frontend_terminal_ui import ROOT, _js_between, _run_node
+from .test_frontend_project_cache import _check_project_html
 
 STATIC = ROOT / 'core/src/core/static'
+
+
+def test_default_main_and_task_launches_use_the_resolved_agent():
+    callbacks = _js_between('    createWorkflowTerminal:', '    prepareCenter:')
+    result = _run_node(r'''
+const calls=[],termSpawnSession=(kind,options)=>calls.push({kind,...options});
+const currentWorkspace={},_workspaceDisplayName=()=> 'Workflow',_sidebarFileConfigScope='fixture';
+const adapter={
+''' + callbacks + r'''
+};
+const launch={id:'objective',name:'Objective',path:'/workspace/objectives/one',context:{path:'/workspace',workspace_id:'work',vault:'fixture'}};
+adapter.createWorkflowTerminal(launch);adapter.createTaskTerminal(launch,null);adapter.createTaskTerminal(launch,{id:'task'});
+console.log(JSON.stringify(calls));
+''')
+    assert [call['kind'] for call in result] == ['claude', 'claude', 'claude']
+    assert all(call.get('agent') is None for call in result)  # Server resolves workspace/vault defaults.
+    assert [call['launchChoice']['scope']['root'] for call in result] == ['/workspace', '/workspace/objectives/one', '/workspace/objectives/one']
+    assert result[0]['launchChoice']['association']['main'] == 'workflow'
+    assert result[1]['launchChoice']['association']['main'] == 'objective'
+    assert result[2]['launchChoice']['association']['task_id'] == 'task'
+
+
+def test_added_workflow_and_objective_terminals_render_with_existing_mains(tmp_path):
+    helpers = _js_between('  async function _termChooseNewScope(', '  async function termKillCurrent(')
+    setup = r'''
+const assert=(ok,message)=>{if(!ok)throw Error(message)},tick=()=>new Promise(r=>setTimeout(r,0));
+let currentWorkspace={path:'/workspace',is_workspace:true},termSessions=[],termCurrentSession='workflow-main';
+const scope={workspace_id:'work',vault:'fixture',path:'/workspace'};
+const _termActiveWorkspaceId=()=>scope.workspace_id,_termVaultId=()=>scope.vault,_termHomeSection=()=>null;
+const _workspaceDisplayName=()=> 'Workflow',_sidebarFileConfigScope='fixture::work',_sidebarFileConfig={};
+const _termSelectedScope=()=>({root:'/unrelated'}),_termSessionsKey=(w,v)=>v+'::'+w;
+const _termSessionsCache=new Map(),_termInvalidateSessionReads=()=>{},_termClearDead=()=>{};
+const termSetStatus=()=>{},termSetAutoSpawnEnabled=async()=>{},_termSaveHomeAssociation=()=>{};
+const CEREBRO_WORKSPACE_ID='__cerebro__',SELF_WORKSPACE_ID='__self__',ASSISTANT_WORKSPACE_ID='__assistant__';
+const registry={enabled:true,revision:'0',focused:['one','two'],terminal_links:{},objectives:['one','two'].map(id=>({
+ id,name:id,path:'/workspace/objectives/'+id,color:'#58a6ff',purpose:'',tasks:[],worktrees:[],resources:[],shared_assets:[],archived_assets:[]}))};
+const addMain=(name,association)=>{const s={name,logical_name:name,session_id:'uuid-'+name,cwd:'/workspace'};
+ termSessions.push(s);registry.terminal_links[s.session_id]=association;};
+addMain('workflow-main',{main:'workflow'});addMain('objective-main',{objective_id:'one',main:'objective'});
+const posts=[],actions=[],errors=[];window.alert=message=>{throw Error(message)};
+addEventListener('error',e=>errors.push(e.message));addEventListener('unhandledrejection',e=>errors.push(String(e.reason)));
+window.fetch=async(url,options={})=>{
+ if(url==='/api/term/sessions'){
+  const body=JSON.parse(options.body);posts.push(body);
+  return {ok:true,json:async()=>({name:'added-'+posts.length,logical_name:'added-'+posts.length,
+   session_id:'uuid-added-'+posts.length,cwd:body.cwd,linked_scope:body.linked_scope})};
+ }
+ if(options.method==='POST'){
+  const action=JSON.parse(options.body).action;actions.push(action);
+  registry.terminal_links[action.session_id]={...action};delete registry.terminal_links[action.session_id].type;
+  registry.revision+='!';
+ }
+ return {ok:true,json:async()=>structuredClone(registry)};
+};
+function termRenderSessionList(){
+ const sessions=LabObjectives.terminalSessions(termSessions);
+ document.getElementById('termSessionList').innerHTML=LabObjectives.terminalHtml(sessions,
+  t=>`<button class="sess" data-name="${t.name}">${t.name}</button>`,'');
+}
+const termAttach=name=>{assert(document.querySelector('.sess[data-name="'+name+'"]'),'created tab appears before attachment');termCurrentSession=name;};
+const termRefreshSessions=async()=>termRenderSessionList(),termRefreshSessionsByWorkspaceId=termRefreshSessions;
+LabObjectives.connect({context:()=>scope,sessions:()=>termSessions,refreshTerminals:termRenderSessionList,
+ activateLinkedTerminal:()=>{},prepareCenter:()=>{}});
+(async()=>{try{
+ await LabObjectives.load();LabObjectives.selectObjective('one',{activateTerminal:false});
+ const launch=async index=>{const pending=termSpawnSession('terminal',{startFresh:true});await tick();
+  document.querySelector('[data-folder-choice="'+index+'"]').click();await pending;};
+ await launch(0);
+ assert(posts.length===1,'Add workflow creates a new session even with its main present');
+ const workflow=document.querySelector('.sess[data-name="added-1"]');
+ assert(workflow&&!workflow.closest('.objective-terminal-group'),'workflow terminal appears above Objective groups');
+ await launch(1);await launch(1);
+ assert(posts.length===3,'each Add Objective creates an independent session');
+ for(const name of ['added-2','added-3'])assert(document.querySelector('.sess[data-name="'+name+'"]')?.closest('.objective-terminal-group').querySelector('[data-select-objective]').dataset.selectObjective==='one','Objective terminal appears in its chosen group with WIP filtering on');
+ assert(registry.terminal_links['uuid-workflow-main'].main==='workflow'&&registry.terminal_links['uuid-objective-main'].main==='objective','creation preserves both fixed mains');
+ assert(actions[0].view==='workflow'&&actions[1].view==='objective'&&!actions.some(a=>a.main),'ordinary launches persist separate contexts');
+ assert(posts[0].cwd==='/workspace'&&posts[1].cwd==='/workspace/objectives/one','chosen folders remain exact');
+ LabObjectives.selectObjective('two',{activateTerminal:false});termRenderSessionList();
+ assert(document.querySelector('.sess[data-name="added-1"]')&&!document.querySelector('.sess[data-name="added-2"]').closest('.objective-terminal-rows').getClientRects().length,'workflow stays visible and outgoing Objective terminals fold with their own group');
+ await LabObjectives.load(undefined,true);LabObjectives.selectObjective('one',{activateTerminal:false});termRenderSessionList();
+ assert(document.querySelector('.sess[data-name="added-2"]').getClientRects().length>0&&document.querySelectorAll('[data-name="workflow-main"],[data-name="objective-main"]').length===2,'refresh restores ordinary terminals without replacing main roles');
+ assert(!errors.length,'no browser errors: '+errors.join('\n'));document.body.dataset.result='pass';
+}catch(error){document.body.dataset.result='fail';document.body.append(String(error.stack||error));}})();
+'''
+    html = '<!doctype html><meta charset="utf-8"><body class="workspace-active"><main id="content"></main><div id="termSessionList"></div>'
+    html += '<script>'+(STATIC / 'js/lib/workspace-objectives.js').read_text()+'</script><script>'+(STATIC / 'js/lib/terminal-folder.js').read_text()+'</script><script>'+helpers+setup+'</script>'
+    _check_project_html(tmp_path, html)
 
 
 def test_current_task_launch_is_recommended_and_captures_one_primary_assignment():
     result = _run_node((STATIC / 'js/lib/terminal-folder.js').read_text() + r'''
 const rows=LabTerminalFolder.choices('/workspace','Workflow',{},'one::work',{
  id:'objective',name:'Objective',path:'/workspace/objectives/one',context:{workspace_id:'work',vault:'one',path:'/workspace'},
- task:{id:'task',title:'Verify the fix'},worktrees:[]});
+ task_terminals:true,task:{id:'task',title:'Verify the fix'},worktrees:[]});
 console.log(JSON.stringify(rows));
 '''.replace('LabTerminalFolder.choices', 'window.LabTerminalFolder.choices'))
     assert [row['kind'] for row in result] == ['Task', 'Workflow', 'Objective', 'Worktree']
@@ -52,7 +140,7 @@ const o={id:'one',name:'Current objective',path:'/workspace/objectives/one',work
  {id:'root',path:'/workspace'},{id:'self',path:'/workspace/objectives/one'},
  {id:'feature',path:'/trees/feature',resolved_path:'/real/feature',repo:'/repo',kind:'worktree',label:'Feature',color:'#58a6ff'},
  {id:'folder',path:'/project',repo:'/project',kind:'folder',label:'Project'}]};
-const context=()=>origin,objective=()=>o,active=()=>true,focusedTask=()=>null;
+const context=()=>origin,objective=()=>o,active=()=>true,focusedTask=()=>null,taskTerminalsEnabled=()=>false;
 const mutations=[],change=(action,options)=>mutations.push({action,...options}),terminalIdentity=t=>t.session_id;
 ''' + helpers + r'''
 const launch=terminalLaunchContext();
@@ -66,14 +154,14 @@ console.log(JSON.stringify({launch,workflow,objectiveChoice,worktrees:choices[2]
 ''')
     assert [row['scope']['root'] for row in result['worktrees']] == ['/trees/feature', '/project']
     assert result['workflow']['scope']['root'] == '/workspace'
-    assert result['workflow']['association'] == {'context': result['launch']['context'], 'main': 'workflow'}
+    assert result['workflow']['association'] == {'context': result['launch']['context'], 'view': 'workflow'}
     assert result['objectiveChoice']['scope']['root'] == '/workspace/objectives/one'
     assert result['worktrees'][0]['scope']['worktree'] == '/trees/feature'
     assert result['worktrees'][0]['scope']['project_root'] == '/repo'
     assert result['worktrees'][1]['scope']['worktree'] is None
     assert result['launch']['context']['vault'] == 'one'
     assert result['mutations'] == [
-        {'action': {'type': 'terminal', 'session_id': 'objective-terminal', 'objective_id': 'one', 'main': 'objective'},
+        {'action': {'type': 'terminal', 'session_id': 'objective-terminal', 'objective_id': 'one', 'view': 'objective'},
          'scope': {'workspace_id': 'work', 'vault': 'one', 'path': '/workspace'}},
         {'action': {'type': 'terminal', 'session_id': 'worktree-terminal', 'objective_id': 'one',
                     'folder': {'root': '/trees/feature', 'path': '.'}},
@@ -110,6 +198,7 @@ const _termSessionsCache=new Map();
 const _termSaveHomeAssociation=()=>{};
 const termAttach=(name,w)=>attachments.push({name,w});
 const termRefreshSessions=async()=>{},termRefreshSessionsByWorkspaceId=async()=>{};
+const termRenderSessionList=()=>{};
 const CEREBRO_WORKSPACE_ID='__cerebro__',SELF_WORKSPACE_ID='__self__',ASSISTANT_WORKSPACE_ID='__assistant__';
 window.fetch=async(url,options)=>{const body=JSON.parse(options.body);posts.push(body);
  return {ok:true,json:async()=>({name:'new'+posts.length,logical_name:'new'+posts.length,
@@ -164,7 +253,7 @@ const open=()=>termSpawnSession('terminal',{startFresh:true});
  assert([...q('.term-folder-list').querySelectorAll('strong')].map(n=>n.textContent).join('|')==='Current workflow|Current Objective|Specific worktree','three launch categories');
  const launchDialog=q('[role=dialog]'),launchRect=launchDialog.getBoundingClientRect();
  assert(launchRect.left>=0&&launchRect.right<=innerWidth+1&&launchDialog.scrollWidth<=launchDialog.clientWidth+1,'Objective chooser fits viewport');
- pick(0);await pending;assert(posts.at(-1).cwd==='/workspace'&&associations.at(-1).association.main==='workflow'&&!associations.at(-1).association.objective_id,'workflow main stays at its root without an Objective association');
+ pick(0);await pending;assert(posts.at(-1).cwd==='/workspace'&&associations.at(-1).association.view==='workflow'&&!associations.at(-1).association.objective_id,'workflow terminal stays at its root without an Objective association');
  pending=open();await tick();pick(1);await pending;
  assert(posts.at(-1).cwd==='/workspace/objectives/one'&&associations.at(-1).association.objective_id==='objective-one'&&!associations.at(-1).association.folder,'Objective launch saves a whole-Objective assignment');
  pending=open();await tick();const before=posts.length;pick(2);

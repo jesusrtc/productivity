@@ -624,7 +624,12 @@ def mutate(root, workspace_id, action, expected=None):
             if previous.get('main') and (previous['main'] != proposed
                     or previous.get('objective_id') != (None if proposed == 'workflow' else action.get('objective_id'))):
                 raise ValueError('Main terminals have a fixed workflow or Objective context')
-        if operation == 'create':
+        if operation == 'terminal-policy':
+            enabled = action.get('task_terminals')
+            if not isinstance(enabled, bool):
+                raise ValueError('Choose whether each task gets its own terminal')
+            data['task_terminals'] = enabled
+        elif operation == 'create':
             if len(data['objectives']) >= 100:
                 raise ValueError('An objective workspace supports up to 100 saved objectives')
             objective = {'id': identifier(), 'name': _text(action.get('name'), limit=80),
@@ -904,7 +909,7 @@ def mutate(root, workspace_id, action, expected=None):
             task_id = action.get('task_id')
             if task_id and not _find(_tasks(objective), task_id):
                 raise ValueError('Task not found')
-            if view is not None and view != 'tasks':
+            if view is not None and view not in ('tasks', 'objective'):
                 raise ValueError('Choose an objective view')
             for field in ['file', 'folder']:
                 if action.get(field) is not None and not isinstance(action[field], dict):

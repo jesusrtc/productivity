@@ -3,6 +3,8 @@ from pathlib import Path
 import json
 import subprocess
 
+from .test_frontend_project_cache import _check_project_html
+
 SOURCE = Path(__file__).parents[1] / 'src/core/static/js/lab-app.js'
 
 
@@ -72,7 +74,8 @@ let _workspaceDocRoot = '/workspace', _workspaceDocPath = 'AGENTS.md';
 
 def test_context_view_displays_exact_escaped_launcher_context():
     source = SOURCE.read_text()
-    helper = source[source.index('  async function openAgentContext()'):source.index('  window.openAgentContext =')]
+    helper = source[source.index('  function _readAgentContextGuide()'):source.index('  function _agentInstructionRowsHtml(')]
+    helper += source[source.index('  async function openAgentContext()'):source.index('  window.openAgentContext =')]
     script = r'''
 const nodes = Object.fromEntries(['docViewModal', 'docModalBody', 'docModalTitle', 'docModalFiles'].map(id => [id,
   {innerHTML: '', textContent: '', classList: {add() {}}}]));
@@ -96,3 +99,73 @@ const fetch = async url => {
     assert '# Actual launch context\n&lt;instructions&gt;' in data['body']
     assert data['title'] == 'Lab agent context'
     assert data['editing'] is False
+
+
+def test_project_workspaces_expose_context_and_drop_its_full_text_in_chrome(tmp_path):
+    source = SOURCE.read_text()
+    def section(start, end):
+        at = source.index(start)
+        return source[at:source.index(end, at)]
+    helpers = section('  function _sidebarProjectView(', '  function _sidebarProjectOwnsView(')
+    helpers += section('  function _sidebarFilesTitle(', '  function _explorerContextFromRow(')
+    helpers += section('  function _sidebarRecentSectionHtml(', '  function _sidebarConfigFolderCardHtml(')
+    helpers += section('  function _agentContextMetaHtml(', '  // ─── Keep Alive and Lid Awake')
+    helpers += section("  document.addEventListener('dragstart', event => {", '  function _termReflowSelection(')
+    setup = r'''
+const assert=(ok,message)=>{if(!ok)throw Error(message)};
+let base='/workspace-one',folder='/tree-one',currentRepo=null,currentWorkspace={path:base};
+const _sidebarWorktreeBaseRoot=()=>base,_sidebarScopedRoot=()=>folder,_sidebarScopeTransition=null;
+let _sidebarProjectTimer=1,_sidebarProjectGeneration=0;
+const _sidebarMarkPainted=()=>{},_sidebarProjectDirectory=host=>{host.innerHTML='<a class="sidebar-file" data-entry-kind="file">File one</a><a class="sidebar-file" data-entry-kind="file">File two</a>'};
+const _sidebarProjectRecent=view=>{view.querySelector('[data-project-recent]').innerHTML=['/one','/two'].map(root=>_sidebarRecentSectionHtml([{path:'updated.md'}],null,root,{resolved:true})).join('')};
+const _sidebarFileScopeButtonsHtml=()=>'<section data-objectives-sidebar></section>',_sidebarRecentSelectorsHtml=()=>'<div class="sidebar-recent-selectors"></div>';
+const _sidebarFileConfigCogHtml=()=>'',_sidebarWorktreePickerHtml=()=>'';
+const _canCreateExecutableNotebook=()=>false,_sidebarSortSelectHtml=()=>'',_sidebarScanStates=new Map(),_sidebarScanLabel=()=>'';
+const _sidebarRecentTreeModel=files=>({folders:[],files}),symlinkClass=()=>'',symlinkTitle=()=>'',symlinkMarker=()=>'',_sidebarGitHistoryButtonHtml=()=>'';
+const esc=value=>String(value).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;'),escAttr=esc;
+const fileIconHtml=()=>'<span class="ft-icon ft-md"></span>';
+window.LabObjectives={active:()=>true};
+let _workspaceDocEditing=false,_docModalEscHandler=null,_docModalFilesGeneration=0;
+const closeDocModal=()=>document.getElementById('docViewModal').classList.remove('active');
+const guide='# Lab framework capabilities\n\nUse `lab` for tasks & notebooks.\n<instructions>\n';
+let reads=0;
+window.fetch=async()=>{reads++;return {ok:true,json:async()=>({content:guide})};};
+let _termDragState=null,workspaceTabsDragId=null,termCurrentSession='one',termCurrentWorkspaceId='one';
+const pastes=[],notices=[],termXterm={modes:{bracketedPasteMode:true},paste:text=>pastes.push(text),focus(){}};
+const termWS={readyState:WebSocket.OPEN},explorerToast=(...args)=>notices.push(args);
+(async()=>{try{
+ for(const suffix of ['one','two']){
+  base='/workspace-'+suffix;folder='/tree-'+suffix;currentWorkspace.path=base;
+  assert(_sidebarProjectView(base,folder),'project sidebar mounts');
+  assert(document.querySelectorAll('#sidebar [data-lab-agent-context]').length===1,'each workspace has one draggable Lab context item');
+ }
+ const icons=()=>[...document.querySelectorAll('#sidebar [data-sidebar-section-shortcut]')].filter(row=>row.getClientRects().length);
+ const project=document.querySelector('[data-project-sidebar]');project.dataset.objectiveSidebarMode='worktree';project.dataset.objectiveRecentScopes='2';
+ assert(icons().length===2&&icons().map(row=>row.getAttribute('aria-label')).sort().join(',')==='Files,Recently updated','one Files icon and one icon for the entire two-worktree recent union');
+ assert(![...document.querySelectorAll('#sidebar [data-entry-kind=file],#sidebar .sidebar-file-recent')].some(row=>row.getClientRects().length),'compact project view hides individual files in both lists');
+ project.dataset.objectiveSidebarMode='task';assert(icons().length===1&&icons()[0].dataset.sidebarSectionShortcut==='recent','task mode keeps only the available recent list icon');
+ project.dataset.objectiveRecentScopes='0';assert(icons().length===0,'empty task scopes do not leave an orphan recent icon');
+ project.dataset.objectiveSidebarMode='worktree';project.dataset.objectiveRecentScopes='2';document.body.classList.add('sidebar-drawer-open');
+ assert(icons().length===0&&[...document.querySelectorAll('#sidebar [data-entry-kind=file],#sidebar .sidebar-file-recent')].every(row=>row.getClientRects().length),'expanded project view restores all files from both checkouts');
+ const transfer=new DataTransfer(),row=document.querySelector('#sidebar [data-lab-agent-context]');
+ row.dispatchEvent(new DragEvent('dragstart',{bubbles:true,dataTransfer:transfer}));
+ assert(transfer.getData('application/x-lab-agent-context')==='overview','context drag carries the full-content action');
+ const drop=()=>_termHandleDrop({dataTransfer:transfer,preventDefault(){},stopPropagation(){}});
+ await drop();assert(pastes[0]===guide,'cold drag fetches and pastes exact context with line breaks, without Enter');
+ await openAgentContext();
+ assert(document.querySelector('#docModalBody pre').textContent===guide,'read view uses the same context content');
+ const viewed=new DataTransfer();document.querySelector('#docModalBody [data-lab-agent-context]').dispatchEvent(new DragEvent('dragstart',{bubbles:true,dataTransfer:viewed}));
+ await new Promise(resolve=>setTimeout(resolve,0));
+ assert(viewed.getData('text/plain')===guide&&!document.getElementById('docViewModal').classList.contains('active'),'drag from reader exposes the terminal and carries the full text');
+ termXterm.modes.bracketedPasteMode=false;await drop();
+ assert(pastes[1]===guide.replace(/\n/g,' ')&&reads===1,'plain shell receives one unsent line and context requests are shared');
+ delete _readAgentContextGuide.content;let release;
+ window.fetch=()=>new Promise(resolve=>release=resolve);
+ const pending=drop();termCurrentSession='elsewhere';release({ok:true,json:async()=>({content:guide})});await pending;
+ assert(pastes.length===2,'a delayed context load cannot paste into a newly selected terminal');
+ assert(!notices.length,'no context errors');document.body.dataset.result='pass';
+}catch(error){document.body.dataset.result='fail';document.body.append(String(error.stack||error));}})();
+'''
+    css = (SOURCE.parents[1] / 'css/lab-shell.css').read_text() + (SOURCE.parents[1] / 'css/workspace-objectives.css').read_text()
+    html = '<!doctype html><meta charset="utf-8"><style>'+css+'</style><body class="workspace-active sidebar-drawer-enabled"><aside id="sidebar" class="sidebar"></aside><div id="docViewModal"><div id="docModalTitle"></div><div id="docModalFiles"></div><div id="docModalBody"></div></div><script>'+helpers+setup+'</script>'
+    _check_project_html(tmp_path, html)

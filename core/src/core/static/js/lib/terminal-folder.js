@@ -30,12 +30,12 @@
       association: {...association, folder: {root: tree.path, path: '.'}},
     }));
     return [
-      ...(objective.task?[{name:'Current task (recommended)',description:objective.task.title,kind:'Task',
+      ...(objective.task?[{name:objective.task_terminals?'Current task (recommended)':'Current task',description:objective.task.title,kind:'Task',
         scope:scope(objective.path,objective.name),association:{...association,task_id:objective.task.id,rename_to_task:true}}]:[]),
-      {...rows[0], name: 'Current workflow', description: label+' · Main terminal', kind: 'Workflow',
-        association:{context:objective.context,main:'workflow'}},
+      {...rows[0], name: 'Current workflow', description: label, kind: 'Workflow',
+        association:{context:objective.context,view:'workflow'}},
       {name: 'Current Objective', description: objective.name, kind: 'Objective',
-        scope: scope(objective.path, objective.name), association:{...association,main:'objective'}},
+        scope: scope(objective.path, objective.name), association:{...association,view:'objective'}},
       {name: 'Specific worktree', description: 'Choose a worktree in ' + objective.name,
         kind: 'Worktree', children: worktrees},
     ];

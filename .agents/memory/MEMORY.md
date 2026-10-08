@@ -1,8 +1,17 @@
 # Memory index
 
+- [Native drag sources must survive dragstart](native-drag-source-must-survive-dragstart.md) — defer reader dismissal until Chrome captures the drag; cover it with native mouse/console drops.
+- [Compact sidebar groups Files and Recently updated](compact-sidebar-groups-files-and-recent.md) — one icon per whole list, superseding compact per-file icons; expanded files and controls are preserved.
+- [Default terminals start the configured agent](default-terminals-start-configured-agent.md) — default workflow/Objective/task entries initialize the selected agent with Lab context; explicit Terminal remains a shell.
+- [Lab context is available and draggable](lab-context-is-available-and-draggable.md) — all workspace sidebars and the guide reader can paste the full launch context into the captured terminal without Enter.
+
+- [Task terminals are opt-in by workspace](task-terminals-are-opt-in-by-workspace.md) — off by default; workspace-saved policy controls recommended rows and task-click creation while retaining existing/manual terminals.
+- [Added terminals keep their chosen group](added-terminals-keep-their-chosen-group.md) — workflow/Objective launches create independent visible tabs without reusing or replacing fixed mains.
+- [Objective terminal names follow Objective color](objective-terminal-names-follow-objective-color.md) — active Objective names match their header while keeping worktree, automation and display-main colors.
+
 - [Main terminals use laptop icons](main-terminals-use-laptop-icons.md) — plain 💻 for both workflow and Objective main terminals; supersedes distinct icons and diamond decoration.
 
-- [Compact sidebar uses icons and dividers](compact-sidebar-icons-and-dividers.md) — content/navigation icons and task statuses; section dividers and expanded-only filter menus, without clipped labels or extra header icons.
+- [Compact sidebar uses icons and dividers](compact-sidebar-icons-and-dividers.md) — dividers and expanded-only menus; its per-file rule is superseded by grouped Files/Recently updated icons above.
 
 - [First column mirrors the terminal rail](first-column-mirrors-terminal-rail.md) — compact 62px sidebar, shared hover delay, deliberate selection and main-area/console click dismissal with stable work-area geometry.
 

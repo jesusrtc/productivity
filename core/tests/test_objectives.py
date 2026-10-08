@@ -455,6 +455,47 @@ def test_worktrees_can_belong_to_multiple_tasks_without_changing_details_or_icon
         assert any(asset['folder']['root'] == str(checkout) for asset in updated['assets'])
 
 
+def test_task_terminal_policy_is_workspace_scoped_default_off_and_preserves_links(client, monorepo, objective_workspace, seed_workspace):
+    _, oid = objective_workspace
+    seed_workspace('other')
+    apply(monorepo, oid, 'terminal', session_id='existing-main', main='objective')
+    before = objectives.load(monorepo, 'demo')
+    assert before.get('task_terminals', False) is False
+    body = {'workspace_id':'demo', 'expected':before['revision'], 'action':{'type':'terminal-policy', 'task_terminals':True}}
+    response = client.post('/api/objectives', json=body)
+    assert response.status_code == 200, response.text
+    saved = objectives.load(monorepo, 'demo')
+    assert saved['task_terminals'] is True
+    assert saved['terminal_links'] == before['terminal_links']
+    assert saved['objectives'] == before['objectives']
+    assert objectives.load(monorepo, 'other').get('task_terminals', False) is False
+    for invalid in ['false', 1, None]:
+        body.update(expected=saved['revision'], action={'type':'terminal-policy', 'task_terminals':invalid})
+        assert client.post('/api/objectives', json=body).status_code == 400
+        assert objectives.load(monorepo, 'demo') == saved
+    body['action']['task_terminals'] = False
+    assert client.post('/api/objectives', json=body).status_code == 200
+    assert objectives.load(monorepo, 'demo')['task_terminals'] is False
+    assert objectives.load(monorepo, 'demo')['terminal_links'] == before['terminal_links']
+
+
+def test_added_context_terminals_persist_without_replacing_mains(monorepo, objective_workspace):
+    _, oid = objective_workspace
+    objectives.mutate(monorepo, 'demo', {'type':'terminal', 'session_id':'workflow-main', 'main':'workflow'})
+    apply(monorepo, oid, 'terminal', session_id='objective-main', main='objective')
+    for number in range(2):
+        objectives.mutate(monorepo, 'demo', {'type':'terminal', 'session_id':f'workflow-{number}', 'view':'workflow'})
+        apply(monorepo, oid, 'terminal', session_id=f'objective-{number}', view='objective')
+    links = objectives.load(monorepo, 'demo')['terminal_links']
+    assert links['workflow-main'] == {'main':'workflow'}
+    assert links['objective-main']['main'] == 'objective'
+    for number in range(2):
+        assert links[f'workflow-{number}'] == {'view':'workflow'}
+        assert links[f'objective-{number}']['objective_id'] == oid
+        assert links[f'objective-{number}']['view'] == 'objective'
+        assert 'main' not in links[f'objective-{number}']
+
+
 def test_main_terminals_are_unique_and_fixed_without_removing_other_links(monorepo, objective_workspace):
     _, oid = objective_workspace
     data = apply(monorepo, oid, 'task', title='A task')

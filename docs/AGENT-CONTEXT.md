@@ -39,6 +39,12 @@ unless you explicitly request snapshot retention. Older versions receive the
 append flag using their normal resume behavior. A fresh session is the simplest
 way to discard old conversational instructions across providers.
 
+Every workspace sidebar includes **Lab agent context**, including Objective
+and worktree Files views. Click it to read the installed launch guide, or drag
+the shortcut or the reader's **Drag context to terminal** button onto a terminal
+console to paste the full guide without submitting it. Switching terminals
+while the guide loads cancels the paste.
+
 ## How each provider receives context
 
 - Codex: the launcher uses the local app-server `config/read` operation to read

@@ -73,7 +73,7 @@
       else if(section==='links') linkTypes(panel,s);
       else if(section==='appearance') appearance(panel);
       else if(section==='documents') documents(panel,s);
-      else if(section==='terminals') terminals(panel,scope,s);
+      else if(section==='terminals') await terminals(panel,scope,s,token);
       else if(section==='automations') await automations(panel,scope,s,token);
       else files(panel,scope);
     } catch(error) {
@@ -278,7 +278,7 @@
       });
     panel.querySelector('[data-global-agent]').onclick=()=>select(globalScope,'general');
   }
-  function terminals(panel,scope,s) {
+  async function terminals(panel,scope,s,token) {
     if(scope.kind==='global') {
       const p=bridge().appearance();
       form(panel,`<p class="settings-intro">Appearance for terminal tabs throughout Lab in this browser.</p>
@@ -286,7 +286,7 @@
         <p class="settings-hint">Hover over vertical tabs to show their names. Click the tab bar to keep it open; click inside the terminal to hide it. Drag its border to resize the names.</p>
         ${field('Keep terminal tabs and sidebar open after hovering (seconds)',input('tabHoverPinSeconds',p.tabHoverPinSeconds ?? 3,'number','min="0" max="60" step="0.1" required'),'Default: 3 seconds. A shorter hover closes when you leave. Clicking the sidebar keeps it open until you click the main work area. Zero keeps it open immediately.')}
         ${check('wipOnly','Show In progress and selected task terminals in Objectives',p.wipOnly ?? true)}
-        <p class="settings-hint">On by default. Show In progress tasks, the selected task at any status and children that inherit its context. The workspace main stays visible; only the active Objective's main appears. Use Show all beside its header to reveal that Objective's terminals, or turn this off to reveal all Objectives and statuses.</p>
+        <p class="settings-hint">On by default. Show existing In progress and selected task terminals and their children, plus workspace and active Objective mains. Terminals added for a workflow or Objective remain visible. Use Show all beside its header to reveal that Objective's other terminals.</p>
         ${check('recentEnabled','Show recency bar on terminal tabs',p.recentEnabled)}
         <p class="settings-hint">Off by default. Marks inactive tabs selected within the recent window.</p>
         ${field('Recent tab window',choices('recentMinutes',p.recentMinutes,[15,30,60,180,360,720,1440].map(n=>[n,n<60?n+' minutes':n/60+' hours'])))}
@@ -294,12 +294,27 @@
         ${field('Stop blinking after viewing (seconds)',input('completionReadSeconds',p.completionReadSeconds,'number','min="1" max="3600" step="1" required'),'Default: 20 seconds. Keep the terminal visible in the active Lab window for this long. Switching away resets the timer.')}`,async f=>bridge().saveAppearance({orientation:f.elements.orientation.value,tabHoverPinSeconds:Number(f.elements.tabHoverPinSeconds.value),wipOnly:f.elements.wipOnly.checked,recentEnabled:f.elements.recentEnabled.checked,recentMinutes:Number(f.elements.recentMinutes.value),recentColor:f.elements.recentColor.value,completionReadSeconds:Number(f.elements.completionReadSeconds.value)}));
       return;
     }
+    let policy;
+    const context={workspace_id:scope.id,vault:scope.vault,path:scope.path};
+    if(scope.kind==='workspace'){
+      policy=await api('/api/objectives?'+new URLSearchParams({workspace_id:scope.id,...(scope.vault?{vault:scope.vault}:{})}),undefined,s.abort.signal);
+      if(s!==state||token!==s.version)return;
+    }
     const selected=bridge().terminalOptions(scope);
-    form(panel,`<p class="settings-intro">Options shown in <strong>+ New</strong> for ${esc(scope.label)}, in this browser. These switches control the menu; choose the default under <strong>Agent</strong>.</p>
+    form(panel,`<p class="settings-intro">Terminal settings for ${esc(scope.label)}. Choose the default agent under <strong>Agent</strong>.</p>
+      ${policy?check('taskTerminals','Each task gets its own terminal',policy.task_terminals===true,'Off by default. Enable recommended task terminals and create or reuse them when selecting tasks. Applies to every Objective in this workspace, across browsers. Existing terminals stay available.'):''}
+      <p class="settings-hint">Options shown in <strong>+ New</strong> in this browser:</p>
       ${Object.entries(labels).map(([id,label])=>check(id,label,selected.includes(id),id in s.available?(s.available[id]?'Installed':'Not installed on the computer running Lab'):'')).join('')}
       <button type="button" data-appearance>Configure Lab-wide tab appearance</button>
       <button type="button" data-automations>Configure terminal automations</button>
-      <details class="settings-danger"><summary>Stop terminal sessions</summary><p>Running work will stop. Attached external sessions are detached without stopping their originals.</p><button type="button" data-stop ${bridge().canStop(scope)?'':'disabled'}>Stop sessions in ${esc(scope.label)}</button>${bridge().canStop(scope)?'':'<small>Open this workspace first to stop its sessions.</small>'}</details>`,async f=>bridge().saveTerminalOptions(scope,Object.keys(labels).filter(id=>f.elements[id].checked)));
+      <details class="settings-danger"><summary>Stop terminal sessions</summary><p>Running work will stop. Attached external sessions are detached without stopping their originals.</p><button type="button" data-stop ${bridge().canStop(scope)?'':'disabled'}>Stop sessions in ${esc(scope.label)}</button>${bridge().canStop(scope)?'':'<small>Open this workspace first to stop its sessions.</small>'}</details>`,async f=>{
+        if(policy&&f.elements.taskTerminals.checked!==(policy.task_terminals===true)){
+          policy=await api('/api/objectives',{workspace_id:scope.id,vault:scope.vault,expected:policy.revision,
+            action:{type:'terminal-policy',task_terminals:f.elements.taskTerminals.checked}},s.abort.signal);
+          await window.LabObjectives?.load(context,true);
+        }
+        bridge().saveTerminalOptions(scope,Object.keys(labels).filter(id=>f.elements[id].checked));
+      });
     panel.querySelector('[data-appearance]').onclick=()=>select(globalScope,'terminals');
     panel.querySelector('[data-automations]').onclick=()=>select(scope,'automations');
     panel.querySelector('[data-stop]').onclick=()=>bridge().stop(scope);

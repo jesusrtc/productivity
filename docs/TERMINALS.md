@@ -7,11 +7,14 @@ the PTY and WebSocket event loop.
 
 ## New terminal location
 
-Opening a new terminal in an Objectives workspace asks where it should start:
+Opening a new terminal in an Objectives workspace asks where it should start.
+Workflow and Objective choices create additional sessions without replacing
+their fixed mains. Default main/task launches use the configured agent, with
+Lab context supplied at startup. **Terminal** explicitly creates a plain shell.
 
 - **Current workflow** opens at the active workspace root.
 - **Current Objective** opens in the Objective's directory and saves a whole
-  Objective association, placing it at the top of that Objective's terminal tabs.
+  Objective association in that Objective's terminal tabs.
 - **Specific worktree** opens a second list containing only that Objective's
   associated worktrees and folders. Choosing one uses its exact checkout and
   saves its folder association.
@@ -105,6 +108,11 @@ Set **Keep tab names open after hovering (seconds)** in
 **Settings → Global → Terminal appearance** to change the delay. The default
 is 3 seconds; zero keeps names open immediately on hover. This preference is
 saved in the current browser. Horizontal tabs retain their normal layout.
+
+The first column uses the same hover delay and opens over the working area.
+Its collapsed Files and Recently updated sections each show one icon for the
+whole list. Expanding restores every file and filter; clicking the main working
+area or terminal console returns it to the compact rail.
 
 Secondary-click a child terminal and choose **Set as main** to swap its visible
 row with its immediate parent's row, at that parent's existing depth. Ancestor

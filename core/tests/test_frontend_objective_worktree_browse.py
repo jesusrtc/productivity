@@ -7,6 +7,41 @@ from .test_frontend_terminal_ui import _run_node, LAB_APP
 OBJECTIVES = LAB_APP.parent / 'lib/workspace-objectives.js'
 
 
+def test_task_terminals_default_off_preserve_existing_sessions_and_enable_deliberately():
+    source = OBJECTIVES.read_text()
+    helpers = source[source.index('  function terminalIdentity('):source.index('  function sidebarTarget(')]
+    helpers += source[source.index('  function openTask(id,'):source.index('  function openTaskAssets(')]
+    helpers += source[source.index('  function activateLinkedTerminal('):source.index('  function selectObjective(')]
+    result = _run_node(r'''
+const task=id=>({id,title:id,status:'in_progress',children:[],document_id:'doc-'+id,tab_id:id});
+const o={id:'one',name:'One',tasks:[task('existing'),task('missing')],worktrees:[],resources:[]};
+const registry={enabled:true,focused:['one'],objectives:[o],terminal_links:{main:{objective_id:'one',main:'objective'},existing:{objective_id:'one',task_id:'existing'}}};
+const sessions=['main','existing'].map(name=>({name,session_id:name,logical_name:name}));
+const view={terminalAll:{}},state=()=>view,context=()=>({workspace_id:'work',path:'/workspace'}),key=s=>s.workspace_id;
+const data=()=>registry,active=()=>true,objective=()=>o,tasks=o=>o?.tasks||[],focusedTask=()=>o.tasks.find(t=>t.id===view.focus?.task);
+const taskStatus=t=>t.status,taskDisplayName=t=>t.title,taskIcon=()=>'',customTaskIcon=()=>'',esc=String;
+const opened=[],created=[],activated=[],resetWorktreeBrowse=()=>{},persistView=()=>{},openResource=(...args)=>opened.push(args);
+const terminalLaunchContext=()=>({id:o.id,context:context(),task:focusedTask()}),selectObjective=()=>{};
+const bridge={sessions:()=>sessions,refreshTerminals:()=>{},activateLinkedTerminal:ids=>activated.push(ids),createTaskTerminal:async(_,t)=>{created.push(t.id);return null;}};
+''' + helpers + r'''
+(async()=>{
+ const before=JSON.stringify(sessions),defaults=terminalSessions(sessions);
+ openTask('missing',{activateTerminal:true});await Promise.resolve();
+ const createdByDefault=[...created];openTask('existing',{activateTerminal:true});
+ registry.task_terminals=true;const enabled=terminalSessions(sessions);
+ openTask('missing',{activateTerminal:true});await Promise.resolve();
+ registry.task_terminals=false;const disabled=terminalSessions(sessions);
+ console.log(JSON.stringify({defaults:defaults.map(t=>t.task_id||t.name),enabled:enabled.map(t=>t.task_id||t.name),disabled:disabled.map(t=>t.task_id||t.name),createdByDefault,created,activated,opened,unchanged:before===JSON.stringify(sessions)}));
+})().catch(e=>{console.error(e);process.exit(1)});
+''')
+    assert result['defaults'] == result['disabled'] == ['workflow-terminal:work:main', 'main', 'existing']
+    assert result['enabled'] == ['workflow-terminal:work:main', 'main', 'existing', 'missing']
+    assert result['createdByDefault'] == [] and result['created'] == ['missing']
+    assert result['activated'] == [[], ['existing']]
+    assert result['opened'] == [['doc-missing', 'missing'], ['doc-existing', 'existing'], ['doc-missing', 'missing']]
+    assert result['unchanged']
+
+
 def test_wip_filter_includes_inherited_children_and_keeps_all_sessions_recoverable():
     source = OBJECTIVES.read_text()
     helpers = source[source.index('  function terminalIdentity('):source.index('  function sidebarTarget(')]
@@ -15,7 +50,7 @@ const task=(id,status)=>({id,title:id,status,children:[]});
 const o={id:'one',name:'One',tasks:[task('working','in_progress'),task('todo','todo'),task('done','done'),task('recommended','in_progress')],worktrees:[]};
 const sessions=['global','working','extra','grandchild','todo','done','unassigned'].map(name=>({name,session_id:name,logical_name:name}));
 const links={global:{objective_id:'one'},working:{objective_id:'one',task_id:'working'},todo:{objective_id:'one',task_id:'todo'},done:{objective_id:'one',task_id:'done'},extra:{objective_id:'one',view:'tasks'},grandchild:{objective_id:'one',view:'tasks'}};
-const registry={enabled:true,focused:['one'],objectives:[o],terminal_links:links};
+const registry={enabled:true,task_terminals:true,focused:['one'],objectives:[o],terminal_links:links};
 const data=()=>registry,active=()=>true,context=()=>({workspace_id:'work',path:'/workspace'}),tasks=o=>o?.tasks||[],taskDisplayName=t=>t.title;
 const taskStatus=t=>t.status,taskIcon=()=>'',customTaskIcon=()=>'';
 const view={terminalAll:{}},state=()=>view;
