@@ -1,5 +1,8 @@
 # Set as main swaps with the immediate parent
 
+The October 8 correction in [Child terminals merge with parent](child-terminals-merge-with-parent.md)
+supersedes row swapping; the immediate parent and real ownership are preserved.
+
 The user corrected Set as main on October 7, 2026: a nested child must swap only
 with its immediate parent, keeping grandparent and higher ancestor rows in
 place. Preserve the actual hierarchy and real-parent automation recovery.

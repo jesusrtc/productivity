@@ -13441,14 +13441,14 @@
       if (!live.has(savedParent) || !live.has(child) || !parent) continue;
       if (savedParent !== parent) {
         // Older preferences targeted the tree root. Keep the chosen child,
-        // but correct its display swap to the immediate parent.
+        // but correct its merge to the immediate parent.
         if (state.tabDisplayMainVersion === 2) continue;
         let ancestor = parent;
         const seen = new Set();
         while (ancestor && ancestor !== savedParent && !seen.has(ancestor)) { seen.add(ancestor); ancestor = parents[ancestor]; }
         if (ancestor !== savedParent) continue;
       }
-      // A terminal can occupy only one swapped pair at a time.
+      // A terminal belongs to only one merged pair at a time.
       for (const [otherParent, otherChild] of result) {
         if ([parent, child].includes(otherParent) || [parent, child].includes(otherChild)) result.delete(otherParent);
       }
@@ -13510,20 +13510,19 @@
 
   function _termSubtabRenderer(state, sessions, pill) {
     const parents = _termSubtabParents(state, sessions);
-    const mains = _termDisplayMains(state, sessions, parents), swaps = new Map();
-    for (const [parent, child] of mains) { swaps.set(parent, child); swaps.set(child, parent); }
+    const mains = _termDisplayMains(state, sessions, parents);
+    const mergedInto = new Map([...mains].map(([parent, child]) => [child, parent]));
     const sessionsByLogical = new Map(sessions.map(session => [session.logical_name, session]));
-    // A nominated child's immediate-parent slot stays visible at that depth.
+    // The parent keeps its identity; its tab connects to the chosen child.
     const workingRows = new Set(mains.keys());
     for (const session of sessions) {
-      const represented = sessionsByLogical.get(swaps.get(session.logical_name)) || session;
-      const task = window.LabObjectives?.taskForTerminal?.(represented);
+      const task = window.LabObjectives?.taskForTerminal?.(session);
       // Inherited context does not give an independent child its own WIP task.
       // Inactive automation children use parent disclosure even with a WIP task.
-      if (task?.status === 'in_progress' && !task.inherited && !/^automation-[0-9a-f]{32}-[1-9]\d*$/.test(represented.logical_name || '')) workingRows.add(session.logical_name);
+      if (task?.status === 'in_progress' && !task.inherited && !/^automation-[0-9a-f]{32}-[1-9]\d*$/.test(session.logical_name || '')) workingRows.add(session.logical_name);
     }
     const visibleRows = new Set(workingRows);
-    for (const logical of _termActiveSubtabFamily(sessions, parents)) visibleRows.add(swaps.get(logical) || logical);
+    for (const logical of _termActiveSubtabFamily(sessions, parents)) visibleRows.add(mergedInto.get(logical) || logical);
     const visibleBranches = new Set();
     for (const logical of visibleRows) {
       let ancestor = parents[logical];
@@ -13535,22 +13534,27 @@
     let position = 0;
     const rows = new Map(sessions.map((session, index) => [session.logical_name, {session, index}]));
     const displayPill = (session, index) => {
-      const represented = sessionsByLogical.get(swaps.get(session.logical_name)) || session;
-      if (!mains.has(session.logical_name)) return pill(represented, index);
-      let owner = represented;
+      if (!mains.has(session.logical_name)) return pill(session, index);
+      const child = sessionsByLogical.get(mains.get(session.logical_name));
+      let owner = session;
       while (owner && !owner.linked_scope?.worktree) owner = sessionsByLogical.get(parents[owner.logical_name]);
       const scope = owner?.linked_scope || session.linked_scope;
-      const assignedColor = !owner && window.LabObjectives?.terminalWorktreeColor?.(represented);
-      const color = assignedColor || (scope && typeof _termScopeColor === 'function' ? _termScopeColor(scope) : scope?.color || '#8b949e');
-      return pill({...represented, display_main:{parent:session.logical_name,color}}, index);
+      const assignedColor = !owner && window.LabObjectives?.terminalWorktreeColor?.(session);
+      const color = assignedColor || (scope && (typeof _termScopeColor === 'function' ? _termScopeColor(scope) : scope.color)) || window.LabObjectives?.terminalColor?.(session) || '#8b949e';
+      return pill({...child, display_main:{parent:session.logical_name,color,identity:session}}, index);
     };
     const render = (session, index) => {
-      if (numbered) index = position++;
       const logical = session.logical_name;
+      const children = sessions.filter(child => parents[child.logical_name] === logical);
+      // The child's console lives behind the parent tab. Its descendants keep
+      // their own rows without an extra copy of either merged terminal.
+      if (mergedInto.has(logical)) return children.map(child => render(child, rows.get(child.logical_name).index)).join('');
+      if (numbered) index = position++;
       if (!logical) return displayPill(session, index);
       const disclosure = parents[logical] && !visibleRows.has(logical) ? ' data-subtab-hover-only hidden' : '';
-      const children = sessions.filter(child => parents[child.logical_name] === logical);
       if (!children.length) return displayPill(session, index).replace(/^(<[^>]+)(>)/, '$1'+disclosure+'$2');
+      const childHtml = children.map(child => render(child, rows.get(child.logical_name).index)).join('');
+      if (!childHtml) return displayPill(session, index).replace(/^(<[^>]+)(>)/, '$1'+disclosure+'$2');
       const expanded = visibleBranches.has(logical);
       // Keep the path to a nested WIP row visible without showing a hover-only
       // ancestor's label. Its parent still controls disclosure of that label.
@@ -13558,7 +13562,7 @@
       const parent = displayPill(session, index).replace(/^(<[^>]+)(>)/, '$1'+(labelOnly?disclosure:'')+'$2')
         .replace(/role="(tab|button)"/, `role="$1" aria-expanded="${expanded}" data-subtab-toggle`)
         .replace(/^(<[^>]+>)/, '$1<span class="term-subtab-caret" aria-hidden="true">'+(expanded?'▾':'▸')+'</span>');
-      return `<div class="term-subtab-node${expanded?' has-visible-child':''}" data-term-parent="${termSessEsc(logical)}"${labelOnly?' data-subtab-hover-parent':disclosure}>${parent}<div class="term-subtab-children" role="group" aria-label="Subtabs of ${termSessEsc(_termSessionDisplay(session))}"${expanded?'':' hidden'}>${children.map(child => render(child, rows.get(child.logical_name).index)).join('')}</div></div>`;
+      return `<div class="term-subtab-node${expanded?' has-visible-child':''}" data-term-parent="${termSessEsc(logical)}"${labelOnly?' data-subtab-hover-parent':disclosure}>${parent}<div class="term-subtab-children" role="group" aria-label="Subtabs of ${termSessEsc(_termSessionDisplay(session))}"${expanded?'':' hidden'}>${childHtml}</div></div>`;
     };
     return (session, index) => parents[session.logical_name] ? '' : render(session, index);
   }
@@ -13873,21 +13877,25 @@
     const session = (termSessions || []).find(item => item.name === sessionName);
     const menuScope = _termGroupScopeKey(), mains = _termDisplayMains(state);
     const restoreMain = [...mains].some(([root, child]) => [root, child].includes(logical));
-    const mainAction = restoreMain ? 'restore-display-main' : _termSubtabParents(state)[logical] ? 'display-main' : '';
-    const mainChoice = mainAction ? `<button role="menuitem" class="term-group-menu-row" data-action="${mainAction}">${restoreMain?'Restore parent as main':'Set as main'}</button>` : '';
+    const mergeParent = [...mains].find(([, child]) => child === logical)?.[0];
+    const parentSession = termSessions.find(row => row.logical_name === mergeParent);
+    const mainAction = restoreMain ? 'unmerge-parent' : _termSubtabParents(state)[logical] ? 'merge-parent' : '';
+    const mainChoice = (mainAction ? `<button role="menuitem" class="term-group-menu-row" data-action="${mainAction}">${restoreMain?'Unmerge from parent':'Merge with parent'}</button>` : '')
+      + (parentSession ? '<button role="menuitem" class="term-group-menu-row" data-action="open-parent">Open parent terminal</button>' : '');
     const chooseMain = action => {
-      if (!['display-main','restore-display-main'].includes(action)) return false;
-      if (menuScope === _termGroupScopeKey()) _termSetDisplayMain(sessionName, action === 'restore-display-main');
+      if (action === 'open-parent') { if (menuScope === _termGroupScopeKey() && parentSession) void _termActivateTab(parentSession.name); return true; }
+      if (!['merge-parent','unmerge-parent'].includes(action)) return false;
+      if (menuScope === _termGroupScopeKey() && _termSetDisplayMain(sessionName, action === 'unmerge-parent') && action === 'merge-parent') void _termActivateTab(sessionName);
       return true;
     };
-    if(window.LabObjectives?.terminalMain?.(session)){
-      _termShowGroupMenu(anchor,'<div class="term-group-menu-title">Fixed main terminal</div>'+mainChoice+'<button role="menuitem" class="term-group-menu-row" data-action="automation">Launch automation…</button><button role="menuitem" class="term-group-menu-row" data-action="all">'+(termWipOnly?'Show all terminals':'Show WIP + selected task terminals')+'</button>',action=>{termCloseGroupMenu();if(chooseMain(action))return;if(action==='automation')void _termLaunchAutomation(session);else termToggleAllTerminals();});return;
+    if(window.LabObjectives?.terminalMain?.(parentSession || session)){
+      _termShowGroupMenu(anchor,'<div class="term-group-menu-title">Fixed main terminal</div>'+mainChoice+'<button role="menuitem" class="term-group-menu-row" data-action="automation">Launch automation…</button><button role="menuitem" class="term-group-menu-row" data-action="all">'+(termWipOnly?'Show all terminals':'Show WIP + selected task terminals')+'</button>',action=>{termCloseGroupMenu();if(chooseMain(action))return;if(action==='automation')void _termLaunchAutomation(parentSession || session);else termToggleAllTerminals();});return;
     }
     if (session?.document_source) {
       _termShowGroupMenu(anchor, mainChoice+'<button role="menuitem" class="term-group-menu-row" data-action="automation">Launch automation…</button><button role="menuitem" class="term-group-menu-row" data-action="open">Open document</button><button role="menuitem" class="term-group-menu-row" data-action="unlink">Unlink from document…</button>', action => {
         termCloseGroupMenu();
         if(chooseMain(action))return;
-        if(action==='automation')void _termLaunchAutomation(session);
+        if(action==='automation')void _termLaunchAutomation(parentSession || session);
         else if (action === 'open') void window.AssistantView.openLinkedTask(session.linked_task);
         else void window.LabWorkspaceDocuments.unlink(session).catch(error => explorerToast(error.message,true));
       });
@@ -13913,9 +13921,9 @@
       row('close', 'Close tab', true) + (membership ? row('close-group', 'Close group…', true) : ''), action => {
         termCloseGroupMenu();
         if(chooseMain(action))return;
-        if (action === 'rename') termRenameSession(sessionName);
-        else if(action==='new-child')void _termCreateSubterminal(session);
-        else if(action==='automation')void _termLaunchAutomation(session);
+        if (action === 'rename') termRenameSession(parentSession?.name || sessionName);
+        else if(action==='new-child')void _termCreateSubterminal(parentSession || session);
+        else if(action==='automation')void _termLaunchAutomation(parentSession || session);
         else if(action==='task-context')void _termPasteTaskContext(session);
         else if (action.startsWith('associate:')) {
           _termSaveHomeAssociation(logical, action.slice(10));
@@ -14598,11 +14606,14 @@
 
   function _termAutomationRelaunchHtml(session) {
     if(!window.LabTerminalAutomations?.recoveryTargets)return '';
-    const targets=window.LabTerminalAutomations.recoveryTargets(session,termSessions,_termSubtabParents(_termReadGroupState(),termSessions));
+    const restart=!!session.display_main;
+    const parent=restart?session.display_main.identity:session;
+    const parents=_termSubtabParents(_termReadGroupState(),termSessions);
+    const targets=restart?window.LabTerminalAutomations.restartTargets(parent,termSessions,parents):window.LabTerminalAutomations.recoveryTargets(session,termSessions,parents);
     if(!targets.length)return '';
     const own=targets.length===1&&targets[0].logical_name===session.logical_name;
-    const title=own?'Relaunch '+_termSessionDisplay(session)+' · '+session.automation.reason:'Relaunch '+targets.length+' stopped child terminal'+(targets.length===1?'':'s');
-    return `<button type="button" class="term-automation-relaunch" data-automation-relaunch="${termSessEsc(JSON.stringify(targets))}" aria-label="${termSessEsc(title)}" title="${termSessEsc(title)}">↻</button>`;
+    const title=restart?'Renew connections · Rerun '+targets.length+' child automation'+(targets.length===1?'':'s'):own?'Relaunch '+_termSessionDisplay(session)+' · '+session.automation.reason:'Relaunch '+targets.length+' stopped child terminal'+(targets.length===1?'':'s');
+    return `<button type="button" class="term-automation-relaunch" data-automation-relaunch="${termSessEsc(JSON.stringify(targets))}"${restart?' data-automation-restart="true"':''} aria-label="${termSessEsc(title)}" title="${termSessEsc(title)}">↻</button>`;
   }
 
   async function _termRelaunchAutomations(button) {
@@ -14612,7 +14623,7 @@
     button.disabled=true;
     try{
       const before=new Map(termSessions.map(row=>[row.name,row]));
-      const result=await window.LabTerminalAutomations.relaunch(scope,targets);
+      const result=await window.LabTerminalAutomations.relaunch(scope,targets,{restart:button.dataset.automationRestart==='true'});
       _termInvalidateSessionReads(_termSessionsKey(scope.id,scope.vault));
       for(const row of result.sessions||[])if(before.get(row.name)?.automation_missing){_termEvictCache(row.name,scope.id);_termClearDead(row.name);}
       if(active()){
@@ -14626,16 +14637,17 @@
   }
 
   function _termSessionPillHtml(s, index) {
-    const main = window.LabObjectives?.terminalMain?.(s);
+    const identity = s.display_main?.identity || s;
+    const main = window.LabObjectives?.terminalMain?.(identity);
     const automation = !main && /^automation-[0-9a-f]{32}-[1-9]\d*$/.test(s.logical_name || '');
-    const objectiveTask = window.LabObjectives?.taskForTerminal(s);
+    const objectiveTask = window.LabObjectives?.taskForTerminal(identity);
     const taskOwn=objectiveTask&&!objectiveTask.inherited;
-    const display = main?.label || (!automation&&taskOwn?objectiveTask.title:_termSessionDisplay(s));
+    const display = main?.label || ((s.display_main||!automation)&&taskOwn?objectiveTask.title:_termSessionDisplay(identity));
     // Compact/full visibility is CSS-controlled so switching detail never
     // rebuilds or reconnects a terminal. The active header always carries
     // the complete identity, even in compact mode.
-    const visual = _termSessionVisual(s);
-    const active = (s.name === termCurrentSession && _termActiveWorkspaceId() === termCurrentWorkspaceId) ? ' active' : '';
+    const visual = _termSessionVisual(identity);
+    const active = ([s.name, s.display_main?.identity?.name].includes(termCurrentSession) && _termActiveWorkspaceId() === termCurrentWorkspaceId) ? ' active' : '';
     const recentMeta = _termSessionRecentMeta(s);
     const recent = recentMeta ? ' recent' : '';
     const completion = window.LabTerminalCompletion?.meta(_termRecentScopeKey(), s);
@@ -14651,7 +14663,10 @@
     const ariaLabel = `${display} · ${main ? main.kind+' main terminal · Fixed' : visual.badge}${s.automation?' · '+s.automation.reason:''}${objectiveTask ? (objectiveTask.inherited?' · Parent task context: ':' · Task: ')+objectiveTask.title+' · '+_termTaskStatusLabel(objectiveTask.status) : ''}${working ? ' · Working' : ''}${ready ? ` · ${completion.label}` : ''}${ariaSummary ? ` · ${context.label}: ${ariaSummary}` : ''}`;
     const tooltip = _termSessionTooltipPayload(s, [statusTitle, completion?.label, recentTitle].filter(Boolean).join(' · '));
     if (s.display_main) {
-      return `<span class="sess ${visual.kind} term-display-main${active}${dead}" style="--term-display-main-color:${termSessEsc(s.display_main.color)}" role="tab" aria-label="${termSessEsc(ariaLabel+' · Main display · Child of '+s.display_main.parent)}" aria-selected="${active ? 'true' : 'false'}" tabindex="${active ? '0' : '-1'}" draggable="true" data-order-token="${termSessEsc('s:'+logical)}" data-name="${termSessEsc(s.name)}" data-logical="${termSessEsc(logical)}" data-display-main-parent="${termSessEsc(s.display_main.parent)}" data-tooltip="${termSessEsc(tooltip)}"><span class="term-display-main-dot" aria-hidden="true"></span><span class="sess-label custom">${termSessEsc(display)}</span>${_termAutomationRelaunchHtml(s)}</span>`;
+      const icon=main?.icon || objectiveTask?.assetIcon || visual.icon;
+      const worktreeName=!main&&!objectiveTask&&identity.linked_scope?.worktree&&!identity.linked_file?.path;
+      const nameHtml=taskOwn?(window.LabObjectives?.terminalTaskNameHtml?.(identity)||termSessEsc(display)):worktreeName?_termSessionAssociationHtml(identity):termSessEsc(display);
+      return `<span class="sess ${visual.kind} term-display-main${main?' term-main-terminal':''}${active}${dead}" style="--term-display-main-color:${termSessEsc(s.display_main.color)}" role="tab" aria-label="${termSessEsc(ariaLabel+' · Merged with '+_termSessionDisplay(s)+' · Parent '+s.display_main.parent)}" aria-selected="${active ? 'true' : 'false'}" tabindex="${active ? '0' : '-1'}" draggable="false"${main?` data-terminal-main="${main.kind}"`:''} data-name="${termSessEsc(s.name)}" data-logical="${termSessEsc(logical)}" data-display-main-parent="${termSessEsc(s.display_main.parent)}" data-tooltip="${termSessEsc(tooltip)}"><span class="sess-icon" aria-hidden="true">${icon}</span><span class="term-display-main-dot" aria-hidden="true"></span><span class="sess-label custom">${nameHtml}</span>${_termAutomationRelaunchHtml(s)}</span>`;
     }
     if (automation) {
       return `<span class="sess ${visual.kind} term-automation-terminal${active}${dead}" role="tab" aria-label="${termSessEsc(ariaLabel)}" aria-selected="${active ? 'true' : 'false'}" tabindex="${active ? '0' : '-1'}" draggable="true" data-order-token="${termSessEsc('s:'+logical)}" data-name="${termSessEsc(s.name)}" data-logical="${termSessEsc(logical)}" data-tooltip="${termSessEsc(tooltip)}"><span class="sess-label custom">${termSessEsc(display)}</span>${_termAutomationRelaunchHtml(s)}</span>`;

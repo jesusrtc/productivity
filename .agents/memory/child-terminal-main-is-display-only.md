@@ -1,5 +1,8 @@
 # Child terminal main is a display preference
 
+The October 8 correction in [Child terminals merge with parent](child-terminals-merge-with-parent.md)
+supersedes row swapping and adds explicit merged-tab renewal for all children.
+
 The user wants to secondary-click a child process terminal and set it as main:
 swap its visible row with its immediate parent's row and use its worktree color.
 Keep the actual child/parent relationship, session identity, task inheritance

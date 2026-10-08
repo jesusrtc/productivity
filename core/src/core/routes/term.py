@@ -3722,6 +3722,7 @@ class AutomationRecovery(BaseModel):
     vault: str | None = None
     targets: list[AutomationRecoveryTarget] = Field(min_length=1, max_length=100)
     request_id: uuid.UUID
+    restart: bool = False
 
 
 @router.post("/api/term/automations/relaunch")
@@ -3747,7 +3748,8 @@ def relaunch_terminal_automations(body: AutomationRecovery, request: Request) ->
                     continue
                 fresh = next((row for row in _automation_status_rows(root, folder, body.workspace_id, logical)
                               if row["logical_name"] == logical), None)
-                if fresh is None or not fresh["automation"]["can_relaunch"]:
+                permission = "can_restart" if body.restart else "can_relaunch"
+                if fresh is None or not fresh["automation"].get(permission):
                     skipped.append({"logical_name": logical, "reason": (fresh or {}).get("automation", {}).get("reason", "Status unavailable")})
                     continue
                 cwd = Path(run["cwd"])
@@ -3766,7 +3768,7 @@ def relaunch_terminal_automations(body: AutomationRecovery, request: Request) ->
                         continue
                 else:
                     name, socket = fresh["name"], fresh["tmux_socket"]
-                    # Keep previous output before replacing the proven idle shell.
+                    # Archive output before recovery or explicit connection renewal.
                     output = subprocess.run(_tmux_command(socket, "capture-pane", "-p", "-J", "-t", name, "-S", "-10000"),
                                             capture_output=True, text=True, env=_tmux_child_env(), timeout=2)
                     if output.returncode != 0:
@@ -3776,13 +3778,14 @@ def relaunch_terminal_automations(body: AutomationRecovery, request: Request) ->
                     log_path = logs / f"{logical}-{run['launch_id']}.txt"
                     log_path.write_text(output.stdout)
                     os.chmod(log_path, 0o600)
-                    # Recheck after capturing output too, so a newly started SSH,
-                    # tmux client or manual process prevents replacement.
+                    # Recheck the pane and eligibility after archiving. Ordinary
+                    # recovery still refuses running work; explicit renewal may
+                    # replace the same owned, single-pane automation.
                     check = next((row for row in _automation_status_rows(root, folder, body.workspace_id, logical)
                                   if row["logical_name"] == logical), None)
-                    if (check is None or check["automation_missing"] or not check["automation"]["can_relaunch"]
+                    if (check is None or check["automation_missing"] or not check["automation"].get(permission)
                             or (check["pane_id"], check["pane_pid"]) != (fresh["pane_id"], fresh["pane_pid"])):
-                        skipped.append({"logical_name": logical, "reason": "Terminal is no longer idle"})
+                        skipped.append({"logical_name": logical, "reason": "Terminal changed before renewal" if body.restart else "Terminal is no longer idle"})
                         continue
                     argv = terminal_automations.shell_command(run["shell"], cwd, run["command"])
                     command = " ".join(_shell_quote(arg) for arg in argv)

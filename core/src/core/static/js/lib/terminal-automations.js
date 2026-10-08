@@ -121,15 +121,27 @@
       .map(row=>({logical_name:row.logical_name,launch_id:row.automation.launch_id}));
   }
 
+  function restartTargets(parent, sessions, parents) {
+    const descendants=new Set();
+    let owners=new Set([parent.logical_name]);
+    while(owners.size){
+      const next=new Set();
+      for(const [child,owner] of Object.entries(parents))if(owners.has(owner)&&!descendants.has(child)){descendants.add(child);next.add(child);}
+      owners=next;
+    }
+    return sessions.filter(row=>descendants.has(row.logical_name)&&row.automation?.can_restart&&!row.document_source)
+      .map(row=>({logical_name:row.logical_name,launch_id:row.automation.launch_id}));
+  }
+
   const pending=new Set();
-  async function relaunch(scope, targets) {
+  async function relaunch(scope, targets, {restart=false}={}) {
     const context={id:scope.id,vault:scope.vault},key=(context.vault||'')+'::'+context.id;
     if(pending.has(key))throw Error('A relaunch is already in progress');
     pending.add(key);
     try{
       const result={sessions:[],skipped:[],errors:[]},request_id=crypto.randomUUID();
       for(let offset=0;offset<targets.length;offset+=100){
-        const batch=await api('/api/term/automations/relaunch',{workspace_id:context.id,vault:context.vault,targets:targets.slice(offset,offset+100),request_id});
+        const batch=await api('/api/term/automations/relaunch',{workspace_id:context.id,vault:context.vault,targets:targets.slice(offset,offset+100),request_id,...(restart?{restart:true}:{})});
         for(const name of ['sessions','skipped','errors'])result[name].push(...(batch[name]||[]));
       }
       return result;
@@ -155,5 +167,5 @@
     host.append(details);
   }
 
-  window.LabTerminalAutomations={editor,open,url,status,recoveryTargets,relaunch,renderGuidelines};
+  window.LabTerminalAutomations={editor,open,url,status,recoveryTargets,restartTargets,relaunch,renderGuidelines};
 })();

@@ -1,9 +1,9 @@
-"""A chosen child occupies its parent's display slot without changing ownership."""
-from .test_frontend_terminal_subtabs import GROUPS
+"""A merged parent tab retains its identity and opens the chosen child console."""
+from .test_frontend_terminal_subtabs import GROUPS, PILL
 from .test_frontend_terminal_ui import _run_node
 
 
-def test_main_display_swaps_rows_but_keeps_real_parent_and_scope_state():
+def test_merge_combines_rows_but_keeps_parent_identity_real_relationships_and_scope():
     result = _run_node(r'''
 const _TERM_GROUP_COLORS=['#58a6ff'],_TERM_GROUPS_KEY='groups';
 let vault='one';
@@ -19,7 +19,7 @@ window.LabObjectives={taskForTerminal:()=>null};
 const state=_termNormalizeGroupState({order:termSessions.map(s=>'s:'+s.name),tabParents:{child:'parent',nested:'child'}});
 _termWriteGroupState(state);const before=JSON.stringify(termSessions),originalParents=JSON.stringify(state.tabParents);
 const selected=_termSetDisplayMain('nested'),saved=_termReadGroupState();
-const pill=(s,i)=>`<span class="sess" role="tab" data-name="${s.name}"${s.display_main?' data-display-main-parent="'+s.display_main.parent+'" data-color="'+s.display_main.color+'"':''}>${s.name}</span>`;
+const pill=(s,i)=>`<span class="sess" role="tab" data-name="${s.name}"${s.display_main?' data-display-main-parent="'+s.display_main.parent+'" data-color="'+s.display_main.color+'"':''}>${s.display_main?.identity.name||s.name}</span>`;
 const html=termSessions.map(_termSubtabRenderer(saved,termSessions,pill)).join('');
 const included=_termIncludeVisibleSubtabs([termSessions[3]],termSessions,saved).map(s=>s.name);
 vault='two';const otherVault=Object.keys(_termReadGroupState().tabDisplayMains);vault='one';
@@ -32,12 +32,13 @@ console.log(JSON.stringify({selected,saved,html,included,otherVault,restored,aft
     assert result['saved']['tabDisplayMainVersion'] == 2
     assert not result['after']['tabDisplayMains'] and not result['otherVault']
     assert result['unchanged'] and result['parentsUnchanged']
-    assert result['html'].index('data-name="parent"') < result['html'].index('data-name="nested"') < result['html'].index('data-name="child"')
+    assert result['html'].index('data-name="parent"') < result['html'].index('data-name="nested"')
     assert 'data-term-parent="parent"><span class="sess" role="tab" aria-expanded="true" data-subtab-toggle data-name="parent"' in result['html']
     assert 'data-display-main-parent="child" data-color="#ff7b72"' in result['html']
     assert result['html'].count('data-name="parent"') == 1
     assert result['html'].count('data-name="nested"') == 1
-    assert result['html'].count('data-name="child"') == 1
+    assert 'data-name="child"' not in result['html']
+    assert '>child</span>' in result['html']
     assert result['included'] == ['other', 'nested', 'child', 'parent']
 
 
@@ -57,7 +58,37 @@ console.log(JSON.stringify({selected,gone,moved,foreign}));
     assert result == {'selected': [['parent', 'child']], 'gone': [], 'moved': [], 'foreign': []}
 
 
-def test_wip_parent_row_keeps_visibility_after_swap_while_automation_main_is_at_top():
+def test_merged_tab_uses_parent_name_icon_color_and_child_session_identity():
+    result = _run_node(r'''
+const _TERM_GROUP_COLORS=['#58a6ff'],_TERM_GROUPS_KEY='groups',termSessEsc=String;
+const stored={},localStorage={getItem:key=>stored[key],setItem:(key,value)=>stored[key]=value};
+const automation='automation-'+('a'.repeat(32))+'-1';
+const parent={name:'parent',logical_name:'parent',label:'Parent connection',session_id:'parent-id'};
+const child={name:'child-session',logical_name:automation,label:'Child process',session_id:'child-id'};
+const termSessions=[parent,child],termCurrentSession=child.name,termCurrentWorkspaceId='demo';
+const _termActiveWorkspaceId=()=> 'demo',_termVaultId=()=> 'one',_termSessionsKey=(w,v)=>v+'::'+w;
+const _termSessionMeta=name=>termSessions.find(s=>s.name===name),_termSessionDisplay=s=>s.label;
+const termRenderSessionList=()=>{},_termRecentScopeKey=()=> 'demo',termDeadSessions=new Set();
+const _termSessionVisual=s=>({kind:'terminal',badge:'Terminal',icon:s.name==='parent'?'🧠':'💻'});
+const _termSessionRecentMeta=()=>null,_termSessionIsWorking=()=>false,_termSessionContext=()=>({label:'Requests'}),_termSessionSummary=()=>'',_termSessionTooltipPayload=()=> '{}';
+window.LabObjectives={taskForTerminal:()=>null,terminalColor:s=>s.name==='parent'?'#58a6ff':'#ff7b72'};
+''' + GROUPS + PILL + r'''
+const state=_termNormalizeGroupState({tabParents:{[automation]:'parent'}});_termWriteGroupState(state);
+_termSetDisplayMain(child.name);const before=JSON.stringify(termSessions);
+const html=termSessions.map(_termSubtabRenderer(_termReadGroupState(),termSessions,_termSessionPillHtml)).join('');
+console.log(JSON.stringify({html,unchanged:JSON.stringify(termSessions)===before}));
+''')
+    html = result['html']
+    assert result['unchanged']
+    assert 'data-name="child-session"' in html and 'data-name="parent"' not in html
+    assert 'aria-selected="true"' in html
+    assert 'class="sess-icon" aria-hidden="true">🧠</span>' in html
+    assert 'class="sess-label custom">Parent connection</span>' in html
+    assert '--term-display-main-color:#58a6ff' in html
+    assert 'Merged with Child process' in html
+
+
+def test_wip_parent_and_automation_child_have_one_visible_merged_row():
     result = _run_node(r'''
 const _TERM_GROUP_COLORS=['#58a6ff'],termSessEsc=String,_termSessionDisplay=s=>s.name;
 const automation='automation-'+('a'.repeat(32))+'-1';
@@ -68,7 +99,8 @@ window.LabObjectives={taskForTerminal:s=>({status:'in_progress',inherited:s.name
 const state=_termNormalizeGroupState({tabParents:{[automation]:'parent'},tabDisplayMains:{parent:automation}});
 console.log(JSON.stringify({html:termSessions.map(_termSubtabRenderer(state,termSessions,s=>`<span class="sess" role="tab" data-name="${s.name}">${s.name}</span>`)).join(''),automation}));
 ''')
-    assert result['html'].index(f'data-name="{result["automation"]}"') < result['html'].index('data-name="parent"')
+    assert result['html'].count(f'data-name="{result["automation"]}"') == 1
+    assert 'data-name="parent"' not in result['html']
     assert ' hidden' not in result['html']
 
 
@@ -95,7 +127,7 @@ console.log(JSON.stringify({corrected,staleNewPreference,restore,saved}));
     assert result['saved']['tabParents'] == {'parent': 'grandparent', 'child': 'parent'}
 
 
-def test_adjacent_swaps_replace_conflicting_pair_without_duplicating_sessions():
+def test_adjacent_merges_replace_conflicting_pairs_without_duplicating_rows():
     result = _run_node(r'''
 const _TERM_GROUP_COLORS=['#58a6ff'],_TERM_GROUPS_KEY='groups';
 const stored={},localStorage={getItem:key=>stored[key],setItem:(key,value)=>stored[key]=value};
@@ -119,4 +151,5 @@ console.log(JSON.stringify({first,second,saved,counts:Object.fromEntries(termSes
     assert result['saved']['tabDisplayMains'] == {
         'child': 'nested', 'other-parent': 'other-child', 'parent': 'sibling',
     }
-    assert all(count == 1 for count in result['counts'].values())
+    assert result['counts'] == {'grandparent': 1, 'parent': 0, 'child': 0,
+                                'nested': 1, 'sibling': 1, 'other-parent': 0, 'other-child': 1}

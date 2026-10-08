@@ -2182,6 +2182,9 @@
   .term-subtab-children[hidden], .term-subtab-node[hidden], .sess[data-subtab-hover-only][hidden] { display: none; }
   .term-sessions .sess.term-display-main { color:var(--term-display-main-color); }
   .term-sessions .sess.term-display-main .sess-label { color:inherit; }
+  .term-sessions .sess.term-display-main .sess-label :is(.objective-task-worktree-name, .term-home-association) { color:inherit; font:inherit; }
+  .term-sessions .sess.term-display-main .sess-label .objective-task-worktree-name i,
+  .term-sessions .sess.term-display-main .sess-label .term-home-association::before { display:none; }
   .term-panel.term-sessions-full .term-sessions .sess.term-display-main .sess-label.custom { color:var(--term-display-main-color); }
   .term-display-main-dot { flex:none; width:6px; height:6px; border-radius:50%; background:var(--term-display-main-color); }
   .term-sessions .sess .sess-task-status { order: 0; flex: none; display:inline-block; width:5px; height:5px; border-radius:50%; background:var(--text-secondary); }

@@ -1,5 +1,7 @@
 # Memory index
 
+- [Child terminals merge with parent](child-terminals-merge-with-parent.md) — one tab keeps the parent identity and opens the chosen child; explicit renewal reruns all eligible children while ordinary recovery remains stopped-only.
+
 - [Compact terminals use computers and corner dots](compact-terminals-use-computers-and-corner-dots.md) — centered 💻 per terminal, small corner markers and no hierarchy guides/indentation until expanded.
 
 - [Active subterminal family stays visible](active-subterminal-family-stays-visible.md) — active child/process, direct siblings and ancestor path stay visible; supersedes selected-child folding while other branches retain their hover/WIP rules.
@@ -22,9 +24,9 @@
 
 - [First column mirrors the terminal rail](first-column-mirrors-terminal-rail.md) — compact 62px sidebar, shared hover delay, deliberate selection and main-area/console click dismissal with stable work-area geometry.
 
-- [Set as main swaps with the immediate parent](child-main-swaps-immediate-parent.md) — preserve grandparent rows, correct earlier root-level choices, and keep real-parent recovery ownership.
+- [Set as main swaps with the immediate parent](child-main-swaps-immediate-parent.md) — immediate-parent ownership retained; swapping presentation superseded by Merge with parent above.
 
-- [Child terminal main is display only](child-terminal-main-is-display-only.md) — swap a nominated child into the colored top row; retain its real parent and relaunch ownership, with browser-scoped restore.
+- [Child terminal main is display only](child-terminal-main-is-display-only.md) — ownership and browser scope retained; display swaps superseded by Merge with parent above.
 
 - [Worktree pull/rebase arrow](worktree-pull-rebase-arrow.md) — selected worktree fetches origin/master and rebases its own branch, with retained edits/conflicts and no push or sibling ref updates.
 

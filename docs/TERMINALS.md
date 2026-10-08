@@ -51,11 +51,12 @@ order in separate tmux sessions and run independently. For dependent operations,
 combine them in one command, for example `npm run build && npm run dev`.
 An exited command prints its exit code and leaves an interactive shell with the
 logs retained. Expanded automation tabs show only their saved names in white,
-without icons, status badges or folder captions. The folded rail shows one white
-bullet per automation terminal, with names revealed on expansion. Child-tab hover
-expansion and terminal controls still apply. Automation children appear only
-while hovering over their parent or using keyboard disclosure, even when active
-or inheriting a WIP task. A stopped automation adds a **↻**
+without icons, status badges or folder captions. The folded rail shows a computer
+icon per terminal with small status/worktree dots in the corner, without hierarchy
+indentation or guide lines. Names and hierarchy return on expansion. An active
+child stays visible along with its direct siblings and parent/grandparent path.
+Other automation children use parent hover or keyboard disclosure.
+A stopped automation adds a **↻**
 relaunch button beside its tab. Its parent gets the same control to relaunch all
 stopped descendants together; running or unknown children are skipped.
 
@@ -68,6 +69,10 @@ are not individually monitored. Multiple panes/windows and unavailable process
 status leave recovery disabled. Lab checks again immediately before replacing an
 idle pane, keeps its tab identity and saves previous output under
 `.lab/terminal-automation-logs/`. Repeat clicks cannot replay the same launch.
+The **Renew connections** control on a merged parent tab explicitly reruns all
+eligible child automations, including running connections. It keeps their session
+identities, archives previous output, and leaves the parent console untouched.
+The same single-pane ownership and launch-generation checks apply.
 
 If the launch command returns while a background service keeps running, configure
 the child's optional **Background service check**. This check runs in the original
@@ -89,12 +94,13 @@ an explicit later launch starts a new group. If a later child fails to spawn,
 earlier children remain running and the picker reports the failure. Restoring a
 stopped terminal opens a shell without automatically replaying its command.
 Original commands and launch-time guidelines are kept privately in
-`.lab/terminal-automation-runs.json` for explicit recovery; refresh, reconnect and
-status polling never replay them.
+`.lab/terminal-automation-runs.json` for explicit recovery and merged-tab renewal;
+passive refresh, browser reconnect and status polling never replay them.
 
 ## Terminal tab names
 
-Vertical tabs normally show a compact icon rail with status dots. Hover reveals
+Vertical tabs normally show a flat computer-icon rail with corner status dots.
+Compact horizontal tabs use the same icons and corner markers. Hover reveals
 the names immediately. Leaving after a brief hover hides them again. Clicking
 the rail or hovering for 3 seconds keeps the names open while moving to Files
 or other views; clicking inside the terminal console hides them. Escape also
@@ -114,14 +120,16 @@ Its collapsed Files and Recently updated sections each show one icon for the
 whole list. Expanding restores every file and filter; clicking the main working
 area or terminal console returns it to the compact rail.
 
-Secondary-click a child terminal and choose **Set as main** to swap its visible
-row with its immediate parent's row, at that parent's existing depth. Ancestor
-rows above that parent keep their positions. The chosen child stays visible and uses its
-worktree's color for its name and bullet. Its real parent and task context stay
-unchanged, and **Relaunch stopped automations** remains on that real parent's
-row. Choose **Restore parent as main** on either swapped row to undo the display
-choice. This preference is saved in the current browser for each workspace and
-vault; it does not change the fixed workspace or Objective main roles.
+Secondary-click a child terminal and choose **Merge with parent** to combine
+their displayed rows at the immediate parent's existing depth. The tab keeps the
+parent's name, icon and color while opening the chosen child's console. Ancestor
+rows above that parent keep their positions, and actual relationships and task
+context remain unchanged. **Renew connections** on the merged tab reruns the
+parent's child automations together. **Open parent terminal** keeps the parent's
+original console accessible. Choose **Unmerge from parent** to restore the separate
+rows. This preference is saved in the current browser for each workspace and
+vault; it does not change fixed workspace or Objective main roles. Earlier
+**Set as main** display choices use this merged presentation too.
 
 ## Request history
 

@@ -51,6 +51,29 @@ global.fetch=async(url,options)=>{const body=JSON.parse(options.body);requests.p
     assert len({row['request_id'] for row in result['requests']}) == 1
 
 
+def test_merged_renewal_targets_all_owned_children_and_sets_explicit_restart_mode():
+    result = _run_node(r'''
+const requests=[];
+global.fetch=async(url,options)=>{requests.push(JSON.parse(options.body));return{ok:true,json:async()=>({sessions:[]})}};
+''' + PLUGIN + r'''
+const parent={logical_name:'parent',automation:{can_restart:true,launch_id:'parent-run'}};
+const rows=[parent,...['stopped','running','nested','borrowed','unrelated','starting'].map(name=>({logical_name:name,
+ automation:{can_restart:name!=='starting',can_relaunch:name==='stopped',launch_id:name+'-run'},document_source:name==='borrowed'}))];
+const parents={stopped:'parent',running:'parent',nested:'running',borrowed:'parent',starting:'parent'};
+(async()=>{
+ const targets=window.LabTerminalAutomations.restartTargets(parent,rows,parents);
+ await window.LabTerminalAutomations.relaunch({id:'demo',vault:'one'},targets,{restart:true});
+ console.log(JSON.stringify({targets,requests,recovery:window.LabTerminalAutomations.recoveryTargets(parent,rows,parents)}));
+})();
+''')
+    assert [row['logical_name'] for row in result['targets']] == ['stopped', 'running', 'nested']
+    assert [row['logical_name'] for row in result['recovery']] == ['stopped']
+    assert result['requests'][0]['restart'] is True
+    assert result['requests'][0]['targets'] == result['targets']
+    assert result['requests'][0]['workspace_id'] == 'demo'
+    assert result['requests'][0]['vault'] == 'one'
+
+
 def test_native_computer_icons_corner_markers_recovery_and_copy_only_guidelines(tmp_path):
     pill = _js_between('  function _termTaskStatusLabel(', '  function _termMarkVisibleCompletionSeen(')
     setup = r'''
