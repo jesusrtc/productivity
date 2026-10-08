@@ -1,5 +1,7 @@
 # Memory index
 
+- [Compact terminals use computers and corner dots](compact-terminals-use-computers-and-corner-dots.md) — centered 💻 per terminal, small corner markers and no hierarchy guides/indentation until expanded.
+
 - [Active subterminal family stays visible](active-subterminal-family-stays-visible.md) — active child/process, direct siblings and ancestor path stay visible; supersedes selected-child folding while other branches retain their hover/WIP rules.
 
 - [Recurring tasks reopen before the deadline](recurring-tasks-reopen-before-deadline.md) — stable task IDs, calendar anchors, one-day default lead, configurable hours/minutes and overdue obligations retained.
@@ -34,7 +36,7 @@
 
 - [WIP tasks and terminals stay visible](wip-tasks-and-terminals-stay-visible.md) — permanent WIP subtask rows; terminal inheritance superseded by the parent-hover clarification.
 
-- [Automation terminals show white bullets when folded](automation-terminal-folded-white-bullets.md) — one compact marker per terminal; expanded rows retain plain white names.
+- [Automation terminals show white bullets when folded](automation-terminal-folded-white-bullets.md) — compact centered markers superseded by computers and corner dots; expanded rows retain plain white names.
 
 - [Automation terminal tabs show only white names](automation-terminal-tabs-show-only-white-names.md) — name-only rows in full/compact rails, with hierarchy and context preserved.
 

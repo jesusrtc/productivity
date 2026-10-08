@@ -51,7 +51,7 @@ global.fetch=async(url,options)=>{const body=JSON.parse(options.body);requests.p
     assert len({row['request_id'] for row in result['requests']}) == 1
 
 
-def test_native_white_markers_recovery_buttons_and_guidelines_never_execute(tmp_path):
+def test_native_computer_icons_corner_markers_recovery_and_copy_only_guidelines(tmp_path):
     pill = _js_between('  function _termTaskStatusLabel(', '  function _termMarkVisibleCompletionSeen(')
     setup = r'''
 const assert=(value,label)=>{if(!value)throw Error(label)};
@@ -81,9 +81,12 @@ window.LabObjectives={terminalMain:()=>null,taskForTerminal:()=>null};
  assert(row('stopped').querySelector('[data-automation-relaunch]'),'stopped SSH gets recovery');
  assert(row('parent').querySelector('[data-automation-relaunch]').title.includes('1 stopped child'),'parent recovers only stopped child');
  assert(!row('running').querySelector('[data-automation-relaunch]')&&!row('unknown').querySelector('[data-automation-relaunch]'),'running and unknown hidden');
+ for(const name of ['parent','stopped','running','unknown']){
+  assert(getComputedStyle(row(name),'::before').content.includes('💻'),'compact computer icon');
+ }
  for(const name of ['stopped','running','unknown']){
-  assert(getComputedStyle(row(name),'::before').display==='block','folded bullet visible');
-  assert(getComputedStyle(row(name),'::before').backgroundColor==='rgb(230, 237, 243)','folded bullet white');
+  const dot=getComputedStyle(row(name),'::after');
+  assert(dot.backgroundColor==='rgb(230, 237, 243)'&&dot.width==='5px'&&dot.right==='3px'&&dot.bottom==='3px','small white marker in corner');
   assert(getComputedStyle(row(name).querySelector('.sess-label')).display==='none','folded name hidden');
  }
  switcher.classList.add('term-tabs-open');

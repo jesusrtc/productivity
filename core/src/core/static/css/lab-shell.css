@@ -2197,10 +2197,7 @@
   .term-task-create { order: 4; color: var(--accent); font-size: 14px; }
   .term-sessions .sess .term-subtab-caret { position: absolute; left: 2px; top: 2px; font-size: 9px; color: var(--text-dim); line-height: 1; }
   .term-panel .term-sessions .sess.term-automation-terminal { justify-content:flex-start; padding:7px 8px; color:var(--text-primary); }
-  .term-sessions .sess.term-automation-terminal::before { content:''; display:none; flex:none; width:6px; height:6px; border-radius:50%; background:var(--text-primary); }
-  .term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open) .sess.term-automation-terminal::before,
-  .term-panel.term-sessions-horizontal:not(.term-sessions-full) .sess.term-automation-terminal::before { display:block; }
-  .term-panel.term-sessions-horizontal:not(.term-sessions-full) .term-sessions .sess.term-automation-terminal { justify-content:center; padding:0; }
+  .term-sessions .sess.term-automation-terminal::before { display:none; }
   .term-sessions .sess.term-automation-terminal .term-subtab-caret { display:none; }
   .term-sessions .sess .term-automation-relaunch { position:absolute; right:1px; top:50%; transform:translateY(-50%); width:16px; height:20px; padding:0; border:0; border-radius:3px; background:transparent; color:var(--accent); font:15px/20px sans-serif; cursor:pointer; }
   .term-sessions .sess .term-automation-relaunch:hover { background:var(--bg-tertiary); }
@@ -2216,6 +2213,17 @@
   .term-sessions-horizontal .term-tab-group, .term-sessions-horizontal .term-tab-group-tabs { flex-direction: row; }
   .term-sessions-horizontal .term-tab-group-label { max-width: 160px; }
   .term-sessions-horizontal .term-tab-group-tabs { border-left: 0; border-bottom: 2px solid var(--term-group-color); padding-left: 0; padding-bottom: 3px; }
+  /* Compact terminals share one computer icon and a flat visual layout. The
+     live hierarchy stays intact for disclosure when the rail expands. */
+  :is(.term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open), .term-panel.term-sessions-horizontal:not(.term-sessions-full)) .term-sessions .sess { justify-content:center; height:36px; padding:0; }
+  :is(.term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open), .term-panel.term-sessions-horizontal:not(.term-sessions-full)) .term-sessions .sess::before { content:'💻'; display:block; flex:none; width:20px; height:20px; border-radius:0; background:none; font-size:20px; line-height:1; pointer-events:none; }
+  :is(.term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open), .term-panel.term-sessions-horizontal:not(.term-sessions-full)) .term-sessions :is(.sess-icon, .sess-label, .term-subtab-caret, .term-home-association span, .term-folder-association small) { display:none; }
+  :is(.term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open), .term-panel.term-sessions-horizontal:not(.term-sessions-full)) .term-sessions :is(.term-subtab-children, .term-tab-group-tabs, .objective-terminal-group) { margin:0; padding:0; border:0; }
+  :is(.term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open), .term-panel.term-sessions-horizontal:not(.term-sessions-full)) .term-sessions .sess :is(.sess-task-status, .term-display-main-dot, .term-home-association, .sess-label:has(.objective-task-worktree-name)) { position:absolute; right:3px; bottom:3px; margin:0; max-width:none; }
+  :is(.term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open), .term-panel.term-sessions-horizontal:not(.term-sessions-full)) .term-sessions .sess .sess-label:has(.objective-task-worktree-name) { display:block; flex:none; height:6px; font-size:0; line-height:6px; }
+  :is(.term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open), .term-panel.term-sessions-horizontal:not(.term-sessions-full)) .term-sessions .sess-label .objective-task-worktree-name i { margin:0; vertical-align:top; }
+  :is(.term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open), .term-panel.term-sessions-horizontal:not(.term-sessions-full)) .term-sessions .sess.term-automation-terminal::after { content:''; position:absolute; right:3px; bottom:3px; width:5px; height:5px; border-radius:50%; background:var(--text-primary); pointer-events:none; }
+  :is(.term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open), .term-panel.term-sessions-horizontal:not(.term-sessions-full)) .term-sessions .term-task-create { position:absolute; right:3px; top:3px; font-size:10px; line-height:1; }
   .term-group-menu { max-height: calc(100vh - 16px); overflow-y: auto; }
   .term-group-menu hr { border: 0; border-top: 1px solid var(--border); margin: 4px 0; }
   .term-new-options { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
