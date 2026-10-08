@@ -1,5 +1,7 @@
 # Memory index
 
+- [Active subterminal family stays visible](active-subterminal-family-stays-visible.md) — active child/process, direct siblings and ancestor path stay visible; supersedes selected-child folding while other branches retain their hover/WIP rules.
+
 - [Recurring tasks reopen before the deadline](recurring-tasks-reopen-before-deadline.md) — stable task IDs, calendar anchors, one-day default lead, configurable hours/minutes and overdue obligations retained.
 - [Task checklists are required work](task-checklists-are-required-work.md) — authoritative Markdown action items, visible counts, completion gates and no invented or unverified requirements.
 
@@ -28,7 +30,7 @@
 
 - [Task Markdown Command-click Edit/View](task-markdown-command-click-edit.md) — toggle task Markdown View/Edit with drafts preserved and pending edits saved.
 
-- [Subterminals without own WIP use parent hover](subterminals-without-own-wip-task-use-parent-hover.md) — own-WIP children stay visible; automation, inherited and non-WIP children fold even when selected.
+- [Subterminals without own WIP use parent hover](subterminals-without-own-wip-task-use-parent-hover.md) — own-WIP children stay visible; selected-child folding superseded by active-family visibility above.
 
 - [WIP tasks and terminals stay visible](wip-tasks-and-terminals-stay-visible.md) — permanent WIP subtask rows; terminal inheritance superseded by the parent-hover clarification.
 

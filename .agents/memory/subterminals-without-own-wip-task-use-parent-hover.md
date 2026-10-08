@@ -1,5 +1,8 @@
 # Subterminals without their own WIP task use parent hover
 
+The October 8 clarification in [Active subterminal family stays visible](active-subterminal-family-stays-visible.md)
+supersedes the selected-child and selected-automation folding behavior below.
+
 The user clarified on October 7, 2026 that a subterminal appears on parent hover
 unless it has its own In progress task association. Inherited WIP context is not
 an association. Automation children always use parent hover, even when selected

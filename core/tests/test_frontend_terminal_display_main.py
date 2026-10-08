@@ -9,6 +9,7 @@ const _TERM_GROUP_COLORS=['#58a6ff'],_TERM_GROUPS_KEY='groups';
 let vault='one';
 const stored={},localStorage={getItem:key=>stored[key],setItem:(key,value)=>stored[key]=value};
 const termSessions=['parent','child','nested','other'].map(name=>({name,logical_name:name,session_id:'uuid-'+name}));
+const termCurrentSession='parent',termCurrentWorkspaceId='demo';
 termSessions[0].linked_scope={root:'/trees/red',worktree:'/trees/red',color:'#ff7b72'};
 const termSessEsc=String,_termSessionDisplay=s=>s.name,_termSessionMeta=name=>termSessions.find(s=>s.name===name);
 const _termActiveWorkspaceId=()=> 'demo',_termVaultId=()=>vault,_termSessionsKey=(w,v)=>v+'::'+w;
@@ -20,7 +21,7 @@ _termWriteGroupState(state);const before=JSON.stringify(termSessions),originalPa
 const selected=_termSetDisplayMain('nested'),saved=_termReadGroupState();
 const pill=(s,i)=>`<span class="sess" role="tab" data-name="${s.name}"${s.display_main?' data-display-main-parent="'+s.display_main.parent+'" data-color="'+s.display_main.color+'"':''}>${s.name}</span>`;
 const html=termSessions.map(_termSubtabRenderer(saved,termSessions,pill)).join('');
-const included=_termIncludeDisplayMains([termSessions[3]],termSessions,saved).map(s=>s.name);
+const included=_termIncludeVisibleSubtabs([termSessions[3]],termSessions,saved).map(s=>s.name);
 vault='two';const otherVault=Object.keys(_termReadGroupState().tabDisplayMains);vault='one';
 const restored=_termSetDisplayMain('nested',true),after=_termReadGroupState();
 console.log(JSON.stringify({selected,saved,html,included,otherVault,restored,after,renders,
@@ -61,6 +62,7 @@ def test_wip_parent_row_keeps_visibility_after_swap_while_automation_main_is_at_
 const _TERM_GROUP_COLORS=['#58a6ff'],termSessEsc=String,_termSessionDisplay=s=>s.name;
 const automation='automation-'+('a'.repeat(32))+'-1';
 const termSessions=['parent',automation].map(name=>({name,logical_name:name}));
+const termCurrentSession='parent',termCurrentWorkspaceId='demo',_termActiveWorkspaceId=()=> 'demo';
 window.LabObjectives={taskForTerminal:s=>({status:'in_progress',inherited:s.name!=='parent'})};
 ''' + GROUPS + r'''
 const state=_termNormalizeGroupState({tabParents:{[automation]:'parent'},tabDisplayMains:{parent:automation}});
@@ -98,6 +100,7 @@ def test_adjacent_swaps_replace_conflicting_pair_without_duplicating_sessions():
 const _TERM_GROUP_COLORS=['#58a6ff'],_TERM_GROUPS_KEY='groups';
 const stored={},localStorage={getItem:key=>stored[key],setItem:(key,value)=>stored[key]=value};
 const termSessions=['grandparent','parent','child','nested','sibling','other-parent','other-child'].map(name=>({name,logical_name:name}));
+const termCurrentSession='grandparent',termCurrentWorkspaceId='demo';
 const _termActiveWorkspaceId=()=> 'demo',_termVaultId=()=> 'one',_termSessionsKey=(w,v)=>v+'::'+w;
 const _termSessionMeta=name=>termSessions.find(s=>s.name===name),termRenderSessionList=()=>{};
 const termSessEsc=String,_termSessionDisplay=s=>s.name;
