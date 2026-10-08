@@ -54,8 +54,7 @@ const source={name:'same-running-process',logical_name:'claude',workspace_id:'de
 function explorerToast(message,error){notices.push([message,error])}
 const background={...source,name:'background-process',agent_session_id:'background-conversation'};
 function termRenderSessionList(){
- if(window.LabDocumentTerminal?.watchCompletion?.())return;
- if(activeView)LabTerminalCompletion.watch('client::demo',source);
+ if(activeView)LabTerminalCompletion.meta('client::demo',source);
 }
 window.fetch=async(url,options={})=>{
  const u=new URL(url,'https://example.test'), body=options.body?JSON.parse(options.body):null;
@@ -164,7 +163,7 @@ window.LabTaskTerminalBridge={patch:async(session,patch,context)=>{
  assert(document.getElementById('assistantExpandDocument').hidden,'regular open already fills the document area');
  assert(getComputedStyle(document.getElementById('content')).display==='none','regular document replaces main content');
  assert(document.querySelector('.assistant-document-modal').getAttribute('role')==='region','regular document is an accessible region');
- assert(!sockets&&!LabDocumentTerminal.watchCompletion(),'regular document reuses the workspace terminal panel');
+ assert(!sockets,'regular document reuses the workspace terminal panel');
  const inlineRect=document.querySelector('.assistant-document-modal').getBoundingClientRect();
  assert(inlineRect.height>700&&inlineRect.bottom<=innerHeight+1,'regular document fits available viewport');
  assert(document.querySelector('.workspace-document.document-open'),'opened document marked');
@@ -192,7 +191,7 @@ window.LabTaskTerminalBridge={patch:async(session,patch,context)=>{
  assert(!AssistantView.isInlineDocument()&&document.querySelector('.assistant-note-editor textarea')===draft&&draft.value==='Draft kept while expanding','Command-click expands the same document and preserves its draft');
  document.getElementById('assistantExpandDocument').click();
  assert(document.querySelector('.assistant-note-editor textarea')===draft&&draft.value==='Draft kept while expanding','Expand preserves editor and unsaved draft');
- assert(!sockets&&!LabDocumentTerminal.watchCompletion(),'Expand reuses the workspace renderer and completion watcher');
+ assert(!sockets,'Expand reuses the workspace renderer');
  assert(!document.body.classList.contains('sidebar-collapsed'),'Expand never changes saved Files visibility');
  assert(getComputedStyle(document.getElementById('sidebar')).display==='none','expanded document hides Files');
  assert(document.body.classList.contains('workspace-active'),'opening preserves workspace');
@@ -211,10 +210,13 @@ window.LabTaskTerminalBridge={patch:async(session,patch,context)=>{
  assert(document.querySelectorAll('.workspace-attention-dot').length===2,'active and inactive workspace dots');
  assert(getComputedStyle(document.querySelector('.workspace-attention-dot')).animationName==='workspace-attention-blink','green dot blinks');
  assert(LabTerminalCompletion.meta('client::demo',background),'background response starts unread');
- LabTerminalCompletion.setDelaySeconds(1);activeView=true;termRenderSessionList();
+ localStorage.setItem('labTerminalCompletionReadSeconds','1');activeView=true;termRenderSessionList();
+ await new Promise(r=>setTimeout(r,1100));
+ assert(LabTerminalCompletion.meta('client::demo',source)&&document.querySelectorAll('.workspace-attention-dot').length===2,'viewing an expanded document never automatically reviews the terminal');
+ assert(LabTerminalCompletion.acknowledge('client::demo',source),'explicit terminal review acknowledges its result');
  await until(()=>!document.querySelector('.workspace-attention-dot'));
- assert(!LabTerminalCompletion.meta('client::demo',source)&&LabTerminalCompletion.meta('client::demo',background),'expanded document reviews the visible workspace terminal while keeping other results unread');
- activeView=null;LabTerminalCompletion.stopViewing();
+ assert(!LabTerminalCompletion.meta('client::demo',source)&&LabTerminalCompletion.meta('client::demo',background),'explicit review clears only the selected terminal across shared document views');
+ activeView=null;
  source.agent_activity={state:'completed',completed_at:600,completion_id:'next'};
  await W.poll(true);assert(document.querySelectorAll('.workspace-attention-dot').length===2,'next response alerts again');
  // Yellow wins over unread green in both active and inactive shared views.

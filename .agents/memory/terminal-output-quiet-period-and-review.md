@@ -1,5 +1,9 @@
 # Terminal output quiet period and review
 
+The latest [tab-click correction](green-terminal-dot-clears-on-tab-click.md)
+supersedes timed viewing dismissal and removes the delay setting. The 40-second
+output detection rule below remains applicable.
+
 On October 8, 2026 the user requested activity detection from terminal output:
 steady yellow for changes in the last 40 seconds, then blinking green after
 40 seconds of quiet. Apply it to all visible terminal types, including child

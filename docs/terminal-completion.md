@@ -30,30 +30,24 @@ The left-edge vertical line indicates **recency only**. It stays steady and
 continues to use the recent-marker color and timing settings, independently of
 the activity dot.
 
-The green dot disappears after the terminal has been continuously selected, visible, and
-connected in the focused Lab window for **20 seconds**. A single click or
-keyboard activation does not clear it. Switching terminals, hiding the panel,
-leaving the Lab window, disconnecting, or reloading resets the viewing interval.
-A new response gets its own full interval, including when it finishes in an
-already open terminal. Hovering never acknowledges a response.
+The green dot clears **immediately when you click its terminal tab**, including
+an already selected tab. Enter or Space on the tab performs the same action.
+Green stays on indefinitely while the terminal is selected until that explicit
+click; a result finishing in the active terminal still needs a later click.
+Automatic restoration, programmatic activation, polling, hovering, focus changes
+and reloads never acknowledge a result. There is no viewing-delay timer or setting.
+Clicks during work cannot acknowledge a future result or clear yellow. Merged
+tabs acknowledge their selected child's result, rather than their parent identity.
 
-To dismiss it sooner, click **directly on the green dot**. Single or double clicks
-on the tab label never dismiss it; double-click opens Rename.
-Direct green-dot activation marks the result as reviewed without
+Clicking **directly on the green dot** also marks the result as reviewed without
 activating the terminal or switching workspaces. A workspace green dot marks all
 its pending terminal results as reviewed across their shared views. Green dots
 also support Enter and Space when focused.
 An explicit green-dot activation can acknowledge a previously observed result even
 while the connection or live identity is temporarily unavailable.
 
-Starting new work resets the viewing interval and prevents automatic
-acknowledgement until work has stopped. The unread green dot stays visible
-throughout. The acknowledgement paths are the full viewing interval or direct
-green-dot activation, shared across views of the same terminal.
-
-Configure the delay under **Settings → Global → Terminal appearance → Stop
-blinking after viewing (seconds)**. It accepts 1–3600 seconds and is saved for
-all terminal agents in this browser. Changing it restarts any pending interval.
+Double-click still opens Rename; its initial tab click reviews any existing
+green result. Acknowledgements are shared across views of the same terminal.
 
 Unread events and acknowledgements persist in browser storage, scoped by terminal
 incarnation and provider (and conversation for provider event detection), shared
@@ -140,13 +134,13 @@ cannot silently reuse a stale foreground mapping.
 errors, interruptions, children, malformed/partial files, cache invalidation,
 bounded reads, and exact conversation lookup. `test_frontend_terminal_completion.py`
 covers unread persistence, scope isolation, newer responses, uncertain state,
-the exact viewing threshold, switching/visibility resets, configurable delay,
-focused/visible/connected acknowledgement, persistence through identity and
+indefinite blinking while selected, switching/visibility changes, retired delay
+preferences, explicit focused acknowledgement, persistence through identity and
 connection gaps, new work during unread completion, 40-second output quiet periods,
 server/client clock offsets and direct green-dot review. `test_frontend_terminal_ui.py`
 checks that working dots and labels remain consistent for all three agents,
 including waiting and unreachable terminals. Settings browser checks verify
-the default, saving, and reopening the delay field.
+the absence of the retired viewing-delay field and the click-dismissal explanation.
 
 Recorded, sanitized Copilot CLI 1.0.83 fixtures exercise a real tool loop,
 final response, shutdown, and an idle resume after abrupt process termination.
@@ -165,5 +159,6 @@ Browser verification uses synthetic terminal rows and a synthetic attachment
 only; it must not send input to or replace the user's live agent sessions.
 `test_terminal_output_activity.py` verifies batched timestamp parsing and detached
 output on an isolated native tmux server. Native Chrome subtab checks cover custom
-icons, visible yellow/green dots, Rename without acknowledgement, and direct green
-review for merged and unmerged process terminals in both rail orientations.
+icons, visible yellow/green dots, immediate active/inactive tab-click review,
+unchanged Rename, and direct green review for merged and unmerged process terminals
+in both rail orientations.

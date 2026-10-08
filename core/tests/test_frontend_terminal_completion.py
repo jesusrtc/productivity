@@ -24,11 +24,10 @@ window.addEventListener = (event, fn) => windowEvents[event] = fn;
 const document = {hidden:false, hasFocus:()=>focused,
   addEventListener:(event, fn)=>documentEvents[event] = fn};
 function termRenderSessionList() {
-  if (!view || document.hidden || !focused) window.LabTerminalCompletion.stopViewing();
-  else window.LabTerminalCompletion.watch(view.scope, view.session);
+  if (view) window.LabTerminalCompletion.meta(view.scope, view.session);
 }
 function show(scope, session) {view = {scope, session}; termRenderSessionList();}
-function leave() {view = null; window.LabTerminalCompletion.stopViewing();}
+function leave() {view = null;}
 function session(agent = 'codex', completed_at = 100, name = 'one') {
   return {name, agent, agent_session_id:'thread-'+name, created_at:1,
     agent_activity:{state:'completed', completed_at, completion_id:'turn-'+completed_at}};
@@ -50,30 +49,33 @@ s.agent_activity = COMPLETED;
 termRenderSessionList();
 assert(!C.isWorking(s) && C.meta('workspace', s), 'accepted completion replaces yellow with green');
 advance(19999);
-assert(C.meta('workspace', s), 'green remains unread until full viewing delay');
+assert(C.meta('workspace', s), 'green remains unread while selected');
 advance(1);
-assert(!C.meta('workspace', s), 'reviewed completion clears green');
+assert(C.meta('workspace', s), 'twenty seconds cannot acknowledge green');
+assert(C.acknowledge('workspace',s) && !C.meta('workspace',s), 'explicit review clears green');
 console.log(JSON.stringify({passed:true}));
 """.replace('WORKING', json.dumps(working)).replace('COMPLETED', json.dumps(completed)))
     assert result['passed']
 
 
 @pytest.mark.parametrize('agent', ['codex', 'claude', 'copilot'])
-def test_requires_twenty_seconds_of_continuous_viewing(agent):
+def test_selected_terminal_never_acknowledges_without_explicit_review(agent):
     result = _run_node(CLOCK + MODULE + """
 const C = window.LabTerminalCompletion, s = session(AGENT);
-assert(C.getDelaySeconds() === 20, 'default delay');
 show('vault1', s);
 assert(C.meta('vault1', s), 'opening does not clear');
 advance(19999);
-assert(C.meta('vault1', s), '19.999 seconds is insufficient');
+assert(C.meta('vault1', s), 'selected viewing never reviews the result');
 leave();
 advance(10000);
 show('vault1', s);
 advance(19999);
-assert(C.meta('vault1', s), 'reopening starts from zero');
+assert(C.meta('vault1', s), 'reopening cannot acknowledge the result');
 advance(1);
-assert(C.meta('vault1', s) === null, 'exactly twenty continuous seconds clears');
+assert(C.meta('vault1', s), 'twenty continuous seconds cannot clear green');
+advance(3600000);termRenderSessionList();
+assert(C.meta('vault1',s) && timers.size===0, 'even an hour selected leaves green pending without an acknowledgement timer');
+assert(C.acknowledge('vault1',s), 'explicit review acknowledges immediately');
 assert(C.meta('vault2', s) === null, 'same shared terminal is acknowledged in every scope');
 assert(C.meta('vault1', {...s, agent_session_id:'other'}), 'other conversation stays unread');
 console.log(JSON.stringify({passed:true}));
@@ -81,27 +83,30 @@ console.log(JSON.stringify({passed:true}));
     assert result['passed']
 
 
-def test_new_response_and_new_tab_start_new_timers():
+def test_selection_and_new_responses_require_their_own_explicit_review():
     result = _run_node(CLOCK + MODULE + r"""
 const C = window.LabTerminalCompletion, first = session(), second = session('claude', 100, 'two');
 show('vault', first); advance(19000);
 show('vault', second); advance(1000);
 assert(C.meta('vault', first) && C.meta('vault', second), 'switch does not acknowledge either');
 advance(19000);
-assert(C.meta('vault', second) === null, 'second receives its full interval');
+assert(C.meta('vault', second), 'second remains unread while selected');
+assert(C.acknowledge('vault',second), 'reviewing one terminal is explicit');
 show('vault', first); advance(19000);
 first.agent_activity = {...first.agent_activity, completed_at:200, completion_id:'turn2'};
 termRenderSessionList(); advance(1000);
-assert(C.meta('vault', first), 'new response is not consumed by previous response timer');
+assert(C.meta('vault', first), 'new response cannot be consumed by prior selection');
 advance(19000);
-assert(C.meta('vault', first) === null, 'new response clears after its own interval');
+assert(C.meta('vault', first), 'new response remains unread after twenty seconds');
+assert(C.acknowledge('vault',first), 'only explicit review clears the new response');
 const running = {...first, name:'running', agent_session_id:'running', agent_activity:{state:'working'}};
 show('vault', running); advance(60000);
 running.agent_activity = {state:'completed', completed_at:300, completion_id:'turn3'};
 termRenderSessionList();
 assert(C.meta('vault', running), 'time before completion never counts');
 advance(20000);
-assert(C.meta('vault', running) === null, 'response viewed for full duration');
+assert(C.meta('vault', running), 'a response finishing in the active terminal keeps blinking');
+assert(C.acknowledge('vault',running), 'reviewing the active terminal clears it');
 console.log(JSON.stringify({passed:true}));
 """)
     assert result['passed']
@@ -119,7 +124,8 @@ assert(C.isWorking(s) && !C.meta('workspace',s), '39.999 quiet seconds are still
 advance(1);termRenderSessionList();
 assert(!C.isWorking(s) && C.meta('workspace',s).label.includes('Output quiet for 40 seconds'), '40 seconds produces a ready-to-review signal');
 advance(19999);assert(C.meta('workspace',s), 'the earlier active working time cannot dismiss green');
-advance(1);assert(!C.meta('workspace',s), 'only the subsequent 20-second viewing interval acknowledges green');
+advance(1);assert(C.meta('workspace',s), 'twenty active seconds do not acknowledge green');
+assert(C.acknowledge('workspace',s), 'explicit tab or green review acknowledges immediately');
 s.output_activity={updated_at:1060,observed_at:1060};termRenderSessionList();
 assert(C.isWorking(s) && !C.meta('workspace',s), 'new output creates yellow after the previous result was reviewed');
 advance(40000);termRenderSessionList();
@@ -208,8 +214,9 @@ s.agent_activity = {state:'unknown'}; termRenderSessionList(); advance(60000);
 assert(C.isWorking(s) && C.meta('vault', s), 'missing state preserves both signals');
 s.agent_activity = session('codex', 200).agent_activity;
 termRenderSessionList(); advance(19999);
-assert(C.meta('vault', s), 'new response receives its whole viewing interval');
-advance(1); assert(C.meta('vault', s) === null, 'only full viewing clears');
+assert(C.meta('vault', s), 'new response remains unread while selected');
+advance(1); assert(C.meta('vault', s), 'viewing cannot acknowledge it');
+assert(C.acknowledge('vault',s), 'explicit review clears only the observed result');
 console.log(JSON.stringify({passed:true}));
 """)
     assert result['passed']
@@ -266,7 +273,7 @@ console.log(JSON.stringify({passed:true}));
 
 
 def test_working_and_unread_completion_remain_visible_independently():
-    helpers = _js_between('  function _termSessionDisplay(s)', '  function _termMarkVisibleCompletionSeen()')
+    helpers = _js_between('  function _termSessionDisplay(s)', '  function _termTaskPlaceholderHtml(')
     result = _run_node(CLOCK + MODULE + r"""
 const termDeadSessions = new Set();
 const termCurrentSession = null, termCurrentWorkspaceId = 'demo';
@@ -274,7 +281,7 @@ const _termActiveWorkspaceId = () => 'demo', _termRecentScopeKey = () => 'vault'
 const _termSessionRecentMeta = () => ({label:'now'}), _termRecentWindowLabel = () => '5m';
 const termSessEsc = value => String(value);
 """ + helpers + r"""
-const s = session();
+const C=window.LabTerminalCompletion,s = session();
 const render = () => _termSessionPillHtml(s, 0);
 const done = s.agent_activity;
 s.agent_activity = {state:'working'};
@@ -293,9 +300,10 @@ assert(render().includes('sess-working') && render().includes('sess-completion')
 termDeadSessions.clear();
 s.agent_activity = session('codex', 200).agent_activity;
 show('vault', s); advance(19999);
-assert(render().includes('sess-completion'), 'green remains during viewing delay');
+assert(render().includes('sess-completion'), 'green remains while selected');
 advance(1);
-assert(!render().includes('sess-activity'), 'green disappears after full viewing delay');
+assert(render().includes('sess-completion'), 'green remains after twenty active seconds');
+assert(C.acknowledge('vault',s) && !render().includes('sess-activity'), 'explicit review clears green');
 assert(render().includes(' recent'), 'recency stays independent after acknowledgement');
 console.log(JSON.stringify({passed:true}));
 """)
@@ -310,7 +318,7 @@ def test_recorded_copilot_cli_events_drive_terminal_dots(tmp_path, recording):
     for index in range(len(events)):
         write_events(path, events[:index + 1])
         states.append(agent_activity.read_activity('copilot', path))
-    helpers = _js_between('  function _termSessionDisplay(s)', '  function _termMarkVisibleCompletionSeen()')
+    helpers = _js_between('  function _termSessionDisplay(s)', '  function _termTaskPlaceholderHtml(')
     result = _run_node(CLOCK + MODULE + r"""
 const termDeadSessions = new Set();
 const termCurrentSession = null, termCurrentWorkspaceId = 'demo';
@@ -342,42 +350,38 @@ console.log(JSON.stringify({passed:true}));
 
 
 @pytest.mark.parametrize('event', ['blur', 'visibilitychange', 'pagehide'])
-def test_leaving_lab_resets_the_viewing_interval(event):
+def test_focus_and_visibility_changes_never_acknowledge_a_result(event):
     result = _run_node(CLOCK + MODULE + """
 const C = window.LabTerminalCompletion, s = session();
 show('vault', s); advance(19000);
 const event = EVENT;
 if (event === 'visibilitychange') {document.hidden = true; documentEvents[event]();}
-else {focused = false; windowEvents[event]();}
+else {focused = false; windowEvents[event]?.();}
 advance(30000);
 assert(C.meta('vault', s), 'background time never acknowledges');
 focused = true; document.hidden = false; windowEvents.focus();
-advance(19999); assert(C.meta('vault', s), 'return needs another full interval');
-advance(1); assert(C.meta('vault', s) === null, 'foreground full interval acknowledges');
+advance(60000); assert(C.meta('vault', s), 'returning and remaining active cannot acknowledge green');
+assert(C.acknowledge('vault',s), 'explicit review still acknowledges it');
 console.log(JSON.stringify({passed:true}));
 """.replace('EVENT', repr(event)))
     assert result['passed']
 
 
-def test_delay_is_configurable_validated_and_persisted():
-    result = _run_node(CLOCK + MODULE + r"""
+@pytest.mark.parametrize('legacy_delay', [1, 20, 3600])
+def test_saved_automatic_delay_cannot_acknowledge_green(legacy_delay):
+    result = _run_node(CLOCK + f"values['labTerminalCompletionReadSeconds']='{legacy_delay}';\n" + MODULE + r"""
 let C = window.LabTerminalCompletion;
 const s = session();
-C.setDelaySeconds(5); show('vault', s);
-advance(4999); assert(C.meta('vault', s), 'custom delay not reached');
-advance(1); assert(C.meta('vault', s) === null, 'custom delay honored');
+show('vault', s);advance(3600001);termRenderSessionList();
+assert(C.meta('vault',s) && timers.size===0, 'saved legacy delay cannot create an automatic acknowledgement');
 leave();
 """ + MODULE + r"""
 C = window.LabTerminalCompletion;
-assert(C.getDelaySeconds() === 5, 'setting survives module reload');
-assert(C.meta('vault', s) === null, 'acknowledgement survives reload');
-C.setDelaySeconds(0); assert(C.getDelaySeconds() === 20, 'no invalid zero delay');
-C.setDelaySeconds('invalid'); assert(C.getDelaySeconds() === 20, 'invalid uses default');
-C.setDelaySeconds(3601); assert(C.getDelaySeconds() === 20, 'bounded delay');
-const next = session('codex', 200); show('vault', next); advance(19000);
-C.setDelaySeconds(30); advance(20000);
-assert(C.meta('vault', next), 'changing delay restarts the interval');
-advance(10000); assert(C.meta('vault', next) === null, 'changed delay honored');
+assert(C.meta('vault',s), 'reload preserves the unread result');
+assert(C.acknowledge('vault',s), 'explicit review clears it immediately');
+leave();
+""" + MODULE + r"""
+assert(!window.LabTerminalCompletion.meta('vault',s), 'explicit acknowledgement survives reload');
 console.log(JSON.stringify({passed:true}));
 """)
     assert result['passed']
@@ -396,13 +400,14 @@ show('vault', s); advance(10000); leave();
 C = window.LabTerminalCompletion;
 assert(C.meta('vault', s), 'unread persists');
 show('vault', s); advance(10000); assert(C.meta('vault', s), 'partial viewing not persisted');
-advance(10000); assert(C.meta('vault', s) === null, 'confirmed completion acknowledged');
+advance(3600000); assert(C.meta('vault', s), 'continued viewing does not acknowledge after reload');
+assert(C.acknowledge('vault',s), 'explicit review acknowledges the retained result');
 console.log(JSON.stringify({passed:true}));
 """)
     assert result['passed']
 
 
-def test_another_windows_new_response_cannot_be_acknowledged_by_an_old_timer():
+def test_another_windows_new_response_cannot_be_acknowledged_by_elapsed_time():
     result = _run_node(CLOCK + MODULE + r"""
 const C = window.LabTerminalCompletion, s = session();
 show('vault', s); advance(19000);
@@ -411,15 +416,16 @@ Object.values(stored)[0].completed.at = 200;
 values['labTerminalCompletionsSeen-v1'] = JSON.stringify(stored);
 // Another window writes before this window receives its storage event.
 advance(1000);
-assert(C.meta('vault', s), 'older viewing timer must not acknowledge newer completion');
+assert(C.meta('vault', s), 'elapsed time cannot acknowledge newer completion');
 termRenderSessionList(); advance(20000);
-assert(C.meta('vault', s) === null, 'new completion gets a full interval');
+assert(C.meta('vault', s), 'new completion remains unread');
+assert(!C.acknowledge('vault',s), 'stale explicit review cannot dismiss another windows newer result');
 console.log(JSON.stringify({passed:true}));
 """)
     assert result['passed']
 
 
-def test_click_does_not_acknowledge_before_navigation_or_connection():
+def test_programmatic_navigation_does_not_acknowledge_a_result():
     activate = _js_between('  let _termTabActivationSeq =', '  function _termHomeAssociationHtml(session)')
     result = _run_node(CLOCK + MODULE + r"""
 const s = session(), termSessions = [s];
@@ -430,33 +436,19 @@ const _termRememberLast=()=>{};
 const goToProductivity=()=>new Promise(()=>{});
 """ + activate + r"""
 void _termActivateTab('one'); advance(60000);
-assert(window.LabTerminalCompletion.meta('home',s), 'click and pending navigation never mark seen');
+assert(window.LabTerminalCompletion.meta('home',s), 'programmatic activation and pending navigation never mark seen');
 console.log(JSON.stringify({passed:true}));
 """)
     assert result['passed']
 
 
-def test_only_visible_connected_terminal_can_start_or_continue_viewing():
-    helper = _js_between('  function _termMarkVisibleCompletionSeen()', '  function termRenderSessionList()')
-    result = _run_node(r"""
-let calls = 0, stopped = 0, focus = true, rects = [{}];
-const classes = new Set(['term-open']);
-const document = {hidden:false, hasFocus:()=>focus, body:{classList:{contains:x=>classes.has(x)}}};
-const WebSocket = {OPEN:1};
-let termWS={readyState:1}, termXterm={}, termContainer={getClientRects:()=>rects};
-let termCurrentWorkspaceId='workspace', termCurrentSession='one';
-const _termActiveWorkspaceId=()=> 'workspace', _termRecentScopeKey=()=> 'vault::workspace';
-const termSessions=[{name:'one'}];
-window.LabTerminalCompletion={watch:()=> calls++, stopViewing:()=> stopped++};
-""" + helper + r"""
-_termMarkVisibleCompletionSeen();
-focus=false; _termMarkVisibleCompletionSeen(); focus=true;
-document.hidden=true; _termMarkVisibleCompletionSeen(); document.hidden=false;
-classes.add('term-collapsed'); _termMarkVisibleCompletionSeen(); classes.delete('term-collapsed');
-termWS.readyState=0; _termMarkVisibleCompletionSeen(); termWS.readyState=1;
-rects=[]; _termMarkVisibleCompletionSeen(); rects=[{}];
-termCurrentWorkspaceId='other'; _termMarkVisibleCompletionSeen(); termCurrentWorkspaceId='workspace';
-_termMarkVisibleCompletionSeen();
-console.log(JSON.stringify({tracked:calls===2,reset:stopped===6}));
+def test_hidden_or_unfocused_review_cannot_acknowledge_green():
+    result = _run_node(CLOCK + MODULE + r"""
+const C=window.LabTerminalCompletion,s=session();
+assert(C.meta('vault',s), 'unread result');
+document.hidden=true;assert(!C.acknowledge('vault',s), 'hidden review cannot acknowledge');
+document.hidden=false;focused=false;assert(!C.acknowledge('vault',s), 'unfocused review cannot acknowledge');
+focused=true;assert(C.meta('vault',s) && C.acknowledge('vault',s), 'focused explicit review clears it');
+console.log(JSON.stringify({passed:true}));
 """)
-    assert all(result.values()), result
+    assert result['passed']

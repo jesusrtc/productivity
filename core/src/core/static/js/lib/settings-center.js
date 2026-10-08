@@ -291,7 +291,7 @@
         <p class="settings-hint">Off by default. Marks inactive tabs selected within the recent window.</p>
         ${field('Recent tab window',choices('recentMinutes',p.recentMinutes,[15,30,60,180,360,720,1440].map(n=>[n,n<60?n+' minutes':n/60+' hours'])))}
         ${field('Recent tab color',input('recentColor',p.recentColor,'color'))}
-        ${field('Stop blinking after viewing (seconds)',input('completionReadSeconds',p.completionReadSeconds,'number','min="1" max="3600" step="1" required'),'Default: 20 seconds. Keep the terminal visible in the active Lab window for this long. Switching away resets the timer.')}`,async f=>bridge().saveAppearance({orientation:f.elements.orientation.value,tabHoverPinSeconds:Number(f.elements.tabHoverPinSeconds.value),wipOnly:f.elements.wipOnly.checked,recentEnabled:f.elements.recentEnabled.checked,recentMinutes:Number(f.elements.recentMinutes.value),recentColor:f.elements.recentColor.value,completionReadSeconds:Number(f.elements.completionReadSeconds.value)}));
+        <p class="settings-hint">Green activity dots keep blinking until you click their terminal tab or the green dot.</p>`,async f=>bridge().saveAppearance({orientation:f.elements.orientation.value,tabHoverPinSeconds:Number(f.elements.tabHoverPinSeconds.value),wipOnly:f.elements.wipOnly.checked,recentEnabled:f.elements.recentEnabled.checked,recentMinutes:Number(f.elements.recentMinutes.value),recentColor:f.elements.recentColor.value}));
       return;
     }
     let policy;

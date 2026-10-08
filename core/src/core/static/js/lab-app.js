@@ -11137,14 +11137,13 @@
       localStorage.setItem(_TERM_NEW_OPTIONS_KEY + key, JSON.stringify(_TERM_NEW_OPTIONS.filter(value => options.includes(value))));
       if (key === _termGroupScopeKey()) _termApplyNewOptions(document.getElementById('termNewPicker'),key);
     },
-    appearance() { return {orientation:termSessionOrientation,tabHoverPinSeconds:termTabHoverPinSeconds,wipOnly:termWipOnly,recentEnabled:termRecentEnabled,recentMinutes:termRecentMinutes,recentColor:termRecentColor,completionReadSeconds:window.LabTerminalCompletion?.getDelaySeconds() ?? 20}; },
+    appearance() { return {orientation:termSessionOrientation,tabHoverPinSeconds:termTabHoverPinSeconds,wipOnly:termWipOnly,recentEnabled:termRecentEnabled,recentMinutes:termRecentMinutes,recentColor:termRecentColor}; },
     saveAppearance(value) {
       termSetSessionView('orientation',value.orientation);
       if ('tabHoverPinSeconds' in value) termSetTabHoverPinSeconds(value.tabHoverPinSeconds);
       if ('wipOnly' in value) termSetWipOnly(value.wipOnly);
       if ('recentEnabled' in value) termSetRecentEnabled(value.recentEnabled);
       termSetRecentMinutes(value.recentMinutes); termSetRecentColor(value.recentColor);
-      if ('completionReadSeconds' in value) window.LabTerminalCompletion?.setDelaySeconds(value.completionReadSeconds);
     },
     sidebar(scope) {
       const key = encodeURIComponent(_sidebarNormalizeFolderPath(scope.path));
@@ -11463,9 +11462,6 @@
     const workspaceId = _termActiveWorkspaceId();
     const session = (termSessions || []).find(row => row.name === name);
     if (!session || !workspaceId) return;
-    if (name !== termCurrentSession || workspaceId !== termCurrentWorkspaceId) {
-      window.LabTerminalCompletion?.stopViewing();
-    }
     if (workspaceId === '__self__') {
       const section = _termHomeAssociation(session);
       // Remember the exact clicked session before navigation restores the
@@ -12998,7 +12994,6 @@
     document.body.classList.toggle('term-collapsed');
     const shown = !document.body.classList.contains('term-collapsed');
     _termRememberVisibility(_termVisibilityKey(), shown);
-    if (typeof _termMarkVisibleCompletionSeen === 'function') _termMarkVisibleCompletionSeen();
     if (shown && termXterm && termFitAddon) {
       setTimeout(() => { try { termFitAddon.fit(); termSendResize(); } catch {} }, 60);
     }
@@ -14693,22 +14688,6 @@
     </span>`;
   }
 
-  function _termMarkVisibleCompletionSeen() {
-    if (!window.LabTerminalCompletion) return;
-    if (window.LabDocumentTerminal?.watchCompletion?.()) return;
-    if (document.hidden || !document.hasFocus()
-        || termCurrentWorkspaceId !== _termActiveWorkspaceId()
-        || !termWS || termWS.readyState !== WebSocket.OPEN || !termXterm
-        || !document.body.classList.contains('term-open') || document.body.classList.contains('term-collapsed')
-        || !termContainer?.getClientRects().length) {
-      window.LabTerminalCompletion.stopViewing();
-      return;
-    }
-    const session = termSessions.find(s => s.name === termCurrentSession);
-    if (session) window.LabTerminalCompletion.watch(_termRecentScopeKey(), session);
-    else window.LabTerminalCompletion.stopViewing();
-  }
-
   function _termTaskPlaceholderHtml(session) {
     const main=window.LabObjectives?.terminalMain?.(session);
     const task=window.LabObjectives?.taskForTerminal(session),status=task?.status||'todo';
@@ -14722,7 +14701,6 @@
     if (typeof _sidebarPinTerminalScope === 'function') {
       for (const session of termSessions || []) _sidebarPinTerminalScope(session.linked_scope, session.logical_name || session.name);
     }
-    if (typeof _termMarkVisibleCompletionSeen === 'function') _termMarkVisibleCompletionSeen();
     window.LabWorkspaceDocuments?.updateSessions(_termRecentScopeKey(), termSessions || []);
     if (_termDragState) {
       if (_termDragState.scope === _termGroupScopeKey()) return;
@@ -14895,6 +14873,7 @@
         }
         _termSelectTab(null);
         const session = termSessions.find(row => row.name === name);
+        if (session) window.LabTerminalCompletion?.acknowledge(_termRecentScopeKey(), session);
         if(session?.automation_missing){explorerToast('Terminal session ended. Use Relaunch to run its automation again.');return;}
         const objectiveLink = session && window.LabObjectives?.openForTerminal(session);
         void _termActivateTab(name, {openDocument:!objectiveLink});
@@ -17002,7 +16981,6 @@
   // soft=true: tab-switch — keep WS+xterm alive in cache, just un-mount DOM.
   // soft=false (default): full close — evict cache entry, close WS.
   function termDetach(soft = false, keepCacheKey = null) {
-    window.LabTerminalCompletion?.stopViewing();
     console.log('[term] termDetach soft=', soft, 'prev=', termCurrentSession, 'cacheSize=', _termCache.size);
     const prev = termCurrentSession;
     const prevWorkspaceId = termCurrentWorkspaceId;
@@ -17469,7 +17447,6 @@
         detachListeners();
         if (isStale()) return;
         if (termUserDetached || termCurrentSession !== name || termCurrentWorkspaceId !== workspaceId) return;
-        window.LabTerminalCompletion?.stopViewing();
         if (termDeadSessions.has(name)) return;
         _termScheduleReconnect(name, workspaceId, myWS);
       };

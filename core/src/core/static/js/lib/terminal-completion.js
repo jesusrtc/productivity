@@ -5,32 +5,10 @@
 (() => {
   const storageKey = 'labTerminalCompletionsSeen-v1';
   const activityKey = 'labTerminalActivity-v1';
-  const delayKey = 'labTerminalCompletionReadSeconds';
   const quietSeconds = 40;
   const outputSamples = new WeakMap();
   let seen = {};
   let observed = {};
-  let viewing = null;
-  let timer = null;
-  function getDelaySeconds() {
-    try {
-      const value = Number(localStorage.getItem(delayKey));
-      if (Number.isFinite(value) && value >= 1 && value <= 3600) return Math.round(value);
-    } catch {}
-    return 20;
-  }
-  function stopViewing() {
-    if (timer !== null) clearTimeout(timer);
-    timer = null;
-    viewing = null;
-  }
-  function setDelaySeconds(value) {
-    const number = Number(value);
-    const seconds = Number.isFinite(number) && number >= 1 && number <= 3600 ? Math.round(number) : 20;
-    try { localStorage.setItem(delayKey, String(seconds)); } catch {}
-    stopViewing();
-    refresh();
-  }
   function reload() {
     try {
       const value = JSON.parse(localStorage.getItem(storageKey) || '{}');
@@ -178,48 +156,15 @@
     window.dispatchEvent?.(new Event('lab-terminal-completion-change'));
     return true;
   }
-  function watch(scope, session) {
-    const previous = record(scope, session);
-    if (isWorking(session) || !previous?.completed || previous.at >= previous.completed.at) {
-      stopViewing();
-      return;
-    }
-    // Each response needs its own continuous viewing interval, even when
-    // this terminal has been selected throughout the agent's work.
-    const id = JSON.stringify([key(scope, session), previous.completed.at]);
-    const now = performance.now();
-    if (viewing?.id !== id) {
-      stopViewing();
-      viewing = {id, started: now};
-    }
-    const remaining = getDelaySeconds() * 1000 - (now - viewing.started);
-    if (remaining <= 0) {
-      see(scope, session, previous.completed.at);
-      stopViewing();
-    } else if (timer === null) {
-      timer = setTimeout(() => {
-        timer = null;
-        // The render rechecks visibility, focus, connection, current tab,
-        // and latest response before watch can acknowledge anything.
-        refresh();
-      }, remaining);
-    }
-  }
   function acknowledge(scope, session) {
     if (document.hidden || !document.hasFocus()) return false;
     const previous = record(scope, session);
     if (!previous?.completed || previous.at >= previous.completed.at) return false;
     if (!see(scope, session, previous.completed.at)) return false;
-    stopViewing();
     refresh();
     return true;
   }
   window.addEventListener('storage', event => {
-    if (event.key === delayKey) {
-      stopViewing();
-      refresh();
-      return;
-    }
     if (event.key !== storageKey && event.key !== activityKey) return;
     reload();
     if (typeof termRenderSessionList === 'function') termRenderSessionList();
@@ -227,11 +172,8 @@
   });
   function refresh() {
     if (!document.hidden && typeof termRenderSessionList === 'function') termRenderSessionList();
-    else if (!document.hidden) window.LabDocumentTerminal?.watchCompletion();
   }
-  window.addEventListener('blur', stopViewing);
-  window.addEventListener('pagehide', stopViewing);
   window.addEventListener('focus', refresh);
-  document.addEventListener('visibilitychange', () => document.hidden ? stopViewing() : refresh());
-  window.LabTerminalCompletion = {meta, isWorking, watch, stopViewing, acknowledge, getDelaySeconds, setDelaySeconds};
+  document.addEventListener('visibilitychange', refresh);
+  window.LabTerminalCompletion = {meta, isWorking, acknowledge};
 })();

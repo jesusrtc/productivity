@@ -26,7 +26,6 @@
     return result;
   }
   function releaseView(state) {
-    if (state === current && !state.inline) window.LabTerminalCompletion?.stopViewing();
     state.viewAbort?.abort(); state.viewAbort = null;
     state.observer?.disconnect(); state.observer = null;
     if (state.frame) cancelAnimationFrame(state.frame);
@@ -46,21 +45,7 @@
       if (!row) continue;
       delete row.dataset.terminalDocument; delete row.dataset.assistantRoot; delete row.dataset.documentPath;
     }
-    if (!state.inline) window.LabTerminalCompletion?.stopViewing();
     requestAnimationFrame(() => { if (typeof termRenderSessionList === 'function') termRenderSessionList(); });
-  }
-  function watchCompletion() {
-    const completion = window.LabTerminalCompletion;
-    if (!completion || current?.inline || !document.querySelector('#assistantDocumentModal.active')) return false;
-    const state = current;
-    if (!state?.result?.linked || document.hidden || !document.hasFocus()
-        || state.socket?.readyState !== WebSocket.OPEN || !state.host.getClientRects().length) {
-      completion.stopViewing();
-    } else {
-      const session = state.result;
-      completion.watch(`${session.vault || 'framework'}::${session.workspace_id}`, session);
-    }
-    return true;
   }
   function show(state, result, error = '') {
     if (state !== current) return;
@@ -107,7 +92,6 @@
     window._termGuardViewportDisposal?.(terminal);
     const fit = new FitAddon.FitAddon(); terminal.loadAddon(fit); terminal.open(screen); fit.fit();
     const socket = state.socket = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws/term/${encodeURIComponent(result.name)}?cols=${terminal.cols}&rows=${terminal.rows}`);
-    socket.onopen = watchCompletion;
     const send = message => { if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message)); };
     state.input = terminal.onData(data => { used(state); send({type:'input',data}); });
     // Keep native text selection while forwarding wheel gestures to tmux.
@@ -220,7 +204,6 @@
       if (state.result?.name !== result.name) releaseView(state);
       show(state,result,state.connectionEnded ? 'Terminal disconnected. Reconnect when ready.' : '');
       if (result.state === 'running' && !state.socket && !state.connectionEnded) await attach(state,result);
-      watchCompletion();
     } catch (error) {
       if (state === current && error.name !== 'AbortError') show(state,state.result || {},error.message);
     } finally {
@@ -350,7 +333,6 @@
     close();
     const state = current = {key,inline:inline || Boolean(scope),scope:scope && {...scope},path:detail.path,root,documentId:root.tree?.id || root.metadata.id,database,links:[],host,abort:new AbortController()};
     inline = state.inline;
-    if (!inline) window.LabTerminalCompletion?.stopViewing();
     state.taskId = remembered(state);
     if (state.taskId && !root.document_tasks?.tasks?.some(task=>task.id===state.taskId)) state.taskId=null;
     host.hidden = false; host.dataset.terminalDocument=state.documentId; host.dataset.assistantRoot=database; host.dataset.documentPath=root.path;
@@ -441,5 +423,5 @@
     if (document.hidden) releaseView(current); else void refresh(current);
   });
   window.addEventListener('pagehide',close);
-  window.LabDocumentTerminal = {open,close,settings:openSettings,dropContext,link,choose,decorate,updateRoot,watchCompletion,focusTask:selectTask,refresh:() => current && refresh(current)};
+  window.LabDocumentTerminal = {open,close,settings:openSettings,dropContext,link,choose,decorate,updateRoot,focusTask:selectTask,refresh:() => current && refresh(current)};
 })();

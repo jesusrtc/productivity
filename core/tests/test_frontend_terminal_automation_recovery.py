@@ -75,7 +75,7 @@ const parents={stopped:'parent',running:'parent',nested:'running',borrowed:'pare
 
 
 def test_native_computer_icons_corner_markers_recovery_and_copy_only_guidelines(tmp_path):
-    pill = _js_between('  function _termTaskStatusLabel(', '  function _termMarkVisibleCompletionSeen(')
+    pill = _js_between('  function _termTaskStatusLabel(', '  function _termTaskPlaceholderHtml(')
     setup = r'''
 const assert=(value,label)=>{if(!value)throw Error(label)};
 const termSessEsc=value=>String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));

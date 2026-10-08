@@ -16,7 +16,7 @@ from .test_frontend_terminal_ui import _js_between, _run_node, LAB_APP, LAB_SHEL
 GROUPS = _js_between('  function _termGroupScopeKey()', '  function _termSessionDisplay(s)')
 MOVES = _js_between('  function _termPlanItemMove(', '  function termReorderSessions(')
 RENDER = _js_between('  function _termTaskPlaceholderHtml(', '  // One move plan')
-PILL = _js_between('  function _termTaskStatusLabel(', '  function _termMarkVisibleCompletionSeen(')
+PILL = _js_between('  function _termTaskStatusLabel(', '  function _termTaskPlaceholderHtml(')
 ASSOCIATION = _js_between('  function _termSessionAssociationHtml(', '  function _termTaskStatusLabel(')
 ALL_TOGGLE = _js_between('  function termSetWipOnly(', '  function termSetRecentEnabled(')
 FILE_ICON = _js_between('  function fileIconHtml(', '  function buildSidebarTree(')
@@ -489,21 +489,28 @@ const fs=require('node:fs');
  assert(await evaluate(`(()=>{const row=document.querySelector('.term-display-main');return row.querySelector('.sess-task-icon').textContent==='⑂'&&getComputedStyle(row.querySelector('.sess-task-icon')).display==='flex'&&getComputedStyle(row,'::before').display==='none'&&getComputedStyle(row.querySelector('.term-display-main-dot')).bottom==='3px'})()`),'merged compact tab honors the parent custom icon and keeps its color marker');
  await evaluate(`window.outputAt=Math.floor(Date.now()/1000);termSessions.find(s=>s.name===automationName).output_activity={updated_at:outputAt,observed_at:outputAt};termRenderSessionList()`);
  assert(await evaluate(`(()=>{const row=document.querySelector('.term-display-main'),dot=row.querySelector('.sess-working'),style=getComputedStyle(dot);return dot.getClientRects().length>0&&style.backgroundColor==='rgb(210, 153, 34)'&&style.top==='3px'&&style.right==='3px'&&getComputedStyle(row.querySelector('.term-display-main-dot')).bottom==='3px'&&!row.querySelector('.sess-completion')})()`),'merged child output restores a visible yellow activity dot above the parent color marker');
+ await click('.term-display-main');
+ assert(await evaluate(`document.querySelector('.term-display-main .sess-working')&&!LabTerminalCompletion.meta(workspace,termSessions.find(s=>s.name===automationName))`),'clicking a working tab does not clear yellow or acknowledge a future result');
  await evaluate(`termSessions.find(s=>s.name===automationName).output_activity={updated_at:outputAt,observed_at:outputAt+40};termRenderSessionList()`);
  assert(await evaluate(`(()=>{const row=document.querySelector('.term-display-main'),dot=row.querySelector('.sess-completion');return dot.getClientRects().length>0&&getComputedStyle(dot).animationName==='term-completion-blink'&&!row.querySelector('.sess-working')&&row.getAttribute('aria-label').includes('Output quiet for 40 seconds')})()`),'merged quiet child displays blinking green with an honest ready-to-review label');
+ await evaluate(`localStorage.setItem('labTerminalCompletionReadSeconds','1');_termActivateTab(automationName)`);await move(await point('#outside'));await sleep(1100);
+ assert(await evaluate(`document.querySelector('.term-display-main .sess-completion')`),'automatic activation, hover and an old viewing-delay preference cannot dismiss green');
+ fs.writeFileSync(process.argv[1]+'/../custom-icon-activity.png',Buffer.from((await send('Page.captureScreenshot',{format:'png'})).data,'base64'));
+ await click('.term-display-main');
+ assert(await evaluate(`!document.querySelector('.term-display-main .sess-completion')&&termCurrentSession===automationName&&!LabTerminalCompletion.meta(workspace,termSessions.find(s=>s.name===automationName))`),'one click on the already selected merged tab immediately acknowledges its actual child');
  const renamePoint=await point('.term-display-main');
  for(const clickCount of [1,2]){await send('Input.dispatchMouseEvent',{type:'mousePressed',...renamePoint,button:'left',clickCount});await send('Input.dispatchMouseEvent',{type:'mouseReleased',...renamePoint,button:'left',clickCount})}
- assert(await evaluate(`renamed.at(-1)===automationName&&document.querySelector('.term-display-main .sess-completion')&&termCurrentSession===automationName`),'double-click keeps Rename and never dismisses an unread result');
- fs.writeFileSync(process.argv[1]+'/../custom-icon-activity.png',Buffer.from((await send('Page.captureScreenshot',{format:'png'})).data,'base64'));
+ assert(await evaluate(`renamed.at(-1)===automationName&&termCurrentSession===automationName`),'double-click retains Rename after tab review');
+ await evaluate(`termSessions.find(s=>s.name===automationName).output_activity={updated_at:outputAt+41,observed_at:outputAt+81};termRenderSessionList()`);
  await click('.term-display-main .sess-completion');
  assert(await evaluate(`!document.querySelector('.term-display-main .sess-completion')&&termCurrentSession===automationName&&!LabTerminalCompletion.meta(workspace,termSessions.find(s=>s.name===automationName))`),'direct green-dot click acknowledges the merged child without changing the selected console');
- await evaluate(`termSessions.find(s=>s.name===automationName).output_activity={updated_at:outputAt+41,observed_at:outputAt+41};termRenderSessionList()`);
+ await evaluate(`termSessions.find(s=>s.name===automationName).output_activity={updated_at:outputAt+82,observed_at:outputAt+82};termRenderSessionList()`);
  await secondaryClick('.term-display-main');await click('[data-action=unmerge-parent]');await move(await point('#outside'));
  assert(await evaluate(`(()=>{const row=document.querySelector('.sess[data-name="'+automationName+'"]');return row.getClientRects().length>0&&row.querySelector('.sess-task-icon').textContent==='⑂'&&getComputedStyle(row.querySelector('.sess-task-icon')).display==='flex'&&getComputedStyle(row,'::before').display==='none'&&getComputedStyle(row,'::after').bottom==='3px'})()`),'unmerged automation inherits the custom task icon with its process corner dot');
  assert(await evaluate(`document.querySelector('.sess[data-name="'+automationName+'"] .sess-working').getClientRects().length>0`),'unmerged automation retains its child output activity');
- await evaluate(`termSessions.find(s=>s.name===automationName).output_activity={updated_at:outputAt+41,observed_at:outputAt+81};termRenderSessionList()`);
- await click(tab(await evaluate('automationName'))+' .sess-completion');
- assert(await evaluate(`!document.querySelector('.sess[data-name="'+automationName+'"] .sess-completion')&&termCurrentSession===automationName`),'process-terminal green dots also dismiss directly and keep the selected console');
+ await evaluate(`termSessions.find(s=>s.name===automationName).output_activity={updated_at:outputAt+82,observed_at:outputAt+122};termRenderSessionList();_termActivateTab('workflow-main')`);
+ await move(await point(tab('a')));await click(tab(await evaluate('automationName')));
+ assert(await evaluate(`!document.querySelector('.sess[data-name="'+automationName+'"] .sess-completion')&&termCurrentSession===automationName`),'one click on an inactive process tab both opens its console and dismisses green');
  await evaluate(`document.querySelector('.term-panel').classList.add('term-sessions-full');document.querySelector('.term-session-switcher').classList.add('term-tabs-open')`);
  assert(await evaluate(`getComputedStyle(document.querySelector('.sess[data-name="'+automationName+'"] .sess-task-icon')).display==='none'`),'expanded automation rows remain names-only');
  await secondaryClick(tab(await evaluate('automationName')));await click('[data-action=merge-parent]');

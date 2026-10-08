@@ -1,8 +1,12 @@
 # Completed agents use a blinking green dot
 
+The latest [tab-click correction](green-terminal-dot-clears-on-tab-click.md)
+replaces the viewing-delay rule below with immediate explicit tab/green review.
+
 The later [output quiet-period request](terminal-output-quiet-period-and-review.md)
 supersedes provider-only detection and manual tab-click dismissal. The viewing
-delay and green visual treatment below remain applicable.
+green visual treatment below remains applicable; the latest tab-click correction
+also retires the viewing delay.
 
 Codex, Claude, and Copilot use one status dot beside each terminal tab:
 steady yellow while working; blinking green when a verified completed response

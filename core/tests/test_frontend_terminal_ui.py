@@ -870,7 +870,7 @@ process.stdout.write(JSON.stringify({requests, objective}));
 def test_terminal_working_fallback_includes_waiting_and_unreachable() -> None:
     helpers = _js_between(
         "function _termSessionDisplay(s)",
-        "function _termMarkVisibleCompletionSeen()",
+        "function _termTaskPlaceholderHtml(",
     )
     result = _run_node("""
 const termDeadSessions = new Set();

@@ -1,7 +1,9 @@
 # Memory index
 
+- [Green terminal dot clears on tab click](green-terminal-dot-clears-on-tab-click.md) — immediate explicit tab/green-dot acknowledgement; selected viewing never clears green and the timer setting is removed.
+
 - [Custom task icons override compact computers](custom-task-icons-override-compact-computers.md) — saved task asset icons take precedence, including inherited children, recommended rows and merged parent identities.
-- [Terminal output quiet period and review](terminal-output-quiet-period-and-review.md) — yellow for output within 40 seconds, then green; dismiss only by continuous active viewing or direct green review; no per-terminal polling.
+- [Terminal output quiet period and review](terminal-output-quiet-period-and-review.md) — yellow for output within 40 seconds, then green; its timed-review rule is superseded by tab-click review above; no per-terminal polling.
 
 - [Child terminals merge with parent](child-terminals-merge-with-parent.md) — one tab keeps the parent identity and opens the chosen child; explicit renewal reruns all eligible children while ordinary recovery remains stopped-only.
 
