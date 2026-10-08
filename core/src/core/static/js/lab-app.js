@@ -14641,6 +14641,7 @@
     const main = window.LabObjectives?.terminalMain?.(identity);
     const automation = !main && /^automation-[0-9a-f]{32}-[1-9]\d*$/.test(s.logical_name || '');
     const objectiveTask = window.LabObjectives?.taskForTerminal(identity);
+    const taskIconClass = !main && objectiveTask?.assetIcon ? ' sess-task-icon' : '';
     const taskOwn=objectiveTask&&!objectiveTask.inherited;
     const display = main?.label || ((s.display_main||!automation)&&taskOwn?objectiveTask.title:_termSessionDisplay(identity));
     // Compact/full visibility is CSS-controlled so switching detail never
@@ -14653,6 +14654,7 @@
     const completion = window.LabTerminalCompletion?.meta(_termRecentScopeKey(), s);
     const working = _termSessionIsWorking(s);
     const ready = completion;
+    const activityHtml = `${working ? '<span class="sess-activity sess-working" aria-hidden="true"></span>' : ''}${ready ? '<span class="sess-activity sess-completion" role="button" tabindex="0" aria-label="Mark completed terminal work as reviewed" title="Click to mark completed work as reviewed"></span>' : ''}`;
     const logical = s.logical_name || '';
     const dead = termDeadSessions.has(s.name) ? ' dead' : '';
     const statusTitle = dead ? 'Session unreachable — click to retry' : '';
@@ -14666,10 +14668,10 @@
       const icon=main?.icon || objectiveTask?.assetIcon || visual.icon;
       const worktreeName=!main&&!objectiveTask&&identity.linked_scope?.worktree&&!identity.linked_file?.path;
       const nameHtml=taskOwn?(window.LabObjectives?.terminalTaskNameHtml?.(identity)||termSessEsc(display)):worktreeName?_termSessionAssociationHtml(identity):termSessEsc(display);
-      return `<span class="sess ${visual.kind} term-display-main${main?' term-main-terminal':''}${active}${dead}" style="--term-display-main-color:${termSessEsc(s.display_main.color)}" role="tab" aria-label="${termSessEsc(ariaLabel+' · Merged with '+_termSessionDisplay(s)+' · Parent '+s.display_main.parent)}" aria-selected="${active ? 'true' : 'false'}" tabindex="${active ? '0' : '-1'}" draggable="false"${main?` data-terminal-main="${main.kind}"`:''} data-name="${termSessEsc(s.name)}" data-logical="${termSessEsc(logical)}" data-display-main-parent="${termSessEsc(s.display_main.parent)}" data-tooltip="${termSessEsc(tooltip)}"><span class="sess-icon" aria-hidden="true">${icon}</span><span class="term-display-main-dot" aria-hidden="true"></span><span class="sess-label custom">${nameHtml}</span>${_termAutomationRelaunchHtml(s)}</span>`;
+      return `<span class="sess ${visual.kind} term-display-main${main?' term-main-terminal':''}${active}${dead}" style="--term-display-main-color:${termSessEsc(s.display_main.color)}" role="tab" aria-label="${termSessEsc(ariaLabel+' · Merged with '+_termSessionDisplay(s)+' · Parent '+s.display_main.parent)}" aria-selected="${active ? 'true' : 'false'}" tabindex="${active ? '0' : '-1'}" draggable="false"${main?` data-terminal-main="${main.kind}"`:''} data-name="${termSessEsc(s.name)}" data-logical="${termSessEsc(logical)}" data-display-main-parent="${termSessEsc(s.display_main.parent)}" data-tooltip="${termSessEsc(tooltip)}"><span class="sess-icon${taskIconClass}" aria-hidden="true">${icon}</span><span class="term-display-main-dot" aria-hidden="true"></span><span class="sess-label custom">${nameHtml}</span>${activityHtml}${_termAutomationRelaunchHtml(s)}</span>`;
     }
     if (automation) {
-      return `<span class="sess ${visual.kind} term-automation-terminal${active}${dead}" role="tab" aria-label="${termSessEsc(ariaLabel)}" aria-selected="${active ? 'true' : 'false'}" tabindex="${active ? '0' : '-1'}" draggable="true" data-order-token="${termSessEsc('s:'+logical)}" data-name="${termSessEsc(s.name)}" data-logical="${termSessEsc(logical)}" data-tooltip="${termSessEsc(tooltip)}"><span class="sess-label custom">${termSessEsc(display)}</span>${_termAutomationRelaunchHtml(s)}</span>`;
+      return `<span class="sess ${visual.kind} term-automation-terminal${active}${dead}" role="tab" aria-label="${termSessEsc(ariaLabel)}" aria-selected="${active ? 'true' : 'false'}" tabindex="${active ? '0' : '-1'}" draggable="true" data-order-token="${termSessEsc('s:'+logical)}" data-name="${termSessEsc(s.name)}" data-logical="${termSessEsc(logical)}" data-tooltip="${termSessEsc(tooltip)}">${taskIconClass?`<span class="sess-icon${taskIconClass}" aria-hidden="true">${objectiveTask.assetIcon}</span>`:''}<span class="sess-label custom">${termSessEsc(display)}</span>${activityHtml}${_termAutomationRelaunchHtml(s)}</span>`;
     }
     const linked = String(s.linked_file && s.linked_file.path || '').trim();
     const scope = s.linked_scope;
@@ -14681,12 +14683,11 @@
     const scopeAttrs = scope ? ` style="--term-scope-color:${termSessEsc(_termScopeColor(scope))}" data-linked-scope="${termSessEsc(scope.root)}"` : '';
     return `<span${scopeAttrs} class="sess ${visual.kind}${main?' term-main-terminal':''}${objectiveTask?' objective-task-terminal':''}${active}${recent}${dead}" role="tab" aria-label="${termSessEsc(ariaLabel)}" aria-selected="${active ? 'true' : 'false'}" tabindex="${active ? '0' : '-1'}" ${main?`draggable="false" data-terminal-main="${main.kind}" title="${termSessEsc(main.kind+' main terminal · Fixed')}"`:`draggable="true" data-order-token="${termSessEsc(`s:${logical}`)}"`}${objectiveTask?` title="${termSessEsc(_termTaskStatusLabel(objectiveTask.status))}"`:''} data-name="${termSessEsc(s.name)}" data-logical="${termSessEsc(logical)}" data-tooltip="${termSessEsc(tooltip)}">
       ${objectiveTask&&!nameHasBullet?_termTaskStatusDotHtml(objectiveTask.status):''}
-      ${icon?`<span class="sess-icon" aria-hidden="true"${objectiveTask ? ' title="'+termSessEsc(objectiveTask.title)+'"' : ''}>${icon}</span>`:''}
+      ${icon?`<span class="sess-icon${taskIconClass}" aria-hidden="true"${objectiveTask ? ' title="'+termSessEsc(objectiveTask.title)+'"' : ''}>${icon}</span>`:''}
       ${main?'':`<span class="sess-order" aria-hidden="true">${index + 1}</span>`}
       ${worktreeOnly ? '' : `<span class="sess-label${s.label ? ' custom' : ''}">${nameHtml}</span>`}
       ${associationHtml}
-      ${working ? '<span class="sess-activity sess-working" aria-hidden="true"></span>' : ''}
-      ${ready ? '<span class="sess-activity sess-completion" role="button" tabindex="0" aria-label="Mark completed terminal work as reviewed" title="Click to mark completed work as reviewed"></span>' : ''}
+      ${activityHtml}
       ${linked ? `<span class="sess-link" aria-hidden="true">&#x21C4;</span>` : ''}
       ${_termAutomationRelaunchHtml(s)}
     </span>`;
@@ -14714,7 +14715,7 @@
     const label=main?.label||session.label,description=task?_termTaskStatusLabel(status)+' · One primary terminal per task (recommended)':'Fixed '+main?.kind+' main terminal';
     const nameHtml=task?(window.LabObjectives?.terminalTaskNameHtml?.(session)||termSessEsc(label)):termSessEsc(label);
     const nameHasBullet=nameHtml.includes('class="objective-task-worktree-name"');
-    return `<button type="button" class="sess term-task-placeholder${main?' term-main-terminal':''}${task?' objective-task-terminal':''}" role="button" ${main?`data-terminal-main="${main.kind}"`:''} data-open-task-terminal="${termSessEsc(session.task_id||'')}" data-terminal-objective="${termSessEsc(session.objective_id||'')}" aria-label="Open ${termSessEsc(label)} terminal · ${termSessEsc(description)}" title="Open ${termSessEsc(label)} terminal · ${termSessEsc(description)}">${!task||task.assetIcon?`<span class="sess-icon" aria-hidden="true">${main?.icon||task?.assetIcon||'▣'}</span>`:''}${task&&!nameHasBullet?_termTaskStatusDotHtml(status):''}<span class="sess-label">${nameHtml}</span><span class="term-task-create" aria-hidden="true">＋</span></button>`;
+    return `<button type="button" class="sess term-task-placeholder${main?' term-main-terminal':''}${task?' objective-task-terminal':''}" role="button" ${main?`data-terminal-main="${main.kind}"`:''} data-open-task-terminal="${termSessEsc(session.task_id||'')}" data-terminal-objective="${termSessEsc(session.objective_id||'')}" aria-label="Open ${termSessEsc(label)} terminal · ${termSessEsc(description)}" title="Open ${termSessEsc(label)} terminal · ${termSessEsc(description)}">${!task||task.assetIcon?`<span class="sess-icon${!main&&task?.assetIcon?' sess-task-icon':''}" aria-hidden="true">${main?.icon||task?.assetIcon||'▣'}</span>`:''}${task&&!nameHasBullet?_termTaskStatusDotHtml(status):''}<span class="sess-label">${nameHtml}</span><span class="term-task-create" aria-hidden="true">＋</span></button>`;
   }
 
   function termRenderSessionList() {
@@ -14871,8 +14872,6 @@
         e.stopPropagation();
         if (e.metaKey || e.ctrlKey || _termTabSelection().size > 1) return;
         const name = node.getAttribute('data-name');
-        const session = termSessions.find(row => row.name === name);
-        if (session && window.LabTerminalCompletion?.doubleClick(_termRecentScopeKey(), session)) return;
         termRenameSession(name);
       });
       node.addEventListener('keydown', (e) => {

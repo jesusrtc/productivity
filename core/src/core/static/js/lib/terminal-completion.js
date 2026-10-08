@@ -1,10 +1,13 @@
-// Acknowledgements are browser-local and scoped to the exact conversation.
+// Acknowledgements are browser-local and scoped to the terminal incarnation
+// (and the exact conversation when provider events are used).
 // They never use recent-selection timestamps: opening a running terminal must
 // not acknowledge a response which has not finished yet.
 (() => {
   const storageKey = 'labTerminalCompletionsSeen-v1';
   const activityKey = 'labTerminalActivity-v1';
   const delayKey = 'labTerminalCompletionReadSeconds';
+  const quietSeconds = 40;
+  const outputSamples = new WeakMap();
   let seen = {};
   let observed = {};
   let viewing = null;
@@ -43,7 +46,8 @@
   function key(scope, session) {
     // A shared terminal has one acknowledgement across workspace/document views.
     return JSON.stringify(['session', session.name, session.created_at ?? session.created,
-      session.agent, session.agent_session_id || observed[terminalKey(session)]?.conversation]);
+      session.agent, observed[terminalKey(session)]?.mode === 'output' ? 'output'
+        : session.agent_session_id || observed[terminalKey(session)]?.conversation]);
   }
   function completion(session) {
     const activity = session?.agent_activity;
@@ -59,6 +63,13 @@
     try { localStorage.setItem(storageKey, JSON.stringify(seen)); } catch {}
   }
   function record(scope, session) {
+    const output = session?.output_activity;
+    if (Number.isFinite(output?.updated_at) && output.updated_at > 0
+        && Number.isFinite(output.observed_at) && output.observed_at >= output.updated_at) {
+      return recordOutput(scope, session, output);
+    }
+    // An unavailable/stale listing is not evidence that output has stopped.
+    if (session && observed[terminalKey(session)]?.mode === 'output') return seen[key(scope, session)];
     if (!session || !['codex', 'claude', 'copilot'].includes(session.agent)) return null;
     const terminal = terminalKey(session);
     const previous = observed[terminal];
@@ -85,10 +96,7 @@
     if (previous?.conversation !== conversation || previous.working !== working
         || previous.completedAt !== completedAt || previous.stateAt !== stateAt) {
       observed[terminal] = {conversation, working, completedAt, stateAt, updated: Date.now()};
-      const entries = Object.entries(observed);
-      if (entries.length > 2000) observed = Object.fromEntries(entries
-        .sort((a, b) => b[1].updated - a[1].updated).slice(0, 2000));
-      try { localStorage.setItem(activityKey, JSON.stringify(observed)); } catch {}
+      saveObserved();
     }
     const id = key(scope, session);
     const legacy = JSON.stringify([scope, session.name, session.created_at, session.agent, session.agent_session_id]);
@@ -102,6 +110,49 @@
     }
     return seen[id];
   }
+  function recordOutput(scope, session, output) {
+    const terminal = terminalKey(session), previous = observed[terminal];
+    const same = previous?.mode === 'output';
+    if (same && (output.updated_at < previous.outputAt
+        || output.updated_at === previous.outputAt && output.observed_at < previous.sampledAt)) {
+      return seen[key(scope, session)];
+    }
+    if (!outputSamples.has(output)) outputSamples.set(output, Date.now());
+    // Use server-measured age plus elapsed local time, so a remote browser's
+    // clock offset cannot mark a busy terminal quiet or keep it yellow forever.
+    const idle = output.observed_at - output.updated_at
+      + Math.max(0, Date.now() - outputSamples.get(output)) / 1000;
+    const working = idle < quietSeconds;
+    const hadOutput = working || (same ? previous.hadOutput || output.updated_at > previous.outputAt
+      : output.updated_at > Number(session.created_at ?? session.created ?? 0));
+    let completedAt = same ? previous.completedAt || 0 : 0;
+    // Do not mark a terminal that has been idle since creation as newly
+    // finished. A real output change or an observed active period is needed.
+    if (!working && hadOutput) {
+      completedAt = Math.max(completedAt, output.updated_at + quietSeconds);
+    }
+    if (!same || previous.outputAt !== output.updated_at || previous.working !== working
+        || previous.completedAt !== completedAt) {
+      observed[terminal] = {mode:'output', outputAt:output.updated_at, sampledAt:output.observed_at,
+        hadOutput, working, completedAt, updated:Date.now()};
+      saveObserved();
+    }
+    const id = key(scope, session);
+    if (completedAt && !(seen[id]?.completed?.at >= completedAt)) {
+      reload();
+      if (!(seen[id]?.completed?.at >= completedAt)) {
+        seen[id] = {...seen[id], completed:{at:completedAt, source:'output'}};
+        save();
+      }
+    }
+    return seen[id];
+  }
+  function saveObserved() {
+    const entries = Object.entries(observed);
+    if (entries.length > 2000) observed = Object.fromEntries(entries
+      .sort((a, b) => b[1].updated - a[1].updated).slice(0, 2000));
+    try { localStorage.setItem(activityKey, JSON.stringify(observed)); } catch {}
+  }
   function isWorking(session) {
     record('', session);
     return !!session && observed[terminalKey(session)]?.working === true;
@@ -112,7 +163,9 @@
     const minutes = Math.max(0, Math.floor((now - previous.completed.at * 1000) / 60000));
     const age = minutes < 1 ? 'just now' : minutes < 60 ? `${minutes} minutes ago`
       : minutes < 1440 ? `${Math.floor(minutes / 60)} hours ago` : `${Math.floor(minutes / 1440)} days ago`;
-    return {label: `Finished · ${age} · Not yet viewed`};
+    return {label: previous.completed.source === 'output'
+      ? 'Output quiet for 40 seconds · Ready to review · Not yet viewed'
+      : `Finished · ${age} · Not yet viewed`};
   }
   function see(scope, session, completedAt) {
     reload(); // Merge acknowledgements from other Lab windows.
@@ -161,9 +214,6 @@
     refresh();
     return true;
   }
-  function doubleClick(scope, session) {
-    return acknowledge(scope, session);
-  }
   window.addEventListener('storage', event => {
     if (event.key === delayKey) {
       stopViewing();
@@ -183,5 +233,5 @@
   window.addEventListener('pagehide', stopViewing);
   window.addEventListener('focus', refresh);
   document.addEventListener('visibilitychange', () => document.hidden ? stopViewing() : refresh());
-  window.LabTerminalCompletion = {meta, isWorking, watch, stopViewing, acknowledge, doubleClick, getDelaySeconds, setDelaySeconds};
+  window.LabTerminalCompletion = {meta, isWorking, watch, stopViewing, acknowledge, getDelaySeconds, setDelaySeconds};
 })();

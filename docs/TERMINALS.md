@@ -50,9 +50,10 @@ Every directory is checked before any command starts. Commands start in list
 order in separate tmux sessions and run independently. For dependent operations,
 combine them in one command, for example `npm run build && npm run dev`.
 An exited command prints its exit code and leaves an interactive shell with the
-logs retained. Expanded automation tabs show only their saved names in white,
-without icons, status badges or folder captions. The folded rail shows a computer
-icon per terminal with small status/worktree dots in the corner, without hierarchy
+logs retained. Expanded automation tabs show their saved names in white with
+live activity dots, without icons or folder captions. The folded rail honors
+custom task icons, including inherited icons; other terminals use a computer
+icon. Small status/worktree dots stay in the corner, without hierarchy
 indentation or guide lines. Names and hierarchy return on expansion. An active
 child stays visible along with its direct siblings and parent/grandparent path.
 Other automation children use parent hover or keyboard disclosure.
@@ -99,7 +100,10 @@ passive refresh, browser reconnect and status polling never replay them.
 
 ## Terminal tab names
 
-Vertical tabs normally show a flat computer-icon rail with corner status dots.
+Vertical tabs normally show a flat icon rail with corner status dots. A saved
+custom task icon takes precedence over the computer fallback, including on
+recommended task terminals and inherited children. Merged tabs use the parent's
+custom icon while showing activity from the selected child's actual console.
 Compact horizontal tabs use the same icons and corner markers. Hover reveals
 the names immediately. Leaving after a brief hover hides them again. Clicking
 the rail or hovering for 3 seconds keeps the names open while moving to Files

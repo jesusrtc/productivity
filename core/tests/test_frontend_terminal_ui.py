@@ -168,7 +168,7 @@ def test_terminal_sessions_support_orientation_and_responsive_labels() -> None:
     assert ".term-panel.term-sessions-horizontal .term-stage" in css
     assert ".term-panel.term-sessions-full .term-sessions" in css
     assert ".term-panel.term-sessions-horizontal.term-sessions-full" in css
-    assert 'class="sess-icon"' in source
+    assert 'class="sess-icon' in source
     assert 'class="sess-order"' in source
     assert 'class="agent"' in source
     assert 'class="sess-label' in source

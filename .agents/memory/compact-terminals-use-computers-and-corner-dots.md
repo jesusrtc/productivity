@@ -1,5 +1,8 @@
 # Compact terminals use computers and corner dots
 
+The later [custom task icon correction](custom-task-icons-override-compact-computers.md)
+refines this: saved task icons take precedence over the computer fallback.
+
 The user's October 8, 2026 screenshot correction requests a centered 💻 icon
 for every terminal in the compact rail, including task, inherited, worktree,
 automation, display-main and dormant launch rows. Keep existing status/worktree

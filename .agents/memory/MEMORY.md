@@ -1,5 +1,8 @@
 # Memory index
 
+- [Custom task icons override compact computers](custom-task-icons-override-compact-computers.md) — saved task asset icons take precedence, including inherited children, recommended rows and merged parent identities.
+- [Terminal output quiet period and review](terminal-output-quiet-period-and-review.md) — yellow for output within 40 seconds, then green; dismiss only by continuous active viewing or direct green review; no per-terminal polling.
+
 - [Child terminals merge with parent](child-terminals-merge-with-parent.md) — one tab keeps the parent identity and opens the chosen child; explicit renewal reruns all eligible children while ordinary recovery remains stopped-only.
 
 - [Compact terminals use computers and corner dots](compact-terminals-use-computers-and-corner-dots.md) — centered 💻 per terminal, small corner markers and no hierarchy guides/indentation until expanded.

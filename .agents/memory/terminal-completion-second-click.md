@@ -1,5 +1,9 @@
 # Dismiss completion with two separate clicks
 
+Superseded by [terminal output quiet period and review](terminal-output-quiet-period-and-review.md):
+only the continuous viewing interval or direct green-dot activation acknowledges
+a result. Tab clicks do not acknowledge it and double-click opens Rename.
+
 Besides the configurable viewing delay, dismiss a terminal's completed-response
 green dot by clicking its tab, keeping it selected, then clicking it again at
 least two seconds later. Wait one second after the candidate second click so a

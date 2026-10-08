@@ -1,5 +1,9 @@
 # Completed agents use a blinking green dot
 
+The later [output quiet-period request](terminal-output-quiet-period-and-review.md)
+supersedes provider-only detection and manual tab-click dismissal. The viewing
+delay and green visual treatment below remain applicable.
+
 Codex, Claude, and Copilot use one status dot beside each terminal tab:
 steady yellow while working; blinking green when a verified completed response
 is ready to review. The left-edge vertical line indicates recency only and

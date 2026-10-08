@@ -1,11 +1,18 @@
 # Terminal activity and completion indicators
 
-Codex, Claude, and Copilot terminal tabs show a **steady yellow dot** from
-verified work until a recorded finish, interruption, or error. Waiting for input
-or approval is still unfinished work. Unknown status, partial transcript reads,
-missing live conversation mappings, connection loss, switching tabs, and reloads
-must not erase an already observed yellow dot. A new verified conversation has
-its own state. Hover and the tab's accessible label say “Working.”
+Terminal tabs show a **steady yellow dot** when their tmux window has produced
+output in the last **40 seconds**. After 40 seconds without output, a **blinking
+green dot** marks the result ready to review. This applies to bare terminals,
+agents, child processes and merged tabs without requiring a provider conversation
+mapping. The timestamp measures output activity, not task success; it never
+changes task status or completes checklist items. Hover and the accessible tab
+label distinguish quiet output from a recorded agent finish.
+
+When an output timestamp is unavailable, existing provider event detection is
+the fallback for Codex, Claude and Copilot. Missing timestamps or uncertain
+reads preserve previously observed state. Older shared-view snapshots cannot
+clear newer output activity or revive yellow after its quiet period. An idle
+creation baseline alone does not create a new green result.
 
 When a completed response is ready to review, a **green blinking dot** appears,
 including on the active tab until acknowledged. It blinks on/off every 0.8
@@ -30,37 +37,43 @@ leaving the Lab window, disconnecting, or reloading resets the viewing interval.
 A new response gets its own full interval, including when it finishes in an
 already open terminal. Hovering never acknowledges a response.
 
-To dismiss it sooner, **double-click the terminal tab**. Single clicks on the tab
-label, including two separate clicks, never dismiss it. When there is no unread completion,
-double-click retains Rename; Rename is also available from the context menu.
-Clicking **directly on the green dot** also marks the result as reviewed without
+To dismiss it sooner, click **directly on the green dot**. Single or double clicks
+on the tab label never dismiss it; double-click opens Rename.
+Direct green-dot activation marks the result as reviewed without
 activating the terminal or switching workspaces. A workspace green dot marks all
 its pending terminal results as reviewed across their shared views. Green dots
 also support Enter and Space when focused.
-An explicit double-click can acknowledge a previously verified response even
+An explicit green-dot activation can acknowledge a previously observed result even
 while the connection or live identity is temporarily unavailable.
 
 Starting new work resets the viewing interval and prevents automatic
 acknowledgement until work has stopped. The unread green dot stays visible
-throughout. The acknowledgement paths are the full viewing interval, an explicit
-double-click on the terminal tab, or a direct green-dot activation, shared across
-views of the same terminal.
+throughout. The acknowledgement paths are the full viewing interval or direct
+green-dot activation, shared across views of the same terminal.
 
 Configure the delay under **Settings → Global → Terminal appearance → Stop
 blinking after viewing (seconds)**. It accepts 1–3600 seconds and is saved for
 all terminal agents in this browser. Changing it restarts any pending interval.
 
-Confirmed unread events
-and acknowledgements persist in browser storage, scoped by terminal incarnation,
-provider, and conversation, shared across workspace and document views. A later completion produces a
+Unread events and acknowledgements persist in browser storage, scoped by terminal
+incarnation and provider (and conversation for provider event detection), shared
+across workspace and document views. A later quiet period or completion produces a
 new blinking signal. An unread event survives temporary loss of provider-state information.
 
 ## Detection
 
-Scoped terminal-list refreshes (normally every eight seconds) read the exact
-conversation's recorded events. They do not infer completion from terminal text,
-quiet output, CPU usage, or a process exiting. Unscoped dashboard/attach listings
-do not scan transcripts.
+The existing batched tmux listing includes `window_activity` and a server sampling
+timestamp. It adds no capture-pane calls, transcript scans, per-terminal requests
+or polling loop. The browser uses server-measured output age plus local elapsed
+time, so client/server clock offsets do not affect the 40-second threshold.
+The normal scoped refresh (every eight seconds) updates every terminal in the
+panel, including detached children. Compact tabs show live activity at the upper
+corner and task/worktree markers at the lower corner; refresh controls stay usable.
+Merged tabs keep the parent's visual identity and the child's activity signal.
+
+Scoped terminal lists also retain exact conversation event detection as a fallback
+when an output timestamp is unavailable. Unscoped dashboard/attach listings do
+not scan transcripts. The fallback protocols are:
 
 - **Codex:** use the live TTY-to-thread mapping and the thread's indexed rollout;
   a successful `task_complete` is a completion. Main-agent reasoning, assistant
@@ -97,9 +110,8 @@ do not scan transcripts.
   signal, including previously observed yellow in the browser. A new request
   starts yellow again. Resume after a verified final response retains unread green.
 
-Working is based on recorded request/turn activity, not output silence. Updates
-arrive with the normal scoped refresh; a provider pause or abrupt termination
-without a recorded state change cannot be distinguished from ongoing work.
+For the provider-event fallback, working is based on recorded request/turn
+activity. Unknown or incomplete event reads preserve the previous signal.
 
 The provider protocols distinguish response/turn completion from successfully
 fulfilling every part of a user request. The blinking green dot means a response is ready to
@@ -130,7 +142,8 @@ bounded reads, and exact conversation lookup. `test_frontend_terminal_completion
 covers unread persistence, scope isolation, newer responses, uncertain state,
 the exact viewing threshold, switching/visibility resets, configurable delay,
 focused/visible/connected acknowledgement, persistence through identity and
-connection gaps, new work during unread completion, and double-click dismissal. `test_frontend_terminal_ui.py`
+connection gaps, new work during unread completion, 40-second output quiet periods,
+server/client clock offsets and direct green-dot review. `test_frontend_terminal_ui.py`
 checks that working dots and labels remain consistent for all three agents,
 including waiting and unreachable terminals. Settings browser checks verify
 the default, saving, and reopening the delay field.
@@ -150,3 +163,7 @@ partial/rotated logs, and exact-conversation route enrichment.
 
 Browser verification uses synthetic terminal rows and a synthetic attachment
 only; it must not send input to or replace the user's live agent sessions.
+`test_terminal_output_activity.py` verifies batched timestamp parsing and detached
+output on an isolated native tmux server. Native Chrome subtab checks cover custom
+icons, visible yellow/green dots, Rename without acknowledgement, and direct green
+review for merged and unmerged process terminals in both rail orientations.

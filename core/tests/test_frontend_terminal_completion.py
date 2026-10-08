@@ -107,17 +107,74 @@ console.log(JSON.stringify({passed:true}));
     assert result['passed']
 
 
+@pytest.mark.parametrize('agent', ['codex', 'claude', 'copilot', None])
+def test_output_changes_drive_yellow_then_green_after_forty_quiet_seconds(agent):
+    result = _run_node(CLOCK + "Date.now = () => 1000000 + clock;\n" + MODULE + r"""
+const C = window.LabTerminalCompletion, s = {name:'output',created:900,agent:AGENT,
+  output_activity:{updated_at:1000,observed_at:1000}};
+show('workspace', s);
+assert(C.isWorking(s) && !C.meta('workspace',s), 'all terminal types show yellow on recent output without needing a provider identity');
+advance(39999);termRenderSessionList();
+assert(C.isWorking(s) && !C.meta('workspace',s), '39.999 quiet seconds are still WIP');
+advance(1);termRenderSessionList();
+assert(!C.isWorking(s) && C.meta('workspace',s).label.includes('Output quiet for 40 seconds'), '40 seconds produces a ready-to-review signal');
+advance(19999);assert(C.meta('workspace',s), 'the earlier active working time cannot dismiss green');
+advance(1);assert(!C.meta('workspace',s), 'only the subsequent 20-second viewing interval acknowledges green');
+s.output_activity={updated_at:1060,observed_at:1060};termRenderSessionList();
+assert(C.isWorking(s) && !C.meta('workspace',s), 'new output creates yellow after the previous result was reviewed');
+advance(40000);termRenderSessionList();
+assert(C.meta('workspace',s) && C.acknowledge('workspace',s), 'the next quiet result can be dismissed directly');
+assert(!C.meta('other-workspace',s) && !C.isWorking(s), 'direct acknowledgement is shared across views');
+console.log(JSON.stringify({passed:true}));
+""".replace('AGENT', json.dumps(agent)))
+    assert result['passed']
+
+
+def test_output_activity_handles_clock_offset_stale_views_identity_gaps_and_reload():
+    result = _run_node(CLOCK + "Date.now = () => 1000000 + clock;\n" + MODULE + r"""
+let C = window.LabTerminalCompletion;
+const s={name:'output',created:4900,agent:'codex',agent_session_id:'thread-one',
+  agent_activity:{state:'working'},output_activity:{updated_at:5000,observed_at:5000}};
+assert(C.isWorking(s), 'server clock ahead of browser still starts yellow');
+advance(40000);
+const quiet={...s,output_activity:{updated_at:5000,observed_at:5040}};
+assert(!C.isWorking(quiet) && C.meta('workspace',quiet), 'server clock offset does not prevent the quiet result');
+const stale={...s,output_activity:{updated_at:5000,observed_at:5001}};
+assert(!C.isWorking(stale), 'an old shared view cannot replay yellow after quiet');
+const newer={...s,agent_session_id:'thread-two',output_activity:{updated_at:5040,observed_at:5040}};
+assert(C.isWorking(newer), 'new content is WIP even if a previous transcript remains working');
+assert(C.isWorking(quiet), 'stale content cannot stop newer work');
+const gap={...newer,output_activity:undefined,agent_session_id:undefined,agent_activity:{state:'unknown'}};
+assert(C.isWorking(gap), 'a missing timestamp retains the last known activity rather than inventing a finish');
+leave();
+""" + MODULE + r"""
+C=window.LabTerminalCompletion;
+assert(C.isWorking(gap), 'known output activity survives reload and identity gaps');
+newer.output_activity={updated_at:5040,observed_at:5080};
+assert(!C.isWorking(newer) && C.meta('workspace',newer), 'the next actual observation finishes the quiet period');
+assert(C.acknowledge('workspace',newer), 'direct review works after reload');
+assert(!C.meta('other', {...newer,agent_session_id:'thread-three'}), 'provider mapping changes cannot resurrect reviewed output');
+assert(!C.meta('workspace',{...newer,created:4901,output_activity:undefined}), 'other terminal incarnations do not inherit an output result');
+const untouched={name:'never-active',created:5000,output_activity:{updated_at:5000,observed_at:5080}};
+assert(!C.meta('workspace',untouched) && !C.meta('workspace',untouched), 'an idle creation baseline cannot create green on repeated renders');
+untouched.output_activity={updated_at:5081,observed_at:5121};
+assert(C.meta('workspace',untouched), 'later actual output can produce green even when observed after its quiet period');
+console.log(JSON.stringify({passed:true}));
+""")
+    assert result['passed']
+
+
 @pytest.mark.parametrize('agent', ['codex', 'claude', 'copilot'])
-def test_double_click_acknowledges_without_a_viewing_delay(agent):
+def test_direct_green_review_acknowledges_without_a_viewing_delay(agent):
     result = _run_node(CLOCK + MODULE + """
 const C = window.LabTerminalCompletion, s = session(AGENT);
 show('vault', s);
 advance(100);
-assert(C.doubleClick('vault', s), 'double-click clears the exact unread response');
-assert(C.meta('vault', s) === null, 'double-click clears immediately');
-assert(!C.doubleClick('vault', s), 'no pending response leaves Rename available');
+assert(C.acknowledge('vault', s), 'direct green review clears the exact unread response');
+assert(C.meta('vault', s) === null, 'direct green review clears immediately');
+assert(!C.acknowledge('vault', s), 'no pending response cannot be reviewed');
 const running = {...s, name:'running', agent_session_id:'running', agent_activity:{state:'working'}};
-assert(!C.doubleClick('vault', running), 'clicking during work cannot acknowledge a future response');
+assert(!C.acknowledge('vault', running), 'clicking during work cannot acknowledge a future response');
 running.agent_activity = session(AGENT, 200).agent_activity;
 assert(C.meta('vault', running), 'new completion still unread');
 console.log(JSON.stringify({passed:true}));
@@ -125,14 +182,14 @@ console.log(JSON.stringify({passed:true}));
     assert result['passed']
 
 
-def test_double_click_cannot_acknowledge_an_unseen_newer_response_from_another_window():
+def test_direct_review_cannot_acknowledge_an_unseen_newer_response_from_another_window():
     result = _run_node(CLOCK + MODULE + r"""
 const C = window.LabTerminalCompletion, s = session();
 show('vault', s);
 const stored = JSON.parse(values['labTerminalCompletionsSeen-v1']);
 Object.values(stored)[0].completed.at = 200;
 values['labTerminalCompletionsSeen-v1'] = JSON.stringify(stored);
-assert(!C.doubleClick('vault', s), 'only the displayed response can be dismissed');
+assert(!C.acknowledge('vault', s), 'only the displayed response can be dismissed');
 assert(C.meta('vault', s), 'newer response stays unread');
 console.log(JSON.stringify({passed:true}));
 """)
@@ -200,7 +257,7 @@ s.agent_session_id='thread-one'; s.agent_activity=session(s.agent).agent_activit
 assert(!C.isWorking(s) && C.meta('vault', s), 'verified finish replaces yellow with green');
 delete s.agent_session_id; s.agent_activity={state:'unknown'};
 assert(C.meta('vault', s), 'identity gaps also preserve unread green');
-assert(C.doubleClick('vault', s), 'known completion can still be acknowledged during identity gap');
+assert(C.acknowledge('vault', s), 'known completion can still be acknowledged during identity gap');
 s.agent_session_id='different-conversation';
 assert(!C.isWorking(s) && !C.meta('vault', s), 'new verified conversation starts independently');
 console.log(JSON.stringify({passed:true}));

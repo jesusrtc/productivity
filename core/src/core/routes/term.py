@@ -1812,7 +1812,7 @@ def _tmux_list(
                         "#{session_name}|#{session_created}|#{session_attached}|"
                         "#{session_windows}|#{pane_tty}|#{pane_pid}"
                         + ("|#{session_activity}|#{session_last_attached}|#{@lab_last_access}|#{session_id}" if activity else "")
-                        + "|#{pane_id}|#{pane_dead}|#{window_panes}"
+                        + "|#{pane_id}|#{pane_dead}|#{window_panes}|#{window_activity}"
                     ),
                 ),
                 capture_output=True,
@@ -1860,6 +1860,15 @@ def _tmux_list(
                 "pane_dead": len(parts) > (11 if activity else 7) and parts[11 if activity else 7] == "1",
                 "pane_count": int(parts[12 if activity else 8]) if len(parts) > (12 if activity else 8) and parts[12 if activity else 8].isdigit() else 1,
                 "tmux_socket": socket_name,
+                # tmux already tracks output in the window, even while
+                # detached. Reuse the batched listing instead of capturing
+                # every terminal's contents just to detect recent changes.
+                **({"output_activity": {
+                    "updated_at": int(parts[13 if activity else 9]),
+                    "observed_at": time.time(),
+                }} if len(parts) > (13 if activity else 9)
+                    and parts[13 if activity else 9].isdigit()
+                    and int(parts[13 if activity else 9]) > 0 else {}),
                 **({
                     "activity_known": len(parts) >= 10 and parts[6].isdigit(),
                     "activity": int(parts[6]) if len(parts) > 6 and parts[6].isdigit() else 0,
