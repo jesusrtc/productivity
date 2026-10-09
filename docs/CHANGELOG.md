@@ -5,6 +5,13 @@ guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 
 ## 2026-10-09
 
+### Task icons in the collapsed left sidebar
+
+- Fixed empty task rows in the left navigation rail after status badges became
+  clickable buttons. Compact task rows now retain their custom icon or default
+  task emoji and remain clickable for task navigation.
+- Expanded task rows retain their status badge, title and icon picker controls.
+
 ### Collapsed terminal icons and refresh visibility
 
 - Collapsed terminal tabs retain their emojis and custom task icons; compact

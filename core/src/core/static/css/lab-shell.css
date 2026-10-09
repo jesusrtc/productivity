@@ -2453,8 +2453,11 @@
   body.sidebar-drawer-enabled:not(.sidebar-drawer-open) .sidebar .objective-sidebar-task { position: relative; justify-content: center; gap: 0; }
   body.sidebar-drawer-enabled:not(.sidebar-drawer-open) .sidebar .objective-sidebar-task.child { margin-left: 3px; }
   body.sidebar-drawer-enabled:not(.sidebar-drawer-open) .sidebar .objective-sidebar-task > button { display: none; }
+  body.sidebar-drawer-enabled:not(.sidebar-drawer-open) .sidebar .objective-sidebar-task-compact-icon { display:flex; align-items:center; justify-content:center; position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); width:20px; height:20px; font-size:18px; line-height:1; pointer-events:none; }
   body.sidebar-drawer-enabled:not(.sidebar-drawer-open) .sidebar .objective-sidebar-task-status { position: relative; z-index: 1; }
   body.sidebar-drawer-enabled:not(.sidebar-drawer-open) .sidebar .objective-sidebar-task-title { position: absolute; inset: 0; padding: 0; font-size: 0; }
+  body.sidebar-drawer-enabled:not(.sidebar-drawer-open) .sidebar .objective-sidebar-task-title .objective-task-worktree-name i { display:none; }
+  body.sidebar-drawer-enabled:not(.sidebar-drawer-open) .sidebar .objective-sidebar-task .objective-task-recurring { position:absolute; right:1px; bottom:1px; font-size:9px; pointer-events:none; }
 
   /* Workspace proxy iframe — fullscreen mode hides the rest of the lab
      UI chrome (sidebar, attrs/repo/diff bars, terminal panel, topbar)

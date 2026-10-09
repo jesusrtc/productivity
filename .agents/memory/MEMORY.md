@@ -1,5 +1,7 @@
 # Memory index
 
+- [Collapsed task navigation keeps icons](collapsed-task-navigation-keeps-icons.md) — the left Objective task rail retains custom/default icons and native navigation when customization buttons fold.
+
 - [Terminal renewal only with visible titles](terminal-renewal-only-with-visible-titles.md) — hide ↻ while titles are folded and keep task icons visible in the compact rail.
 
 - [Terminal rail reveals titles without moving icons](terminal-rail-reveals-titles-without-moving-icons.md) — stable icon sizes and controls on hover, left tinted icons and no yellow or task-status dots.

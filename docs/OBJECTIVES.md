@@ -332,6 +332,11 @@ Click the left status badge or right icon area to open **Task icon and terminal
 color**. Distinct Objective asset icons appear first, alongside all built-in
 service icons such as Jira, GitHub and Grafana. GitHub can be chosen even without
 a GitHub asset. Suggested emojis follow, with a field for a custom emoji.
+When the left sidebar folds into its icon rail, each task shows the chosen
+custom icon or its default task status emoji. The compact icon opens the task;
+expanding restores the status badge, title and customization controls. Worktree
+title bullets stay folded so they cannot leave a task row looking like a dot
+without its icon.
 **Terminal text color…** opens the existing worktree palette. Preview the choices
 and click **Save**, or cancel to retain the saved settings. **Default icon** and
 **Default color** restore the defaults. Secondary-click retains the status menu.

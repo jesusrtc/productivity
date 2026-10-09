@@ -220,6 +220,9 @@ delete pending items to claim completion or check an item without verifying
 its work.
 
 The Objective Tasks sidebar shows unfinished task and subtask navigation.
+When the left sidebar is collapsed, each task still shows its selected custom
+icon or its task status emoji. Click that compact icon to open the task; hover
+expansion restores the title, status badge and icon picker controls.
 WIP tasks use **🚧** and recurring tasks carry **🔄**. Click the task's status
 badge or its icon area to open **Task icon and terminal color**. The picker
 starts with distinct asset icons and built-in service icons, including GitHub

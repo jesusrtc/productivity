@@ -38,6 +38,9 @@ child.automation={reason:'Stopped'};
  const sidebar=document.querySelector('[data-objectives-sidebar]');
  assert(sidebar.querySelector('.objective-sidebar-task-status').textContent==='🚧','WIP uses construction badge');
  assert(sidebar.querySelector('.objective-task-recurring').textContent==='🔄','recurring task identifier');
+ document.body.classList.add('sidebar-drawer-enabled');
+ assert(sidebar.querySelector('.objective-sidebar-task-compact-icon').getClientRects().length>0&&sidebar.querySelector('.objective-sidebar-task-compact-icon').textContent==='🚧','collapsed task navigation shows its default emoji with clickable status buttons hidden');
+ document.body.classList.add('sidebar-drawer-open');
  const open=()=>sidebar.querySelector('.objective-sidebar-task-status').click();
  const picker=()=>document.querySelector('.objective-task-icon-picker');
  open();
@@ -57,6 +60,13 @@ child.automation={reason:'Stopped'};
  assert(task.assets.length===1&&!owner.resources.some(r=>r.url?.includes('github')),'icon selection never attaches or creates an asset');
  await LabObjectives.load(undefined,true);
  assert(sidebar.querySelector('button:last-child [data-link-service=github]'),'saved sidebar icon');
+ document.body.classList.remove('sidebar-drawer-open');
+ const navIcon=sidebar.querySelector('.objective-sidebar-task-compact-icon'),navRow=navIcon.closest('.objective-sidebar-task'),navBox=navIcon.getBoundingClientRect(),rowBox=navRow.getBoundingClientRect();
+ assert(navIcon.querySelector('[data-link-service=github]')?.getClientRects().length>0&&getComputedStyle(navIcon).color==='rgb(255, 123, 114)'&&Math.abs(navBox.x+navBox.width/2-rowBox.x-rowBox.width/2)<1,'collapsed left navigation shows the chosen colored GitHub icon centered');
+ assert(document.elementFromPoint(navBox.x+navBox.width/2,navBox.y+navBox.height/2)?.closest('[data-open-task]')===navRow.querySelector('[data-open-task]'),'visible compact task icon retains native task navigation');
+ assert(getComputedStyle(navRow.querySelector('.objective-task-worktree-name i')).display==='none','worktree title bullet does not replace or crowd the compact task icon');
+ document.body.classList.add('sidebar-drawer-open');
+ assert(!navIcon.getClientRects().length&&navRow.querySelector('.objective-sidebar-task-status').getClientRects().length>0&&navRow.querySelector('button:last-child').getClientRects().length>0,'expansion restores task status, title and custom icon controls');
  const panel=document.getElementById('termPanel'),switcher=document.getElementById('termSessionSwitcher'),list=document.getElementById('termSessionList');
  const merged={...child,display_main:{parent:'primary',identity:primary,color:'#58a6ff'}};
  list.innerHTML=[_termSessionPillHtml(primary,0),_termSessionPillHtml(child,1),_termSessionPillHtml(merged,2),_termTaskPlaceholderHtml({objective_placeholder:true,objective_id:'one',task_id:'task',label:'Review'})].join('');
@@ -90,5 +100,5 @@ child.automation={reason:'Stopped'};
     scripts = ''.join('<script>'+ (static/path).read_text()+'</script>' for path in [
         'js/lib/scope-links.js','js/lib/sidebar-scope-picker.js','js/lib/workspace-objectives.js'])
     css = LAB_SHELL_CSS.read_text() + (static/'css/workspace-objectives.css').read_text()
-    html = '<!doctype html><meta charset="utf-8"><style>'+css+'</style><body class="term-open"><div data-objectives-sidebar></div><section id="termPanel" class="term-panel term-sessions-full"><div class="term-stage"><div class="term-session-switcher" id="termSessionSwitcher"><div class="term-sessions" id="termSessionList"></div></div></div></section><script>window.LAB_LINK_SERVICES='+ (static/'link-services.json').read_text()+';'+palette+setup+'</script>'+scripts+'<script>'+_js_between('  function _termTaskStatusLabel(', '  function _termTaskPlaceholderHtml(')+_js_between('  function _termTaskPlaceholderHtml(', '  function termRenderSessionList()')+checks+'</script>'
+    html = '<!doctype html><meta charset="utf-8"><style>'+css+'</style><body class="term-open"><aside id="sidebar" class="sidebar"><div data-objectives-sidebar></div></aside><section id="termPanel" class="term-panel term-sessions-full"><div class="term-stage"><div class="term-session-switcher" id="termSessionSwitcher"><div class="term-sessions" id="termSessionList"></div></div></div></section><script>window.LAB_LINK_SERVICES='+ (static/'link-services.json').read_text()+';'+palette+setup+'</script>'+scripts+'<script>'+_js_between('  function _termTaskStatusLabel(', '  function _termTaskPlaceholderHtml(')+_js_between('  function _termTaskPlaceholderHtml(', '  function termRenderSessionList()')+checks+'</script>'
     _check_project_html(tmp_path, html)

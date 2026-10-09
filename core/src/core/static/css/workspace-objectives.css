@@ -97,6 +97,7 @@ body.sidebar-drawer-enabled:not(.sidebar-drawer-open) [data-project-sidebar][dat
 .objective-sidebar-task-list { display:grid; grid-auto-rows:32px; align-content:start; min-height:calc(var(--objective-task-rows) * 32px); padding:0 12px; }
 .objective-sidebar-task { display:flex; gap:5px; align-items:center; min-width:0; border:1px solid transparent; border-radius:4px; font-size:12px; }
 .objective-sidebar-task.child { margin-left:calc(17px * var(--objective-task-depth,1)); }
+.objective-sidebar-task-compact-icon { display:none; }
 .objective-sidebar-task.active { border-color:var(--accent); background:color-mix(in srgb,var(--accent) 12%,var(--bg-secondary)); }
 .objective-sidebar-task > button { display:flex; align-items:center; justify-content:center; flex-shrink:0; width:22px; border:0; background:none; padding:3px; cursor:pointer; color:var(--accent); }
 .objective-sidebar-task > button:empty { opacity:0; }
