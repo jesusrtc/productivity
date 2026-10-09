@@ -479,6 +479,7 @@ _ADMIN_EXACT = {
     "/api/settings/global",
     "/api/projects",
     "/api/ui/open-external",
+    "/api/ui/resource-windows",
     "/api/vaults/use",
     "/api/agents/sync",
 }

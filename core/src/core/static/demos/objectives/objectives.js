@@ -179,10 +179,15 @@
           linkPreview.hidden = false;
           find('link-close').focus();
         } else {
-          const width = Math.max(320, Math.min(1100, window.outerWidth - 100));
-          const height = Math.max(320, Math.min(800, window.outerHeight - 100));
-          const left = Math.round(window.screenX + (window.outerWidth - width) / 2);
-          const top = Math.round(window.screenY + (window.outerHeight - height) / 2);
+          if(mode === 'popup' && window.parent !== window) {
+            window.parent.postMessage({channel:'lab-objectives-demo-v1', type:'resource-popup', url:url.href}, '*');
+            find('link-help').textContent = 'Opened over Lab. Clicking the same URL activates its existing resource window.';
+            return;
+          }
+          const width = Math.max(320, window.outerWidth - 24);
+          const height = Math.max(320, window.outerHeight - 72);
+          const left = Math.round(window.screenX + 12);
+          const top = Math.round(window.screenY + 56);
           // Open during the click, directly on this device, without an iframe
           // or an asynchronous native-browser handoff losing user activation.
           window.open(url.href, '_blank', mode === 'popup'

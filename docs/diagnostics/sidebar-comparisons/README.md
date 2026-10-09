@@ -56,16 +56,19 @@ nested tab and use Lab's expanded document layout. Entire-document links open th
 even after a different tab was viewed. External links open the actual site in a
 separate pop-out positioned over Lab, avoiding iframe restrictions. The request
 runs synchronously on the clicking device, including remote clients, without
-native tab automation. Files, the current document and its unsaved draft, and
+OS browser opening. Files, the current document and its unsaved draft, and
 existing workspace terminals remain usable. Cmd/Ctrl/Shift-click on a folder
 link opens a normal browser tab. Objective Cmd/Ctrl-click retains editable
 link details; their explicit Open action uses a pop-out.
 
-The pop-out remains independent when Lab navigates. Chrome controls its frame
-and window stacking. Bringing Lab forward through Alfred does not reliably
-bring the resource forward with it; true parent/child attachment requires a
-native macOS helper or desktop shell. The Objectives demo retains all three
-opening options for comparison.
+The pop-out remains open when Lab navigates. Windows fill almost all of Lab's
+width and cascade to leave previous title bars exposed. Repeating a URL activates
+the existing window without reloading it. **⧉** lists this Lab window's resources.
+On the local Mac, enable **Lab Resource Windows** in Accessibility via that menu
+and reopen resources to register them. Returning to Lab or clicking the top bar
+then raises its resource windows, without an Alfred workflow. Native identities
+survive redirects; an uncertain native failure does not silently create a duplicate.
+The Objectives demo retains all three opening options for comparison.
 External service types and icons are inferred from the URL. Use
 **Settings → Global → Links and icons** to map self-hosted domains to a service
 or upload a custom icon. Links belong to the resolved checkout path and follow it across

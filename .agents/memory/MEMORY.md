@@ -1,5 +1,7 @@
 # Memory index
 
+- [Resource windows cascade and reuse URLs](resource-windows-cascade-and-reuse.md) — almost full width, exposed title bars, exact URL activation, and an integrated macOS helper for return-to-Lab stacking.
+
 - [Resource links default to pop-outs](resource-links-default-to-popouts.md) — direct windows over Lab, preserved drafts and terminals; Alfred attachment needs native window handling.
 
 - [Task worktrees have their own section](task-worktrees-have-their-own-section.md) — selected-task checkouts below Task assets, with membership, actions and context preserved.

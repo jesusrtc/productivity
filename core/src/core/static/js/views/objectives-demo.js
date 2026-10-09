@@ -13,6 +13,8 @@
       let state = null;
       try { state = JSON.parse(localStorage.getItem(storageKey)); } catch {}
       frame.contentWindow.postMessage({channel, type: 'hydrate', state}, '*');
+    } else if (event.data.type === 'resource-popup' && navigator.userActivation.isActive) {
+      void window.LabExternalLinks.open(event.data.url, {clientOnly:true, popup:true});
     } else if (event.data.type === 'save' && event.data.state?.version === 1) {
       try {
         const serialized = JSON.stringify(event.data.state);

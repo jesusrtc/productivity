@@ -23,10 +23,23 @@ def test_external_link_clicks_in_browser(tmp_path):
                        for name in ('external-links.js', 'scope-links.js'))
     checks = r'''
 const assert = (ok, message) => { if (!ok) throw new Error(message); };
-const requests = [], tabs = [];
+const requests = [], tabs = [], handles = [];
 window.LAB_EXTERNAL_BROWSER = true;
 window.fetch = async (url, options) => { requests.push({url, options}); return {ok:true}; };
-window.open = (...args) => tabs.push(args);
+window.open = (...args) => {
+  tabs.push(args);
+  if (args[0] !== 'about:blank') return null;
+  const doc = document.implementation.createHTMLDocument('');
+  const create = doc.createElement.bind(doc);
+  doc.createElement = tag => {
+    const node = create(tag);
+    if (tag === 'a') node.click = () => { args[0] = node.href; };
+    return node;
+  };
+  const handle = {document:doc, opener:window, closed:false, focuses:0,
+    focus(){this.focuses++}, close(){this.closed=true}};
+  handles.push(handle); return handle;
+};
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
 const anchor = (href, doc = document) => {
   const a = doc.createElement('a'); a.href = href;
@@ -102,14 +115,15 @@ const click = (link, options = {}) => {
   const googleButton = host.querySelector('[data-scope-link]');
   googleButton.focus();
   activating = true; googleButton.click(); activating = false;
+  await tick();
   assert(tabs.length === 3 && tabs[2][0] === google && tabs[2][2].startsWith('popup,') && requests.length === 7,
     'Google folder link opens in the client browser and never the server desktop');
   window.LAB_EXTERNAL_BROWSER = false;
   activating = true; googleButton.click(); activating = false;
-  assert(tabs.length === 4 && tabs[3][0] === google && requests.length === 7, 'remote folder link also opens on the client');
+  assert(tabs.length === 3 && handles.at(-1).focuses === 1 && requests.length === 7, 'repeated URL focuses the existing client window');
   currentScope = false;
   googleButton.click();
-  assert(tabs.length === 4, 'outgoing folder links remain guarded');
+  assert(tabs.length === 3, 'outgoing folder links remain guarded');
   window.open = openBeforeScopes; window.fetch = fetchBeforeScopes;
   window.LAB_EXTERNAL_BROWSER = true;
 
@@ -128,11 +142,19 @@ const click = (link, options = {}) => {
   // Local Mac workspace links ask the native helper to focus an existing tab.
   const nativeCalls = [];
   window.LAB_NATIVE_BROWSER_REUSE = true;
+  window.fetch = async (url, options) => { nativeCalls.push({url, body:JSON.parse(options.body)}); return {ok:true,json:async()=>({ok:true,reused:true,urls:[]})}; };
   await LabExternalLinks.open('https://example.com/popout?x=1#part', {popup:true});
   assert(tabs.at(-1)[0] === 'https://example.com/popout?x=1#part' && tabs.at(-1)[2].startsWith('popup,')
-    && tabs.at(-1)[2].includes('noopener,noreferrer') && !nativeCalls.length,
-    'resource pop-outs preserve the URL and bypass native browser handoff');
+    && handles.at(-1).opener === null && nativeCalls[0].url === '/api/ui/resource-windows'
+    && nativeCalls[0].body.operation === 'register' && nativeCalls[0].body.marker.startsWith('Lab resource '),
+    'resource pop-outs detach their opener and register their native identity before navigation');
   const afterPopoutCount = tabs.length;
+  // Simulate a site with COOP severing its WindowProxy while the native window lives.
+  handles.at(-1).closed = true;
+  await LabExternalLinks.open('https://example.com/popout?x=1#part', {popup:true});
+  assert(tabs.length === afterPopoutCount && nativeCalls.at(-1).body.operation === 'focus',
+    'native URL activation survives a severed browser reference without duplicating');
+  nativeCalls.length = 0;
   window.fetch = async (url, options) => { nativeCalls.push({url, body:JSON.parse(options.body)}); return {ok:true,json:async()=>({ok:true,reused:true})}; };
   assert(await LabExternalLinks.open('https://example.com/native?x=1#part', {clientOnly:true, reuseTab:true}), 'native reuse succeeds');
   assert(nativeCalls.length === 1 && nativeCalls[0].url === '/api/ui/open-external'

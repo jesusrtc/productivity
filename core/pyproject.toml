@@ -41,6 +41,9 @@ dev = [
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+core = ["native/*.swift"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 # Default: skip ``@pytest.mark.slow`` (latency budgets, reconnect storms).

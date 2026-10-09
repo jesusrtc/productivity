@@ -180,6 +180,24 @@ away; a conflicting edit retains your draft. **Open** visits the URL in the
 same kind of pop-out. These controls apply to shared and scoped links, as well as
 links attached to tasks.
 
+Resource windows use almost all of Lab's width and cascade by 36 pixels so the
+previous title bar and close button remain visible. Clicking the same complete
+URL activates its existing window without reloading it. Query parameters and
+anchors distinguish destinations. The **⧉** button lists the windows belonging
+to this Lab window and offers activation and closing.
+
+On the local Mac, **⧉ → Enable window control** opens Accessibility settings for
+**Lab Resource Windows**. After granting that permission, reopen resource windows
+to register them with the helper. Returning to Lab or clicking its top bar raises
+its registered resources in their creation order. The helper checks native
+window/process identities, preserves identity through redirects, and ignores a
+delayed return-to-Lab request if another app is already in front. It uses macOS
+Accessibility rather than Chrome tab Apple events or an Alfred workflow.
+Window records survive a Lab reload/restart, and closed native windows are pruned.
+Remote clients retain their own browser windows and do not control the server's
+desktop. Without native control, browser security policies can prevent focus or
+sever a window reference; Lab then offers an explicit retry/new-window action.
+
 Use **+ Sublink** in a link's details to add destinations beneath it, such as
 Google Docs tab URLs. Each sublink has its own title, URL, TL;DR and properties,
 and can contain further sublinks. Hover over the parent sidebar link for one
@@ -607,6 +625,6 @@ Cmd/Ctrl-click shows their editable metadata. **Reset demo** restores the
 sample data. The demo uses the same workflow as the live sidebar but keeps its
 state and simulated terminals separate from workspace data. The header's explicit
 resource trials open real URLs and compare a pop-out over Lab, an embedded panel,
-and a normal browser tab. Pop-outs load sites directly; Chrome controls the
-window frame and stacking. Automatic attachment when Alfred activates Lab needs
-native macOS window handling rather than the browser's popup API.
+and a normal browser tab. The pop-out trial uses Lab's shared resource-window
+manager, including width, cascading, URL reuse, and the local macOS helper.
+Chrome controls the window frame; these remain ordinary native windows.

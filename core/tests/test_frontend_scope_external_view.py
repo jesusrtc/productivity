@@ -17,8 +17,8 @@ ROOT = Path(__file__).resolve().parents[2]
 STATIC = ROOT / 'core/src/core/static'
 
 
-@pytest.mark.parametrize('viewport,collapsed', [(1440, False), (1440, True), (390, True)])
-def test_external_resource_popout_browser(client, owned_tasks, tmp_path, viewport, collapsed):
+@pytest.mark.parametrize('viewport,collapsed,coop', [(1440, False, False), (1440, True, False), (390, True, False), (1440, False, True)])
+def test_external_resource_popout_browser(client, owned_tasks, tmp_path, viewport, collapsed, coop):
     chrome = os.environ.get('CHROME_BIN') or shutil.which('chromium') or '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
     node = shutil.which('node')
     if not Path(chrome).is_file() or not node:
@@ -36,13 +36,23 @@ def test_external_resource_popout_browser(client, owned_tasks, tmp_path, viewpor
     visit(detail['tree'])
     fixture = {'index':client.get('/api/assistant').json(), 'details':details, 'path':path,
                'link':{'assistant_root':str(root), 'document_id':note.stem, 'path':path,
-                       'title':'Weekly product review'}, 'collapsed':collapsed}
+                       'title':'Weekly product review'}, 'collapsed':collapsed, 'coop':coop}
     # X-Frame-Options blocks embedding but permits this top-level resource.
     (tmp_path/'embedded.html').write_text('<!doctype html><title>Team dashboard</title><h1 id="resource-content">Team dashboard</h1>')
     (tmp_path/'static').symlink_to(STATIC, target_is_directory=True)
     class Handler(SimpleHTTPRequestHandler):
+        def do_GET(self):
+            if self.path.startswith('/start'):
+                self.send_response(302)
+                self.send_header('Location', '/embedded.html?redirected=1#destination')
+                self.end_headers()
+            else:
+                super().do_GET()
+
         def end_headers(self):
             self.send_header('X-Frame-Options', 'DENY')
+            if coop:
+                self.send_header('Cross-Origin-Opener-Policy', 'same-origin')
             super().end_headers()
 
         def log_message(self, *args):
@@ -52,19 +62,24 @@ def test_external_resource_popout_browser(client, owned_tasks, tmp_path, viewpor
     thread = Thread(target=server.serve_forever, daemon=True)
     thread.start()
     fixture['url'] = f'http://localhost:{server.server_port}/embedded.html?org=1&theme=dark#dashboard'
+    fixture['finalUrl'] = fixture['url']
+    if coop:
+        fixture['url'] = f'http://localhost:{server.server_port}/start?org=1#source'
+        fixture['finalUrl'] = f'http://localhost:{server.server_port}/embedded.html?redirected=1#destination'
     setup = r'''
 window.assert=(ok,message)=>{if(!ok)throw Error(message)};
 window.until=async fn=>{for(let i=0;i<400;i++){if(fn())return;await new Promise(r=>setTimeout(r,10))}throw Error('Timed out: '+fn)};
 let activeRoot='/trees/topic';
 const calls=[];
 window.LAB_EXTERNAL_BROWSER=true;
-window.LAB_NATIVE_BROWSER_REUSE=true;
+window.LAB_NATIVE_BROWSER_REUSE=FIX.coop;
 window.LabTaskTerminalBridge={cancelNavigation:()=>{throw Error('Pop-outs must not cancel Lab navigation')}};
 const external={id:'google',kind:'external',url:FIX.url,label:'Team dashboard',type:'grafana'};
 window.fetch=async(url,options={})=>{
  const u=new URL(url,location.href),body=options.body?JSON.parse(options.body):null;
  calls.push({path:u.pathname,method:options.method||'GET',body});let data;
- if(u.pathname==='/api/scope-links')data={links:[{...FIX.link,id:'doc',kind:'internal'},external],types:[],revision:'v1'};
+ if(u.pathname==='/api/ui/resource-windows')data={ok:true,reused:true,urls:[FIX.url]};
+ else if(u.pathname==='/api/scope-links')data={links:[{...FIX.link,id:'doc',kind:'internal'},external],types:[],revision:'v1'};
  else if(u.pathname==='/api/assistant')data=FIX.index;
  else if(u.pathname==='/api/assistant/note')data=FIX.details[u.searchParams.get('path')];
  else if(u.pathname==='/api/assistant/content')return {ok:false,json:async()=>({detail:'Offline — keep the draft'})};
@@ -91,7 +106,7 @@ window.prepare=async()=>{
 window.verify=()=>{
  assert(originalGuard(),'pop-out preserves pending document navigation');
  assert(originalDraft.isConnected&&originalDraft.value==='Keep unsaved document draft','pop-out retains editor and draft');
- assert(calls.length===originalCalls,'pop-out never saves or uses native automation');
+ assert(calls.slice(originalCalls).every(c=>c.path==='/api/ui/resource-windows'),'pop-out never saves or uses host browser opening');
  assert(document.getElementById('localDraft').value==='Unsent file changes'&&document.getElementById('terminalDraft').value==='Unsent terminal command','existing drafts retained');
  assert(!document.querySelector('.workspace-external-host')&&!document.body.classList.contains('workspace-external-link'),'resource never creates an embedded view');
 };
@@ -135,6 +150,7 @@ const fs=require('node:fs');
  await until(()=>parent.evaluate('typeof prepare==="function"'));
  await parent.evaluate('prepare()');
  const url=await parent.evaluate('FIX.url');
+ const finalUrl=await parent.evaluate('FIX.finalUrl');
  const parentWindow=await parent.send('Browser.getWindowForTarget',{targetId:target.id});
  const click=async(modifiers=0)=>{
   const point=await parent.evaluate(`(()=>{document.body.classList.remove('sidebar-collapsed');const n=document.querySelector('[data-scope-link="1"]');n.scrollIntoView({block:'center'});const r=n.getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2}})()`);
@@ -142,7 +158,7 @@ const fs=require('node:fs');
  };
  const resourceTarget=async()=>{
   const result=await parent.send('Target.getTargets');
-  return result.targetInfos.find(t=>t.type==='page'&&t.url===url);
+  return result.targetInfos.find(t=>t.type==='page'&&t.url===finalUrl);
  };
  await click();
  const popup=await until(resourceTarget),windowInfo=await parent.send('Browser.getWindowForTarget',{targetId:popup.targetId});
@@ -150,6 +166,23 @@ const fs=require('node:fs');
  const list=await fetch(base+'/json/list').then(r=>r.json()),resource=await connect(list.find(t=>t.id===popup.targetId).webSocketDebuggerUrl);
  await until(()=>resource.evaluate('!!document.getElementById("resource-content")'));
  assert(await resource.evaluate('opener===null'),'resource cannot access Lab through an opener');
+ assert(await resource.evaluate('document.referrer===""'),'resource receives no Lab referrer');
+ await resource.evaluate('document.getElementById("resource-content").textContent="Retained resource state"');
+ await click();
+ const repeated=(await parent.send('Target.getTargets')).targetInfos.filter(t=>t.type==='page'&&t.url===finalUrl);
+ assert(repeated.length===1&&repeated[0].targetId===popup.targetId,'same URL never creates another window');
+ assert(await resource.evaluate('document.getElementById("resource-content").textContent==="Retained resource state"'),'reuse never reloads resource');
+ if(await parent.evaluate('FIX.coop')) {
+  assert(await parent.evaluate('calls.some(c=>c.path==="/api/ui/resource-windows"&&c.body.operation==="focus"&&c.body.url===FIX.url)'),
+    'native URL registry activates the original URL through redirects and real COOP severing');
+ }
+ await parent.evaluate('LabExternalLinks.open(FIX.finalUrl+"-second",{popup:true})');
+ const second=await until(async()=> (await parent.send('Target.getTargets')).targetInfos.find(t=>t.url===finalUrl+'-second'));
+ const secondWindow=await parent.send('Browser.getWindowForTarget',{targetId:second.targetId});
+ assert(windowInfo.bounds.width>=parentWindow.bounds.width-50,'resource is almost full Lab width');
+ assert(secondWindow.bounds.top-windowInfo.bounds.top===36,'next resource exposes previous title bar');
+ assert(secondWindow.bounds.left-windowInfo.bounds.left===12,'resource windows cascade horizontally');
+ await parent.send('Target.closeTarget',{targetId:second.targetId});
  await parent.evaluate('verify();LabScopeLinks.closeExternal()');
  assert(await resourceTarget(),'Lab navigation leaves the independent resource window open');
  await parent.send('Target.closeTarget',{targetId:popup.targetId});resource.ws.close();
