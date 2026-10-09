@@ -1,5 +1,7 @@
 # Memory index
 
+- [Subterminal hover delays reveal](subterminal-hover-delays-reveal.md) — one-second hold, canceled on leave, with elapsed time preserved across refreshed rows.
+
 - [Scoped agent instruction shortcuts](scoped-agent-instruction-shortcuts.md) — visible Vault, Workspace, and Objective AGENTS.md links retain their roots and follow Objective selection.
 
 - [Terminal worktree colors stay local](terminal-worktree-colors-stay-local.md) — neutral ordinary names and independent worktree colors, with no Objective-color inheritance across names.

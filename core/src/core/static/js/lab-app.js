@@ -13645,11 +13645,20 @@
     return (session, index) => parents[session.logical_name] ? '' : render(session, index);
   }
 
-  function _termWireSubtabs(container, hovered = new Set()) {
-    const close = [];
+  function _termWireSubtabs(container, hovered = new Map()) {
+    container._labSubtabHoverCleanup?.();
+    const close = [], cancelTimers = [];
     container.querySelectorAll('.term-subtab-node').forEach(node => {
       const pill = node.querySelector(':scope > .sess'), children = node.querySelector(':scope > .term-subtab-children');
+      let hoverTimer = null;
+      let pointerInside = hovered.has(node.dataset.termParent);
+      const cancelHover = () => {
+        clearTimeout(hoverTimer); hoverTimer = null;
+        node._labSubtabHoverAt = null;
+      };
+      cancelTimers.push(cancelHover);
       const show = revealed => {
+        node._labSubtabsRevealed = revealed;
         for (const row of children.children) {
           const target = row.hasAttribute('data-subtab-hover-parent') ? row.querySelector(':scope > .sess') : row;
           if (target.hasAttribute('data-subtab-hover-only')) target.hidden = !revealed;
@@ -13659,17 +13668,39 @@
         pill.setAttribute('aria-expanded', String(expanded));
         pill.querySelector('.term-subtab-caret').textContent = expanded ? '▾' : '▸';
       };
-      close.push(() => show(false));
-      if (hovered.has(node.dataset.termParent)) show(true);
-      node.addEventListener('pointerenter', () => show(true));
-      node.addEventListener('pointerleave', () => show(false));
-      node.addEventListener('focusin', () => show(true));
-      node.addEventListener('focusout', event => { if (!node.contains(event.relatedTarget)) show(node.matches(':hover')); });
+      const startHover = (enteredAt = performance.now()) => {
+        cancelHover(); node._labSubtabHoverAt = enteredAt;
+        hoverTimer = setTimeout(() => {
+          hoverTimer = null;
+          if (node.isConnected && node.matches(':hover')) show(true);
+        }, Math.max(0, 1000 - (performance.now() - enteredAt)));
+      };
+      const collapse = () => { cancelHover(); show(false); };
+      const leave = () => { pointerInside = false; collapse(); };
+      close.push(leave);
+      const previous = hovered.get(node.dataset.termParent);
+      if (previous) node._labSubtabHoverAt = previous.enteredAt;
+      if (previous?.revealed) show(true);
+      else if (previous && previous.enteredAt !== null) startHover(previous.enteredAt);
+      node.addEventListener('pointerenter', () => {
+        if (pointerInside) return;
+        pointerInside = true;
+        if (!node._labSubtabsRevealed) startHover();
+      });
+      node.addEventListener('pointerleave', leave);
+      node.addEventListener('focusin', () => { cancelHover(); show(true); });
+      node.addEventListener('focusout', event => {
+        if (!node.contains(event.relatedTarget)) {
+          if (!node.matches(':hover')) collapse();
+          else show(!!node._labSubtabsRevealed);
+        }
+      });
       pill.addEventListener('keydown', event => {
-        if (event.key === 'ArrowRight') { event.preventDefault(); show(true); [...children.querySelectorAll('.sess')].find(row => row.getClientRects().length)?.focus(); }
-        if (event.key === 'ArrowLeft') { event.preventDefault(); show(false); }
+        if (event.key === 'ArrowRight') { event.preventDefault(); cancelHover(); show(true); [...children.querySelectorAll('.sess')].find(row => row.getClientRects().length)?.focus(); }
+        if (event.key === 'ArrowLeft') { event.preventDefault(); collapse(); }
       });
     });
+    container._labSubtabHoverCleanup = () => cancelTimers.forEach(cancel => cancel());
     // The rail survives row replacements. Its leave event also closes a
     // newly rendered hovered row that has not received pointerenter yet.
     container.onpointerleave = () => close.forEach(collapse => collapse());
@@ -14883,7 +14914,8 @@
     if (el._labTabsHtml === html) return;
     el._labTabsHtml = html;
     _termHideSessionTooltip();
-    const hoveredSubtabs = new Set([...el.querySelectorAll('.term-subtab-node:hover')].map(node => node.dataset.termParent));
+    const hoveredSubtabs = new Map([...el.querySelectorAll('.term-subtab-node:hover')].map(node =>
+      [node.dataset.termParent, {enteredAt:node._labSubtabHoverAt, revealed:!!node._labSubtabsRevealed}]));
     el.innerHTML = html;
     _termSyncTabSelection();
     el.querySelectorAll('[data-tab-group]').forEach(node => {

@@ -56,7 +56,9 @@ custom task icons, including inherited icons; other terminals use a computer
 icon. Small status/worktree dots stay in the corner, without hierarchy
 indentation or guide lines. Names and hierarchy return on expansion. An active
 child stays visible along with its direct siblings and parent/grandparent path.
-Other automation children use parent hover or keyboard disclosure.
+Other automation children appear after holding the pointer over their parent
+for one second. Moving away cancels the reveal. Keyboard disclosure is immediate,
+and background tab refreshes preserve the elapsed hover time.
 A stopped automation adds a **↻**
 relaunch button beside its tab. Its parent gets the same control to relaunch all
 stopped descendants together; running or unknown children are skipped.
