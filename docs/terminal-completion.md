@@ -1,18 +1,22 @@
 # Terminal activity and completion indicators
 
-Terminal tabs show a **steady yellow dot** when their tmux window has produced
-output in the last **40 seconds**. After 40 seconds without output, a **blinking
+Terminal tabs show a **steady yellow dot** when their terminal content has changed
+in the last **40 seconds**. After 40 seconds without a content change, a **blinking
 green dot** marks the result ready to review. This applies to bare terminals,
 agents, child processes and merged tabs without requiring a provider conversation
-mapping. The timestamp measures output activity, not task success; it never
+mapping. Title updates, cursor queries, unchanged redraws and resize baselines
+do not count as work. The timestamp measures content activity, not task success; it never
 changes task status or completes checklist items. Hover and the accessible tab
 label distinguish quiet output from a recorded agent finish.
 
 When an output timestamp is unavailable, existing provider event detection is
 the fallback for Codex, Claude and Copilot. Missing timestamps or uncertain
 reads preserve previously observed state. Older shared-view snapshots cannot
-clear newer output activity or revive yellow after its quiet period. An idle
-creation baseline alone does not create a new green result.
+clear newer output activity or revive yellow after its quiet period. The first
+screen observation establishes a baseline and does not create yellow or green.
+Verified unread results survive browser and backend restarts. On the upgrade to
+content verification, old raw-I/O signals are discarded because they may have
+been triggered by invisible SSH/TUI traffic.
 
 When a completed response is ready to review, a **green blinking dot** appears,
 including on the active tab until acknowledged. It blinks on/off every 0.8
@@ -56,10 +60,22 @@ new blinking signal. An unread event survives temporary loss of provider-state i
 
 ## Detection
 
-The existing batched tmux listing includes `window_activity` and a server sampling
-timestamp. It adds no capture-pane calls, transcript scans, per-terminal requests
-or polling loop. The browser uses server-measured output age plus local elapsed
-time, so client/server clock offsets do not affect the 40-second threshold.
+The existing batched tmux listing includes `window_activity` and pane geometry.
+Raw activity gates content verification because tmux also counts invisible I/O.
+New or changed panes share bounded `capture-pane -p -J -S -200` calls in one tmux
+subprocess per batch of 32 panes. The backend compares hashes of joined text with
+trailing padding removed; it retains no captured text and returns no content or
+hashes to the browser. Resizes establish a new baseline. A final check after a raw
+timestamp's second closes catches output written just after a preceding capture.
+Idle polls require no captures. Scoped/global requests share a bounded, locked
+cache, while cleanup and arbitrary import discovery do not capture contents.
+Failures return unknown rather than fresh evidence of quiet.
+
+The browser uses server-measured content age and a retained local quiet deadline,
+so client/server clock offsets do not affect the threshold and cloned cached
+samples cannot restart the 40 seconds or replay a reviewed cycle. Versioned
+observations and cache generations distinguish verified content from legacy
+raw-I/O signals and backend baselines.
 The normal scoped refresh (every eight seconds) updates every terminal in the
 panel, including detached children. Compact tabs show live activity at the upper
 corner and task/worktree markers at the lower corner; refresh controls stay usable.
@@ -157,8 +173,11 @@ partial/rotated logs, and exact-conversation route enrichment.
 
 Browser verification uses synthetic terminal rows and a synthetic attachment
 only; it must not send input to or replace the user's live agent sessions.
-`test_terminal_output_activity.py` verifies batched timestamp parsing and detached
-output on an isolated native tmux server. Native Chrome subtab checks cover custom
+`test_terminal_output_activity.py` verifies batched parsing/capture, idle cache cost,
+hash-only retention, failure retries, same-second output, resizing and detached
+output versus invisible control noise on an isolated native tmux server. Frontend
+checks cover legacy-signal migration, cloned cached snapshots and backend restart
+baselines. Native Chrome subtab checks cover custom
 icons, visible yellow/green dots, immediate active/inactive tab-click review,
 unchanged Rename, and direct green review for merged and unmerged process terminals
 in both rail orientations.

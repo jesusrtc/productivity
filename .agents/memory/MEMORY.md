@@ -1,5 +1,7 @@
 # Memory index
 
+- [Terminal activity verifies content](terminal-activity-verifies-content.md) — raw tmux I/O is only a capture gate; ignore SSH/TUI noise and cloned-cache timer resets, retaining click-only review.
+
 - [Green terminal dot clears on tab click](green-terminal-dot-clears-on-tab-click.md) — immediate explicit tab/green-dot acknowledgement; selected viewing never clears green and the timer setting is removed.
 
 - [Custom task icons override compact computers](custom-task-icons-override-compact-computers.md) — saved task asset icons take precedence, including inherited children, recommended rows and merged parent identities.

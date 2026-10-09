@@ -6,7 +6,6 @@
   const storageKey = 'labTerminalCompletionsSeen-v1';
   const activityKey = 'labTerminalActivity-v1';
   const quietSeconds = 40;
-  const outputSamples = new WeakMap();
   let seen = {};
   let observed = {};
   function reload() {
@@ -24,7 +23,8 @@
   function key(scope, session) {
     // A shared terminal has one acknowledgement across workspace/document views.
     return JSON.stringify(['session', session.name, session.created_at ?? session.created,
-      session.agent, observed[terminalKey(session)]?.mode === 'output' ? 'output'
+      session.agent, observed[terminalKey(session)]?.mode === 'output'
+        ? observed[terminalKey(session)].outputVersion === 2 ? 'content' : 'output'
         : session.agent_session_id || observed[terminalKey(session)]?.conversation]);
   }
   function completion(session) {
@@ -42,7 +42,14 @@
   }
   function record(scope, session) {
     const output = session?.output_activity;
-    if (Number.isFinite(output?.updated_at) && output.updated_at > 0
+    const previousOutput = session && observed[terminalKey(session)];
+    // Cached rows from before content verification must not revive the raw
+    // I/O signals which caused false yellow/green cycles on idle SSH shells.
+    if (previousOutput?.outputVersion === 2 && output && output.version !== 2) {
+      return seen[key(scope, session)];
+    }
+    if (Number.isFinite(output?.updated_at)
+        && (output.version === 2 ? output.updated_at >= 0 : output.updated_at > 0)
         && Number.isFinite(output.observed_at) && output.observed_at >= output.updated_at) {
       return recordOutput(scope, session, output);
     }
@@ -90,18 +97,24 @@
   }
   function recordOutput(scope, session, output) {
     const terminal = terminalKey(session), previous = observed[terminal];
-    const same = previous?.mode === 'output';
-    if (same && (output.updated_at < previous.outputAt
-        || output.updated_at === previous.outputAt && output.observed_at < previous.sampledAt)) {
+    const version = output.version === 2 ? 2 : 1;
+    const same = previous?.mode === 'output' && (previous.outputVersion || 1) === version;
+    const sameGeneration = same && (version !== 2 || previous.generation === output.generation);
+    if (same && (output.observed_at < previous.sampledAt
+        || sameGeneration && output.updated_at < previous.outputAt)) {
       return seen[key(scope, session)];
     }
-    if (!outputSamples.has(output)) outputSamples.set(output, Date.now());
     // Use server-measured age plus elapsed local time, so a remote browser's
     // clock offset cannot mark a busy terminal quiet or keep it yellow forever.
-    const idle = output.observed_at - output.updated_at
-      + Math.max(0, Date.now() - outputSamples.get(output)) / 1000;
-    const working = idle < quietSeconds;
-    const hadOutput = working || (same ? previous.hadOutput || output.updated_at > previous.outputAt
+    // A new object carrying the same cached sample must not reset that age.
+    const sameEvent = sameGeneration && output.updated_at === previous.outputAt;
+    const deadline = Date.now() + (quietSeconds - (output.observed_at - output.updated_at)) * 1000;
+    const quietAt = sameEvent && Number.isFinite(previous.quietAt)
+      ? Math.min(previous.quietAt, deadline) : deadline;
+    const working = output.updated_at > 0 && Date.now() < quietAt
+      && (!sameEvent || previous.working);
+    const hadOutput = version === 2 ? output.updated_at > 0 : working || (same
+      ? previous.hadOutput || output.updated_at > previous.outputAt
       : output.updated_at > Number(session.created_at ?? session.created ?? 0));
     let completedAt = same ? previous.completedAt || 0 : 0;
     // Do not mark a terminal that has been idle since creation as newly
@@ -109,9 +122,11 @@
     if (!working && hadOutput) {
       completedAt = Math.max(completedAt, output.updated_at + quietSeconds);
     }
-    if (!same || previous.outputAt !== output.updated_at || previous.working !== working
-        || previous.completedAt !== completedAt) {
-      observed[terminal] = {mode:'output', outputAt:output.updated_at, sampledAt:output.observed_at,
+    if (!sameGeneration || previous.outputAt !== output.updated_at || previous.working !== working
+        || previous.completedAt !== completedAt || previous.sampledAt !== output.observed_at
+        || previous.quietAt !== quietAt) {
+      observed[terminal] = {mode:'output', outputVersion:version, generation:output.generation,
+        outputAt:output.updated_at, sampledAt:output.observed_at, quietAt,
         hadOutput, working, completedAt, updated:Date.now()};
       saveObserved();
     }

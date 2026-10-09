@@ -1,5 +1,8 @@
 # Terminal output quiet period and review
 
+The [content-verification correction](terminal-activity-verifies-content.md)
+supersedes the raw tmux timestamp strategy below after idle SSH/TUI false cycles.
+
 The latest [tab-click correction](green-terminal-dot-clears-on-tab-click.md)
 supersedes timed viewing dismissal and removes the delay setting. The 40-second
 output detection rule below remains applicable.

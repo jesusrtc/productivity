@@ -75,6 +75,7 @@ from lab import tmux_sockets
 
 from core import auth, copilot_identity, fsguard, terminal_automations, terminal_automation_lifecycle
 from core import vault_config
+from core import terminal_output_activity
 
 
 router = APIRouter()
@@ -1813,6 +1814,7 @@ def _tmux_list(
                         "#{session_windows}|#{pane_tty}|#{pane_pid}"
                         + ("|#{session_activity}|#{session_last_attached}|#{@lab_last_access}|#{session_id}" if activity else "")
                         + "|#{pane_id}|#{pane_dead}|#{window_panes}|#{window_activity}"
+                        + "|#{pane_width}|#{pane_height}"
                     ),
                 ),
                 capture_output=True,
@@ -1840,6 +1842,7 @@ def _tmux_list(
             return None
 
         lab_count = 0
+        output_candidates = []
         for line in proc.stdout.splitlines():
             if not line.strip():
                 continue
@@ -1849,7 +1852,7 @@ def _tmux_list(
                 lab_count += 1
             if not any(name.startswith(p) for p in prefixes):
                 continue
-            rows.append({
+            row = {
                 "name": name,
                 "created": int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0,
                 "attached": parts[2] != "0" if len(parts) > 2 else False,
@@ -1860,15 +1863,6 @@ def _tmux_list(
                 "pane_dead": len(parts) > (11 if activity else 7) and parts[11 if activity else 7] == "1",
                 "pane_count": int(parts[12 if activity else 8]) if len(parts) > (12 if activity else 8) and parts[12 if activity else 8].isdigit() else 1,
                 "tmux_socket": socket_name,
-                # tmux already tracks output in the window, even while
-                # detached. Reuse the batched listing instead of capturing
-                # every terminal's contents just to detect recent changes.
-                **({"output_activity": {
-                    "updated_at": int(parts[13 if activity else 9]),
-                    "observed_at": time.time(),
-                }} if len(parts) > (13 if activity else 9)
-                    and parts[13 if activity else 9].isdigit()
-                    and int(parts[13 if activity else 9]) > 0 else {}),
                 **({
                     "activity_known": len(parts) >= 10 and parts[6].isdigit(),
                     "activity": int(parts[6]) if len(parts) > 6 and parts[6].isdigit() else 0,
@@ -1876,7 +1870,19 @@ def _tmux_list(
                     "last_access": int(parts[8]) if len(parts) > 8 and parts[8].isdigit() else 0,
                     "tmux_id": parts[9] if len(parts) > 9 else "",
                 } if activity else {}),
-            })
+            }
+            rows.append(row)
+            # Cleanup/import discovery does not consume UI activity. Raw
+            # tmux I/O is only a hint; titles, SSH control traffic and redraws
+            # must not start work unless the captured contents changed.
+            offset = 13 if activity else 9
+            if (not activity and prefixes != [""] and len(parts) > offset + 2
+                    and all(value.isdigit() for value in parts[offset:offset + 3])
+                    and int(parts[offset]) > 0):
+                output_candidates.append((row, int(parts[offset]),
+                                          (int(parts[offset + 1]), int(parts[offset + 2]))))
+        if output_candidates:
+            terminal_output_activity.enrich(socket_name, output_candidates, env=_tmux_child_env())
         lab_rows_by_socket[socket_name] = lab_count
 
     empty_draining = {

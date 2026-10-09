@@ -170,6 +170,60 @@ console.log(JSON.stringify({passed:true}));
     assert result['passed']
 
 
+def test_cloned_cached_output_samples_cannot_restart_the_quiet_period():
+    result = _run_node(CLOCK + "Date.now = () => 1000000 + clock;\n" + MODULE + r"""
+const C = window.LabTerminalCompletion;
+const s = {name:'cached-output',created:900,output_activity:{updated_at:1000,observed_at:1000}};
+assert(C.isWorking(s), 'fresh output starts yellow');
+for (let i=0;i<4;i++) {
+  advance(10000);
+  s.output_activity={...s.output_activity};
+  C.isWorking(s);
+}
+assert(!C.isWorking(s) && C.meta('workspace',s), 'recloning a cached sample does not extend its forty seconds');
+s.output_activity={...s.output_activity};
+assert(!C.isWorking(s), 'recloning after quiet cannot revive yellow');
+assert(C.acknowledge('workspace',s), 'explicit review still clears green');
+advance(10000);s.output_activity={...s.output_activity};
+assert(!C.isWorking(s) && !C.meta('workspace',s), 'cached output cannot recreate a reviewed cycle');
+s.output_activity={updated_at:1060,observed_at:1060};
+assert(C.isWorking(s), 'a genuine newer output event starts the next cycle');
+console.log(JSON.stringify({passed:true}));
+""")
+    assert result['passed']
+
+
+def test_content_verification_migrates_false_raw_signals_and_preserves_real_review():
+    result = _run_node(CLOCK + "Date.now = () => 1000000 + clock;\n" + MODULE + r"""
+let C = window.LabTerminalCompletion;
+const s = {name:'ssh',created:900,agent:'codex',agent_session_id:'thread',
+  agent_activity:{state:'working'},output_activity:{updated_at:1000,observed_at:1040}};
+assert(C.meta('workspace',s), 'the old raw I/O detector left a false unread result');
+s.output_activity={version:2,generation:'content-one',updated_at:0,observed_at:1041};
+assert(!C.isWorking(s) && !C.meta('workspace',s), 'the first verified screen is a baseline, clearing phantom raw I/O');
+const old={...s,output_activity:{updated_at:1042,observed_at:1042}};
+assert(!C.isWorking(old) && !C.meta('workspace',old), 'an old-format cached view cannot resurrect phantom activity');
+s.output_activity={version:2,generation:'content-one',updated_at:1042,observed_at:1042};
+assert(C.isWorking(s), 'verified content changes start yellow');
+advance(40000);
+assert(!C.isWorking(s) && C.meta('workspace',s), 'verified content still becomes ready to review');
+s.output_activity={version:2,generation:'content-one',updated_at:1042,observed_at:1083};
+assert(C.meta('workspace',s), 'noise with no content change retains the same unread result');
+""" + MODULE + r"""
+C=window.LabTerminalCompletion;
+assert(C.meta('workspace',s), 'verified unread content survives a browser reload');
+s.output_activity={version:2,generation:'after-server-restart',updated_at:0,observed_at:1084};
+assert(!C.isWorking(s) && C.meta('workspace',s), 'a backend baseline cannot invent work or erase a verified unread result');
+assert(C.acknowledge('workspace',s) && !C.meta('workspace',s), 'tab-click review is retained across a backend restart');
+const stale={...s,output_activity:{version:2,generation:'content-one',updated_at:1042,observed_at:1083}};
+assert(!C.isWorking(stale) && !C.meta('workspace',stale), 'an old generation cannot replay activity or completion');
+s.output_activity={version:2,generation:'after-server-restart',updated_at:1085,observed_at:1085};
+assert(C.isWorking(s) && !C.meta('workspace',s), 'only a new verified change creates the next signal');
+console.log(JSON.stringify({passed:true}));
+""")
+    assert result['passed']
+
+
 @pytest.mark.parametrize('agent', ['codex', 'claude', 'copilot'])
 def test_direct_green_review_acknowledges_without_a_viewing_delay(agent):
     result = _run_node(CLOCK + MODULE + """
