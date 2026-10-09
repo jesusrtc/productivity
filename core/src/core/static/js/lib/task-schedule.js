@@ -56,7 +56,7 @@
     if (cycle && typeof cycle === 'object') {
       const label = cycle.every === 1 ? labels[cycle.unit] : `Every ${cycle.every} ${cycle.unit}s`;
       const wake = state?.reactivate_at ? new Intl.DateTimeFormat(undefined, {timeZone:cycle.timezone,month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZoneName:'short'}).format(new Date(state.reactivate_at)) : '';
-      repeat = `<span class="lab-task-repeat" title="${esc(wake ? 'Next due: ' + state.next_due + ' at ' + cycle.time + ' ' + cycle.timezone : 'Reactivates ' + cycle.reactivate_before_minutes + ' minutes before the next deadline after completion')}">↻ ${esc(label)}${wake ? ' · reopens ' + esc(wake) : ''}</span>`;
+      repeat = `<span class="lab-task-repeat" title="${esc(wake ? 'Next due: ' + state.next_due + ' at ' + cycle.time + ' ' + cycle.timezone : 'Reactivates ' + cycle.reactivate_before_minutes + ' minutes before the next deadline after completion')}">🔄 ${esc(label)}${wake ? ' · reopens ' + esc(wake) : ''}</span>`;
     }
     return (counts?.total ? `<span class="lab-task-checklist${counts.pending ? ' has-pending' : ''}" title="Required action items in the task’s Markdown">${counts.done} completed · ${counts.pending} pending</span>` : '') + repeat;
   }

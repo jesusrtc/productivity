@@ -14840,6 +14840,7 @@
     const objectiveTask = window.LabObjectives?.taskForTerminal(identity);
     const taskIconClass = !main && objectiveTask?.assetIcon ? ' sess-task-icon' : '';
     const taskOwn=objectiveTask&&!objectiveTask.inherited;
+    const taskColorAttrs=objectiveTask?.color?` data-task-terminal-color style="color:${termSessEsc(objectiveTask.color)}"`:'';
     const display = main?.label || ((s.display_main||!automation)&&taskOwn?objectiveTask.title:_termSessionDisplay(identity));
     // Compact/full visibility is CSS-controlled so switching detail never
     // rebuilds or reconnects a terminal. The active header always carries
@@ -14865,10 +14866,10 @@
       const icon=main?.icon || objectiveTask?.assetIcon || visual.icon;
       const worktreeName=!main&&!objectiveTask&&identity.linked_scope?.worktree&&!identity.linked_file?.path;
       const nameHtml=taskOwn?(window.LabObjectives?.terminalTaskNameHtml?.(identity)||termSessEsc(display)):worktreeName?_termSessionAssociationHtml(identity):termSessEsc(display);
-      return `<span class="sess ${visual.kind} term-display-main${main?' term-main-terminal':''}${active}${dead}" style="--term-display-main-color:${termSessEsc(s.display_main.color)}" role="tab" aria-label="${termSessEsc(ariaLabel+' · Merged with '+_termSessionDisplay(s)+' · Parent '+s.display_main.parent)}" aria-selected="${active ? 'true' : 'false'}" tabindex="${active ? '0' : '-1'}" draggable="false"${main?` data-terminal-main="${main.kind}"`:''} data-name="${termSessEsc(s.name)}" data-logical="${termSessEsc(logical)}" data-display-main-parent="${termSessEsc(s.display_main.parent)}" data-tooltip="${termSessEsc(tooltip)}"><span class="sess-icon${taskIconClass}" aria-hidden="true">${icon}</span><span class="term-display-main-dot" aria-hidden="true"></span><span class="sess-label custom">${nameHtml}</span>${activityHtml}${_termAutomationRelaunchHtml(s)}</span>`;
+      return `<span class="sess ${visual.kind} term-display-main${main?' term-main-terminal':''}${active}${dead}" style="--term-display-main-color:${termSessEsc(s.display_main.color)}" role="tab" aria-label="${termSessEsc(ariaLabel+' · Merged with '+_termSessionDisplay(s)+' · Parent '+s.display_main.parent)}" aria-selected="${active ? 'true' : 'false'}" tabindex="${active ? '0' : '-1'}" draggable="false"${main?` data-terminal-main="${main.kind}"`:''} data-name="${termSessEsc(s.name)}" data-logical="${termSessEsc(logical)}" data-display-main-parent="${termSessEsc(s.display_main.parent)}" data-tooltip="${termSessEsc(tooltip)}"><span class="sess-icon${taskIconClass}" aria-hidden="true">${icon}</span><span class="term-display-main-dot" aria-hidden="true"></span><span class="sess-label custom"${taskColorAttrs}>${nameHtml}</span>${activityHtml}${_termAutomationRelaunchHtml(s)}</span>`;
     }
     if (automation) {
-      return `<span class="sess ${visual.kind} term-automation-terminal${active}${dead}" role="tab" aria-label="${termSessEsc(ariaLabel)}" aria-selected="${active ? 'true' : 'false'}" tabindex="${active ? '0' : '-1'}" draggable="true" data-order-token="${termSessEsc('s:'+logical)}" data-name="${termSessEsc(s.name)}" data-logical="${termSessEsc(logical)}" data-tooltip="${termSessEsc(tooltip)}">${taskIconClass?`<span class="sess-icon${taskIconClass}" aria-hidden="true">${objectiveTask.assetIcon}</span>`:''}<span class="sess-label custom">${termSessEsc(display)}</span>${activityHtml}${_termAutomationRelaunchHtml(s)}</span>`;
+      return `<span class="sess ${visual.kind} term-automation-terminal${active}${dead}" role="tab" aria-label="${termSessEsc(ariaLabel)}" aria-selected="${active ? 'true' : 'false'}" tabindex="${active ? '0' : '-1'}" draggable="true" data-order-token="${termSessEsc('s:'+logical)}" data-name="${termSessEsc(s.name)}" data-logical="${termSessEsc(logical)}" data-tooltip="${termSessEsc(tooltip)}">${taskIconClass?`<span class="sess-icon${taskIconClass}" aria-hidden="true">${objectiveTask.assetIcon}</span>`:''}<span class="sess-label custom"${taskColorAttrs}>${termSessEsc(display)}</span>${activityHtml}${_termAutomationRelaunchHtml(s)}</span>`;
     }
     const linked = String(s.linked_file && s.linked_file.path || '').trim();
     const scope = s.linked_scope;
@@ -14882,7 +14883,7 @@
       ${objectiveTask&&!nameHasBullet?_termTaskStatusDotHtml(objectiveTask.status):''}
       ${icon?`<span class="sess-icon${taskIconClass}" aria-hidden="true"${objectiveTask ? ' title="'+termSessEsc(objectiveTask.title)+'"' : ''}>${icon}</span>`:''}
       ${main?'':`<span class="sess-order" aria-hidden="true">${index + 1}</span>`}
-      ${worktreeOnly ? '' : `<span class="sess-label${s.label ? ' custom' : ''}">${nameHtml}</span>`}
+      ${worktreeOnly ? '' : `<span class="sess-label${s.label ? ' custom' : ''}"${taskColorAttrs}>${nameHtml}</span>`}
       ${associationHtml}
       ${activityHtml}
       ${linked ? `<span class="sess-link" aria-hidden="true">&#x21C4;</span>` : ''}
@@ -14896,7 +14897,8 @@
     const label=main?.label||session.label,description=task?_termTaskStatusLabel(status)+' · One primary terminal per task (recommended)':'Fixed '+main?.kind+' main terminal';
     const nameHtml=task?(window.LabObjectives?.terminalTaskNameHtml?.(session)||termSessEsc(label)):termSessEsc(label);
     const nameHasBullet=nameHtml.includes('class="objective-task-worktree-name"');
-    return `<button type="button" class="sess term-task-placeholder${main?' term-main-terminal':''}${task?' objective-task-terminal':''}" role="button" ${main?`data-terminal-main="${main.kind}"`:''} data-open-task-terminal="${termSessEsc(session.task_id||'')}" data-terminal-objective="${termSessEsc(session.objective_id||'')}" aria-label="Open ${termSessEsc(label)} terminal · ${termSessEsc(description)}" title="Open ${termSessEsc(label)} terminal · ${termSessEsc(description)}">${!task||task.assetIcon?`<span class="sess-icon${!main&&task?.assetIcon?' sess-task-icon':''}" aria-hidden="true">${main?.icon||task?.assetIcon||'▣'}</span>`:''}${task&&!nameHasBullet?_termTaskStatusDotHtml(status):''}<span class="sess-label">${nameHtml}</span><span class="term-task-create" aria-hidden="true">＋</span></button>`;
+    const taskColorAttrs=task?.color?` data-task-terminal-color style="color:${termSessEsc(task.color)}"`:'';
+    return `<button type="button" class="sess term-task-placeholder${main?' term-main-terminal':''}${task?' objective-task-terminal':''}" role="button" ${main?`data-terminal-main="${main.kind}"`:''} data-open-task-terminal="${termSessEsc(session.task_id||'')}" data-terminal-objective="${termSessEsc(session.objective_id||'')}" aria-label="Open ${termSessEsc(label)} terminal · ${termSessEsc(description)}" title="Open ${termSessEsc(label)} terminal · ${termSessEsc(description)}">${!task||task.assetIcon?`<span class="sess-icon${!main&&task?.assetIcon?' sess-task-icon':''}" aria-hidden="true">${main?.icon||task?.assetIcon||'▣'}</span>`:''}${task&&!nameHasBullet?_termTaskStatusDotHtml(status):''}<span class="sess-label"${taskColorAttrs}>${nameHtml}</span><span class="term-task-create" aria-hidden="true">＋</span></button>`;
   }
 
   function termRenderSessionList() {
@@ -21545,6 +21547,7 @@
       ? {workspace_id:currentWorkspace.name,vault:_workspaceVaultId(currentWorkspace),path:currentWorkspace.path} : null,
     scopeRoot: () => currentWorkspace ? _sidebarScopedRoot(currentWorkspace.path) : null,
     scopeActions: row => _sidebarScopeActionsHtml(row, currentWorkspace.path),
+    scopeColorPalette: () => SIDEBAR_SCOPE_COLORS,
     selectWorktree: row => {
       if(row.path!==currentWorkspace.path)_sidebarRememberScope({...row,projectPath:row.repo||row.path});
       return sidebarSelectScope({getAttribute:name => name==='data-base-root'

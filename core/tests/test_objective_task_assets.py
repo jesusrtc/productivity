@@ -1,4 +1,5 @@
 """Task assets reference original content and terminals retain their owners."""
+import json
 import pytest
 from lab import objectives
 from .test_assistant_documents_unified import library  # noqa: F401
@@ -19,6 +20,67 @@ def task_workspace(monorepo, seed_workspace):
 
 def apply(root, oid, operation, **fields):
     return objectives.mutate(root, 'demo', {'type':operation, 'objective_id':oid, **fields})
+
+
+def test_icon_picker_choices_and_color_preserve_assets_and_terminal_owners(client, monorepo, task_workspace):
+    folder, oid, task = task_workspace
+    resource = apply(monorepo, oid, 'resource', kind='link', title='Dashboard', url='https://grafana.example.com/')['objectives'][0]['resources'][-1]
+    apply(monorepo, oid, 'terminal', session_id='task-shell', task_id=task['id'])
+    original = objectives.load(monorepo, 'demo')
+    documents = {p:p.read_bytes() for p in folder.rglob('*.md')}
+    for icon in [{'service':'github'}, {'emoji':'💡'}, {'emoji':'👨🏽‍💻'}, {'asset':{'resource_id':resource['id']}}]:
+        response = client.post('/api/objectives', json={'workspace_id':'demo', 'action':{
+            'type':'task-update', 'objective_id':oid, 'task_id':task['id'], 'icon':icon, 'terminal_color':'#FF7B72'}})
+        assert response.status_code == 200, response.text
+        saved = objectives.load(monorepo, 'demo')
+        current = saved['objectives'][0]['tasks'][0]
+        assert current['icon'] == icon and current['terminal_color'] == '#ff7b72'
+        assert current.get('assets', []) == [] and current['status'] == task['status']
+        assert saved['terminal_links'] == original['terminal_links']
+        assert saved['objectives'][0]['resources'] == original['objectives'][0]['resources']
+    # An explicit asset drop still replaces the standalone choice.
+    selected = apply(monorepo, oid, 'task-asset', task_id=task['id'], resource_id=resource['id'], choose_icon=True)['objectives'][0]['tasks'][0]
+    assert 'icon' not in selected and selected['icon_asset_id'] == selected['assets'][0]['id']
+    reset = apply(monorepo, oid, 'task-update', task_id=task['id'], icon=None, terminal_color=None)['objectives'][0]['tasks'][0]
+    assert not {'icon', 'icon_asset_id', 'terminal_color'} & reset.keys()
+    assert reset['assets'] == selected['assets']
+    assert all(p.read_bytes() == body for p, body in documents.items())
+
+
+def test_invalid_task_icon_and_color_changes_are_atomic(monorepo, task_workspace):
+    folder, oid, task = task_workspace
+    before = {p:p.read_bytes() for p in folder.rglob('*.json')}
+    for fields in [
+        {'icon':{'emoji':'<script>💡'}}, {'icon':{'emoji':'ordinary text'}},
+        {'icon':{'service':'github" onclick="bad'}}, {'icon':{'asset':{'resource_id':'missing'}}},
+        {'icon':{'asset':{'reference':{'kind':'link','url':'https://example.com'}}}},
+        {'icon':{'emoji':'💡','service':'github'}}, {'icon':{'emoji':'💡'},'icon_asset_id':'details'},
+        {'icon':{'emoji':'💡'},'terminal_color':'red;display:none'},
+    ]:
+        with pytest.raises(ValueError):
+            apply(monorepo, oid, 'task-update', task_id=task['id'], **fields)
+        assert {p:p.read_bytes() for p in before} == before
+
+
+def test_task_icon_and_terminal_color_are_available_through_lab_cli(task_workspace, tmp_path):
+    from click.testing import CliRunner
+    from lab.cli import main
+    _, oid, task = task_workspace
+    runner = CliRunner()
+    action_file = tmp_path/'task-icon-action.json'
+    for fields in [{'icon':{'service':'github'},'terminal_color':'#58a6ff'}, {'icon':{'emoji':'🔥'}}, {'icon':None,'terminal_color':None}]:
+        before = runner.invoke(main, ['objective','ls','--workspace','demo'])
+        assert before.exit_code == 0, before.output
+        revision = json.loads(before.output)['revision']
+        action_file.write_text(json.dumps({'type':'task-update','objective_id':oid,'task_id':task['id'],**fields}))
+        result = runner.invoke(main, ['objective','apply','--workspace','demo','--file',str(action_file),'--expected',revision])
+        assert result.exit_code == 0, result.output
+        saved = json.loads(result.output)['objectives'][0]['tasks'][0]
+        assert saved.get('icon') == fields['icon']
+        if 'terminal_color' in fields:
+            assert saved.get('terminal_color') == fields['terminal_color']
+    help_result = runner.invoke(main, ['objective','apply','--help'])
+    assert 'terminal_color' in help_result.output and 'github' in help_result.output
 
 
 def test_task_assets_keep_scope_subtabs_and_original_content(monorepo, task_workspace):

@@ -1,5 +1,8 @@
 # Memory index
 
+- [Task icon picker and terminal colors](task-icon-picker-and-terminal-colors.md) — asset and built-in service icons, suggested emojis, shared worktree color palette, saved previews and CLI support.
+- [Task state symbols](task-state-symbols.md) — 🚧 for WIP and 🔄 for recurring tasks, separate from custom terminal icons.
+
 - [Default terminals have distinct emojis](default-terminals-have-distinct-emojis.md) — 🏠 workspace main, 🎯 Objective main, including compact and dormant rows; other terminal icons stay as configured.
 
 - [CLI task navigation shares terminal policy](cli-task-navigation-shares-terminal-policy.md) — fresh API changes, normal task activation and paused-task filtering verified in the combined CLI/browser flow.

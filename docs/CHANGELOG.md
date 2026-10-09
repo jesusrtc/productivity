@@ -5,6 +5,17 @@ guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 
 ## 2026-10-09
 
+### Task icons and terminal text colors
+
+- Clicking a task's badge or icon opens a picker with distinct asset icons,
+  built-in service icons, suggested emojis and a custom emoji field. GitHub
+  remains available without a matching asset.
+- The picker reuses the worktree color selector for terminal text, with a
+  preview, explicit Save and default resets. Choices persist through the UI
+  and CLI and reach task, child, merged and recommended terminals without
+  creating resources or changing worktree colors.
+- WIP tasks use 🚧 and recurring tasks are marked 🔄.
+
 ### Default terminal identifiers
 
 - The default workspace main now uses 🏠 and the default Objective main uses

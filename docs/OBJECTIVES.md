@@ -315,21 +315,46 @@ scopes and original ownership remain unchanged. Duplicate drops keep one
 association. The middle task-list asset button opens its attachments and can
 detach optional assets; its mandatory details remain associated.
 
-The left edge of each task row shows **⬜** for Undo with a red frame, **🟡** for
+The left edge of each task row shows **⬜** for Undo with a red frame, **🚧** for
 In progress, **✅** for Completed, **⏸** for Paused and **🚫** for Won’t do.
 Secondary-click anywhere on the row to choose one of these five statuses. The menu
 also opens with Shift+F10 and closes with Escape. Completed, Undo, Paused
 and Won’t do update the task's subtasks too; In progress preserves them. Changing a
 subtask updates its parent's aggregate status. Status is saved in the Objective
-manifest and reflected in the task header, active tab and default terminal icon.
+manifest and reflected in the task header and active tab. Recurring tasks carry
+**🔄** in the sidebar and repeat badges. Terminal status dots retain their status
+colors, and compact terminals keep 💻 unless a custom icon is selected.
 The right edge holds the icon used by its active tab and linked terminals.
 Without a chosen asset, the right edge shows no icon. Its empty drop area
 appears on hover or keyboard focus so an asset can still be dragged there.
-The active tab and linked terminals use the task's current status by default.
-Attaching assets and editing task details keep the chosen icon. Only dropping
-an asset onto the task's icon area chooses that asset's icon, attaching it if necessary. The current tab and a terminal
-linked to the task inherit the icon. Existing saved icon choices remain valid;
-removing the chosen asset restores the status icon.
+Click the left status badge or right icon area to open **Task icon and terminal
+color**. Distinct Objective asset icons appear first, alongside all built-in
+service icons such as Jira, GitHub and Grafana. GitHub can be chosen even without
+a GitHub asset. Suggested emojis follow, with a field for a custom emoji.
+**Terminal text color…** opens the existing worktree palette. Preview the choices
+and click **Save**, or cancel to retain the saved settings. **Default icon** and
+**Default color** restore the defaults. Secondary-click retains the status menu.
+
+Attaching assets and editing task details keep the chosen icon. Picking an asset
+icon references it without attaching it. Dropping an asset onto the task's icon
+area still chooses its icon and attaches it when necessary. The active tab and
+linked terminals inherit the icon, including child, merged and recommended rows.
+The chosen terminal text color applies to that task's terminal family, including
+worktree names, without changing the worktree's own color or other tasks.
+Existing saved asset icon choices remain valid.
+
+The same settings are available through `lab objective apply --workspace ID
+--file action.json`, with a `task-update` action:
+
+```json
+{"type":"task-update","objective_id":"OBJECTIVE_ID","task_id":"TASK_ID","icon":{"service":"github"},"terminal_color":"#58a6ff"}
+```
+
+Other icon values are `{"emoji":"💡"}` or
+`{"asset":{"resource_id":"RESOURCE_ID"}}`; asset references may also target a
+document tab, sublink or associated folder. `icon: null` clears a chosen icon,
+and `terminal_color: null` clears the text override. Legacy `icon_asset_id` and
+explicit asset-drop choices still work and replace a standalone icon choice.
 
 ## Documents, subtabs and notebooks
 
@@ -645,7 +670,7 @@ as shared context. The **⋯** on an asset also chooses its bucket and task.
 Every asset and individual document subtab has a **☆/★** control that toggles
 shared Objective context without removing its task associations. Drop an
 asset onto a task's icon area to select that icon and attach the asset if
-needed. Tasks default to ⬜ / 🟡 / ✅, and the current tab and linked terminal inherit the
+needed. Tasks default to ⬜ / 🚧 / ✅, and the current tab and linked terminal inherit the
 right-side asset icon when chosen. Clicking
 **Unassigned** opens the middle task list, where asset drops attach to tasks.
 Dropping into Unassigned removes optional task associations and shared pins.

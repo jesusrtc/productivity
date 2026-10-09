@@ -48,6 +48,11 @@ def apply(workspace, action_file, expected):
       asset-group-ungroup
       asset-order
 
+    Task icons: task-update with icon={"emoji":"💡"},
+    icon={"service":"github"}, icon={"asset":{"resource_id":"ID"}},
+    or icon=null to reset. terminal_color="#58a6ff" sets terminal text;
+    terminal_color=null restores the default.
+
     Read `lab context objectives` for action fields and examples.
     """
     try:

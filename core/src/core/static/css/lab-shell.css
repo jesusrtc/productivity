@@ -2217,6 +2217,7 @@
   .term-sessions-horizontal .term-tab-group, .term-sessions-horizontal .term-tab-group-tabs { flex-direction: row; }
   .term-sessions-horizontal .term-tab-group-label { max-width: 160px; }
   .term-sessions-horizontal .term-tab-group-tabs { border-left: 0; border-bottom: 2px solid var(--term-group-color); padding-left: 0; padding-bottom: 3px; }
+  .term-sessions .sess-label[data-task-terminal-color] .objective-task-worktree-name { color:inherit; }
   /* Compact mains keep their role icons; task terminals honor custom icons
      with a computer fallback. The live hierarchy stays intact when expanded. */
   :is(.term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open), .term-panel.term-sessions-horizontal:not(.term-sessions-full)) .term-sessions .sess { justify-content:center; height:36px; padding:0; }

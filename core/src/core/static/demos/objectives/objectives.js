@@ -34,7 +34,7 @@
       const hoverDelay = 1500;
       const documentEditors = new Map();
       let taskStatusMenu;
-      const taskStatuses = {todo:{icon:'⬜',label:'Undo'},in_progress:{icon:'🟡',label:'In progress'},done:{icon:'✅',label:'Completed'}};
+      const taskStatuses = {todo:{icon:'⬜',label:'Undo'},in_progress:{icon:'🚧',label:'In progress'},done:{icon:'✅',label:'Completed'}};
       const palettes = [['#58a6ff','#ff7b72','#3fb950','#d29922'],['#bc8cff','#e3b341','#56d6c0','#ff9bce'],['#ffa657','#f778ba','#a9d14c','#238a97'],['#39c5cf','#d67ad2','#e5a07c','#85c56a'],['#8b9dff','#e87f91','#a6be4f','#58b9a6']];
       objectives.forEach((o,index)=>{
         o.palette=palettes[index]||[];o.color=o.palette[0]||'#8b949e';

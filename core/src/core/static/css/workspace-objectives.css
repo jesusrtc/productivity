@@ -105,6 +105,8 @@ body.sidebar-drawer-enabled:not(.sidebar-drawer-open) [data-project-sidebar][dat
 .objective-sidebar-task-title:hover,.objective-sidebar-task.active .objective-sidebar-task-title { color:var(--text-primary); }
 .objective-sidebar-task-title.done { color:var(--text-dim); }
 .objective-sidebar-task-status { flex-shrink:0; font-size:14px; width:18px; text-align:center; }
+.objective-sidebar-task > .objective-sidebar-task-status { padding:0; color:var(--text-primary); }
+.objective-task-recurring { flex-shrink:0; font-size:12px; }
 .objective-task-status-icon { display:inline-grid; place-items:center; width:18px; min-height:18px; flex-shrink:0; border-radius:3px; }
 .objective-task-status-icon[data-task-status=todo] { background:color-mix(in srgb,var(--red,#ff7b72) 18%,transparent); box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--red,#ff7b72) 65%,transparent); }
 .objective-task-status-icon[data-task-status=in_progress] { background:color-mix(in srgb,var(--yellow,#e3b341) 12%,transparent); }
@@ -217,6 +219,15 @@ body.sidebar-drawer-enabled:not(.sidebar-drawer-open) [data-project-sidebar][dat
 .objective-task-asset-choice button { padding:4px; border:1px solid transparent; border-radius:4px; background:none; color:var(--text-secondary); cursor:pointer; font:inherit; }
 .objective-task-asset-choice [data-pick-task-icon] { display:flex; align-items:center; justify-content:center; width:28px; height:28px; flex-shrink:0; }
 .objective-task-asset-choice [data-pick-task-icon][aria-pressed=true] { border-color:var(--accent); background:color-mix(in srgb,var(--accent) 12%,var(--bg-secondary)); }
+.objective-dialog.objective-task-icon-picker { box-sizing:border-box; width:420px; max-width:calc(100vw - 32px); max-height:calc(100vh - 32px); overflow:auto; }
+.objective-task-icon-preview { display:flex; align-items:center; gap:8px; padding:10px; border:1px solid var(--border); border-radius:5px; }
+.objective-task-icon-preview > :first-child { display:grid; place-items:center; font-size:22px; flex-shrink:0; }
+.objective-task-icon-preview > :last-child { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.objective-task-icon-options { display:flex; flex-wrap:wrap; gap:6px; }
+.objective-task-icon-picker h3 { margin:12px 0 7px; font-size:12px; color:var(--text-secondary); }
+.objective-task-icon-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(38px,1fr)); gap:6px; }
+.objective-task-icon-picker .objective-task-icon-grid button { display:grid; place-items:center; min-height:38px; padding:5px; border:1px solid var(--border); border-radius:5px; background:var(--bg-secondary); color:var(--text-primary); font-size:22px; cursor:pointer; }
+.objective-task-icon-grid button:hover,.objective-task-icon-grid button:focus-visible,.objective-task-icon-grid button[aria-pressed=true] { border-color:var(--accent); background:var(--bg-tertiary); }
 .objective-task-asset-choice [data-open-task-asset] { flex:1; min-width:0; text-align:left; color:var(--accent); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .objective-task-tab-icon { display:inline-flex; align-items:center; margin-right:6px; flex-shrink:0; }
 .objective-document-context { display:flex; align-items:center; gap:8px; margin:12px 0; }

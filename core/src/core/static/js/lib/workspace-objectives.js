@@ -14,7 +14,8 @@
   let taskStatusMenu, assetContextMenu;
   let refreshTimer;
   const taskEditIdleMs = 3 * 60 * 1000;
-  const taskStatuses = {todo:{icon:'⬜',label:'Undo'},in_progress:{icon:'🟡',label:'In progress'},done:{icon:'✅',label:'Completed'},paused:{icon:'⏸',label:'Paused'},wont_do:{icon:'🚫',label:"Won’t do"}};
+  const taskStatuses = {todo:{icon:'⬜',label:'Undo'},in_progress:{icon:'🚧',label:'In progress'},done:{icon:'✅',label:'Completed'},paused:{icon:'⏸',label:'Paused'},wont_do:{icon:'🚫',label:"Won’t do"}};
+  const taskEmojiChoices = [['👷','Working'],['🌳','Tree'],['🔥','Fire'],['📓','Notebook'],['📝','Writing'],['‼️','Important'],['💡','Idea'],['🤖','Robot'],['📌','Pinned'],['✅','Done'],['❤️','Heart'],['⚠️','Warning'],['👀','Review'],['🏆','Achievement'],['🎯','Target'],['🚀','Launch'],['🛠️','Tools'],['🔬','Research'],['🐛','Bug'],['🧠','Thinking']];
   const key = scope => (scope?.vault || '') + '::' + scope?.workspace_id;
   const context = () => bridge?.context?.();
   const data = () => cache.get(key(context()));
@@ -242,7 +243,7 @@
   }
   function sidebarTaskRow(task,parent=null,depth=parent?1:0) {
     const status=taskStatus(task),done=status==='done',selected=focusedTask()?.id===task.id;
-    return `<div class="objective-sidebar-task${parent?' child':''}${selected?' active':''}" style="--objective-task-depth:${depth}" data-task-id="${esc(task.id)}"><span class="objective-sidebar-task-status objective-task-status-icon" data-task-status="${status}" aria-label="${taskStatuses[status].label}" title="${taskStatuses[status].label} · Secondary-click to change status">${taskStatuses[status].icon}</span><a class="objective-sidebar-task-title${done?' done':''}" data-open-task="${esc(task.id)}" href="${esc(taskHref(task))}" draggable="true" title="${esc(task.title)}">${taskNameHtml(task)}</a><span class="objective-sidebar-task-count" title="${taskAssets(task).length} assets">${taskAssets(task).length}</span><button type="button" data-task-icon="${esc(task.id)}" data-open-task="${esc(task.id)}" aria-label="Icon for ${esc(task.title)}" title="Drop an asset here to set the terminal icon" draggable="true">${customTaskIcon(task)}</button></div>`;
+    return `<div class="objective-sidebar-task${parent?' child':''}${selected?' active':''}" style="--objective-task-depth:${depth}" data-task-id="${esc(task.id)}"><button type="button" class="objective-sidebar-task-status objective-task-status-icon" data-task-status="${status}" data-task-icon="${esc(task.id)}" aria-label="Choose icon for ${esc(task.title)} · ${taskStatuses[status].label}" title="${taskStatuses[status].label} · Click to choose an icon · Secondary-click to change status">${taskStatuses[status].icon}</button><a class="objective-sidebar-task-title${done?' done':''}" data-open-task="${esc(task.id)}" href="${esc(taskHref(task))}" draggable="true" title="${esc(task.title)}">${taskNameHtml(task)}</a>${task.recurrence?'<span class="objective-task-recurring" aria-label="Recurring task" title="Recurring task">🔄</span>':''}<span class="objective-sidebar-task-count" title="${taskAssets(task).length} assets">${taskAssets(task).length}</span><button type="button" data-task-icon="${esc(task.id)}" aria-label="Icon for ${esc(task.title)}" title="Choose a task icon · Or drop an asset here" draggable="true">${customTaskIcon(task)}</button></div>`;
   }
   function bucketHtml(id,label,assets,add=false) {
     return `<section class="objective-bucket" data-objective-bucket="${id}" aria-label="${label}"><div class="sidebar-title objective-title">${id==='unassigned'?`<button type="button" class="objective-bucket-label" data-show-unassigned>${label}</button>`:`<span${id==='objective'?` data-drag-objective="${esc(objective().id)}" draggable="true" title="Drag ${esc(objective().name)} into a terminal to pass its whole context"`:''}>${label}</span>`}${add?'<button type="button" data-add-resource="document" aria-label="Add objective asset">+</button>':''}</div><div class="objective-resources">${assetListHtml(assets,'sidebar:'+id+(id==='task'?':'+(focusedTask()?.id||''):''))||`<p class="objective-bucket-empty">${{unassigned:'All assets are assigned.',objective:'Star an asset to share it across tasks.',task:'Select a task to see its assets.',archive:'Drop assets here to set them aside.'}[id]}</p>`}</div></section>`;
@@ -374,7 +375,12 @@
     if((asset.tab_id||asset.sub_link_id)&&!child&&r.kind!=='assistant')return null;
     return {resource:r,title:child?r.title+' · '+child.title:r.title,icon:resourceIcon(r,asset.sub_link_id),reference:resourceReference(r,asset.tab_id,asset.sub_link_id)};
   }
-  function customTaskIcon(task,o=objective()) {const asset=taskAssets(task).find(a=>a.id===task.icon_asset_id);return (asset&&assetInfo(asset,o)?.icon)||'';}
+  function customTaskIcon(task,o=objective()) {
+    if(task.icon?.emoji)return `<span aria-hidden="true">${esc(task.icon.emoji)}</span>`;
+    if(task.icon?.service)return window.LabScopeLinks?.icon({kind:'external',type:task.icon.service})||`<span class="scope-link-icon" data-link-service="${esc(task.icon.service)}" aria-hidden="true"></span>`;
+    const asset=task.icon?.asset||taskAssets(task).find(a=>a.id===task.icon_asset_id);
+    return (asset&&assetInfo(asset,o)?.icon)||'';
+  }
   function taskIcon(task,o=objective()) {const status=taskStatus(task);return customTaskIcon(task,o)||`<span class="objective-task-default-icon objective-task-status-icon" data-task-status="${status}" aria-hidden="true">${taskStatuses[status].icon}</span>`;}
   function markTaskAssets(host) {
     const sidebar=document.getElementById('sidebar');if(!sidebar)return;
@@ -652,6 +658,36 @@
     const task=tasks().find(t=>t.id===id);if(!task)return;
     form('Task assets',`<p class="objective-purpose">${esc(task.title)} · Drop documents, notebooks, links or folders here or onto its task row. Drag an asset onto the icon at the right of its sidebar row to set its terminal icon.</p><div class="objective-task-asset-list" data-task-id="${esc(id)}">${taskAssets(task).map(a=>{const info=assetInfo(a);return info?`<div class="objective-task-asset-choice"><span class="objective-task-asset-icon" aria-hidden="true">${info.icon}</span><button type="button" data-open-task-asset="${esc(a.id)}" data-asset-task="${esc(id)}">${esc(info.title)}</button>${a.required?'<span class="objective-purpose">Details</span>':`<button type="button" data-remove-task-asset="${esc(a.id)}" data-asset-task="${esc(id)}" aria-label="Detach ${esc(info.title)}">×</button>`}</div>`:'';}).join('')}</div>`,async()=>{});
     dialog.querySelector('[type=submit]').textContent='Done';
+  }
+  function openTaskIconPicker(id) {
+    const o=objective(),task=tasks(o).find(t=>t.id===id);if(!task)return;
+    const scope={...context()},seen=new Set(),choices=[];
+    for(const asset of [...taskAssets(task),...assetCatalog(o)]){
+      const info=assetInfo(asset,o);if(!info||seen.has(info.icon))continue;
+      seen.add(info.icon);
+      choices.push({icon:{asset:assetTarget(asset)},html:info.icon,label:info.title});
+    }
+    for(const service of window.LAB_LINK_SERVICES||[]){
+      const icon={service:service.id},html=customTaskIcon({icon},o);if(seen.has(html))continue;
+      seen.add(html);choices.push({icon,html,label:service.name});
+    }
+    const legacy=taskAssets(task).find(a=>a.id===task.icon_asset_id);
+    let selected=task.icon||(legacy?{asset:assetTarget(legacy)}:null),color=task.terminal_color||null;
+    const current=customTaskIcon(task,o),button=choice=>`<button type="button" data-pick-task-icon="${esc(JSON.stringify(choice.icon))}" title="${esc(choice.label)}" aria-label="${esc(choice.label)}" aria-pressed="${current===choice.html}">${choice.html}</button>`;
+    const node=form('Task icon and terminal color',`<p class="objective-purpose">${esc(task.title)}</p><div class="objective-task-icon-preview"><span data-task-icon-preview></span><span data-task-color-preview>${esc(taskDisplayName(task,o))}</span></div><section aria-label="Asset icons"><h3>Asset icons</h3><div class="objective-task-icon-grid">${choices.map(button).join('')||'<p class="objective-purpose">No asset icons available.</p>'}</div></section><section aria-label="Suggested emojis"><h3>Suggested emojis</h3><div class="objective-task-icon-grid">${taskEmojiChoices.map(([emoji,label])=>button({icon:{emoji},html:`<span aria-hidden="true">${emoji}</span>`,label:emoji+' · '+label})).join('')}</div></section><label>Custom emoji<input name="emoji" value="${esc(task.icon?.emoji||'')}" maxlength="32" placeholder="Paste an emoji, such as 💡"></label><div class="objective-task-icon-options"><button type="button" data-task-text-color>Terminal text color…</button><button type="button" data-task-default-color>Default color</button><button type="button" data-pick-task-icon="null">Default icon</button></div>`,()=>change({type:'task-update',objective_id:o.id,task_id:id,icon:selected,terminal_color:color},{scope}));
+    node.classList.add('objective-task-icon-picker');
+    const preview=()=>{
+      node.querySelector('[data-task-icon-preview]').innerHTML=customTaskIcon({icon:selected,assets:[]},o)||'💻';
+      node.querySelector('[data-task-color-preview]').style.color=color||'';
+    };
+    node.addEventListener('click',event=>{
+      const choice=event.target.closest('[data-pick-task-icon]');
+      if(choice){selected=JSON.parse(choice.dataset.pickTaskIcon);node.querySelector('[name=emoji]').value=selected?.emoji||'';node.querySelectorAll('[data-pick-task-icon]').forEach(n=>n.setAttribute('aria-pressed',String(n===choice)));preview();}
+    });
+    node.querySelector('[name=emoji]').oninput=event=>{selected=event.target.value?{emoji:event.target.value}:null;node.querySelectorAll('[data-pick-task-icon]').forEach(n=>n.setAttribute('aria-pressed','false'));preview();};
+    node.querySelector('[data-task-text-color]').onclick=event=>window.LabSidebarScopes?.colors(event.currentTarget,bridge.scopeColorPalette?.()||[],chosen=>{color=chosen;preview();});
+    node.querySelector('[data-task-default-color]').onclick=()=>{color=null;preview();};
+    preview();
   }
   function classifyAsset(target,preset=null) {
     const info=assetInfo(target);if(!info)return;
@@ -1100,7 +1136,7 @@
     }
     return null;
   }
-  function taskForTerminal(t) {const binding=terminalTask(t);return binding?{title:taskDisplayName(binding.task,binding.objective),icon:taskIcon(binding.task,binding.objective),assetIcon:customTaskIcon(binding.task,binding.objective),inherited:binding.inherited,status:taskStatus(binding.task)}:null;}
+  function taskForTerminal(t) {const binding=terminalTask(t);return binding?{title:taskDisplayName(binding.task,binding.objective),icon:taskIcon(binding.task,binding.objective),assetIcon:customTaskIcon(binding.task,binding.objective),color:binding.task.terminal_color||null,inherited:binding.inherited,status:taskStatus(binding.task)}:null;}
   function terminalTaskNameHtml(t) {const binding=terminalTask(t);return binding?taskNameHtml(binding.task,binding.objective):null;}
   function terminalWorktreeColor(t) {const binding=terminalTask(t),assigned=binding?taskWorktrees(binding.task,binding.objective):[];return assigned.length===1?assigned[0].color:null;}
   function terminalColor(t) {return terminalWorktreeColor(t);}
@@ -1356,6 +1392,7 @@
     if(node.hasAttribute('data-archive-objective-asset')||node.hasAttribute('data-restore-objective-asset')){void change({type:'asset-bucket',objective_id:objective().id,...JSON.parse(node.dataset.archiveObjectiveAsset||node.dataset.restoreObjectiveAsset),bucket:node.hasAttribute('data-archive-objective-asset')?'archive':'unassigned'}).catch(()=>{});return;}
     if(node.hasAttribute('data-show-unassigned')){collapse();Object.assign(overviewState(),{mode:'unassigned',query:''});persistView();renderOverview();return;}
     if(node.hasAttribute('data-task-document-mode')){const draft=taskDocumentDraft();if(draft)setDraftEditMode(draft,node.dataset.taskDocumentMode==='edit');return;}
+    if(node.dataset.taskIcon){if(node.closest('.objective-task-mode-head')){const draft=taskDocumentDraft();if(draft&&!draftEditable(draft))return;}e.preventDefault();openTaskIconPicker(node.dataset.taskIcon);return;}
     if(node.dataset.deleteObjectiveTask){void deleteTask(node.dataset.deleteObjectiveTask);return;}
     if(node.dataset.editObjectiveTask){const draft=taskDocumentDraft();if(draft&&!draftEditable(draft))return;const task=tasks().find(t=>t.id===node.dataset.editObjectiveTask);draftEditDialog(draft,form('Edit task',input('Task','title',task.title)+(window.LabTaskSchedule?.fields(task)||input('Due date','due',task.due||'','date',false)),async values=>{requireDraftEditing(draft);await change({type:'task-update',objective_id:objective().id,task_id:task.id,title:values.get('title'),...(window.LabTaskSchedule?.read(values)||{due:values.get('due')})});}));return;}
     if(node.dataset.openAction){if(e.metaKey||e.ctrlKey||e.shiftKey||e.altKey)return;e.preventDefault();const task=tasks().find(task=>task.id===node.dataset.openAction),item=task?.action_items?.find(item=>item.line===Number(node.dataset.actionLine));if(item)openTask(task.id,{activateTerminal:true,actionItem:item});return;}

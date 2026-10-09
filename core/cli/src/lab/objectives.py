@@ -147,6 +147,9 @@ def _prune_assets(objective, remove):
         if field in objective:
             objective[field] = [asset for asset in objective[field] if not remove(asset)]
     _prune_task_assets(objective, remove)
+    for task in _tasks(objective):
+        if task.get('icon', {}).get('asset') and remove(task['icon']['asset']):
+            task.pop('icon')
     if 'assignment_suggestions' in objective:
         objective['assignment_suggestions'] = [s for s in objective['assignment_suggestions'] if not remove(s['asset'])]
 
@@ -170,6 +173,30 @@ def _folder_target(folder, objective, linked):
     if root not in allowed or not target.is_relative_to(root) or not target.is_dir():
         raise ValueError('Choose a folder in this objective')
     return {'root':str(root), 'path':target.relative_to(root).as_posix()}
+
+
+def _task_icon(folder, objective, value):
+    if value is None:
+        return None
+    if not isinstance(value, dict) or len(value) != 1:
+        raise ValueError('Choose an emoji, service or asset icon')
+    if 'service' in value:
+        service = value['service']
+        if not isinstance(service, str) or not re.fullmatch(r'[a-z][a-z0-9-]{0,63}', service):
+            raise ValueError('Choose a service icon identifier')
+        return {'service':service}
+    if 'emoji' in value:
+        emoji = value['emoji']
+        if (not isinstance(emoji, str) or not 1 <= len(emoji) <= 32
+                or any(char.isspace() or (ord(char) < 128 and char not in '#*0123456789') for char in emoji)
+                or not any(ord(char) >= 0x1f000 or 0x2300 <= ord(char) <= 0x27bf or char in '‼⁉©®™ℹ\u20e3' for char in emoji)):
+            raise ValueError('Choose an emoji, up to 32 characters')
+        return {'emoji':emoji}
+    asset = value.get('asset')
+    if (not isinstance(asset, dict) or not asset
+            or set(asset) - {'resource_id', 'tab_id', 'sub_link_id', 'folder'}):
+        raise ValueError('Choose an existing Objective asset icon')
+    return {'asset':_task_asset(folder, objective, asset)}
 
 
 def _task_asset(folder, objective, action):
@@ -1161,6 +1188,16 @@ def mutate(root, workspace_id, action, expected=None, *, delete_terminals=None, 
             if task is None:
                 raise ValueError('Task not found')
             previous = deepcopy(task)
+            if 'icon' in action and 'icon_asset_id' in action:
+                raise ValueError('Choose one task icon')
+            icon = _task_icon(folder, objective, action['icon']) if 'icon' in action else None
+            if 'terminal_color' in action:
+                color = action['terminal_color']
+                if color is not None and (not isinstance(color, str) or not re.fullmatch(r'#[0-9a-fA-F]{6}', color)):
+                    raise ValueError('Choose a terminal text color in #RRGGBB format')
+                task.pop('terminal_color', None)
+                if color is not None:
+                    task['terminal_color'] = color.lower()
             if 'due' in action:
                 task['due'] = _date(action['due'])
             if 'recurrence' in action:
@@ -1181,6 +1218,7 @@ def mutate(root, workspace_id, action, expected=None, *, delete_terminals=None, 
                     objective['archived_assets'] = [row for row in objective['archived_assets'] if _asset_target(row) != asset]
                 if action.get('choose_icon'):
                     task['icon_asset_id'] = 'details' if asset == implicit else attached['id']
+                    task.pop('icon', None)
             elif operation == 'task-remove-asset':
                 asset_id = action.get('asset_id')
                 if not _find(task.get('assets', []), asset_id):
@@ -1214,6 +1252,12 @@ def mutate(root, workspace_id, action, expected=None, *, delete_terminals=None, 
                 if icon_id != 'details' and not _find(task.get('assets', []), icon_id):
                     raise ValueError('Choose an icon from this task’s assets')
                 task['icon_asset_id'] = icon_id
+                task.pop('icon', None)
+            if 'icon' in action:
+                task.pop('icon_asset_id', None)
+                task.pop('icon', None)
+                if icon is not None:
+                    task['icon'] = icon
         elif operation == 'document':
             resource = _find(objective['resources'], action.get('resource_id'))
             if not resource or resource['kind'] != 'document':

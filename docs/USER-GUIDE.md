@@ -210,6 +210,16 @@ delete pending items to claim completion or check an item without verifying
 its work.
 
 The Objective Tasks sidebar shows unfinished task and subtask navigation.
+WIP tasks use **🚧** and recurring tasks carry **🔄**. Click the task's status
+badge or its icon area to open **Task icon and terminal color**. The picker
+starts with distinct asset icons and built-in service icons, including GitHub
+even without a GitHub asset, followed by suggested emojis and a custom emoji
+field. **Terminal text color…** opens the same palette used for worktrees.
+Preview both choices, then **Save**; **Default icon** and **Default color**
+restore the existing defaults. Choices persist and apply to linked task
+terminals, including inherited children and merged tabs. Secondary-click still
+opens the task status menu.
+
 Unchecked Markdown actions appear in the main task dashboard and their source
 document, without adding rows or blank space to the left sidebar. Completed and
 discarded branches are excluded. The dashboard highlights overdue actions and
@@ -233,6 +243,12 @@ resets its existing checklist and subtasks, so the new occurrence appears
 unchecked. The show-again lead can be configured; the default is one day before
 the next deadline. Overdue unfinished occurrences stay obligations rather than
 being skipped.
+
+Icon and color settings also use `lab objective apply` with a `task-update`
+action. Use `icon: {"emoji":"💡"}`, `icon: {"service":"github"}` or
+`icon: {"asset":{"resource_id":"ID"}}`, and `terminal_color: "#58a6ff"`.
+Set either field to `null` to restore its default. Icon selection alone does
+not attach an asset or change task status or worktree colors.
 
 For Assistant tasks and meetings, read `lab context tasks` and
 `lab context meetings` before editing their source documents. Only an explicitly
