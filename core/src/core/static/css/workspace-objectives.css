@@ -274,6 +274,11 @@ body.sidebar-drawer-enabled:not(.sidebar-drawer-open) .sidebar .objective-sideba
 .assistant-document-inline.assistant-external-tabs :is(.assistant-tabs-rail,.assistant-tabs-drawer) { display:none; }
 .objective-dialog { width:min(500px,calc(100vw - 32px)); border:1px solid var(--border); border-radius:8px; background:var(--bg-primary); color:var(--text-primary); padding:20px; font-size:14px; }.objective-dialog::backdrop { background:#0006; }
 .objective-dialog header h2 { margin:0 0 16px; font-size:18px; }.objective-dialog label { display:grid; gap:5px; margin:12px 0; font-size:12px; }.objective-dialog input,.objective-dialog select { color:var(--text-primary); background:var(--bg-secondary); border:1px solid var(--border); border-radius:4px; padding:7px; font:inherit; }.objective-dialog footer { display:flex; gap:8px; justify-content:flex-end; margin-top:16px; }.objective-dialog button { border:1px solid var(--border); border-radius:4px; background:var(--bg-secondary); color:var(--text-primary); padding:5px 10px; font-size:12px; cursor:pointer; }
+.objective-link-edit-dialog { box-sizing:border-box; width:min(760px,calc(100vw - 32px)); max-height:calc(100dvh - 32px); overflow:auto; }
+.objective-link-edit-header { display:flex; align-items:center; justify-content:space-between; gap:16px; }
+.objective-link-edit-dialog > .objective-link-edit-header h2 { margin:0; }
+.objective-link-edit-dialog .objective-working { margin:16px 0 0; padding:0; }
+.objective-link-edit-dialog .objective-link-editor label { margin:0; }
 .objective-terminal-group { display:flex; flex-direction:column; gap:4px; min-width:0; flex-shrink:0; border-left:2px solid var(--objective-color); padding-left:5px; }
 .objective-terminal-group[data-objective-active=false] { border-left-color:var(--border); }
 .objective-terminal-group[data-objective-active=false] .term-home-association { --term-association-color:var(--text-secondary) !important; }

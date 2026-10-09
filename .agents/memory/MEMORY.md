@@ -1,5 +1,7 @@
 # Memory index
 
+- [Asset link Edit opens a modal](asset-link-edit-opens-modal.md) — secondary-click Edit overlays the current view, including sublinks and Task assets, with retained drafts and associations.
+
 - [Features need Lab CLI access](features-need-lab-cli-access.md) — verify CLI support and discoverability alongside the UI; all asset group and ordering actions use Objective apply.
 
 - [Pending tasks, actions and deadlines](pending-task-actions-and-deadlines.md) — all pending branches and Markdown actions, local due prefixes, exact source highlights, and hidden repeats until reactivation.

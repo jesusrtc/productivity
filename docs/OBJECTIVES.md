@@ -215,9 +215,10 @@ icon inferred from its URL. Global **Links and icons** domain mappings also
 apply here and update the rows immediately.
 
 Click a link to visit its URL in a separate pop-out positioned over Lab, leaving the
-working area in place. Cmd/Ctrl-click opens its details in the middle working
-area. Edit its title,
-URL, TL;DR and named metadata properties, then use **Save** or Cmd/Ctrl-S.
+working area in place. Cmd/Ctrl-click opens a browser tab. Secondary-click the
+asset and choose **Edit** to open a modal over the current view, including from
+the task Assets dialog. Edit its title, URL, TL;DR and named metadata properties,
+then use **Save** or Cmd/Ctrl-S. Close or Escape returns to the underlying view.
 **Revert** reloads the saved details. Drafts remain available when navigating
 away; a conflicting edit retains your draft. **Open** visits the URL in the
 same kind of pop-out. These controls apply to shared and scoped links, as well as
@@ -235,7 +236,8 @@ Use **+ Sublink** in a link's details to add destinations beneath it, such as
 Google Docs tab URLs. Each sublink has its own title, URL, TL;DR and properties,
 and can contain further sublinks. Hover over the parent sidebar link for one
 second to reveal the indented hierarchy. Clicking a child opens its destination;
-Cmd/Ctrl-click opens its own details. Child references can be pasted
+Cmd/Ctrl-click opens a browser tab. Secondary-click **Edit** opens that child's
+own modal editor, including from its parent's Sublinks list. Child references can be pasted
 or associated with terminals just like their parent link.
 
 ## Tasks and details

@@ -9,7 +9,7 @@
   const drafts = new Map(), linkDrafts = new Map();
   let actionTarget = null;
   const assetGroupHovers = new Map();
-  let bridge, dialog = null, hoverTimer, openView = null, activeDraft = null, activeLinkDraft = null, switchMenu = null, switchTimer;
+  let bridge, dialog = null, linkEditDialog = null, linkEditCleanup = null, hoverTimer, openView = null, activeDraft = null, activeLinkDraft = null, switchMenu = null, switchTimer;
   let taskCloseButton, taskCloseHost, taskCloseObserver, taskCloseResizeObserver, taskCloseFrame, taskModeHeader, taskModeSpacer;
   let taskStatusMenu, assetContextMenu;
   let refreshTimer;
@@ -512,6 +512,7 @@
   function selectObjective(id,{activateTerminal=true}={}) {
     closeTaskStatusMenu();
     closeAssetContextMenu();
+    closeLinkEdit();
     const o=data()?.objectives.find(o=>o.id===id);if(!o)return;closeSwitchMenu();collapse();resetWorktreeBrowse();state().focus=null;state().objective=id;state().view='objective';state().selected=null;persistView();paint();renderOverview();bridge.refreshTerminals?.();
     const t=tree(o)||{path:context().path,kind:'folder'};if(bridge.scopeRoot?.()!==t.path)bridge.selectWorktree?.(t);
     if(activateTerminal)activateLinkedTerminal(link=>link.objective_id===id&&!link.task_id&&!link.resource_id&&!link.file&&!link.folder&&!link.view);
@@ -553,6 +554,7 @@
   }
   function showAll() {
     closeTaskStatusMenu();
+    closeLinkEdit();
     if(!data()){const scope=key(context());void load().then(result=>{if(result&&key(context())===scope)showAll();});return;}
     closeSwitchMenu();resetWorktreeBrowse();state().view='all';state().focus=null;state().selected=null;collapse();persistView();
     const host=showCenter('all');
@@ -680,6 +682,7 @@
   }
   function openResource(resourceId,tabId=null,subLink=null) {
     const o=objective(),r=o?.resources.find(r=>r.id===resourceId);if(!r)return;
+    closeLinkEdit();
     if(r.kind==='link'&&subLink&&!linkTarget(r,subLink))subLink=null;
     state().view='objective';persistView();
     releaseDraft();
@@ -748,18 +751,47 @@
     activeLinkDraft=d;updateLinkHeader(d);
     d.node.querySelector('form').onsubmit=event=>{event.preventDefault();void saveLinkDetails(d);};
   }
-  function renderLinkDetails(o,r,subLink=null) {
-    const host=showCenter('link');openView.resource=r.id;openView.subLink=subLink;
+  function linkDraftFor(o,r,subLink=null) {
     const scope={...context()},id=JSON.stringify([key(scope),o.id,r.id,subLink]),target=linkTarget(r,subLink);let d=linkDrafts.get(id);
     if(!d){d={scope,objective:o.id,resource:r.id,subLink};resetLinkDraft(d,target);linkDrafts.set(id,d);}
     else if(!dirtyLink(d)&&!d.saving&&d.base!==linkSnapshot(target))resetLinkDraft(d,target);
-    mountLinkDetails(d,o,target,host);
     for(const [id,entry] of linkDrafts){if(linkDrafts.size<=32)break;if(entry!==d&&!entry.saving&&!dirtyLink(entry))linkDrafts.delete(id);}
+    return d;
+  }
+  function renderLinkDetails(o,r,subLink=null) {
+    const host=showCenter('link');openView.resource=r.id;openView.subLink=subLink;
+    mountLinkDetails(linkDraftFor(o,r,subLink),o,linkTarget(r,subLink),host);
+  }
+  function closeLinkEdit() {
+    const modal=linkEditDialog,cleanup=linkEditCleanup;if(!modal)return;
+    modal.close();cleanup();
+  }
+  function openLinkEdit(resourceId,subLink=null) {
+    const o=objective(),r=o?.resources.find(r=>r.id===resourceId),target=linkTarget(r,subLink);if(r?.kind!=='link'||!target)return;
+    closeLinkEdit();
+    const previous=activeLinkDraft,previousNode=previous?.node,d=linkDraftFor(o,r,subLink),modal=document.createElement('dialog');
+    modal.className='objective-dialog objective-link-edit-dialog';modal.setAttribute('aria-label','Edit link');
+    modal.innerHTML='<header class="objective-link-edit-header"><h2>Edit link</h2><button type="button" data-close-link-edit aria-label="Close link editor">×</button></header><div data-link-edit-body></div>';
+    let closed=false;
+    const cleanup=()=>{
+      if(closed)return;closed=true;closeAssetContextMenu();modal.remove();
+      if(linkEditDialog!==modal)return;linkEditDialog=null;linkEditCleanup=null;activeLinkDraft=null;
+      if(!previousNode?.isConnected||key(previous.scope)!==key(context()))return;
+      const owner=data()?.objectives.find(o=>o.id===previous.objective),saved=owner?.resources.find(r=>r.id===previous.resource),row=linkTarget(saved,previous.subLink);
+      if(row)mountLinkDetails(linkDraftFor(owner,saved,previous.subLink),owner,row,previousNode.parentElement);
+    };
+    linkEditDialog=modal;linkEditCleanup=cleanup;modal.addEventListener('close',cleanup,{once:true});
+    document.body.append(modal);mountLinkDetails(d,o,target,modal.querySelector('[data-link-edit-body]'));modal.showModal();
+    const field=modal.querySelector('[data-objective-link-field="url"]');field.focus();field.select();
   }
   function refreshLinkDetails() {
+    for(const node of dialog?.querySelectorAll('[data-open-task-asset]')||[]){
+      const task=tasks().find(t=>t.id===node.dataset.assetTask),asset=task&&taskAssets(task).find(a=>a.id===node.dataset.openTaskAsset),info=asset&&assetInfo(asset);if(!info)continue;
+      node.textContent=info.title;node.previousElementSibling.innerHTML=info.icon;node.nextElementSibling?.setAttribute('aria-label','Detach '+info.title);
+    }
     const d=activeLinkDraft;if(!d?.node?.isConnected||key(d.scope)!==key(context()))return;
     const o=data()?.objectives.find(o=>o.id===d.objective),r=linkTarget(o?.resources.find(r=>r.id===d.resource),d.subLink);if(!r)return;
-    if(!dirtyLink(d)&&!d.saving&&d.base!==linkSnapshot(r)){resetLinkDraft(d,r);mountLinkDetails(d,o,r,document.getElementById('content'));}
+    if(!dirtyLink(d)&&!d.saving&&d.base!==linkSnapshot(r)){resetLinkDraft(d,r);mountLinkDetails(d,o,r,d.node.parentElement);}
     updateLinkHeader(d);
     d.node.querySelector('[data-link-children]').innerHTML=linkChildrenHtml(d,r);
   }
@@ -781,7 +813,7 @@
   async function revertLinkDetails(d) {
     if(!d||d.saving)return;await load(d.scope,true);
     const o=cache.get(key(d.scope))?.objectives.find(o=>o.id===d.objective),r=linkTarget(o?.resources.find(r=>r.id===d.resource),d.subLink);if(!r)return;
-    resetLinkDraft(d,r);if(activeLinkDraft===d&&d.node?.isConnected)mountLinkDetails(d,o,r,document.getElementById('content'));
+    resetLinkDraft(d,r);if(activeLinkDraft===d&&d.node?.isConnected)mountLinkDetails(d,o,r,d.node.parentElement);
   }
   const dirtyDraft=draft=>draft.body!==draft.base;
   function actionLine(draft) {
@@ -877,7 +909,7 @@
     return draft.pending;
   }
   function releaseDraft() {
-    activeLinkDraft=null;
+    if(!linkEditDialog)activeLinkDraft=null;
     const draft=activeDraft;if(!draft)return;
     activeDraft=null;clearTimeout(draft.timer);clearTimeout(draft.editTimer);draft.editMode=false;
     // Navigation paints immediately. Capture the outgoing body and retain a
@@ -1268,21 +1300,24 @@
   function openAssetContextMenu(event,node,html) {
     event.preventDefault();event.stopImmediatePropagation();closeTaskStatusMenu();closeAssetContextMenu();
     assetContextMenu=document.createElement('div');assetContextMenu.className='objective-asset-context-menu';assetContextMenu.setAttribute('role','menu');assetContextMenu.setAttribute('aria-label','Asset actions');
-    assetContextMenu.innerHTML=html;document.body.append(assetContextMenu);const box=node.getBoundingClientRect();
+    assetContextMenu.innerHTML=html;(node.closest('dialog[open]')||document.body).append(assetContextMenu);const box=node.getBoundingClientRect();
     assetContextMenu.style.left=Math.max(8,Math.min(event.clientX||box.left,window.innerWidth-assetContextMenu.offsetWidth-8))+'px';
     assetContextMenu.style.top=Math.max(8,Math.min(event.clientY||box.bottom,window.innerHeight-assetContextMenu.offsetHeight-8))+'px';assetContextMenu.querySelector('button:not(:disabled)')?.focus();return true;
   }
   function linkDetailsMenu(asset) {
-    return assetInfo(asset)?.resource?.kind==='link'?`<button type="button" role="menuitem" data-edit-link-details="${esc(JSON.stringify(assetTarget(asset)))}">Edit link details…</button>`:'';
+    return assetInfo(asset)?.resource?.kind==='link'?`<button type="button" role="menuitem" data-edit-link-details="${esc(JSON.stringify(assetTarget(asset)))}">Edit</button>`:'';
   }
   function showAssetContextMenu(event) {
-    if(!active(context()?.path)||!event.target.closest?.('[data-objectives-sidebar],.objective-working'))return false;
+    if(!active(context()?.path)||!event.target.closest?.('[data-objectives-sidebar],.objective-working,.objective-dialog'))return false;
     const header=event.target.closest('[data-asset-group-header]');
     if(header){const id=header.dataset.assetGroupHeader;return openAssetContextMenu(event,header,`<button type="button" role="menuitem" data-rename-asset-group="${esc(id)}">Rename group…</button>${assetOrderButtons({group_id:id},header)}<button type="button" role="menuitem" data-ungroup-assets="${esc(id)}">Ungroup assets</button>`);}
-    const node=event.target.closest('[data-objective-asset],[data-objective-resource],[data-classify-asset],[data-objective-star]');if(!node)return false;
+    const node=event.target.closest('[data-objective-asset],[data-objective-resource],[data-classify-asset],[data-objective-star],[data-open-task-asset]');if(!node)return false;
     const target=node.dataset.classifyAsset||node.dataset.objectiveStar||node.dataset.objectiveAsset;
-    const asset=target?JSON.parse(target):{resource_id:node.dataset.objectiveResource,...(node.dataset.objectiveTab?{tab_id:node.dataset.objectiveTab}:{}),...(node.dataset.objectiveSublink?{sub_link_id:node.dataset.objectiveSublink}:{})};
+    const task=node.dataset.openTaskAsset&&tasks().find(t=>t.id===node.dataset.assetTask);
+    const asset=node.dataset.openTaskAsset?task&&taskAssets(task).find(a=>a.id===node.dataset.openTaskAsset):target?JSON.parse(target):{resource_id:node.dataset.objectiveResource,...(node.dataset.objectiveTab?{tab_id:node.dataset.objectiveTab}:{}),...(node.dataset.objectiveSublink?{sub_link_id:node.dataset.objectiveSublink}:{})};
+    if(!asset)return false;
     if(!assetInfo(asset))return false;
+    if(node.dataset.openTaskAsset)return linkDetailsMenu(asset)?openAssetContextMenu(event,node,linkDetailsMenu(asset)):false;
     const json=esc(JSON.stringify(assetTarget(asset))),required=requiredAsset(asset),group=assetGroupFor(asset);
     return openAssetContextMenu(event,node,linkDetailsMenu(asset)+`<button type="button" role="menuitem" data-objective-star="${json}">${isShared(asset)?'Unpin':'Pin above tasks'}</button>${required?'<span class="objective-bucket-empty">Required task details</span>':`<button type="button" role="menuitem" data-group-asset="${json}">Group asset…</button>${group?`<button type="button" role="menuitem" data-remove-asset-group="${json}">Remove from group</button>`:''}${assetOrderButtons(assetTarget(asset),node)}<button type="button" role="menuitem" data-menu-asset="${json}" data-menu-assignment="task">Move to task…</button><button type="button" role="menuitem" data-menu-asset="${json}" data-menu-assignment="objective">Move to Objective…</button><button type="button" role="menuitem" data-menu-asset="${json}" data-menu-bucket="unassigned">Move to Unassigned</button><button type="button" role="menuitem" data-menu-asset="${json}" data-menu-bucket="archive">Archive</button><button type="button" role="menuitem" data-trash-objective-asset="${json}">Trash…</button>`}`);
   }
@@ -1302,7 +1337,8 @@
     const node=e.target.closest('button,input,a');if(!node)return;
     if(node.disabled)return;
     if(node.closest('.objective-asset-context-menu'))closeAssetContextMenu();
-    if(node.hasAttribute('data-edit-link-details')){const asset=JSON.parse(node.dataset.editLinkDetails);openResource(asset.resource_id,asset.tab_id||null,asset.sub_link_id||null);return;}
+    if(node.hasAttribute('data-close-link-edit')){closeLinkEdit();return;}
+    if(node.hasAttribute('data-edit-link-details')){const asset=JSON.parse(node.dataset.editLinkDetails);openLinkEdit(asset.resource_id,asset.sub_link_id||null);return;}
     if(node.hasAttribute('data-asset-group-toggle')){openAssetGroup(node.closest('[data-asset-group]'),true);return;}
     if(node.hasAttribute('data-asset-group-menu')){showAssetContextMenu(e);return;}
     if(node.hasAttribute('data-group-asset')){groupAsset(JSON.parse(node.dataset.groupAsset));return;}
@@ -1345,7 +1381,7 @@
     if(node.hasAttribute('data-fold-worktrees')){if(state().worktreesOpen)foldWorktrees();else{state().worktreesOpen=true;paint();}document.querySelector('[data-fold-worktrees]')?.focus({preventScroll:true});return;}
     if(node.hasAttribute('data-open-objective-tasks')){collapse();renderTasks();return;}
     if(node.dataset.objectiveResource){const r=objective()?.resources.find(r=>r.id===node.dataset.objectiveResource),sub=node.dataset.objectiveSublink||null;e.preventDefault();if(r?.kind==='link')openLinkUrl(linkTarget(r,sub)?.url,e);else openResource(node.dataset.objectiveResource,node.dataset.objectiveTab||null,sub);return;}
-    if(node.dataset.openParentLink){openResource(node.dataset.openParentLink);return;}
+    if(node.dataset.openParentLink){if(node.closest('.objective-link-edit-dialog'))openLinkEdit(node.dataset.openParentLink);else openResource(node.dataset.openParentLink);return;}
     if(node.hasAttribute('data-add-objective-sublink')){const d=activeLinkDraft;form('Add sublink',input('Title','title')+input('URL','url','','url'),values=>change({type:'link-sublink',objective_id:d.objective,resource_id:d.resource,parent_id:d.subLink,title:values.get('title'),url:values.get('url')},{scope:d.scope}));return;}
     if(node.dataset.removeObjectiveSublink){const d=activeLinkDraft;void change({type:'link-remove-sublink',objective_id:d.objective,resource_id:d.resource,sub_link_id:node.dataset.removeObjectiveSublink},{scope:d.scope}).catch(()=>{});return;}
     if(node.hasAttribute('data-open-objective-link')){openLinkUrl(activeLinkDraft.url.trim(),e);return;}
@@ -1539,7 +1575,7 @@
     worktreeColor(path){return active(context()?.path)?scopeRows().find(t=>t.fixed&&t.path===path)?.color||data()?.objectives.flatMap(o=>o.worktrees).find(t=>t.path===path||t.resolved_path===path)?.color:null;},
     notebookControls(root,path){const r=objective()?.resources.find(r=>r.kind==='notebook'&&r.path===path&&context()?.path===root);return r?`<span data-objective-notebook-controls><button type="button" data-rename-objective-resource="${esc(r.id)}">Rename</button></span>`:'';},
     ownsCenter(path){return context()?.path===path&&openView?.scope===key(context())&&!!(document.querySelector('#content .objective-working')||state().selected);},
-    leave(){closeTaskStatusMenu();closeSwitchMenu();releaseDraft();if(context()){collapse();resetWorktreeBrowse();state().focus=null;state().selected=null;persistView();}paintTaskClose();document.querySelectorAll('[data-native-asset-tools]').forEach(n=>n.remove());document.getElementById('sidebar')?.removeAttribute('data-objective-task-mode');document.querySelectorAll('.objective-task-asset-highlight').forEach(n=>n.classList.remove('objective-task-asset-highlight'));openView=null;dialog?.remove();dialog=null;clearTimeout(hoverTimer);}};
+    leave(){closeTaskStatusMenu();closeSwitchMenu();closeLinkEdit();releaseDraft();if(context()){collapse();resetWorktreeBrowse();state().focus=null;state().selected=null;persistView();}paintTaskClose();document.querySelectorAll('[data-native-asset-tools]').forEach(n=>n.remove());document.getElementById('sidebar')?.removeAttribute('data-objective-task-mode');document.querySelectorAll('.objective-task-asset-highlight').forEach(n=>n.classList.remove('objective-task-asset-highlight'));openView=null;dialog?.remove();dialog=null;clearTimeout(hoverTimer);}};
   document.addEventListener('keydown',event=>{if(activeLinkDraft?.node?.contains(event.target)&&(event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==='s'){event.preventDefault();void saveLinkDetails(activeLinkDraft);}});
   window.addEventListener('beforeunload',event=>{if([...drafts.values()].some(dirtyDraft)||[...linkDrafts.values()].some(dirtyLink)){event.preventDefault();event.returnValue='';}});
 })();
