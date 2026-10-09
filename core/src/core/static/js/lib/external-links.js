@@ -3,6 +3,7 @@
 (function () {
   'use strict';
   const boundDocuments = new WeakSet();
+  const markdownSelector = '.markdown-body, .nb-markdown, .nb-history-markdown, .md-content, .assistant-markdown, .lab-live-markdown-block, a.lab-live-link';
   let popupCount = 0;
 
   function webUrl(value, base = document.baseURI) {
@@ -93,11 +94,26 @@
     if (event.defaultPrevented || (event.type === 'click' ? event.button !== 0 : event.button !== 1)) return;
     const link = event.target.closest?.('a[href], area[href]');
     if (!link || link.hasAttribute('download') || link.hasAttribute('data-lab-browser-fallback')) return;
-    const url = webUrl(link.getAttribute('href'), link.ownerDocument.baseURI);
-    if (!url || url.origin === window.location.origin) return;
+    const href = link.getAttribute('href');
+    const url = webUrl(href, link.ownerDocument.baseURI);
+    const markdown = !!link.closest(markdownSelector);
+    if (!url || markdown && href.startsWith('#') || url.origin === window.location.origin && !markdown) return;
     event.preventDefault();
-    event.stopPropagation();
-    void open(url.href, {clientOnly:link.hasAttribute('data-lab-client-external')});
+    event.stopImmediatePropagation();
+    const browserTab = event.metaKey || event.ctrlKey || event.shiftKey || event.button === 1;
+    void open(url.href, {clientOnly:markdown || link.hasAttribute('data-lab-client-external'), popup:markdown && !browserTab});
+  }
+
+  function keepEditorLink(event) {
+    if (event.button !== 0) return;
+    const link = event.target.closest?.('a[href]');
+    if (!link || !link.closest('.cm-editor') || !link.closest(markdownSelector)
+        || link.hasAttribute('download') || link.getAttribute('href').startsWith('#')
+        || !webUrl(link.getAttribute('href'), link.ownerDocument.baseURI)) return;
+    // Keep the rendered anchor alive until click; placing an editor caret here
+    // reveals its Markdown source and removes the click target on mousedown.
+    event.preventDefault();
+    event.stopImmediatePropagation();
   }
 
   function bindFrame(frame) {
@@ -111,6 +127,7 @@
     // Capture before document expansion and embedded app click handlers.
     doc.addEventListener('click', onLink, true);
     doc.addEventListener('auxclick', onLink, true);
+    doc.addEventListener('mousedown', keepEditorLink, true);
     doc.addEventListener('load', event => {
       if (event.target.tagName === 'IFRAME') bindFrame(event.target);
     }, true);

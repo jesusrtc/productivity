@@ -36,6 +36,7 @@ LabMarkdownEditor.create=(parent,options)=>{const editor=makeEditor(parent,optio
 window.editor=()=>editors.find(editor=>editor.view.dom.isConnected);
 window.realFetch=window.fetch.bind(window);
 window.writes=[];
+window.openedLinks=[];window.open=(...args)=>{openedLinks.push(args);return null;};
 window.fetch=async (url,options={})=>{
  if(url==='/api/assistant/content'&&options.method==='PUT')writes.push({at:Date.now(),...JSON.parse(options.body)});
  const response=await realFetch(url,options);
@@ -60,7 +61,7 @@ window.read=path=>realFetch('/api/assistant/note?path='+encodeURIComponent(path)
 '''
     scripts = '\n'.join('<script>' + (STATIC / path).read_text() + '</script>' for path in [
         'vendor/marked@12.0.1/marked.min.js', 'vendor/dompurify@3.4.15/purify.min.js',
-        'js/lib/markdown-content.js', 'vendor/lab-markdown-editor/markdown-editor.min.js', 'js/views/assistant.js'])
+        'js/lib/markdown-content.js', 'js/lib/external-links.js', 'vendor/lab-markdown-editor/markdown-editor.min.js', 'js/views/assistant.js'])
     page = '<!doctype html><meta charset="utf-8"><style>'+ (STATIC/'css/lab-shell.css').read_text()+'</style><body class="assistant-active"><div id="repoTabs"></div><div id="content"></div><pre id="result">PENDING</pre>'+scripts+'<script>const FIX='+json.dumps(fixture)+';</script><script>'+checks+'</script>'
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args): pass
@@ -85,10 +86,10 @@ async function evaluate(expression) {
  if(result.exceptionDetails)throw new Error(result.exceptionDetails.exception?.description||'Browser check failed');
  return result.result?.value;
 }
-async function clickAt(point) {
+async function clickAt(point,modifiers=0) {
  await send('Input.dispatchMouseEvent',{type:'mouseMoved',...point});
- await send('Input.dispatchMouseEvent',{type:'mousePressed',...point,button:'left',clickCount:1});
- await send('Input.dispatchMouseEvent',{type:'mouseReleased',...point,button:'left',clickCount:1});
+ await send('Input.dispatchMouseEvent',{type:'mousePressed',...point,button:'left',clickCount:1,modifiers});
+ await send('Input.dispatchMouseEvent',{type:'mouseReleased',...point,button:'left',clickCount:1,modifiers});
 }
 async function typeInParagraph(text, label='First paragraph') {
  const point=await evaluate(`(() => {const block=[...document.querySelectorAll('.cm-content .cm-line')].find(node=>node.textContent.includes(${JSON.stringify(label)}));assert(block,'rendered paragraph available');block.scrollIntoView({block:'center'});const r=editor().view.coordsAtPos(editor().value.indexOf(${JSON.stringify(label)}));return {x:r.left+1,y:(r.top+r.bottom)/2}})()`);
@@ -98,6 +99,11 @@ async function typeInParagraph(text, label='First paragraph') {
 }
 await evaluate(`until(()=>document.getElementById('result').textContent!=='PENDING')`);
 await evaluate(`assert(document.getElementById('result').textContent==='READY',document.getElementById('result').textContent)`);
+const linkPoint=await evaluate(`(()=>{const link=document.querySelector('.cm-content a');link.scrollIntoView({block:'center'});const r=link.getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2}})()`);
+await clickAt(linkPoint);
+await evaluate(`assert(openedLinks.length===1&&openedLinks[0][0].endsWith(linkHref)&&openedLinks[0][2].startsWith('popup,'),'native editable Markdown click opens a scoped document window');assert(editor().value===FIX.original&&writes.length===0&&document.querySelector('.cm-content a'),'link activation preserves source, draft and rendered anchor')`);
+await clickAt(linkPoint,4);
+await evaluate(`assert(openedLinks.length===2&&openedLinks[1][0].endsWith(linkHref)&&!openedLinks[1][2].includes('popup'),'native Cmd-click opens one browser tab');assert(editor().value===FIX.original&&writes.length===0,'modified link activation does not edit or save the document')`);
 await evaluate(`(async()=>{const realCopy=LabMarkdown.copy;let copied;LabMarkdown.copy=async node=>{copied=node;return true};document.querySelector('.lab-live-heading-2').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true}));assert(document.querySelector('.assistant-heading-menu'),'editable heading opens section actions');document.querySelector('.assistant-heading-menu button').click();await until(()=>copied);LabMarkdown.copy=realCopy;assert(copied.querySelector('h2').textContent==='Second section'&&copied.textContent.includes('Other paragraph')&&!copied.textContent.includes('First paragraph'),'section copy renders exactly the selected Markdown section');assert(document.getElementById('assistantDocumentLocation').textContent.includes('Opening'),'live heading remains in document breadcrumbs')})()`);
 await typeInParagraph('**live** ');
 await evaluate(`assert(editor().value.includes('**live** '),'native typing changes the current Markdown source');window.lastInput=Date.now()`);

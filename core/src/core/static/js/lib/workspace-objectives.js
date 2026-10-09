@@ -551,8 +551,9 @@
     const node=form('Trash '+info.title+'?',`<p>Remove this asset from the Objective and detach its task assignments? Source files and running terminals are preserved.</p>`,()=>change({type:'asset-trash',objective_id:owner,...target,confirmed:true},{scope}));
     node.querySelector('[type=submit]').textContent='Trash asset';
   }
-  function openAsset(asset) {
+  function openAsset(asset,event=null) {
     if(asset.folder){const scope=asset.folder.path==='.'&&scopeRows().find(t=>[t.path,t.resolved_path].includes(asset.folder.root));if(scope)selectScope(scope);else bridge.openFolder?.(asset.folder);return;}
+    const info=assetInfo(asset);if(info?.resource?.kind==='link'){openLinkUrl(info.reference,event);return;}
     openResource(asset.resource_id,asset.tab_id||null,asset.sub_link_id||null);
   }
   function openResource(resourceId,tabId=null,subLink=null) {
@@ -594,9 +595,10 @@
   function validLinkUrl(value) {
     try{const url=new URL(value);return /^https?:\/\//i.test(value)&&['http:','https:'].includes(url.protocol)&&!!url.hostname&&!/[\x00-\x1f\x7f]/.test(value);}catch{return false;}
   }
-  function openLinkUrl(url) {
+  function openLinkUrl(url,event=null) {
     if(!validLinkUrl(url)){notify('Use a full http or https URL.',true);return;}
-    void window.LabExternalLinks?.open(url,{clientOnly:true,popup:true});
+    const browserTab=event&&(event.metaKey||event.ctrlKey||event.shiftKey||event.button===1);
+    void window.LabExternalLinks?.open(url,{clientOnly:true,popup:!browserTab});
   }
   function linkPropertiesHtml(d) {
     return d.properties.map((p,i)=>`<div class="objective-link-property" data-link-property="${i}"><input aria-label="Property ${i+1} name" data-link-property-name maxlength="80" placeholder="Property" value="${esc(p.name)}"><textarea aria-label="Property ${i+1} value" data-link-property-value rows="1" placeholder="Value">${esc(p.value)}</textarea><button type="button" data-remove-link-property="${i}" aria-label="Remove property ${i+1}">×</button></div>`).join('')||'<p class="objective-purpose">No properties yet.</p>';
@@ -1110,6 +1112,9 @@
     menu.querySelector('[aria-checked=true]')?.focus({preventScroll:true});
   }
   function closeAssetContextMenu() {assetContextMenu?.remove();assetContextMenu=null;}
+  function linkDetailsMenu(asset) {
+    return assetInfo(asset)?.resource?.kind==='link'?`<button type="button" role="menuitem" data-edit-link-details="${esc(JSON.stringify(assetTarget(asset)))}">Edit link details…</button>`:'';
+  }
   function showAssetContextMenu(event) {
     if(!active(context()?.path)||!event.target.closest?.('[data-objectives-sidebar],.objective-working'))return false;
     const node=event.target.closest('[data-objective-asset],[data-objective-resource],[data-classify-asset],[data-objective-star]');if(!node)return false;
@@ -1119,7 +1124,7 @@
     event.preventDefault();event.stopImmediatePropagation();closeTaskStatusMenu();closeAssetContextMenu();
     const json=esc(JSON.stringify(assetTarget(asset))),required=requiredAsset(asset);
     assetContextMenu=document.createElement('div');assetContextMenu.className='objective-asset-context-menu';assetContextMenu.setAttribute('role','menu');assetContextMenu.setAttribute('aria-label','Asset actions');
-    assetContextMenu.innerHTML=`<button type="button" role="menuitem" data-objective-star="${json}">${isShared(asset)?'Unpin':'Pin above tasks'}</button>${required?'<span class="objective-bucket-empty">Required task details</span>':`<button type="button" role="menuitem" data-menu-asset="${json}" data-menu-assignment="task">Move to task…</button><button type="button" role="menuitem" data-menu-asset="${json}" data-menu-assignment="objective">Move to Objective…</button><button type="button" role="menuitem" data-menu-asset="${json}" data-menu-bucket="unassigned">Move to Unassigned</button><button type="button" role="menuitem" data-menu-asset="${json}" data-menu-bucket="archive">Archive</button><button type="button" role="menuitem" data-trash-objective-asset="${json}">Trash…</button>`}`;
+    assetContextMenu.innerHTML=linkDetailsMenu(asset)+`<button type="button" role="menuitem" data-objective-star="${json}">${isShared(asset)?'Unpin':'Pin above tasks'}</button>${required?'<span class="objective-bucket-empty">Required task details</span>':`<button type="button" role="menuitem" data-menu-asset="${json}" data-menu-assignment="task">Move to task…</button><button type="button" role="menuitem" data-menu-asset="${json}" data-menu-assignment="objective">Move to Objective…</button><button type="button" role="menuitem" data-menu-asset="${json}" data-menu-bucket="unassigned">Move to Unassigned</button><button type="button" role="menuitem" data-menu-asset="${json}" data-menu-bucket="archive">Archive</button><button type="button" role="menuitem" data-trash-objective-asset="${json}">Trash…</button>`}`;
     document.body.append(assetContextMenu);const box=node.getBoundingClientRect();
     assetContextMenu.style.left=Math.max(8,Math.min(event.clientX||box.left,window.innerWidth-assetContextMenu.offsetWidth-8))+'px';
     assetContextMenu.style.top=Math.max(8,Math.min(event.clientY||box.bottom,window.innerHeight-assetContextMenu.offsetHeight-8))+'px';assetContextMenu.querySelector('button')?.focus();return true;
@@ -1140,6 +1145,7 @@
     const node=e.target.closest('button,input,a');if(!node)return;
     if(node.disabled)return;
     if(node.closest('.objective-asset-context-menu'))closeAssetContextMenu();
+    if(node.hasAttribute('data-edit-link-details')){const asset=JSON.parse(node.dataset.editLinkDetails);openResource(asset.resource_id,asset.tab_id||null,asset.sub_link_id||null);return;}
     if(node.dataset.menuAssignment){classifyAsset(JSON.parse(node.dataset.menuAsset),node.dataset.menuAssignment);return;}
     if(node.dataset.menuBucket){void change({type:'asset-bucket',objective_id:objective().id,...JSON.parse(node.dataset.menuAsset),bucket:node.dataset.menuBucket}).catch(()=>{});return;}
     if(node.hasAttribute('data-objective-star')){const target=JSON.parse(node.dataset.objectiveStar);void change({type:'asset-star',objective_id:objective().id,...target,starred:!isShared(target)}).catch(()=>{});return;}
@@ -1155,8 +1161,8 @@
     if(node.dataset.scheduleTask){const o=objective(),scope={...context()},task=tasks(o).find(t=>t.id===node.dataset.scheduleTask);window.LabTaskSchedule?.edit(task,values=>change({type:'task-update',objective_id:o.id,task_id:task.id,...values},{scope}));return;}
     if(node.dataset.taskAssets){openTaskAssets(node.dataset.taskAssets);return;}
     if(node.dataset.removeTaskAsset){const id=node.dataset.assetTask;void change({type:'task-remove-asset',objective_id:objective().id,task_id:id,asset_id:node.dataset.removeTaskAsset}).then(()=>openTaskAssets(id)).catch(()=>{});return;}
-    if(node.dataset.openTaskAsset){const task=tasks().find(t=>t.id===node.dataset.assetTask),asset=task&&taskAssets(task).find(a=>a.id===node.dataset.openTaskAsset);if(asset){const info=assetInfo(asset);if(info?.resource?.kind==='link'&&!e.metaKey&&!e.ctrlKey){openLinkUrl(info.reference);return;}dialog?.remove();dialog=null;openTask(task.id);openAsset(asset);}return;}
-    if(node.hasAttribute('data-objective-asset')&&!node.dataset.objectiveResource){openAsset(JSON.parse(node.dataset.objectiveAsset));return;}
+    if(node.dataset.openTaskAsset){const task=tasks().find(t=>t.id===node.dataset.assetTask),asset=task&&taskAssets(task).find(a=>a.id===node.dataset.openTaskAsset);if(asset){const info=assetInfo(asset);if(info?.resource?.kind==='link'){openLinkUrl(info.reference,e);return;}dialog?.remove();dialog=null;openTask(task.id);openAsset(asset,e);}return;}
+    if(node.hasAttribute('data-objective-asset')&&!node.dataset.objectiveResource){openAsset(JSON.parse(node.dataset.objectiveAsset),e);return;}
     if(e.target.closest('[data-toggle-objective-switch]')){switchMenu?closeSwitchMenu():showSwitchMenu();return;}
     if(node.hasAttribute('data-choose-objective-slot')){closeSwitchMenu();showAll();data()?.objectives.length?focusDialog(null,Number(node.dataset.chooseObjectiveSlot)):newObjective(Number(node.dataset.chooseObjectiveSlot));return;}
     if(node.dataset.objectiveTerminalsAll){
@@ -1173,11 +1179,11 @@
     if(node.hasAttribute('data-focus-objective')){focusDialog();return;}
     if(node.hasAttribute('data-fold-worktrees')){if(state().worktreesOpen)foldWorktrees();else{state().worktreesOpen=true;paint();}document.querySelector('[data-fold-worktrees]')?.focus({preventScroll:true});return;}
     if(node.hasAttribute('data-open-objective-tasks')){collapse();renderTasks();return;}
-    if(node.dataset.objectiveResource){const r=objective()?.resources.find(r=>r.id===node.dataset.objectiveResource),sub=node.dataset.objectiveSublink||null;e.preventDefault();if(r?.kind==='link'&&!e.metaKey&&!e.ctrlKey)openLinkUrl(linkTarget(r,sub)?.url);else openResource(node.dataset.objectiveResource,node.dataset.objectiveTab||null,sub);return;}
+    if(node.dataset.objectiveResource){const r=objective()?.resources.find(r=>r.id===node.dataset.objectiveResource),sub=node.dataset.objectiveSublink||null;e.preventDefault();if(r?.kind==='link')openLinkUrl(linkTarget(r,sub)?.url,e);else openResource(node.dataset.objectiveResource,node.dataset.objectiveTab||null,sub);return;}
     if(node.dataset.openParentLink){openResource(node.dataset.openParentLink);return;}
     if(node.hasAttribute('data-add-objective-sublink')){const d=activeLinkDraft;form('Add sublink',input('Title','title')+input('URL','url','','url'),values=>change({type:'link-sublink',objective_id:d.objective,resource_id:d.resource,parent_id:d.subLink,title:values.get('title'),url:values.get('url')},{scope:d.scope}));return;}
     if(node.dataset.removeObjectiveSublink){const d=activeLinkDraft;void change({type:'link-remove-sublink',objective_id:d.objective,resource_id:d.resource,sub_link_id:node.dataset.removeObjectiveSublink},{scope:d.scope}).catch(()=>{});return;}
-    if(node.hasAttribute('data-open-objective-link')){openLinkUrl(activeLinkDraft.url.trim());return;}
+    if(node.hasAttribute('data-open-objective-link')){openLinkUrl(activeLinkDraft.url.trim(),e);return;}
     if(node.hasAttribute('data-revert-objective-link')){void revertLinkDetails(activeLinkDraft);return;}
     if(node.hasAttribute('data-add-link-property')){const d=activeLinkDraft;d.properties.push({name:'',value:''});d.node.querySelector('[data-link-properties]').innerHTML=linkPropertiesHtml(d);updateLinkHeader(d);d.node.querySelector('.objective-link-property:last-child input').focus();return;}
     if(node.hasAttribute('data-remove-link-property')){const d=activeLinkDraft;d.properties.splice(Number(node.dataset.removeLinkProperty),1);d.node.querySelector('[data-link-properties]').innerHTML=linkPropertiesHtml(d);updateLinkHeader(d);return;}

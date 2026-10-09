@@ -154,6 +154,37 @@ const click = (link, options = {}) => {
   window.fetch = async () => {throw Error('Remote reuse must not control the host desktop')};
   await LabExternalLinks.open('https://example.com/remote-reuse', {clientOnly:true, reuseTab:true});
   assert(tabs.length === afterPopoutCount+1 && tabs.at(-1)[0] === 'https://example.com/remote-reuse', 'remote workspace links open on their own client');
+
+  // Every Markdown surface uses immediate client windows, with modified tabs.
+  const beforeMarkdownCalls = nativeCalls.length;
+  for (const className of ['markdown-body','nb-markdown','nb-history-markdown','md-content','assistant-markdown','lab-live-markdown-block']) {
+    const host = document.createElement('section'); host.className = className; document.body.append(host);
+    const link = anchor('https://example.com/markdown?source='+className+'#part'); host.append(link);
+    const before = tabs.length;
+    click(link);
+    assert(tabs.length === before+1 && tabs.at(-1)[2].startsWith('popup,'), 'normal Markdown click opens one window: '+className);
+    for (const options of [{metaKey:true},{ctrlKey:true},{button:1}]) {
+      const previous = tabs.length;
+      click(link, options);
+      assert(tabs.length === previous+1 && !tabs.at(-1)[2].includes('popup'), 'modified Markdown click opens one tab');
+    }
+    link.click();
+    assert(tabs.at(-1)[2].startsWith('popup,'), 'keyboard activation opens a window');
+    host.remove();
+  }
+  assert(nativeCalls.length === beforeMarkdownCalls, 'Markdown clicks never open on the server desktop');
+  const markdown = document.createElement('article'); markdown.className = 'markdown-body'; document.body.append(markdown);
+  const local = anchor('/api/assistant/link?document=notes%2Fa.md&src=guide.md%23tab%3Done'); markdown.append(local);
+  click(local);
+  assert(tabs.at(-1)[0] === local.href && tabs.at(-1)[2].startsWith('popup,'), 'same-origin Markdown document links retain their scoped destination in windows');
+  click(local,{metaKey:true});
+  assert(tabs.at(-1)[0] === local.href && !tabs.at(-1)[2].includes('popup'), 'Cmd local document link opens a tab');
+  const inline = anchor('#section'); markdown.append(inline);
+  const beforeInline = tabs.length;
+  inline.addEventListener('click',event=>event.preventDefault()); click(inline);
+  const file = anchor('https://example.com/download'); file.download = 'file'; markdown.append(file);
+  file.addEventListener('click',event=>event.preventDefault()); click(file);
+  assert(tabs.length === beforeInline, 'in-page headings and downloads retain native behavior');
   document.getElementById('result').textContent = 'PASS';
 })().catch(error => document.getElementById('result').textContent = 'FAIL: ' + error.stack);
 '''
