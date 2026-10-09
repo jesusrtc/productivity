@@ -2041,13 +2041,11 @@
   .term-sessions .sess.dragging { opacity: 0.45; cursor: grabbing; }
   .term-sessions .sess.drop-before { box-shadow: inset 0 2px 0 var(--accent); }
   .term-sessions .sess.drop-after { box-shadow: inset 0 -2px 0 var(--accent); }
-  .term-sessions .sess .sess-icon { font-size: 14px; line-height: 1; }
+  .term-sessions .sess .sess-icon { display:inline-flex; align-items:center; justify-content:center; flex:none; font-size:14px; line-height:1; }
   .term-sessions .sess .sess-icon .ft-icon, .term-active-session > span > .ft-icon { margin-right: 0; vertical-align: middle; }
   .term-sessions .sess .sess-order { display: none; color: var(--text-dim); font-size: 9px; line-height: 1; }
   .term-sessions .sess .sess-link { position: absolute; top: 2px; right: 3px; color: var(--accent); font-size: 8px; line-height: 1; opacity: .9; }
   .term-sessions .sess .sess-activity { position: absolute; top: calc(50% - 3px); right: 3px; width: 6px; height: 6px; border-radius: 50%; pointer-events: none; }
-  .term-sessions .sess .sess-working { background: var(--yellow); }
-  .term-sessions .sess .sess-working:has(+ .sess-completion) { right: 12px; }
   .term-sessions .sess .sess-completion { background: var(--green); animation: term-completion-blink 1.6s step-end infinite; box-shadow: 0 0 5px var(--green); pointer-events: auto; cursor: pointer; }
   .term-sessions .sess .sess-completion:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .term-sessions .sess .sess-label { display: none; }
@@ -2106,7 +2104,6 @@
   .term-panel.term-sessions-horizontal.term-sessions-full .term-sessions .sess { width: auto; max-width: 240px; padding: 3px 9px; }
   .term-panel.term-sessions-horizontal.term-sessions-full .term-sessions .sess .sess-label { flex: 0 1 auto; max-width: 140px; }
   .term-panel.term-sessions-full .term-sessions .sess:has(.sess-activity) { padding-right: 14px; }
-  .term-panel.term-sessions-full .term-sessions .sess:has(.sess-working + .sess-completion) { padding-right: 23px; }
 
   .term-sessions .sess:hover { color: var(--text-primary); background: var(--bg-tertiary); border-color: var(--accent); }
   .term-session-tooltip { position: fixed; z-index: 1200; width: min(420px, calc(100vw - 16px)); box-sizing: border-box; padding: 9px 10px; color: var(--text-primary); background: #20252c; border: 1px solid #414852; border-radius: 6px; box-shadow: 0 5px 18px rgba(0,0,0,.48); font: 11px/1.35 ui-monospace, monospace; overflow-wrap: anywhere; pointer-events: auto; }
@@ -2187,21 +2184,14 @@
   .term-sessions .sess.term-display-main .sess-label .term-home-association::before { display:none; }
   .term-panel.term-sessions-full .term-sessions .sess.term-display-main .sess-label.custom { color:var(--term-display-main-color); }
   .term-display-main-dot { flex:none; width:6px; height:6px; border-radius:50%; background:var(--term-display-main-color); }
-  .term-sessions .sess .sess-task-status { order: 0; flex: none; display:inline-block; width:5px; height:5px; border-radius:50%; background:var(--text-secondary); }
-  .term-sessions .sess .sess-task-status[data-task-status=todo] { background:transparent; box-shadow:inset 0 0 0 1px var(--red); }
-  .term-sessions .sess .sess-task-status[data-task-status=in_progress] { background:var(--yellow); }
-  .term-sessions .sess .sess-task-status[data-task-status=done] { background:var(--green); }
-  .term-sessions .sess .sess-task-status[data-task-status=paused] { background:transparent; box-shadow:inset 0 0 0 1px var(--yellow); }
-  .term-sessions .sess .sess-task-status[data-task-status=wont_do] { opacity:.55; }
   .term-sessions .objective-task-terminal .sess-label { order: 1; }
   .term-sessions .objective-task-terminal .sess-label .objective-task-worktree-name i { width:6px; height:6px; }
-  .term-sessions .objective-task-terminal .sess-icon { order: 3; margin-left: auto; }
+  .term-sessions .objective-task-terminal .sess-icon { order:0; margin:0; }
   .term-sessions .term-task-placeholder { border-style: dashed; color: var(--text-secondary); text-align:left; }
   .term-task-create { order: 4; color: var(--accent); font-size: 14px; }
   .term-sessions .sess .term-subtab-caret { position: absolute; left: 2px; top: 2px; font-size: 9px; color: var(--text-dim); line-height: 1; }
   .term-panel .term-sessions .sess.term-automation-terminal { justify-content:flex-start; padding:7px 8px; color:var(--text-primary); }
   .term-sessions .sess.term-automation-terminal::before { display:none; }
-  .term-sessions .sess.term-automation-terminal .sess-task-icon { display:none; }
   .term-sessions .sess.term-automation-terminal .term-subtab-caret { display:none; }
   .term-sessions .sess .term-automation-relaunch { position:absolute; right:1px; top:50%; transform:translateY(-50%); width:16px; height:20px; padding:0; border:0; border-radius:3px; background:transparent; color:var(--accent); font:15px/20px sans-serif; cursor:pointer; }
   .term-sessions .sess .term-automation-relaunch:hover { background:var(--bg-tertiary); }
@@ -2209,32 +2199,45 @@
   .term-sessions .sess .term-automation-relaunch:disabled { opacity:.4; cursor:wait; }
   .term-panel.term-sessions-full .term-sessions .sess:has(.term-automation-relaunch) { padding-right:22px; }
   .term-sessions .sess:has(.term-automation-relaunch) .sess-activity { right:21px; }
-  .term-sessions .sess:has(.term-automation-relaunch) .sess-working:has(+ .sess-completion) { right:30px; }
   .term-panel.term-sessions-full .term-sessions .sess:has(.term-automation-relaunch):has(.sess-activity) { padding-right:32px; }
-  .term-panel.term-sessions-full .term-sessions .sess:has(.term-automation-relaunch):has(.sess-working + .sess-completion) { padding-right:41px; }
   .term-sessions-horizontal .term-subtab-node, .term-sessions-horizontal .term-subtab-children { flex-direction: row; align-items: center; }
   .term-sessions-horizontal .term-subtab-children { margin-left: 0; padding-left: 4px; }
   .term-sessions-horizontal .term-tab-group, .term-sessions-horizontal .term-tab-group-tabs { flex-direction: row; }
   .term-sessions-horizontal .term-tab-group-label { max-width: 160px; }
   .term-sessions-horizontal .term-tab-group-tabs { border-left: 0; border-bottom: 2px solid var(--term-group-color); padding-left: 0; padding-bottom: 3px; }
   .term-sessions .sess-label[data-task-terminal-color] .objective-task-worktree-name { color:inherit; }
-  /* Compact mains keep their role icons; task terminals honor custom icons
-     with a computer fallback. The live hierarchy stays intact when expanded. */
+  /* Compact icons stay centered independently of activity/recovery controls.
+     Children have their own fallback; custom icons and main roles take precedence. */
   :is(.term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open), .term-panel.term-sessions-horizontal:not(.term-sessions-full)) .term-sessions .sess { justify-content:center; height:36px; padding:0; }
-  :is(.term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open), .term-panel.term-sessions-horizontal:not(.term-sessions-full)) .term-sessions .sess::before { content:'💻'; display:block; flex:none; width:20px; height:20px; border-radius:0; background:none; font-size:20px; line-height:1; pointer-events:none; }
+  :is(.term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open), .term-panel.term-sessions-horizontal:not(.term-sessions-full)) .term-sessions .sess::before { content:'💻'; display:block; position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); width:20px; height:20px; border-radius:0; background:none; font-size:20px; line-height:1; pointer-events:none; }
+  :is(.term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open), .term-panel.term-sessions-horizontal:not(.term-sessions-full)) .term-sessions .sess[data-terminal-child]::before { content:'⏺'; }
   :is(.term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open), .term-panel.term-sessions-horizontal:not(.term-sessions-full)) .term-sessions .sess[data-terminal-main="workflow"]::before { content:'🏠'; }
   :is(.term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open), .term-panel.term-sessions-horizontal:not(.term-sessions-full)) .term-sessions .sess[data-terminal-main="objective"]::before { content:'🎯'; }
   :is(.term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open), .term-panel.term-sessions-horizontal:not(.term-sessions-full)) .term-sessions :is(.sess-icon, .sess-label, .term-subtab-caret, .term-home-association span, .term-folder-association small) { display:none; }
-  :is(.term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open), .term-panel.term-sessions-horizontal:not(.term-sessions-full)) .term-sessions .sess:has(.sess-task-icon)::before { display:none; }
-  :is(.term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open), .term-panel.term-sessions-horizontal:not(.term-sessions-full)) .term-sessions .sess .sess-task-icon { display:flex; align-items:center; justify-content:center; flex:none; order:0; width:20px; height:20px; margin:0; font-size:20px; line-height:1; }
+  :is(.term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open), .term-panel.term-sessions-horizontal:not(.term-sessions-full)) .term-sessions .sess:has(.sess-icon)::before { display:none; }
+  :is(.term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open), .term-panel.term-sessions-horizontal:not(.term-sessions-full)) .term-sessions .sess .sess-icon { display:flex; align-items:center; justify-content:center; position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); flex:none; order:0; width:20px; height:20px; margin:0; font-size:20px; line-height:1; }
   :is(.term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open), .term-panel.term-sessions-horizontal:not(.term-sessions-full)) .term-sessions .sess .sess-activity { top:3px; right:3px; }
-  :is(.term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open), .term-panel.term-sessions-horizontal:not(.term-sessions-full)) .term-sessions .sess .sess-working:has(+ .sess-completion) { right:12px; }
   :is(.term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open), .term-panel.term-sessions-horizontal:not(.term-sessions-full)) .term-sessions :is(.term-subtab-children, .term-tab-group-tabs, .objective-terminal-group) { margin:0; padding:0; border:0; }
-  :is(.term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open), .term-panel.term-sessions-horizontal:not(.term-sessions-full)) .term-sessions .sess :is(.sess-task-status, .term-display-main-dot, .term-home-association, .sess-label:has(.objective-task-worktree-name)) { position:absolute; right:3px; bottom:3px; margin:0; max-width:none; }
+  :is(.term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open), .term-panel.term-sessions-horizontal:not(.term-sessions-full)) .term-sessions .sess :is(.term-display-main-dot, .term-home-association, .sess-label:has(.objective-task-worktree-name)) { position:absolute; right:3px; bottom:3px; margin:0; max-width:none; }
   :is(.term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open), .term-panel.term-sessions-horizontal:not(.term-sessions-full)) .term-sessions .sess .sess-label:has(.objective-task-worktree-name) { display:block; flex:none; height:6px; font-size:0; line-height:6px; }
   :is(.term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open), .term-panel.term-sessions-horizontal:not(.term-sessions-full)) .term-sessions .sess-label .objective-task-worktree-name i { margin:0; vertical-align:top; }
   :is(.term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open), .term-panel.term-sessions-horizontal:not(.term-sessions-full)) .term-sessions .sess.term-automation-terminal::after { content:''; position:absolute; right:3px; bottom:3px; width:5px; height:5px; border-radius:50%; background:var(--text-primary); pointer-events:none; }
   :is(.term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open), .term-panel.term-sessions-horizontal:not(.term-sessions-full)) .term-sessions .term-task-create { position:absolute; right:3px; top:3px; font-size:10px; line-height:1; }
+  /* Expanding the vertical rail reveals titles beside its fixed icon column.
+     The 49px column is the 62px rail minus its padding and right border. */
+  .term-panel:not(.term-sessions-horizontal) .term-session-switcher { --term-icon-column:49px; }
+  .term-panel:not(.term-sessions-horizontal) .term-session-switcher .term-sessions :is(.term-subtab-children, .term-tab-group-tabs, .objective-terminal-group) { margin:0; padding:0; border:0; }
+  .term-panel:not(.term-sessions-horizontal) .term-session-switcher .term-sessions .sess { height:36px; min-height:36px; }
+  .term-panel:not(.term-sessions-horizontal) .term-session-switcher.term-tabs-open .term-sessions .sess { padding-left:54px; }
+  .term-panel:not(.term-sessions-horizontal) .term-session-switcher .term-sessions .sess .sess-icon { display:flex; position:absolute; left:calc((var(--term-icon-column) - 2px)/2); top:50%; transform:translate(-50%,-50%); width:20px; height:20px; margin:0; font-size:20px; line-height:1; }
+  .term-panel:not(.term-sessions-horizontal) .term-session-switcher .term-sessions .sess .term-automation-relaunch { left:30px; right:auto; }
+  .term-panel:not(.term-sessions-horizontal) .term-session-switcher .term-sessions .sess .sess-activity { left:38px; right:auto; top:3px; }
+  .term-panel:not(.term-sessions-horizontal) .term-session-switcher .term-sessions .sess .term-display-main-dot,
+  .term-panel:not(.term-sessions-horizontal) .term-session-switcher .term-sessions .sess .sess-label .objective-task-worktree-name i { position:absolute; left:38px; right:auto; bottom:3px; margin:0; }
+  .term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open) .term-sessions .sess .sess-label:has(.objective-task-worktree-name) { position:static; height:0; }
+  .term-panel:not(.term-sessions-horizontal) .term-session-switcher.term-tabs-open .term-sessions .sess .term-home-association::before { position:absolute; left:38px; bottom:3px; margin:0; }
+  .term-panel:not(.term-sessions-horizontal) .term-session-switcher .term-sessions .sess.term-automation-terminal::after { content:''; position:absolute; left:39px; right:auto; bottom:3px; width:5px; height:5px; border-radius:50%; background:var(--text-primary); pointer-events:none; }
+  .term-panel:not(.term-sessions-horizontal) .term-session-switcher .term-sessions .term-task-create { position:absolute; left:38px; right:auto; top:3px; font-size:10px; line-height:1; }
   .term-group-menu { max-height: calc(100vh - 16px); overflow-y: auto; }
   .term-group-menu hr { border: 0; border-top: 1px solid var(--border); margin: 4px 0; }
   .term-new-options { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }

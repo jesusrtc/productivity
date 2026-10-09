@@ -50,11 +50,11 @@ Every directory is checked before any command starts. Commands start in list
 order in separate tmux sessions and run independently. For dependent operations,
 combine them in one command, for example `npm run build && npm run dev`.
 An exited command prints its exit code and leaves an interactive shell with the
-logs retained. Expanded automation tabs show their saved names in white with
-live activity dots, without icons or folder captions. The folded rail honors
-custom task icons, including inherited icons; other terminals use a computer
-icon. Small status/worktree dots stay in the corner, without hierarchy
-indentation or guide lines. Names and hierarchy return on expansion. An active
+logs retained. Automation tabs show their saved names with a left icon and
+default to ⏺ for child terminals. The rail honors custom task icons, including
+inherited icons. Ordinary task terminals use 💻. Small worktree markers stay
+in the corner, while task-status and yellow activity dots are omitted. Hover
+reveals names without moving or resizing icons and controls. An active
 child stays visible along with its direct siblings and parent/grandparent path.
 Other automation children appear after holding the pointer over their parent
 for one second. Moving away cancels the reveal. Keyboard disclosure is immediate,
@@ -102,12 +102,15 @@ passive refresh, browser reconnect and status polling never replay them.
 
 ## Terminal tab names
 
-Vertical tabs normally show a flat icon rail with corner status dots. A saved
-custom task icon takes precedence over the computer fallback, including on
-recommended task terminals and inherited children. Merged tabs use the parent's
-custom icon while showing activity from the selected child's actual console.
-Compact horizontal tabs use the same icons and corner markers. Hover reveals
-the names immediately. Leaving after a brief hover hides them again. Clicking
+Vertical tabs show a flat icon rail with worktree and green review markers.
+A saved custom task icon takes precedence over the 💻 task or ⏺ child fallback,
+including on recommended task terminals and inherited children. Monochrome
+icons such as GitHub follow the title's custom or assigned worktree color.
+Merged tabs use the parent's icon while retaining activity from the selected
+child's actual console. Compact horizontal tabs use the same icons and corner
+markers. Hover reveals names immediately beside the existing vertical icons;
+their size, row heights, markers and renewal/review controls remain fixed.
+Leaving after a brief hover hides the names again. Clicking
 the rail or hovering for 3 seconds keeps the names open while moving to Files
 or other views; clicking inside the terminal console hides them. Escape also
 closes the names for keyboard navigation. The expanded list overlays the

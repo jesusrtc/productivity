@@ -5,6 +5,17 @@ guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 
 ## 2026-10-09
 
+### Stable terminal icons and hover expansion
+
+- Task terminal icons sit on the left. Monochrome icons such as GitHub follow
+  the title's custom or assigned worktree color. Ordinary task terminals use
+  💻 and children use ⏺ unless a custom icon is configured.
+- Expanding the vertical rail reveals titles without moving or resizing its
+  icons, colored markers, renewal buttons or green review controls. Activity
+  and recovery controls no longer shift collapsed icons.
+- Terminal tabs no longer show yellow activity dots or task-status dots.
+  Accessible activity labels and explicit green-result review remain available.
+
 ### Task icons and terminal text colors
 
 - Clicking a task's badge or icon opens a picker with distinct asset icons,

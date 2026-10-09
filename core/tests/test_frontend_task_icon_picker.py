@@ -25,8 +25,11 @@ const termSessEsc=value=>String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'
 const _termActiveWorkspaceId=()=> 'demo',_termRecentScopeKey=()=> 'demo';
 let termCurrentWorkspaceId='demo',termCurrentSession='primary';
 const _termSessionDisplay=s=>s.logical_name,_termSessionVisual=()=>({kind:'terminal',badge:'Terminal',icon:'💻'});
-const _termSessionRecentMeta=()=>null,_termSessionIsWorking=()=>false,_termSessionContext=()=>({label:'Requests'}),_termSessionSummary=()=>'',_termSessionTooltipPayload=()=> '{}',_termSessionAssociationHtml=()=>'';
+const _termSessionRecentMeta=()=>null,_termSessionIsWorking=()=>true,_termSessionContext=()=>({label:'Requests'}),_termSessionSummary=()=>'',_termSessionTooltipPayload=()=> '{}',_termSessionAssociationHtml=()=>'';
 const termDeadSessions=new Set(),_termReadGroupState=()=>({}),_termSubtabParents=()=>({child:'primary'});
+window.LabTerminalCompletion={meta:()=>({label:'Ready to review'})};
+window.LabTerminalAutomations={recoveryTargets:()=>[child],restartTargets:()=>[child]};
+child.automation={reason:'Stopped'};
 '''
     checks = r'''
 (async()=>{
@@ -61,14 +64,23 @@ const termDeadSessions=new Set(),_termReadGroupState=()=>({}),_termSubtabParents
   panel.classList.toggle('term-sessions-horizontal',horizontal);
   panel.classList.toggle('term-sessions-full',!horizontal);switcher.classList.remove('term-tabs-open');
   assert([...list.querySelectorAll('.sess-task-icon')].every(n=>getComputedStyle(n).display!=='none'&&n.querySelector('[data-link-service=github]')),'compact custom GitHub on primary, inherited, merged and dormant rows');
+  assert(!list.querySelector('.sess-working,.sess-task-status'),'terminal tabs omit activity and task status dots');
+  assert([...list.querySelectorAll('.sess-task-icon [data-link-service=github]')].every(n=>getComputedStyle(n).color==='rgb(255, 123, 114)'),'GitHub icon follows chosen name color');
+  const geometry=()=>[...list.querySelectorAll('.sess')].map(row=>[...row.querySelectorAll('.sess-icon,.term-automation-relaunch,.sess-completion,.objective-task-worktree-name i,.term-display-main-dot')].map(n=>{const r=n.getBoundingClientRect();return [r.x,r.y,r.width,r.height]}));
+  const compact=geometry();
   if(horizontal)panel.classList.add('term-sessions-full');else switcher.classList.add('term-tabs-open');
   assert([...list.querySelectorAll('.sess-label')].every(n=>getComputedStyle(n).color==='rgb(255, 123, 114)'),'chosen text color across all terminal rows');
   assert([...list.querySelectorAll('.objective-task-worktree-name')].every(n=>getComputedStyle(n).color==='rgb(255, 123, 114)'),'text override wins over worktree name color');
+  assert([...list.querySelectorAll('.sess')].every(row=>row.querySelector('.sess-icon').getBoundingClientRect().right<=row.querySelector('.sess-label').getBoundingClientRect().left),'expanded icon sits left of title');
+  if(!horizontal)assert(JSON.stringify(compact)===JSON.stringify(geometry()),'hover reveals titles without moving or resizing icons, colored markers, renewal or review controls');
  }
  open();picker().querySelector('[data-pick-task-icon="'+CSS.escape(JSON.stringify({emoji:'💡'}))+'"]').click();picker().querySelector('[data-cancel]').click();
  assert(requests.length===1&&task.icon.service==='github','cancel preserves saved icon and color');
  open();picker().querySelector('[data-pick-task-icon=null]').click();picker().querySelector('[data-task-default-color]').click();picker().querySelector('[type=submit]').click();await until(()=>!picker());
  assert(task.icon===null&&task.terminal_color===null&&refreshes>=2,'reset restores defaults without terminal recreation');
+ open();picker().querySelector('[data-pick-task-icon="'+CSS.escape(JSON.stringify({service:'github'}))+'"]' ).click();picker().querySelector('[type=submit]').click();await until(()=>!picker());
+ list.innerHTML=_termSessionPillHtml(primary,0);
+ assert(getComputedStyle(list.querySelector('[data-link-service=github]')).color===getComputedStyle(list.querySelector('.objective-task-worktree-name')).color&&getComputedStyle(list.querySelector('[data-link-service=github]')).color==='rgb(88, 166, 255)','default GitHub tint follows its own worktree name');
  document.body.dataset.result='pass';
 })().catch(error=>{document.body.dataset.result='fail';document.body.append(String(error.stack||error));});
 '''

@@ -120,8 +120,16 @@ within the user's request and follow the owning instructions.
 
 The default workspace main terminal uses **🏠**, and the default Objective main
 uses **🎯**, in both compact and expanded terminal lists, including before their
-sessions start. Other terminals keep the **💻** compact icon unless their task
-has a custom icon.
+sessions start. Task terminals use **💻** and child terminals use **⏺** by
+default; saved custom icons take precedence. Icons appear on the left, including
+when titles are visible. GitHub and other monochrome icons follow the terminal
+title's chosen color or its own assigned worktree color.
+
+Hovering over the vertical terminal rail reveals titles beside the existing
+icons. Icon sizes, row heights, colored markers and renewal/review controls
+stay in place. Terminal tabs omit task-status dots and yellow activity dots;
+status remains in hover and accessible labels. Green results still wait for
+an explicit tab or green-dot click to be reviewed.
 
 Objective task terminal tabs appear by default only while the task is **In
 progress**. Paused, Not started, Completed and Won’t do tasks stay hidden even

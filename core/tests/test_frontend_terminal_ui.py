@@ -899,7 +899,8 @@ for (const agent of ['codex', 'claude', 'copilot']) {
 console.log(JSON.stringify({rows}));
 """)
     for row in result['rows']:
-        assert row['dot'] == row['label'] == row['tooltip'] == (row['state'] in {'working', 'waiting', 'unreachable'})
+        assert not row['dot']
+        assert row['label'] == row['tooltip'] == (row['state'] in {'working', 'waiting', 'unreachable'})
 
 
 def test_vault_view_opens_shared_home_terminal_scope() -> None:

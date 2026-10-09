@@ -326,7 +326,7 @@ console.log(JSON.stringify({passed:true}));
     assert result['passed']
 
 
-def test_working_and_unread_completion_remain_visible_independently():
+def test_working_labels_and_unread_completion_remain_independent():
     helpers = _js_between('  function _termSessionDisplay(s)', '  function _termTaskPlaceholderHtml(')
     result = _run_node(CLOCK + MODULE + r"""
 const termDeadSessions = new Set();
@@ -339,18 +339,18 @@ const C=window.LabTerminalCompletion,s = session();
 const render = () => _termSessionPillHtml(s, 0);
 const done = s.agent_activity;
 s.agent_activity = {state:'working'};
-assert(render().includes('sess-working') && !render().includes('sess-completion'), 'one yellow working dot');
+assert(!render().includes('sess-working') && render().includes(' · Working') && !render().includes('sess-completion'), 'working status is accessible without a yellow dot');
 window.LabObjectives = {taskForTerminal:()=>({title:'Verify the fix',icon:'<svg class="ft-nb"></svg>',assetIcon:'<svg class="ft-nb"></svg>',status:'todo',inherited:false})};
-assert(render().includes('<svg class="ft-nb">') && render().includes('Task: Verify the fix') && render().includes('sess-working'), 'a task-linked terminal inherits its asset icon and retains working status');
+assert(render().includes('<svg class="ft-nb">') && render().includes('Task: Verify the fix') && render().includes(' · Working') && !render().includes('sess-working'), 'a task-linked terminal inherits its asset icon and retains working status');
 delete window.LabObjectives;
 s.agent_activity = done;
 assert(render().includes('sess-completion') && !render().includes('sess-working'), 'one green completed dot');
 assert(!render().includes('completion-ready'), 'completion never decorates the vertical line');
 s.agent_activity = {state:'working'};
-assert(render().includes('sess-working') && render().includes('sess-completion'), 'new work cannot hide an unread green dot');
+assert(render().includes(' · Working') && !render().includes('sess-working') && render().includes('sess-completion'), 'new work cannot hide an unread green dot');
 assert(JSON.parse(_termSessionTooltipPayload(s)).completion, 'hover still describes the unread response');
 termDeadSessions.add(s.name);
-assert(render().includes('sess-working') && render().includes('sess-completion'), 'connection loss cannot erase either signal');
+assert(render().includes(' · Working') && !render().includes('sess-working') && render().includes('sess-completion'), 'connection loss cannot erase either signal');
 termDeadSessions.clear();
 s.agent_activity = session('codex', 200).agent_activity;
 show('vault', s); advance(19999);
@@ -384,15 +384,15 @@ const s = {...session('copilot'), kind:'claude'};
 for (const state of states) {
   s.agent_activity = state;
   const html = _termSessionPillHtml(s, 0);
-  const yellow = html.includes('sess-working'), green = html.includes('sess-completion');
-  assert(yellow === ['working','waiting'].includes(state.state), 'native Copilot event sets the yellow terminal dot: '+JSON.stringify(state));
+  const working = html.includes(' · Working'), green = html.includes('sess-completion');
+  assert(!html.includes('sess-working') && working === ['working','waiting'].includes(state.state), 'native Copilot activity remains accessible without a yellow dot: '+JSON.stringify(state));
   assert(green === (state.state === 'completed'), 'only native final completion creates green: '+JSON.stringify(state));
 }
 const C = window.LabTerminalCompletion;
 if (states.at(-1).state === 'completed') {
   s.agent_activity = {state:'working',updated_at:states.at(-1).updated_at+1};
   const html = _termSessionPillHtml(s, 0);
-  assert(html.includes('sess-working') && html.includes('sess-completion'), 'a new Copilot request preserves unread green alongside yellow');
+  assert(html.includes(' · Working') && !html.includes('sess-working') && html.includes('sess-completion'), 'a new Copilot request preserves unread green alongside working status');
   assert(C.acknowledge('vault::demo',s), 'direct green review acknowledges the recorded final response');
   assert(C.isWorking(s) && !C.meta('vault::demo',s), 'review keeps the new Copilot work yellow');
 } else {

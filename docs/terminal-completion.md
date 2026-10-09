@@ -1,8 +1,9 @@
 # Terminal activity and completion indicators
 
-Terminal tabs show a **steady yellow dot** when their terminal content has changed
-in the last **40 seconds**. After 40 seconds without a content change, a **blinking
-green dot** marks the result ready to review. This applies to bare terminals,
+Terminal activity is working when content has changed in the last **40 seconds**.
+Terminal tabs expose this in hover and accessible labels without a yellow dot.
+After 40 seconds without a content change, a **blinking green dot** marks the
+result ready to review. This applies to bare terminals,
 agents, child processes and merged tabs without requiring a provider conversation
 mapping. Title updates, cursor queries, unchanged redraws and resize baselines
 do not count as work. The timestamp measures content activity, not task success; it never
@@ -12,8 +13,9 @@ label distinguish quiet output from a recorded agent finish.
 When an output timestamp is unavailable, existing provider event detection is
 the fallback for Codex, Claude and Copilot. Missing timestamps or uncertain
 reads preserve previously observed state. Older shared-view snapshots cannot
-clear newer output activity or revive yellow after its quiet period. The first
-screen observation establishes a baseline and does not create yellow or green.
+clear newer output activity or revive working state after its quiet period. The
+first screen observation establishes a baseline and does not create an activity
+or completion signal.
 Verified unread results survive browser and backend restarts. On the upgrade to
 content verification, old raw-I/O signals are discarded because they may have
 been triggered by invisible SSH/TUI traffic.
@@ -21,8 +23,9 @@ been triggered by invisible SSH/TUI traffic.
 When a completed response is ready to review, a **green blinking dot** appears,
 including on the active tab until acknowledged. It blinks on/off every 0.8
 seconds with a slight glow. Reduced-motion preferences use a steady glowing dot.
-New work never hides or acknowledges an unread completion: yellow and green
-appear side by side when both apply. Hovering never acknowledges a response.
+New work never hides or acknowledges an unread completion: the green marker
+remains beside the terminal icon while activity labels describe the new work.
+Hovering never acknowledges a response.
 
 Workspace tabs aggregate their visible terminals, including terminals shared
 through linked documents. If any terminal is working, the workspace shows a
@@ -40,7 +43,7 @@ Green stays on indefinitely while the terminal is selected until that explicit
 click; a result finishing in the active terminal still needs a later click.
 Automatic restoration, programmatic activation, polling, hovering, focus changes
 and reloads never acknowledge a result. There is no viewing-delay timer or setting.
-Clicks during work cannot acknowledge a future result or clear yellow. Merged
+Clicks during work cannot acknowledge a future result or clear working state. Merged
 tabs acknowledge their selected child's result, rather than their parent identity.
 
 Clicking **directly on the green dot** also marks the result as reviewed without
@@ -77,8 +80,8 @@ samples cannot restart the 40 seconds or replay a reviewed cycle. Versioned
 observations and cache generations distinguish verified content from legacy
 raw-I/O signals and backend baselines.
 The normal scoped refresh (every eight seconds) updates every terminal in the
-panel, including detached children. Compact tabs show live activity at the upper
-corner and task/worktree markers at the lower corner; refresh controls stay usable.
+panel, including detached children. Compact tabs show green review markers at
+the upper corner and worktree markers at the lower corner; refresh controls stay usable.
 Merged tabs keep the parent's visual identity and the child's activity signal.
 
 Scoped terminal lists also retain exact conversation event detection as a fallback
@@ -178,6 +181,6 @@ hash-only retention, failure retries, same-second output, resizing and detached
 output versus invisible control noise on an isolated native tmux server. Frontend
 checks cover legacy-signal migration, cloned cached snapshots and backend restart
 baselines. Native Chrome subtab checks cover custom
-icons, visible yellow/green dots, immediate active/inactive tab-click review,
+icons, working labels without yellow dots, green markers, immediate active/inactive tab-click review,
 unchanged Rename, and direct green review for merged and unmerged process terminals
 in both rail orientations.

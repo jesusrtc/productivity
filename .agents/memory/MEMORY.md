@@ -1,5 +1,8 @@
 # Memory index
 
+- [Terminal rail reveals titles without moving icons](terminal-rail-reveals-titles-without-moving-icons.md) — stable icon sizes and controls on hover, left tinted icons and no yellow or task-status dots.
+- [Child terminals default to record icon](child-terminals-default-to-record-icon.md) — ⏺ for children, with custom icons and fixed main identifiers retained.
+
 - [Task icon picker and terminal colors](task-icon-picker-and-terminal-colors.md) — asset and built-in service icons, suggested emojis, shared worktree color palette, saved previews and CLI support.
 - [Task state symbols](task-state-symbols.md) — 🚧 for WIP and 🔄 for recurring tasks, separate from custom terminal icons.
 

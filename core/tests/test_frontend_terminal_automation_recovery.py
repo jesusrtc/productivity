@@ -82,7 +82,7 @@ const termSessEsc=value=>String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'
 const _termActiveWorkspaceId=()=> 'demo',_termRecentScopeKey=()=> 'demo';
 let termCurrentWorkspaceId='demo',termCurrentSession='running';
 const _termSessionDisplay=s=>s.label||s.logical_name;
-const _termSessionVisual=()=>({kind:'terminal',badge:'Terminal',icon:'▣'}),_termSessionRecentMeta=()=>null,_termSessionIsWorking=()=>false;
+const _termSessionVisual=()=>({kind:'terminal',badge:'Terminal',icon:'💻'}),_termSessionRecentMeta=()=>null,_termSessionIsWorking=()=>false;
 const _termSessionContext=()=>({label:'Requests'}),_termSessionSummary=()=>'',_termSessionTooltipPayload=()=> '{}',_termSessionAssociationHtml=()=>'';
 const termDeadSessions=new Set(),_termReadGroupState=()=>({}),_termSubtabParents=()=>({[stopped.logical_name]:'parent',[running.logical_name]:'parent',[unknown.logical_name]:'parent'});
 const guides=[{title:'With debugger',text:'  python -m debugpy app.py\n# literal <script> $(do-not-run)\n\n'},{title:'Without debugger',text:'python app.py'}];
@@ -105,7 +105,7 @@ window.LabObjectives={terminalMain:()=>null,taskForTerminal:()=>null};
  assert(row('parent').querySelector('[data-automation-relaunch]').title.includes('1 stopped child'),'parent recovers only stopped child');
  assert(!row('running').querySelector('[data-automation-relaunch]')&&!row('unknown').querySelector('[data-automation-relaunch]'),'running and unknown hidden');
  for(const name of ['parent','stopped','running','unknown']){
-  assert(getComputedStyle(row(name),'::before').content.includes('💻'),'compact computer icon');
+  assert(row(name).querySelector('.sess-icon').textContent===(name==='parent'?'💻':'⏺'),'compact parent and child identifiers');
  }
  for(const name of ['stopped','running','unknown']){
   const dot=getComputedStyle(row(name),'::after');
@@ -115,6 +115,7 @@ window.LabObjectives={terminalMain:()=>null,taskForTerminal:()=>null};
  switcher.classList.add('term-tabs-open');
  assert(getComputedStyle(row('stopped'),'::before').display==='none','expanded marker hidden');
  assert(getComputedStyle(row('stopped').querySelector('.sess-label')).display==='block','expanded name visible');
+ assert(row('stopped').querySelector('.sess-icon').getClientRects().length>0,'expanded child keeps its icon');
  const host=document.getElementById('guidelines');LabTerminalAutomations.renderGuidelines(host,stopped);
  assert(!host.hidden&&host.querySelectorAll('pre').length===2,'guidelines visible');
  host.querySelector('button').click();await Promise.resolve();await Promise.resolve();

@@ -322,8 +322,9 @@ also opens with Shift+F10 and closes with Escape. Completed, Undo, Paused
 and Won’t do update the task's subtasks too; In progress preserves them. Changing a
 subtask updates its parent's aggregate status. Status is saved in the Objective
 manifest and reflected in the task header and active tab. Recurring tasks carry
-**🔄** in the sidebar and repeat badges. Terminal status dots retain their status
-colors, and compact terminals keep 💻 unless a custom icon is selected.
+**🔄** in the sidebar and repeat badges. Terminal tabs show their icons instead
+of task-status dots: 💻 for ordinary task terminals and ⏺ for children unless
+a custom icon is selected. Status stays available in hover and accessible labels.
 The right edge holds the icon used by its active tab and linked terminals.
 Without a chosen asset, the right edge shows no icon. Its empty drop area
 appears on hover or keyboard focus so an asset can still be dragged there.
@@ -443,14 +444,18 @@ including parked Objectives with saved sessions. Toggle it again to return to
 one expanded Objective and its saved task filter. The same choice is available
 in Terminal settings.
 
-Task terminals use small status dots instead of checkbox/emoji badges. A task
-with exactly one assigned worktree uses that worktree's colored dot and name,
-including on recommended terminals. Names with existing worktree bullets use those colors
-without an additional task-status dot, including in the compact rail; asset
-icons still appear when chosen. Independent children without a worktree bullet
-use a small dot for their inherited task status. Status names remain
-available in hover text and accessible labels. The sidebar keeps its status
-controls.
+Task terminals show a left icon beside their title. A task with exactly one
+assigned worktree uses that worktree's colored marker and name, including on
+recommended terminals. Monochrome custom icons such as GitHub follow the name's
+color; an explicit task terminal color overrides the name and icon while retaining
+the worktree marker. Ordinary task terminals use 💻 and children use ⏺ when no
+custom icon is configured. Terminal tabs omit task-status and yellow activity
+dots; status names remain in hover and accessible labels, and green result review
+remains available. The sidebar keeps its task status controls.
+
+The vertical terminal rail keeps the same icon sizes, row heights and marker
+and control positions when hovering to reveal titles. Hierarchy relationships
+and disclosure remain intact without shifting the icon column.
 
 Task terminals follow the sidebar hierarchy. Drag one ordinary terminal over
 another to choose **Move below**, **Make child** or **Cancel**. Children unfold
