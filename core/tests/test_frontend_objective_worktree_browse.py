@@ -31,14 +31,21 @@ const bridge={sessions:()=>sessions,refreshTerminals:()=>{},activateLinkedTermin
  registry.task_terminals=true;const enabled=terminalSessions(sessions);
  openTask('missing',{activateTerminal:true});await Promise.resolve();
  registry.task_terminals=false;const disabled=terminalSessions(sessions);
- console.log(JSON.stringify({defaults:defaults.map(t=>t.task_id||t.name),enabled:enabled.map(t=>t.task_id||t.name),disabled:disabled.map(t=>t.task_id||t.name),createdByDefault,created,activated,opened,unchanged:before===JSON.stringify(sessions)}));
+ const blocked=[];
+ for(const enabled of [false,true])for(const status of ['paused','todo','done','wont_do']){
+  registry.task_terminals=enabled;o.tasks.forEach(t=>t.status=status);
+  openTask('existing',{activateTerminal:true});openTask('missing',{activateTerminal:true});await Promise.resolve();
+  blocked.push(created.length===1&&activated.length===1&&opened.at(-1)[0]==='doc-missing');
+ }
+ console.log(JSON.stringify({blocked,defaults:defaults.map(t=>t.task_id||t.name),enabled:enabled.map(t=>t.task_id||t.name),disabled:disabled.map(t=>t.task_id||t.name),createdByDefault,created,activated,opened,unchanged:before===JSON.stringify(sessions)}));
 })().catch(e=>{console.error(e);process.exit(1)});
 ''')
     assert result['defaults'] == result['disabled'] == ['workflow-terminal:work:main', 'main', 'existing']
     assert result['enabled'] == ['workflow-terminal:work:main', 'main', 'existing', 'missing']
     assert result['createdByDefault'] == [] and result['created'] == ['missing']
     assert result['activated'] == [['existing']]
-    assert result['opened'] == [['doc-missing', 'missing'], ['doc-existing', 'existing'], ['doc-missing', 'missing']]
+    assert result['opened'][:3] == [['doc-missing', 'missing'], ['doc-existing', 'existing'], ['doc-missing', 'missing']]
+    assert result['blocked'] == [True] * 8
     assert result['unchanged']
 
 
@@ -47,7 +54,7 @@ def test_wip_filter_includes_inherited_children_and_keeps_all_sessions_recoverab
     helpers = source[source.index('  function terminalIdentity('):source.index('  function sidebarTarget(')]
     result = _run_node(r'''
 const task=(id,status)=>({id,title:id,status,children:[]});
-const o={id:'one',name:'One',tasks:[task('working','in_progress'),task('todo','todo'),task('done','done'),task('recommended','in_progress')],worktrees:[]};
+const o={id:'one',name:'One',tasks:[task('working','in_progress'),task('todo','todo'),task('done','done'),task('paused','paused'),task('wont_do','wont_do'),task('recommended','in_progress')],worktrees:[]};
 const sessions=['global','working','extra','grandchild','todo','done','unassigned'].map(name=>({name,session_id:name,logical_name:name}));
 const links={global:{objective_id:'one'},working:{objective_id:'one',task_id:'working'},todo:{objective_id:'one',task_id:'todo'},done:{objective_id:'one',task_id:'done'},extra:{objective_id:'one',view:'tasks'},grandchild:{objective_id:'one',view:'tasks'}};
 const registry={enabled:true,task_terminals:true,focused:['one'],objectives:[o],terminal_links:links};
@@ -59,15 +66,15 @@ const parents={extra:'working',grandchild:'extra'},bridge={parentTerminal:t=>ses
 ''' + helpers + r'''
 const original=JSON.stringify(sessions),filtered=terminalSessions(sessions),all=terminalSessions(sessions,{wipOnly:false});
 view.terminalAll.one=true;const objectiveAll=terminalSessions(sessions);view.terminalAll.one=false;
-selected='todo';const withTodo=terminalSessions(sessions);selected='done';const withDone=terminalSessions(sessions);selected=null;
+selected='todo';const withTodo=terminalSessions(sessions);selected='done';const withDone=terminalSessions(sessions);selected='paused';const withPaused=terminalSessions(sessions);selected='wont_do';const withWontDo=terminalSessions(sessions);selected=null;
 links.working.task_id='done';const after=terminalSessions(sessions);
-console.log(JSON.stringify({objectiveAll:objectiveAll.map(s=>s.task_id||s.name),withTodo:withTodo.map(s=>s.task_id||s.name),withDone:withDone.map(s=>s.task_id||s.name),filtered:filtered.map(s=>s.task_id||s.name),all:all.map(s=>s.task_id||s.name),after:after.map(s=>s.task_id||s.name),unchanged:original===JSON.stringify(sessions)}));
+console.log(JSON.stringify({withPaused:withPaused.map(s=>s.task_id||s.name),withWontDo:withWontDo.map(s=>s.task_id||s.name),objectiveAll:objectiveAll.map(s=>s.task_id||s.name),withTodo:withTodo.map(s=>s.task_id||s.name),withDone:withDone.map(s=>s.task_id||s.name),filtered:filtered.map(s=>s.task_id||s.name),all:all.map(s=>s.task_id||s.name),after:after.map(s=>s.task_id||s.name),unchanged:original===JSON.stringify(sessions)}));
 ''')
     assert result['filtered'] == ['workflow-terminal:work:main', 'global', 'working', 'recommended', 'extra', 'grandchild']
-    assert set(result['all']) == {'workflow-terminal:work:main','global','working','todo','done','recommended','extra','grandchild','unassigned'}
+    assert set(result['all']) == {'workflow-terminal:work:main','global','working','todo','done','paused','wont_do','recommended','extra','grandchild','unassigned'}
     assert result['objectiveAll'] == result['all']
-    assert result['withTodo'] == ['workflow-terminal:work:main', 'global', 'working', 'todo', 'recommended', 'extra', 'grandchild']
-    assert result['withDone'] == ['workflow-terminal:work:main', 'global', 'working', 'done', 'recommended', 'extra', 'grandchild']
+    assert result['withTodo'] == result['filtered']
+    assert result['withDone'] == result['withPaused'] == result['withWontDo'] == result['filtered']
     assert result['after'] == ['workflow-terminal:work:main', 'global', 'working', 'recommended']  # WIP primary is now recommended.
     assert result['unchanged']
 

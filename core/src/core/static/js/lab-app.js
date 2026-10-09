@@ -11908,7 +11908,7 @@
 
   function _termUpdateAllButton() {
     const button=document.getElementById('termShowAllBtn');
-    if(button){button.textContent=termWipOnly?'Show all terminals':'Show WIP + selected task terminals';button.setAttribute('aria-pressed',String(!termWipOnly));}
+    if(button){button.textContent=termWipOnly?'Show all terminals':'Show In progress task terminals';button.setAttribute('aria-pressed',String(!termWipOnly));}
   }
 
   function termToggleAllTerminals() {
@@ -13646,7 +13646,10 @@
       }
       // Keep the nested path without exposing an inactive Objective main.
       if (chain.some(id => !visible.has(id) && window.LabObjectives?.terminalMain?.(live.get(id)))) continue;
-      for (const id of chain) if (!visible.has(id)) { result.push(live.get(id)); visible.add(id); }
+      // Active families and merged children must respect the task status filter.
+      for (const id of chain) if (!visible.has(id) && !window.LabObjectives?.taskForTerminal?.(live.get(id))) {
+        result.push(live.get(id)); visible.add(id);
+      }
     }
     return result;
   }
@@ -14083,7 +14086,7 @@
       return true;
     };
     if(window.LabObjectives?.terminalMain?.(parentSession || session)){
-      _termShowGroupMenu(anchor,'<div class="term-group-menu-title">Fixed main terminal</div>'+mainChoice+'<button role="menuitem" class="term-group-menu-row" data-action="automation">Launch automation…</button><button role="menuitem" class="term-group-menu-row" data-action="all">'+(termWipOnly?'Show all terminals':'Show WIP + selected task terminals')+'</button>',action=>{termCloseGroupMenu();if(chooseMain(action))return;if(action==='automation')void _termLaunchAutomation(parentSession || session);else termToggleAllTerminals();});return;
+      _termShowGroupMenu(anchor,'<div class="term-group-menu-title">Fixed main terminal</div>'+mainChoice+'<button role="menuitem" class="term-group-menu-row" data-action="automation">Launch automation…</button><button role="menuitem" class="term-group-menu-row" data-action="all">'+(termWipOnly?'Show all terminals':'Show In progress task terminals')+'</button>',action=>{termCloseGroupMenu();if(chooseMain(action))return;if(action==='automation')void _termLaunchAutomation(parentSession || session);else termToggleAllTerminals();});return;
     }
     if (session?.document_source) {
       _termShowGroupMenu(anchor, mainChoice+'<button role="menuitem" class="term-group-menu-row" data-action="automation">Launch automation…</button><button role="menuitem" class="term-group-menu-row" data-action="open">Open document</button><button role="menuitem" class="term-group-menu-row" data-action="unlink">Unlink from document…</button>', action => {
@@ -21558,6 +21561,7 @@
     },
     refreshRecent: () => _sidebarProjectRecent(),
     refreshTerminals: () => termRenderSessionList(),
+    terminalWipOnly: () => termWipOnly,
     syncTaskHierarchy: data => _termSyncTaskHierarchy(data),
     taskDeletionHierarchy: () => _termTaskDeletionHierarchy(),
     taskDeleted: ids => _termTaskDeleted(ids),

@@ -271,9 +271,10 @@ the dashboard (including task history) to change its status.
 Task terminals are optional. **Settings → workspace → Terminal sessions →
 Each task gets its own terminal** is off by default and is saved for that
 workspace across browsers. With it off, task clicks open details and activate
-an existing linked terminal without creating a new one. With it on, Lab shows
-recommended task terminals and creates or reuses the primary when selecting a
-task. Explicit **+ New → Current task** remains available in either mode.
+an existing linked terminal if its task passes the terminal status filter,
+without creating a new one. With it on, Lab shows recommended task terminals
+and creates or reuses the primary when selecting an eligible task. Explicit
+**+ New → Current task** remains available in either mode.
 Changing the setting preserves existing sessions. A task owns one primary
 terminal. Extra subterminals can inherit the
 parent task's context without claiming another task assignment. An ordinary
@@ -400,13 +401,15 @@ sessions remain ordinary terminals. Main roles are saved as
 `main: "workflow"` or `main: "objective"` in the workspace terminal links;
 workflow links have no Objective target.
 
-By default, task tabs include In progress tasks and the selected task at any
-status, plus independent children that inherit those contexts. Other sessions
+By default, task tabs include only In progress tasks, plus independent children
+that inherit those contexts. Selecting a Paused, Not started, Completed or Won’t
+do task opens its details without revealing, creating or activating its terminal.
+Active child families and merged tabs also respect this filter. Other sessions
 keep running while hidden. Objective headers and the dropdown expand the same
 current Objective. **Show all** beside the active Objective header reveals all
 of that Objective's terminals and task recommendations, without expanding other
-Objectives or changing the selected task. Toggle **Show WIP** to restore In
-progress plus the selected task. This choice is saved separately per Objective
+Objectives or changing the selected task. Toggle **Show WIP** to restore only In
+progress task terminals. This choice is saved separately per Objective
 in the browser. The compact rail uses a **☰** button with the same action.
 **Show all terminals** in the **+ New** terminal menu reveals every session and Objective,
 including parked Objectives with saved sessions. Toggle it again to return to

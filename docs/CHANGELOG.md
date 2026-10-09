@@ -5,6 +5,14 @@ guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 
 ## 2026-10-09
 
+### Task terminal visibility
+
+- Task terminal tabs now appear by default only for In progress tasks. Selecting
+  a paused or other non-working task, keeping a child active, or merging a child
+  with its parent no longer reveals filtered task terminals. Task clicks still
+  open details without starting or activating a hidden terminal. Existing
+  sessions remain available through the explicit Show all controls.
+
 ### Documentation and agent context
 
 - Added a central user guide covering context, CLI operation, documents,

@@ -118,6 +118,15 @@ provider-owned. See `lab context` for the context of the current terminal.
 Opening a terminal does not itself authorize an agent to modify content. Work
 within the user's request and follow the owning instructions.
 
+Objective task terminal tabs appear by default only while the task is **In
+progress**. Paused, Not started, Completed and Won’t do tasks stay hidden even
+when selected, including child terminals that inherit their status. Selecting
+one of those tasks opens its details without creating or activating a terminal.
+Changing it back to In progress makes its terminal available again. Hidden
+sessions keep running. Use **Show all** on an Objective or **Show all terminals**
+in the terminal menu to inspect them explicitly; **Show WIP** restores the
+In progress filter. Workflow and current Objective main terminals remain available.
+
 ## Change metadata through Lab
 
 Discover the relevant CLI with `lab --help` and each command's `--help`. Use

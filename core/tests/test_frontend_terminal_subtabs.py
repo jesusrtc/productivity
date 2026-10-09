@@ -48,7 +48,7 @@ const openTask=id=>{selected=id;opened.push(id);};
 const selectObjective=id=>{current=registry.objectives.find(o=>o.id===id);selected=null;};
 const terminalLaunchContext=()=>({id:current.id,path:'/workspace/objectives/one',context:{...context()}});
 let finishCreate;
-const bridge={parentTerminal:t=>termSessions.find(p=>p.logical_name===_termSubtabParents(group,termSessions)[t.logical_name]),
+const bridge={terminalWipOnly:()=>false,parentTerminal:t=>termSessions.find(p=>p.logical_name===_termSubtabParents(group,termSessions)[t.logical_name]),
  sessions:()=>termSessions,activateLinkedTerminal:ids=>activated.push(ids),
  createTaskTerminal:(launch,task)=>{created.push({launch,task});return new Promise(r=>finishCreate=r);}};
 ''' + helpers + GROUPS + r'''
@@ -176,14 +176,22 @@ termCurrentSession='uuid-sibling';const siblingHtml=render();
 termCurrentSession='uuid-root';const rootHtml=render();
 termCurrentSession='uuid-'+automation;workspace='other';const foreignHtml=render(),foreignView=_termIncludeVisibleSubtabs(view,termSessions,state);
 workspace='demo';termCurrentSession='closed';const closedHtml=render();
+termCurrentSession='uuid-'+automation;
+window.LabObjectives.taskForTerminal=s=>['grandparent','parent',automation].includes(s.logical_name)?{status:'paused'}:s.logical_name==='sibling'?{status:'in_progress'}:null;
+const pausedFamily=_termIncludeVisibleSubtabs([...view,termSessions.find(s=>s.logical_name==='sibling')],termSessions,state).map(s=>s.logical_name);
+window.LabObjectives.taskForTerminal=s=>s.logical_name==='parent'?{status:'in_progress'}:['grandparent',automation,'sibling'].includes(s.logical_name)?{status:'paused'}:null;
+state.tabDisplayMains={parent:automation};state.tabDisplayMainVersion=2;
+const pausedMerged=_termIncludeVisibleSubtabs([...view,termSessions.find(s=>s.logical_name==='parent')],termSessions,state).map(s=>s.logical_name);
 console.log(JSON.stringify({automation,html,siblingHtml,rootHtml,foreignHtml,closedHtml,family,
- included:included.map(s=>s.logical_name),hiddenMain,foreignView:foreignView.map(s=>s.logical_name)}));
+ pausedFamily,pausedMerged,included:included.map(s=>s.logical_name),hiddenMain,foreignView:foreignView.map(s=>s.logical_name)}));
 ''')
     retained = {'root', 'grandparent', 'parent', result['automation'], 'sibling'}
     assert set(result['family']) == retained
     assert set(result['included']) == retained | {'unrelated'}
     assert result['hiddenMain'] == ['unrelated']
     assert result['foreignView'] == ['root', 'unrelated']
+    assert result['pausedFamily'] == ['root', 'unrelated', 'sibling']
+    assert result['pausedMerged'] == ['root', 'unrelated', 'parent']
     for html in (result['html'], result['siblingHtml']):
         for name in retained:
             assert f'data-name="{name}" data-subtab-hover-only' not in html
@@ -229,7 +237,7 @@ fixture.task_terminals=true;
 // covered by test_frontend_task_hierarchy and the native Objective task flow.
 LabObjectives.moveForTerminalDrop=async()=>false;
 LabObjectives.connect({context:()=>({workspace_id:workspace,vault,path:'/workspace'}),refreshTabs:()=>document.querySelector('.repo-tabs').innerHTML=LabObjectives.tabsHtml('/workspace'),refreshTerminals:()=>termRenderSessionList(),prepareCenter:()=>{},scopeRoot:()=>'/workspace',fileIcon:fileIconHtml,
- sessions:()=>termSessions,parentTerminal:t=>termSessions.find(p=>p.logical_name===_termSubtabParents(_termReadGroupState(),termSessions)[t.logical_name]),
+ terminalWipOnly:()=>termWipOnly,sessions:()=>termSessions,parentTerminal:t=>termSessions.find(p=>p.logical_name===_termSubtabParents(_termReadGroupState(),termSessions)[t.logical_name]),
  activateLinkedTerminal:ids=>_termActivateObjectiveTerminal(ids),
  createWorkflowTerminal:async(launch)=>{created.push({launch,workflow:true});const s={name:'workflow-main',logical_name:'workflow-main',session_id:'uuid-workflow-main',cwd:launch.context.path,kind:'terminal'};termSessions.push(s);fixture.terminal_links[s.session_id]={main:'workflow'};fixture.revision+='!';await LabObjectives.load(undefined,true);return s;},
  createTaskTerminal:async(launch,task)=>{created.push({launch,task});const name='new-'+(task?.id||'global'),session={name,logical_name:name,session_id:'uuid-'+name,cwd:launch.path,kind:'terminal'};
@@ -336,13 +344,13 @@ const fs=require('node:fs');
  termSessions.push({name,logical_name:name,session_id:'uuid-'+name,kind:'terminal',cwd:'/workspace'});
  fixture.terminal_links['uuid-'+name]={objective_id:'one',task_id:name};
  const group=_termReadGroupState();group.tabParents[name]=parent;_termWriteGroupState(group);
- }fixture.revision+='active-family';termWipOnly=true;await LabObjectives.load(undefined,true);
+ }o.tasks[0].status='in_progress';o.tasks[0].children[0].status='in_progress';fixture.revision+='active-family';termWipOnly=true;await LabObjectives.load(undefined,true);
  })()`);
  await click('#outside');
- assert(await evaluate(`['a','b','c','c-sibling'].every(name=>document.querySelector('.sess[data-name="'+name+'"]').getClientRects().length>0)&&document.querySelector('.sess[data-name=c].active')&&!document.querySelector('.sess[data-name=c-cousin]')&&!document.querySelector('.sess[data-name=c-descendant]')`),'WIP filter keeps the active child, its non-WIP sibling and ancestors without exposing cousins or descendants');
+ assert(await evaluate(`['a','b','c'].every(name=>document.querySelector('.sess[data-name="'+name+'"]').getClientRects().length>0)&&document.querySelector('.sess[data-name=c].active')&&!document.querySelector('.sess[data-name=c-sibling]')&&!document.querySelector('.sess[data-name=c-cousin]')&&!document.querySelector('.sess[data-name=c-descendant]')`),'WIP filter keeps the active WIP family without restoring non-WIP siblings');
  await evaluate(`document.querySelector('.term-panel').classList.remove('term-sessions-full');document.querySelector('.term-session-switcher').classList.remove('term-tabs-open')`);
  assert(await evaluate(`(()=>{
- const rows=['a','b','c','c-sibling'].map(name=>document.querySelector('.sess[data-name="'+name+'"]'));
+ const rows=['a','b','c'].map(name=>document.querySelector('.sess[data-name="'+name+'"]'));
  const rects=rows.map(row=>row.getBoundingClientRect()),first=rects[0];
  return rows.every(row=>getComputedStyle(row,'::before').content.includes('💻'))&&rects.every(rect=>termSessionOrientation==='horizontal'?Math.abs(rect.top-first.top)<1:Math.abs(rect.left-first.left)<1&&Math.abs(rect.width-first.width)<1)
  &&[...document.querySelectorAll('.term-subtab-children')].every(node=>{const style=getComputedStyle(node);return style.marginLeft==='0px'&&style.paddingLeft==='0px'&&style.borderLeftWidth==='0px'})
@@ -353,8 +361,8 @@ const fs=require('node:fs');
  assert(await evaluate(`getComputedStyle(document.querySelector('[data-term-parent=b] > .term-subtab-children')).borderLeftWidth==='1px'&&getComputedStyle(document.querySelector('[data-term-parent=b] > .sess .term-subtab-caret')).display!=='none'`),'expanded rail restores its hierarchy');
  await evaluate(`termSessions.find(s=>s.name==='c-sibling').label='Sibling changed';termRenderSessionList();document.querySelector('.sess[data-name=b]').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowLeft',bubbles:true}))`);
  await click('#outside');
- assert(await evaluate(`['a','b','c','c-sibling'].every(name=>document.querySelector('.sess[data-name="'+name+'"]').getClientRects().length>0)`),'changed polling and keyboard collapse preserve the active terminal family');
- await evaluate(`termWipOnly=false;_termActivateTab('a')`);await click('#outside');
+ assert(await evaluate(`['a','b','c'].every(name=>document.querySelector('.sess[data-name="'+name+'"]').getClientRects().length>0)`),'changed polling and keyboard collapse preserve the active terminal family');
+ await evaluate(`(async()=>{termWipOnly=false;fixture.objectives[0].tasks[0].status='todo';fixture.objectives[0].tasks[0].children[0].status='todo';fixture.revision+='fold-family';await LabObjectives.load(undefined,true);await _termActivateTab('a')})()`);await click('#outside');
  assert(await evaluate(`['b','c','c-sibling','c-cousin','c-descendant'].every(name=>!document.querySelector('.sess[data-name="'+name+'"]').getClientRects().length)`),'switching to the root releases the previous family');
  await evaluate(`(async()=>{termSessions=termSessions.filter(s=>!s.name.startsWith('c-'));fixture.objectives[0].tasks=beforeFamilyTasks;for(const name of ['c-sibling','c-cousin','c-descendant'])delete fixture.terminal_links['uuid-'+name];_termWriteGroupState(beforeFamilyGroups);fixture.revision+='clear-family';await LabObjectives.load(undefined,true);await _termActivateTab('c')})()`);
  fs.writeFileSync(process.argv[1]+'/../tasks.png',Buffer.from((await send('Page.captureScreenshot',{format:'png'})).data,'base64'));
@@ -370,21 +378,23 @@ const fs=require('node:fs');
  fixture.revision+='statuses';termWipOnly=true;await LabObjectives.load(undefined,true);LabObjectives.renderTasks();
  })()`);
  assert(await evaluate(`document.querySelector('.sess[data-name="new-Needs terminal"]')&&!document.querySelector('.sess[data-name=a],.sess[data-name=b],.sess[data-name=c]')`),'default tabs only show WIP tasks');
- await click('.objective-sidebar-task [data-open-task="Parent task"]');await sleep(80);
- assert(await evaluate(`termCurrentSession==='a'&&document.querySelector('.sess[data-name=a]').classList.contains('active')&&created.length===2&&document.querySelector('.objective-sidebar-task.active').dataset.taskId==='Parent task'`),'completed task click reveals and selects existing primary without another session');
- await click('.objective-sidebar-task [data-open-task="Subtask"]');await sleep(80);
+ await evaluate(`termWipOnly=false;termRenderSessionList()`);
+ await evaluate(`LabObjectives.openTaskTerminal('Parent task')`);await sleep(80);
+ assert(await evaluate(`termCurrentSession==='a'&&document.querySelector('.sess[data-name=a]').classList.contains('active')&&created.length===2&&LabObjectives.terminalLaunchContext().task.id==='Parent task'`),'completed task click reveals and selects existing primary without another session');
+ await evaluate(`LabObjectives.openTaskTerminal('Subtask')`);await sleep(80);
  assert(await evaluate(`termCurrentSession==='b'&&document.querySelector('.sess[data-name=b].active').getClientRects().length>0&&document.querySelector('.sess[data-name=c]')&&document.querySelector('.sess[data-name=a]').getClientRects().length>0&&created.length===2`),'selected completed subtask retains its completed parent while inherited children remain available');
  await evaluate(`document.body.classList.remove('term-open');document.body.classList.add('term-collapsed');document.querySelector('.objective-sidebar-task [data-open-task="Not started"]').click();document.querySelector('.objective-sidebar-task [data-open-task="Not started"]').click()`);await sleep(120);
  assert(await evaluate(`document.body.classList.contains('term-open')&&!document.body.classList.contains('term-collapsed')&&created.length===3&&termCurrentSession==='new-Not started'&&fixture.objectives[0].tasks.find(t=>t.id==='Not started').status==='todo'&&document.querySelector('.sess[data-name="new-Not started"]').classList.contains('active')`),'Todo task click automatically creates and selects one primary, preserving status');
- await click('.objective-sidebar-task [data-open-task="Completed without terminal"]');await sleep(120);
- assert(await evaluate(`created.length===4&&termCurrentSession==='new-Completed without terminal'&&fixture.objectives[0].tasks.find(t=>t.id==='Completed without terminal').done&&!document.querySelector('.sess[data-name="new-Not started"]')&&document.querySelector('.sess[data-name="new-Completed without terminal"]').classList.contains('active')`),'completed task without tmux session automatically creates and selects its primary');
+ await evaluate(`LabObjectives.openTaskTerminal('Completed without terminal')`);await sleep(120);
+ assert(await evaluate(`created.length===4&&termCurrentSession==='new-Completed without terminal'&&fixture.objectives[0].tasks.find(t=>t.id==='Completed without terminal').done&&document.querySelector('.sess[data-name="new-Completed without terminal"]').classList.contains('active')`),'completed task without tmux session automatically creates and selects its primary');
  await click('.objective-sidebar-task [data-open-task="Not started"]');await sleep(80);
  assert(await evaluate(`created.length===4&&termCurrentSession==='new-Not started'`),'subsequent task click reuses automatically created terminal');
+ await evaluate(`termWipOnly=true;termRenderSessionList()`);
  await evaluate(`window.focusedTaskBeforeAll=LabObjectives.terminalLaunchContext().task.id;window.focusedCenterBeforeAll=document.querySelector('#content').innerHTML`);
  await click('[data-objective-terminals-all=one]');
  assert(await evaluate(`LabObjectives.terminalLaunchContext().task.id===focusedTaskBeforeAll&&termCurrentSession==='new-Not started'&&document.querySelector('#content').innerHTML===focusedCenterBeforeAll&&document.querySelector('.sess[data-name=a]')&&created.length===4`),'Objective Show all keeps the selected task and its terminal active');
  await click('[data-objective-terminals-all=one]');
- assert(await evaluate(`document.querySelector('.sess[data-name="new-Not started"]')&&!document.querySelector('.sess[data-name=a]')&&LabObjectives.terminalLaunchContext().task.id===focusedTaskBeforeAll`),'restoring WIP also keeps the selected Todo task terminal visible');
+ assert(await evaluate(`!document.querySelector('.sess[data-name="new-Not started"]')&&!document.querySelector('.sess[data-name=a]')&&LabObjectives.terminalLaunchContext().task.id===focusedTaskBeforeAll`),'restoring WIP hides the selected Todo task terminal');
  await evaluate(`const count=created.length;LabObjectives.openForTerminal(termSessions.find(s=>s.name==='new-Not started'));window.creationsBeforePassive=count;LabObjectives.renderTasks()`);
  assert(await evaluate(`created.length===creationsBeforePassive&&!document.querySelector('.sess[data-name="new-Not started"],.sess[data-name="new-Completed without terminal"]')&&document.querySelector('.sess[data-name="new-Needs terminal"]')&&errors.length===0`),'leaving task focus restores WIP tabs and passive terminal navigation never creates another session');
 
@@ -397,7 +407,7 @@ const fs=require('node:fs');
  await click('.objective-terminal-heading[data-select-objective=one]');
  assert(await evaluate(`document.querySelector('[data-objective-terminals-all=one]').getAttribute('aria-pressed')==='true'&&document.querySelector('.sess[data-name=a]')`),'returning to an Objective restores its Show all preference');
  await click('[data-objective-terminals-all=one]');
- assert(await evaluate(`termWipOnly&&!document.querySelector('.sess[data-name=a],.sess[data-name="new-Not started"]')&&document.querySelector('.sess[data-name="new-Needs terminal"]')&&document.querySelector('[data-objective-terminals-all=one]').getAttribute('aria-pressed')==='false'&&created.length===4`),'Objective toggle restores WIP plus selected task');
+ assert(await evaluate(`termWipOnly&&!document.querySelector('.sess[data-name=a],.sess[data-name="new-Not started"]')&&document.querySelector('.sess[data-name="new-Needs terminal"]')&&document.querySelector('[data-objective-terminals-all=one]').getAttribute('aria-pressed')==='false'&&created.length===4`),'Objective toggle restores only In progress task terminals');
 
  await click('#termShowAllBtn');
  assert(await evaluate(`!termWipOnly&&localStorage.getItem(_TERM_WIP_ONLY_KEY)==='false'&&document.querySelectorAll('.objective-terminal-rows:not([hidden])').length===3&&document.querySelector('.sess[data-name=a]').getClientRects().length>0&&document.querySelector('.sess[data-name=other]').getClientRects().length>0&&document.getElementById('termShowAllBtn').getAttribute('aria-pressed')==='true'&&document.querySelectorAll('[data-terminal-main]').length===2&&document.querySelector('[data-objective-terminals-all=one]').disabled`),'global Show all reveals every Objective and completed task terminal while inactive Objective mains remain hidden');
@@ -406,12 +416,19 @@ const fs=require('node:fs');
  await evaluate(`const main=document.querySelector('[data-terminal-main=workflow]');main.click();main.click()`);await sleep(100);
  assert(await evaluate(`created.length===5&&created[4].workflow&&termCurrentSession==='workflow-main'&&document.getElementById('termSessionList').firstElementChild.dataset.name==='workflow-main'&&document.querySelector('.sess[data-name=workflow-main]').getAttribute('draggable')==='false'&&!document.querySelector('.sess[data-name=workflow-main]').hasAttribute('data-order-token')&&document.querySelector('.objective-terminal-heading[data-select-objective=one]').parentElement.nextElementSibling.dataset.name==='new-global'`),'one fixed workflow main at top and Objective main immediately after its divider');
  await click('.sess[data-name=workflow-main]');assert(await evaluate('created.length===5'),'workflow main reuses the saved session');
- for(const [status,label] of [['paused','Paused'],['wont_do','Won’t do']]){
-  await evaluate(`(async()=>{const t=fixture.objectives[0].tasks.find(t=>t.id==='Not started');t.status=${JSON.stringify(status)};fixture.revision+='status';await LabObjectives.load(undefined,true);LabObjectives.renderTasks()})()`);
-  assert(await evaluate(`!document.querySelector('.sess[data-name="new-Not started"]')`),'paused and declined terminals hidden by default');
-  await click('.objective-sidebar-task [data-open-task="Not started"]');await sleep(80);
-  assert(await evaluate(`termCurrentSession==='new-Not started'&&created.length===5&&document.querySelector('.sess[data-name="new-Not started"] .sess-task-status').dataset.taskStatus===${JSON.stringify(status)}&&document.querySelector('.sess[data-name="new-Not started"]').getAttribute('aria-label').includes(${JSON.stringify(label)})`),'selected paused or declined task reveals its primary and accessible status dot');
+ for(const [status,label] of [['todo','Not started'],['done','Completed'],['paused','Paused'],['wont_do','Won’t do']]){
+  await evaluate(`(async()=>{const t=fixture.objectives[0].tasks.find(t=>t.id==='Not started');t.status=${JSON.stringify(status)};t.done=false;fixture.revision+='status';await LabObjectives.load(undefined,true);LabObjectives.renderTasks()})()`);
+  assert(await evaluate(`!document.querySelector('.sess[data-name="new-Not started"]')`),'non-WIP terminals hidden by default');
+  await evaluate(`LabObjectives.openTaskTerminal('Not started')`);await sleep(80);
+  assert(await evaluate(`termCurrentSession==='workflow-main'&&created.length===5&&!document.querySelector('.sess[data-name="new-Not started"]')&&LabObjectives.terminalLaunchContext().task.id==='Not started'`),'selecting '+label+' opens details without revealing or activating its terminal');
  }
+ await evaluate(`(async()=>{fixture.objectives[0].tasks.find(t=>t.id==='Not started').status='in_progress';fixture.revision+='resumed';await LabObjectives.load(undefined,true)})()`);
+ await click('.objective-sidebar-task [data-open-task="Not started"]');await sleep(80);
+ assert(await evaluate(`termCurrentSession==='new-Not started'&&document.querySelector('.sess[data-name="new-Not started"].active')&&created.length===5`),'resuming a task shows and reuses its existing terminal');
+ await evaluate(`(async()=>{fixture.objectives[0].tasks.find(t=>t.id==='Not started').status='paused';fixture.revision+='paused-active';await LabObjectives.load(undefined,true)})()`);
+ assert(await evaluate(`!document.querySelector('.sess[data-name="new-Not started"]')&&created.length===5`),'pausing the selected active task hides its terminal on refresh');
+ await evaluate(`(async()=>{fixture.objectives[0].tasks.find(t=>t.id==='Not started').status='wont_do';fixture.revision+='declined';await LabObjectives.load(undefined,true)})()`);
+ await click('[data-objective-terminals-all=one]');
  await evaluate(`(async()=>{
  const o=fixture.objectives[0];o.worktrees=[{id:'ui',label:'sdui/jcortes/tel',path:'/trees/ui',repo:'/workspace',kind:'worktree',color:'#ff7b72'},{id:'checkpoint',label:'checkpoint/jco',path:'/trees/checkpoint',repo:'/workspace',kind:'worktree',color:'#58a6ff'}];
  o.tasks.find(t=>t.id==='Not started').assets=[{id:'ui-asset',folder:{root:'/trees/ui',path:'.'}},{id:'checkpoint-asset',folder:{root:'/trees/checkpoint',path:'.'}}];
@@ -420,7 +437,6 @@ const fs=require('node:fs');
  fixture.revision+='colors';await LabObjectives.load(undefined,true);
  })()`);
  assert(await evaluate(`(()=>{const row=document.querySelector('.sess[data-name="new-Not started"]');return row.querySelector('.sess-label').textContent==='Not started'&&!row.querySelector('.objective-task-worktree-name,.term-folder-association')&&row.querySelector('.sess-task-status').dataset.taskStatus==='wont_do'&&fixture.objectives[0].tasks.find(t=>t.id==='Not started').title==='Not started'&&row.getAttribute('aria-label').includes('Won’t do')})()`),'multiple worktrees keep the canonical task terminal name and small status dot');
- await click('[data-objective-terminals-all=one]');
  assert(await evaluate(`(()=>{const row=document.querySelector('[data-open-task-terminal=Recommended]');return row.querySelector('.objective-task-worktree-name').textContent==='checkpoint/jco'&&getComputedStyle(row.querySelector('.objective-task-worktree-name')).color==='rgb(88, 166, 255)'&&!row.querySelector('.sess-task-status')&&row.getAttribute('aria-label').includes('Not started')&&created.length===5})()`),'recommended terminals retain their colored bullet without another status dot');
  assert(await evaluate(`(()=>{const row=document.querySelector('.sess[data-name=worktree-only]'),label=row.querySelector('.term-folder-association');return !row.querySelector('.sess-icon')&&label.textContent==='sdui/jcortes/ui'&&getComputedStyle(label).color==='rgb(255, 123, 114)'&&getComputedStyle(label,'::before').width==='6px'&&getComputedStyle(row).backgroundColor==='rgba(0, 0, 0, 0)'})()`),'worktree terminal is a plain row with matching colored dot and text');
  await evaluate(`document.querySelector('.term-panel').classList.remove('term-sessions-full');document.querySelector('.term-session-switcher').classList.remove('term-tabs-open')`);
@@ -445,7 +461,7 @@ const fs=require('node:fs');
  const filter=document.querySelector('[data-objective-terminals-all=one]');if(filter.getAttribute('aria-pressed')==='true')filter.click();
  })()`);
  await move(await point('#outside'));await evaluate('document.activeElement?.blur()');
- assert(await evaluate(`['Subtask','Second WIP'].every(id=>document.querySelector('.objective-sidebar-task[data-task-id="'+id+'"]').getClientRects().length>0)&&!document.querySelector('.objective-sidebar-task[data-task-id="Second Todo"]')`),'WIP subtasks under multiple parents remain in Tasks without selection');
+ assert(await evaluate(`['Subtask','Second WIP','Second Todo'].every(id=>document.querySelector('.objective-sidebar-task[data-task-id="'+id+'"]').getClientRects().length>0)`),'WIP subtasks under multiple parents remain in Tasks without selection');
  assert(await evaluate(`document.querySelector('.sess[data-name=b]').getClientRects().length>0&&!document.querySelector('.sess[data-name=c]').getClientRects().length&&!document.querySelector('.sess[data-name="'+automationName+'"]').getClientRects().length&&document.querySelector('[data-open-task-terminal="Second WIP"]').getClientRects().length>0&&created.length===5`),'own WIP primaries and recommendations stay visible while inherited and automation siblings fold');
  await evaluate(`document.querySelector('.sess[data-name=a]').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowLeft',bubbles:true}))`);
  assert(await evaluate(`!document.querySelector('[data-term-parent=a] > .term-subtab-children').hidden&&document.querySelector('[data-term-parent=b] > .term-subtab-children').hidden`),'keyboard collapse keeps own WIP children visible without exposing inherited children');
@@ -581,7 +597,7 @@ selected=o.tasks[1];const withSelected=terminalSessions(sessions);
 console.log(JSON.stringify({names:defaults.map(t=>t.name),selected:withSelected.map(t=>t.name),parents:terminalParents(sessions,{...explicit,workflow:'nested'}),html}));
 ''')
     assert set(result['names']) == {'workflow','main','wip','workflow-service','nested','main-service','wip-service'}
-    assert {'done','done-service'} <= set(result['selected'])
+    assert result['selected'] == result['names']
     assert result['parents']['workflow-service'] == 'workflow' and 'workflow' not in result['parents']
     assert result['html'].index('data-name="workflow"') < result['html'].index('data-name="workflow-service"')
     assert 'data-term-parent="main"' in result['html'] and 'data-name="other-service"' not in result['html']

@@ -643,7 +643,7 @@
     state().focus={objective:o.id,task:id};
     state().view='objective';persistView();openResource(task.document_id,task.tab_id);
     bridge.refreshTerminals?.();
-    if(activateTerminal){
+    if(activateTerminal&&taskTerminalVisible(task,o)){
       if(taskTerminalsEnabled())void openTaskTerminal(id,o.id,{openTaskView:false}).catch(error=>notify(error.message,true));
       else if(Object.values(data().terminal_links||{}).some(link=>link.objective_id===o.id&&link.task_id===id))activateLinkedTerminal(link=>link.objective_id===o.id&&link.task_id===id);
     }
@@ -1069,6 +1069,9 @@
   function terminalIdentity(t) {return t.session_id||t.name;}
   function terminalLink(t) {return t.objective_placeholder?{objective_id:t.objective_id,task_id:t.task_id,main:t.main}:data()?.terminal_links[terminalIdentity(t)];}
   function taskTerminalsEnabled() {return data()?.task_terminals===true;}
+  function taskTerminalVisible(task,o,wipOnly=bridge?.terminalWipOnly?.()??true) {
+    return taskStatus(task)==='in_progress'||!wipOnly||o.id===objective()?.id&&state().terminalAll?.[o.id]===true;
+  }
   function terminalMain(t) {
     if(!t||!active(context()?.path))return null;
     const link=terminalLink(t);if(!link)return null;
@@ -1126,15 +1129,14 @@
       add();tasks(o).forEach(task=>add(task));owned.filter(t=>!seen.has(t)).forEach(t=>{result.push(t);seen.add(t);});
     }
     const all=[...result,...sessions.filter(t=>!seen.has(t))];
-    const selected=focusedTask(),selectedObjective=objective()?.id;
+    const selectedObjective=objective()?.id;
     const showObjective=state().terminalAll?.[selectedObjective]===true;
     return all.filter(t=>{
       const main=terminalMain(t);
       if(main)return main.kind==='workflow'||main.objective_id===selectedObjective;
       if(!wipOnly||showObjective&&terminalObjective(t)?.id===selectedObjective)return true;
       const binding=terminalTask(t);
-      if(binding)return taskStatus(binding.task)==='in_progress'
-        ||binding.objective.id===selectedObjective&&binding.task.id===selected?.id;
+      if(binding)return taskTerminalVisible(binding.task,binding.objective,wipOnly);
       const link=terminalLink(t);
       if(link?.view==='workflow'||link?.view==='objective')return true;
       return terminalParentMain(t,selectedObjective);
@@ -1185,12 +1187,14 @@
     const o=data()?.objectives.find(o=>o.id===objectiveId),task=id?tasks(o).find(task=>task.id===id):null;if(!o||id&&!task)return;
     if(objective()?.id!==o.id)selectObjective(o.id,{activateTerminal:false});
     if(task){if(openTaskView)openTask(task.id);}else selectObjective(o.id,{activateTerminal:false});
+    if(task&&!taskTerminalVisible(task,o))return;
     const existing=(bridge.sessions?.()||[]).find(t=>{const link=terminalLink(t);return link?.objective_id===o.id&&(task?link.task_id===task.id:terminalMain(t)?.kind==='objective');});
     if(existing)return bridge.activateLinkedTerminal?.([terminalIdentity(existing)]);
     const launch=terminalLaunchContext(),scope={...context()},openingKey=JSON.stringify([scope,o.id,id]);
     if(openingTerminals.has(openingKey))return openingTerminals.get(openingKey);
     const pending=Promise.resolve(bridge.createTaskTerminal?.(launch,task)).then(async terminal=>{
-      if(terminal&&key(context())===key(scope)&&objective()?.id===o.id&&(task?focusedTask()?.id===task.id:!focusedTask()))
+      const current=objective(),currentTask=tasks(current).find(t=>t.id===id);
+      if(terminal&&key(context())===key(scope)&&current?.id===o.id&&(task?focusedTask()?.id===id&&currentTask&&taskTerminalVisible(currentTask,current):!focusedTask()))
         await bridge.activateLinkedTerminal?.([terminalIdentity(terminal)]);
       return terminal;
     }).finally(()=>openingTerminals.delete(openingKey));openingTerminals.set(openingKey,pending);return pending;
@@ -1230,7 +1234,7 @@
       }).join('');
       const expanded=showAll||id===current;
       const all=showAll||state().terminalAll?.[id]===true;
-      const filterLabel=showAll?'All terminals are shown. Use the terminal menu to restore WIP + selected task terminals.':all?'Show WIP + selected task terminals in this Objective':'Show all terminals in this Objective';
+      const filterLabel=showAll?'All terminals are shown. Use the terminal menu to restore In progress task terminals.':all?'Show In progress task terminals in this Objective':'Show all terminals in this Objective';
       const filter=id===current?`<button type="button" class="objective-terminal-filter" data-objective-terminals-all="${esc(id)}" aria-pressed="${all}" aria-label="${filterLabel}" title="${filterLabel}"${showAll?' disabled':''}><span aria-hidden="true">☰</span><span class="objective-terminal-filter-label">${showAll?'All shown':all?'Show WIP':'Show all'}</span></button>`:'';
       return `<section class="objective-terminal-group" data-objective-active="${id===current}" style="--objective-color:${esc(o.color)}"><div class="objective-terminal-header"><button type="button" class="objective-terminal-heading" data-select-objective="${esc(id)}" aria-expanded="${expanded}" title="${esc(o.name)}"><span aria-hidden="true">${expanded?'▾':'▸'}</span> ${esc(o.name)}</button>${filter}</div>${mainHtml}<div class="objective-terminal-rows"${expanded?'':' hidden'}>${terminals}</div></section>`;
     }).join('')+newButton;
