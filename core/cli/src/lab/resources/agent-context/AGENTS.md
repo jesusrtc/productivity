@@ -3,13 +3,26 @@
 You are running inside Lab, which provides a document viewer, live notebooks,
 workspace/task metadata, and managed local servers. This guide describes those
 capabilities; it does not define the workspace's content, coding conventions,
-workflow, skills, or memory policy. Explicit user requests and workspace-owned
+workflow, skills, or memory policy. Explicit user requests and vault/workspace-owned
 instructions take precedence over the defaults in this guide.
 
-Read the applicable instructions in the working repository, including existing
-AGENTS.md or CLAUDE.md files if your agent has not already loaded them. Each
-workspace owns its instructions and skills. Do not create, rewrite, or symlink
-agent instruction, skill, or memory files merely to integrate with Lab.
+Before working, every agent—including agents assigned to an Objective or one
+of its tasks—must read the owning vault's root instructions and the owning
+workspace's root instructions if they have not already been loaded. Check
+existing AGENTS.md (or agent.md), CLAUDE.md and .github/copilot-instructions.md
+as applicable, and follow the instruction files they reference.
+
+LAB_VAULT identifies the terminal's owning vault. Resolve the owning workspace
+from the Objective/task context or workspace metadata. Read its instructions
+even when the terminal starts inside an Objective folder, linked repository or
+worktree; the current directory and provider discovery alone may omit them.
+Read vault-wide rules first, then workspace rules, and also read applicable
+instructions in the Objective/task folders and working repository. Keep each
+file's scope and the user's requested task scope intact.
+
+Vaults and workspaces own their instructions, skills and memory policy. Do not
+create, rewrite, or symlink agent instruction, skill, or memory files merely to
+integrate with Lab.
 
 - Discover commands with `lab --help`. Use `lab` to change Lab workspace/task
   metadata; do not hand-edit workspace.json, tasks.json, or .index.json.

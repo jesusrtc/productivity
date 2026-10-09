@@ -4,6 +4,16 @@ Objectives own tasks, links, file/document references and worktree memberships
 in their workspace's `objectives/<folder>/.objective.json`. Use Lab's locked
 store, never hand-edit these manifests or workspace/task metadata.
 
+Before working on any Objective or task, read the owning vault's root agent
+instructions and the owning workspace's root agent instructions, including
+existing AGENTS.md (or agent.md), CLAUDE.md and applicable referenced files.
+LAB_VAULT identifies the owning vault; use the Objective/task context or workspace
+metadata to resolve its workspace. Read both levels even when the agent starts
+in an Objective folder or a linked repository/worktree. Also follow applicable
+instructions in those folders. These instructions govern the work without
+expanding the Objective/task's authorized scope. See `lab context` for the
+shared startup guidance.
+
 Tasks support automatic recurrence through **New task / Edit task** or the
 schedule control beside the due date. Configure every X days/weeks/months/years,
 a due date, deadline time, time zone and reactivation window. The default window

@@ -1,5 +1,7 @@
 # Memory index
 
+- [Objective agents read vault and workspace instructions](objective-agents-read-vault-and-workspace-instructions.md) — shared Lab context requires both owning roots even when launched in an Objective folder or external worktree.
+
 - [Resource pop-outs cycle through positions 2, 3 and 4](resource-popouts-cycle-through-positions-2-3-4.md) — start at the former second window's full geometry and repeat those three positions only.
 
 - [Resource pop-outs use a five-position cycle](resource-popouts-use-five-position-cycle.md) — direct fresh opening with no management; its five-position layout is superseded by positions 2, 3 and 4 above.

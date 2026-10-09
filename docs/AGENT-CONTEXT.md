@@ -62,7 +62,14 @@ while the guide loads cancels the paste.
   are unchanged.
 
 The launcher does not impose workspace skills, a memory directory, or project
-workflow. The guide asks agents to read applicable workspace-owned instructions.
+workflow. The guide requires every agent, including Objective and task agents,
+to read the owning vault's root instructions and the owning workspace's root
+instructions before working, unless already loaded. `LAB_VAULT` identifies the
+owning vault; Objective/task context or workspace metadata identifies the
+workspace. This applies even when the agent starts inside an Objective folder
+or a linked repository/worktree, whose applicable instructions must also be read.
+Existing `AGENTS.md` (or `agent.md`), `CLAUDE.md`, applicable Copilot instructions
+and their referenced files retain their scope and ownership.
 
 ## Removing legacy integration links
 
