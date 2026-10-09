@@ -1,5 +1,6 @@
 """Client grouping changes presentation, retaining content and assignments."""
 from copy import deepcopy
+import json
 
 import pytest
 from lab import objectives, objective_asset_groups
@@ -125,6 +126,53 @@ def test_grouped_sublinks_and_folders_keep_their_exact_targets(monorepo, grouped
     assert source.read_text() == 'Original content\n'
     grouped = act('link-remove-sublink', **sublink)
     assert grouped['asset_groups'][0]['assets'] == [{'resource_id':file['id']}, {'folder':{'root':str(folder), 'path':'.'}}]
+
+
+def test_all_group_actions_are_available_through_lab_cli(grouped_workspace, tmp_path):
+    from click.testing import CliRunner
+    from lab.cli import main
+
+    _, oid, _, refs, _ = grouped_workspace
+    runner = CliRunner()
+    action_file = tmp_path/'group-action.json'
+
+    def read():
+        result = runner.invoke(main, ['objective', 'ls', '--workspace', 'demo'])
+        assert result.exit_code == 0, result.output
+        return json.loads(result.output)
+
+    original = read()['objectives'][0]
+
+    def apply(operation, **fields):
+        before = read()
+        action_file.write_text(json.dumps({'type':operation, 'objective_id':oid, **fields}))
+        result = runner.invoke(main, ['objective', 'apply', '--workspace', 'demo',
+                                     '--file', str(action_file), '--expected', before['revision']])
+        assert result.exit_code == 0, result.output
+        return json.loads(result.output)['objectives'][0]
+
+    grouped = apply('asset-group-create', title='Document sections', **refs[0])
+    gid = grouped['asset_groups'][0]['id']
+    grouped = apply('asset-group-member', group_id=gid, **refs[1])
+    assert grouped['asset_groups'][0]['assets'] == refs[:2]
+    grouped = apply('asset-order', item=refs[1], relative=refs[0], position='before')
+    assert grouped['asset_groups'][0]['assets'] == [refs[1], refs[0]]
+    grouped = apply('asset-order', item={'group_id':gid}, relative=refs[2], position='after')
+    assert grouped['asset_order'] == [refs[2], {'group_id':gid}]
+    grouped = apply('asset-group-rename', group_id=gid, title='Renamed sections')
+    assert grouped['asset_groups'][0]['title'] == 'Renamed sections'
+    grouped = apply('asset-group-member', group_id=None, **refs[1])
+    assert grouped['asset_groups'][0]['assets'] == [refs[0]]
+    grouped = apply('asset-group-ungroup', group_id=gid)
+    assert grouped['asset_groups'] == []
+    persisted = read()['objectives'][0]
+    assert persisted['asset_order'] == [refs[2], refs[0], refs[1]]
+    for field in ('resources', 'tasks', 'shared_assets'):
+        assert persisted[field] == original[field]
+    help_result = runner.invoke(main, ['objective', 'apply', '--help'])
+    assert help_result.exit_code == 0
+    for action in ('asset-group-create', 'asset-group-member', 'asset-group-rename', 'asset-group-ungroup', 'asset-order'):
+        assert action in help_result.output
 
 
 @pytest.mark.parametrize('groups, order', [

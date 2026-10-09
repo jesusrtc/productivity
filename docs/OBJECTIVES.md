@@ -126,6 +126,14 @@ current task or bucket. They retain the original references, URLs (including
 Google Doc section fragments), task assignments, stars and terminal links.
 Grouping is always the client's choice; matching URLs do not create groups.
 
+Every group and ordering operation is also available through the CLI:
+`lab objective ls --workspace <id>` returns group IDs, membership, order and the
+current revision. Write a JSON action and run
+`lab objective apply --workspace <id> --expected <revision> --file <action.json>`.
+The actions are `asset-group-create`, `asset-group-member` (including removal
+with `group_id: null`), `asset-group-rename`, `asset-group-ungroup` and
+`asset-order`. Read `lab context objectives` for their fields.
+
 **Trash** requires confirmation and removes the asset registration and its
 optional task attachments. It preserves source files, original Assistant
 documents and running terminals. Trashing an individual document subtab or link

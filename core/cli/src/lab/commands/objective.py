@@ -38,7 +38,18 @@ def migrate(workspace, apply_changes):
 @click.option('--file', 'action_file', type=click.Path(exists=True, path_type=Path), required=True)
 @click.option('--expected', default=None, help='Require the revision returned by objective ls; reject stale changes.')
 def apply(workspace, action_file, expected):
-    """Apply one JSON objective action through Lab's locked store."""
+    """Apply one JSON objective action through Lab's locked store.
+
+    \b
+    Asset grouping actions:
+      asset-group-create
+      asset-group-member
+      asset-group-rename
+      asset-group-ungroup
+      asset-order
+
+    Read `lab context objectives` for action fields and examples.
+    """
     try:
         result = objectives.mutate(paths.find_monorepo_root(), resolve_workspace_id(workspace), json.loads(action_file.read_text()), expected=expected)
         click.echo(json.dumps(result, indent=2))

@@ -1,5 +1,7 @@
 # Memory index
 
+- [Features need Lab CLI access](features-need-lab-cli-access.md) — verify CLI support and discoverability alongside the UI; all asset group and ordering actions use Objective apply.
+
 - [Pending tasks, actions and deadlines](pending-task-actions-and-deadlines.md) — all pending branches and Markdown actions, local due prefixes, exact source highlights, and hidden repeats until reactivation.
 
 - [Asset groups are client-defined](asset-groups-are-client-defined.md) — named, flat groups with a one-second hover reveal and saved ordering, preserving original references and assignments.
