@@ -17,7 +17,7 @@ from urllib.parse import urlparse
 import uuid
 
 from lab import assistant_documents, assistant_records, objective_store, paths, storage, workspace_identity
-from lab import task_checklists, task_cycles
+from lab import task_checklists, task_cycles, objective_asset_groups
 
 PALETTES = [
     ['#58a6ff', '#ff7b72', '#3fb950', '#d29922'],
@@ -142,6 +142,7 @@ def _asset_target(asset):
 
 
 def _prune_assets(objective, remove):
+    objective_asset_groups.prune(objective, remove)
     for field in ('shared_assets', 'archived_assets', 'asset_shelf', 'trashed_assets'):
         if field in objective:
             objective[field] = [asset for asset in objective[field] if not remove(asset)]
@@ -1012,6 +1013,13 @@ def mutate(root, workspace_id, action, expected=None, *, delete_terminals=None, 
             _resource(folder, objective, action)
         elif operation in {'asset-star', 'asset-bucket'}:
             _asset_bucket(folder, objective, action)
+        elif operation in {'asset-group-create', 'asset-group-member', 'asset-group-rename', 'asset-group-ungroup', 'asset-order'}:
+            asset = None
+            if operation in {'asset-group-create', 'asset-group-member'}:
+                if action.get('reference') is not None:
+                    raise ValueError('Register the asset before grouping it')
+                asset = _assignment_asset(folder, objective, action)
+            objective_asset_groups.mutate(objective, action, asset)
         elif operation == 'suggest-assignment':
             _suggest_assignment(folder, data, objective, action)
         elif operation in {'accept-assignment', 'reject-assignment'}:

@@ -105,3 +105,18 @@ can replace an optional task assignment; shared-star controls remain additive.
 Archive retains registrations for recovery and hides them from active views and
 agent context. Trash removes the registration after user confirmation; source
 files and running terminals are preserved.
+
+Assets may have client-defined, named presentation groups with one flat level of
+references and a one-second hover reveal. Grouping and order preserve existing
+asset URLs, source files, assignments, stars and terminal links. Do not infer or
+create groups from matching URLs or document names. Group only when the user
+explicitly requests that actual change.
+
+For an explicitly requested group, use `asset-group-create` with `title` and an
+existing asset target. Add or move an existing target with `asset-group-member`
+and `group_id`; use `group_id: null` to remove it from its group. Rename with
+`asset-group-rename` (`group_id`, `title`) or release its references with
+`asset-group-ungroup` (`group_id`). `asset-order` takes `item`, `relative` and
+`position: "before"` or `"after"`; each entry is an existing asset target or
+`{"group_id":"existing-group-id"}`. Reorder only within the same group or the
+Objective's outer asset list. Use the revision returned by Lab for every action.

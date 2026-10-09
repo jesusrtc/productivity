@@ -1,5 +1,7 @@
 # Memory index
 
+- [Asset groups are client-defined](asset-groups-are-client-defined.md) — named, flat groups with a one-second hover reveal and saved ordering, preserving original references and assignments.
+
 - [Subterminal hover delays reveal](subterminal-hover-delays-reveal.md) — one-second hold, canceled on leave, with elapsed time preserved across refreshed rows.
 
 - [Scoped agent instruction shortcuts](scoped-agent-instruction-shortcuts.md) — visible Vault, Workspace, and Objective AGENTS.md links retain their roots and follow Objective selection.

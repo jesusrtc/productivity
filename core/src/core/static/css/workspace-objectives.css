@@ -82,6 +82,14 @@ body.sidebar-drawer-enabled:not(.sidebar-drawer-open) [data-project-sidebar][dat
 .objective-bucket-label { color:var(--text-secondary) !important; font-size:12px !important; text-transform:uppercase; text-align:left; }
 .objective-bucket-empty { color:var(--text-dim); font-size:11px; margin:5px 0; }
 .objective-asset-line { display:flex; align-items:center; gap:3px; min-width:0; }
+.objective-asset-group { min-width:0; }
+.objective-asset-group-header { display:flex; align-items:center; gap:3px; min-width:0; }
+.objective-asset-group-header [data-asset-group-toggle] > span:nth-child(2) { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.objective-asset-group-caret { flex-shrink:0; }
+.objective-asset-group-header small { color:var(--text-dim); font-size:10px; flex-shrink:0; }
+.objective-asset-group-children { display:grid; gap:4px; margin-left:13px; padding-left:6px; border-left:1px solid var(--border); }
+.objective-asset-group-children[hidden] { display:none; }
+.objective-asset-context-menu button:disabled { color:var(--text-dim); opacity:.5; cursor:default; }
 .objective-asset-tools { display:inline-flex; flex-shrink:0; gap:1px; }
 .objective-star,.objective-asset-menu { border:0; background:none; color:var(--text-dim); cursor:pointer; width:18px; padding:2px 0; font-size:13px; }
 .objective-star[aria-pressed=true] { color:var(--yellow,#e3b341); }

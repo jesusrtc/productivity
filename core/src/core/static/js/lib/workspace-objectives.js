@@ -7,6 +7,7 @@
   const taskMoveMime = 'application/x-lab-objective-task';
   const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const drafts = new Map(), linkDrafts = new Map();
+  const assetGroupHovers = new Map();
   let bridge, dialog = null, hoverTimer, openView = null, activeDraft = null, activeLinkDraft = null, switchMenu = null, switchTimer;
   let taskCloseButton, taskCloseHost, taskCloseObserver, taskCloseResizeObserver, taskCloseFrame, taskModeHeader, taskModeSpacer;
   let taskStatusMenu, assetContextMenu;
@@ -147,7 +148,7 @@
     }).catch(async e=>{overlays.set(id,(overlays.get(id)||[]).filter(item=>item!==overlay));notify(e.message,true);await load(scope,true);throw e;});queues.set(id,next);
     const cleanup=()=>{if(queues.get(id)===next)queues.delete(id);};next.then(cleanup,cleanup);return next;
   }
-  function collapse() {clearTimeout(hoverTimer);state().revealed.clear();}
+  function collapse() {clearTimeout(hoverTimer);state().revealed.clear();for(const hover of assetGroupHovers.values())clearTimeout(hover.timer);assetGroupHovers.clear();}
   function tabsFor(resource) {
     const root=resource.document_id||resource.id,rows=resource.content?.tabs||[],children=new Map();rows.forEach(t=>{const parent=t.parent?.id||root;if(!children.has(parent))children.set(parent,[]);children.get(parent).push(t);});
     const result=[],seen=new Set();function visit(id,depth){for(const t of children.get(id)||[]){if(seen.has(t.id))continue;seen.add(t.id);result.push({...t,depth});visit(t.id,depth+1);}}visit(root,0);rows.filter(t=>!seen.has(t.id)).forEach(t=>result.push({...t,depth:0}));return result;
@@ -209,7 +210,7 @@
     const r=o.resources.find(r=>r.id===asset.resource_id),t=tree(o);return !r?.worktree||[t?.id,t?.membership].includes(r.worktree);
   }
   function assetCatalog(o) {
-    const rows=[...scopeRows(o).filter(t=>!t.fixed).map(t=>({folder:{root:t.path,path:'.'}})),...o.resources.filter(r=>!r.task_document).map(r=>({resource_id:r.id})),...(o.asset_shelf||[]),...(o.shared_assets||[]),...(o.archived_assets||[]),...tasks(o).flatMap(t=>t.assets||[])];
+    const rows=[...scopeRows(o).filter(t=>!t.fixed).map(t=>({folder:{root:t.path,path:'.'}})),...o.resources.filter(r=>!r.task_document).map(r=>({resource_id:r.id})),...(o.asset_shelf||[]),...(o.shared_assets||[]),...(o.archived_assets||[]),...tasks(o).flatMap(t=>t.assets||[]),...(o.asset_groups||[]).flatMap(g=>g.assets)];
     return rows.filter((row,i)=>!isTrashed(row,o)&&rows.findIndex(a=>sameAsset(a,row))===i);
   }
   function unassignedAssets(o,visible=false) {
@@ -221,7 +222,96 @@
     return `<div class="objective-sidebar-task${parent?' child':''}${selected?' active':''}" style="--objective-task-depth:${depth}" data-task-id="${esc(task.id)}"><span class="objective-sidebar-task-status objective-task-status-icon" data-task-status="${status}" aria-label="${taskStatuses[status].label}" title="${taskStatuses[status].label} · Secondary-click to change status">${taskStatuses[status].icon}</span><a class="objective-sidebar-task-title${done?' done':''}" data-open-task="${esc(task.id)}" href="${esc(taskHref(task))}" draggable="true" title="${esc(task.title)}">${taskNameHtml(task)}</a><span class="objective-sidebar-task-count" title="${taskAssets(task).length} assets">${taskAssets(task).length}</span><button type="button" data-task-icon="${esc(task.id)}" data-open-task="${esc(task.id)}" aria-label="Icon for ${esc(task.title)}" title="Drop an asset here to set the terminal icon" draggable="true">${customTaskIcon(task)}</button></div>`;
   }
   function bucketHtml(id,label,assets,add=false) {
-    return `<section class="objective-bucket" data-objective-bucket="${id}" aria-label="${label}"><div class="sidebar-title objective-title">${id==='unassigned'?`<button type="button" class="objective-bucket-label" data-show-unassigned>${label}</button>`:`<span${id==='objective'?` data-drag-objective="${esc(objective().id)}" draggable="true" title="Drag ${esc(objective().name)} into a terminal to pass its whole context"`:''}>${label}</span>`}${add?'<button type="button" data-add-resource="document" aria-label="Add objective asset">+</button>':''}</div><div class="objective-resources">${assets.map(asset=>assetRow(asset)).join('')||`<p class="objective-bucket-empty">${{unassigned:'All assets are assigned.',objective:'Star an asset to share it across tasks.',task:'Select a task to see its assets.',archive:'Drop assets here to set them aside.'}[id]}</p>`}</div></section>`;
+    return `<section class="objective-bucket" data-objective-bucket="${id}" aria-label="${label}"><div class="sidebar-title objective-title">${id==='unassigned'?`<button type="button" class="objective-bucket-label" data-show-unassigned>${label}</button>`:`<span${id==='objective'?` data-drag-objective="${esc(objective().id)}" draggable="true" title="Drag ${esc(objective().name)} into a terminal to pass its whole context"`:''}>${label}</span>`}${add?'<button type="button" data-add-resource="document" aria-label="Add objective asset">+</button>':''}</div><div class="objective-resources">${assetListHtml(assets,'sidebar:'+id+(id==='task'?':'+(focusedTask()?.id||''):''))||`<p class="objective-bucket-empty">${{unassigned:'All assets are assigned.',objective:'Star an asset to share it across tasks.',task:'Select a task to see its assets.',archive:'Drop assets here to set them aside.'}[id]}</p>`}</div></section>`;
+  }
+  function assetGroupFor(asset,o=objective()) {return (o.asset_groups||[]).find(g=>g.assets.some(a=>sameAsset(a,asset,o)));}
+  function assetListEntries(assets,o=objective()) {
+    const entries=[],seen=new Set();
+    for(const asset of assets){
+      if(!assetInfo(asset,o))continue;
+      const group=assetGroupFor(asset,o);
+      if(group){if(!seen.has(group.id)){seen.add(group.id);entries.push({group,assets:group.assets.map(a=>assets.find(b=>sameAsset(a,b,o))).filter(a=>a&&assetInfo(a,o))});}}
+      else entries.push({asset});
+    }
+    const rank=entry=>{const i=(o.asset_order||[]).findIndex(item=>entry.group?item.group_id===entry.group.id:!item.group_id&&sameAsset(item,entry.asset,o));return i<0?Infinity:i;};
+    return entries.sort((a,b)=>Number(!!b.asset?.required)-Number(!!a.asset?.required)||rank(a)-rank(b));
+  }
+  function assetLayoutRow(html,item) {return html.replace(/^(<[^>]+)(>)/,`$1 data-asset-layout-item="${esc(JSON.stringify(item))}"$2`);}
+  function flatAssetRow(asset) {
+    const scope=worktreeAssetScope(asset);
+    return scope?scopeRow(scope,asset):`<div class="objective-asset-line" data-objective-asset="${esc(JSON.stringify(assetTarget(asset)))}">${taskAssetRow(asset)}${assetControls(asset)}</div>`;
+  }
+  function assetListHtml(assets,view,render=assetRow,childRender=flatAssetRow) {
+    return assetListEntries(assets).map(entry=>{
+      if(entry.asset)return assetLayoutRow(render(entry.asset),assetTarget(entry.asset));
+      const {group,assets:children}=entry,groupKey=key(context())+'::'+objective().id+'::'+view+'::'+group.id;
+      const open=!!assetGroupHovers.get(groupKey)?.open;
+      return `<div class="objective-asset-group" data-asset-group="${esc(group.id)}" data-asset-group-key="${esc(groupKey)}" data-asset-layout-item="${esc(JSON.stringify({group_id:group.id}))}"><div class="objective-asset-group-header" data-asset-group-header="${esc(group.id)}"><button type="button" class="sidebar-scope-link objective-resource" data-asset-group-toggle="${esc(group.id)}" aria-expanded="${open}" title="${esc(group.title)} · Hover for one second to show assets"><span class="objective-asset-group-caret" aria-hidden="true">${open?'▾':'▸'}</span><span>${esc(group.title)}</span><small>${children.length}</small></button><span class="objective-asset-tools"><button type="button" class="objective-asset-menu" data-asset-group-menu="${esc(group.id)}" aria-label="Actions for ${esc(group.title)}">⋯</button></span></div><div class="objective-asset-group-children" role="group" aria-label="Assets in ${esc(group.title)}" ${open?'':'hidden'}>${children.map(a=>assetLayoutRow(childRender(a),assetTarget(a))).join('')}</div></div>`;
+    }).join('');
+  }
+  function setAssetGroupOpen(node,open) {
+    node.querySelector(':scope > .objective-asset-group-children').hidden=!open;
+    node.querySelector('[data-asset-group-toggle]').setAttribute('aria-expanded',String(open));
+    node.querySelector('.objective-asset-group-caret').textContent=open?'▾':'▸';
+  }
+  function closeAssetGroup(node,hold=false) {
+    const id=node.dataset.assetGroupKey,hover=assetGroupHovers.get(id);
+    if(hover)clearTimeout(hover.timer);
+    if(hold&&node.matches(':hover'))assetGroupHovers.set(id,{open:false,blocked:true,timer:null});
+    else assetGroupHovers.delete(id);
+    setAssetGroupOpen(node,false);
+  }
+  function openAssetGroup(node,immediate=false) {
+    const id=node.dataset.assetGroupKey;
+    let hover=assetGroupHovers.get(id);
+    if(!hover){hover={enteredAt:performance.now(),open:false,timer:null};assetGroupHovers.set(id,hover);}
+    clearTimeout(hover.timer);
+    if(hover.blocked&&!immediate)return;
+    hover.blocked=false;
+    if(immediate||hover.open){hover.open=true;setAssetGroupOpen(node,true);return;}
+    hover.timer=setTimeout(()=>{
+      const current=document.querySelector(`[data-asset-group-key="${CSS.escape(id)}"]`);
+      if(assetGroupHovers.get(id)!==hover)return;
+      if(current?.matches(':hover')){hover.open=true;setAssetGroupOpen(current,true);}
+      else assetGroupHovers.delete(id);
+    },Math.max(0,1000-(performance.now()-hover.enteredAt)));
+  }
+  document.addEventListener('pointerover',event=>{const node=event.target.closest?.('[data-asset-group]');if(node&&!node.contains(event.relatedTarget))openAssetGroup(node);});
+  document.addEventListener('pointerout',event=>{const node=event.target.closest?.('[data-asset-group]');if(node&&!node.contains(event.relatedTarget))closeAssetGroup(node);});
+  document.addEventListener('focusin',event=>{const node=event.target.closest?.('[data-asset-group]');if(node)openAssetGroup(node,true);});
+  document.addEventListener('focusout',event=>{const node=event.target.closest?.('[data-asset-group]');if(node&&!node.contains(event.relatedTarget)&&!node.matches(':hover'))closeAssetGroup(node);});
+  document.addEventListener('pointerdown',event=>{for(const [id,hover] of assetGroupHovers){const node=document.querySelector(`[data-asset-group-key="${CSS.escape(id)}"]`);if(!node||!node.contains(event.target)){clearTimeout(hover.timer);assetGroupHovers.delete(id);if(node)setAssetGroupOpen(node,false);}}});
+  document.addEventListener('keydown',event=>{
+    const toggle=event.target.closest?.('[data-asset-group-toggle]');if(!toggle)return;
+    const node=toggle.closest('[data-asset-group]');
+    if(event.key==='ArrowRight'){event.preventDefault();openAssetGroup(node,true);node.querySelector('.objective-asset-group-children button')?.focus();}
+    if(event.key==='ArrowLeft'||event.key==='Escape'){event.preventDefault();closeAssetGroup(node,true);}
+  });
+  function groupAsset(asset) {
+    const scope={...context()},o=objective(),current=assetGroupFor(asset,o);
+    const node=form('Group asset',`<p>${esc(assetInfo(asset)?.title||'Asset')}</p><label>Group<select name="group"><option value="">Create a new group</option>${(o.asset_groups||[]).map(g=>`<option value="${esc(g.id)}">${esc(g.title)}</option>`).join('')}</select></label><div data-new-group>${input('Group name','title')}</div>`,async values=>{
+      const id=values.get('group');await change({type:id?'asset-group-member':'asset-group-create',objective_id:o.id,...assetTarget(asset),...(id?{group_id:id}:{title:values.get('title')})},{scope});
+    });
+    const select=node.querySelector('[name=group]'),field=node.querySelector('[name=title]');
+    if(current)select.value=current.id;
+    const sync=()=>{node.querySelector('[data-new-group]').hidden=!!select.value;field.required=!select.value;};
+    select.onchange=sync;field.maxLength=120;sync();
+  }
+  function renameAssetGroup(id) {
+    const scope={...context()},o=objective(),group=o.asset_groups.find(g=>g.id===id);if(!group)return;
+    form('Rename group',input('Group name','title',group.title),values=>change({type:'asset-group-rename',objective_id:o.id,group_id:id,title:values.get('title')},{scope}));
+  }
+  function assetOrderButtons(item,node) {
+    const entry=node.closest('[data-asset-layout-item]');if(!entry)return '';
+    const target=JSON.parse(entry.dataset.assetLayoutItem);
+    if(item.group_id?target.group_id!==item.group_id:target.group_id||!sameAsset(target,item))return '';
+    const siblings=[...entry.parentElement.children].filter(n=>n.hasAttribute('data-asset-layout-item'));
+    const at=siblings.indexOf(entry);
+    return [['up',at-1,'before'],['down',at+1,'after']].map(([label,index,position])=>{
+      const relative=siblings[index]&&JSON.parse(siblings[index].dataset.assetLayoutItem);
+      if(relative&&!relative.group_id&&requiredAsset(relative))return '';
+      return `<button type="button" role="menuitem" data-asset-order="${esc(JSON.stringify({item,relative,position}))}" ${relative?'':'disabled'}>Move ${label}</button>`;
+    }).join('');
   }
   function assetRow(asset) {
     const info=assetInfo(asset);if(!info)return '';
@@ -379,7 +469,7 @@
       ((o.shared_assets||[]).length?bucketHtml('objective','Objective · pinned',o.shared_assets.filter(a=>!isArchived(a,o))):'')+
       `<section class="objective-bucket objective-sidebar-tasks" data-objective-bucket="tasks"><div class="sidebar-title objective-title objective-tasks-drop" data-objective-tasks-drop title="Drop a task or its terminal here to make it a top-level task"><button type="button" class="objective-bucket-label" data-open-objective-tasks draggable="true">Tasks</button>${badge(o)}<button type="button" data-new-objective-task aria-label="New objective task">+</button></div><div class="objective-sidebar-task-list" style="--objective-task-rows:${reservedTaskRows}">${sidebarRows.map(({task,parent,depth})=>sidebarTaskRow(task,parent,depth)).join('')||'<p class="objective-bucket-empty">Add a task to start.</p>'}</div></section>`+
       bucketHtml('task','Task assets',selectedAssets.filter(a=>!worktreeAssetScope(a,o)))+
-      (task?`<section class="objective-bucket objective-task-worktrees" data-task-id="${esc(task.id)}" aria-label="Worktrees for this task"><div class="sidebar-title objective-title">Worktrees</div><div class="objective-resources">${selectedWorktrees.map(asset=>scopeRow(worktreeAssetScope(asset,o),asset)).join('')||'<p class="objective-bucket-empty">No worktrees assigned to this task.</p>'}</div></section>`:'')+
+      (task?`<section class="objective-bucket objective-task-worktrees" data-task-id="${esc(task.id)}" aria-label="Worktrees for this task"><div class="sidebar-title objective-title">Worktrees</div><div class="objective-resources">${assetListHtml(selectedWorktrees,'sidebar:worktrees:'+task.id)||'<p class="objective-bucket-empty">No worktrees assigned to this task.</p>'}</div></section>`:'')+
       (overview?bucketHtml('unassigned','Unassigned',unassigned,true)+`<details class="objective-archive" ${state().archiveOpen?'open':''}><summary>Archive · ${(o.archived_assets||[]).length}</summary>${bucketHtml('archive','Archived assets',o.archived_assets||[])}</details>`:'');
     host.closest('[data-project-sidebar]')?.setAttribute('data-objective-sidebar-mode',sidebarMode(scope.path));
     bridge.refreshRecent?.();
@@ -461,7 +551,7 @@
     paint();bridge.refreshTerminals?.();
   }
   function overviewAssets(label,assets) {
-    return `<section class="objective-overview-assets" aria-label="${esc(label)}"><h3>${esc(label)}</h3><div class="objective-resources">${assets.map(assetRow).join('')||'<p class="objective-bucket-empty">No assets.</p>'}</div></section>`;
+    return `<section class="objective-overview-assets" aria-label="${esc(label)}"><h3>${esc(label)}</h3><div class="objective-resources">${assetListHtml(assets,'overview:'+label)||'<p class="objective-bucket-empty">No assets.</p>'}</div></section>`;
   }
   function overviewState() {const s=state();return s.overview[objective().id] ||= {mode:'assets',query:''};}
   function assignmentLabel(destination) {
@@ -469,14 +559,15 @@
     if(destination.bucket==='task')return (owner.id!==objective().id?owner.name+' / ':'')+(tasks(owner).find(t=>t.id===destination.task_id)?.title||'Unavailable task');
     return 'Objective: '+owner.name;
   }
-  function reviewAssetRow(asset,archived=false) {
+  function reviewAssetRow(asset,archived=false,flat=false) {
+    const source=flat?flatAssetRow(asset):assetRow(asset);
     const target=esc(JSON.stringify(assetTarget(asset))),suggestions=(objective().assignment_suggestions||[]).filter(s=>sameAsset(s.asset,asset));
     const pending=suggestions.filter(s=>s.status==='pending'),rejected=suggestions.some(s=>s.status==='rejected');
-    if(requiredAsset(asset))return `<div class="objective-review-asset">${assetRow(asset)}<span class="objective-assignment-status">Required task details</span></div>`;
-    return `<div class="objective-review-asset"><div class="objective-review-source">${assetRow(asset)}<span class="objective-assignment-status">${archived?'Archived':pending.length?'Suggestion available':rejected?'Suggestion rejected':'No suggestion'}</span></div>${archived?`<div class="objective-review-actions"><button type="button" data-restore-objective-asset="${target}">Restore to Unassigned</button><button type="button" data-trash-objective-asset="${target}">Trash</button></div>`:`${pending.map(s=>`<div class="objective-assignment-suggestion"><div><strong>Suggested → ${esc(assignmentLabel(s.destination))}</strong><p>${esc(s.reason)}</p></div><div class="objective-review-actions"><button type="button" data-accept-assignment="${esc(s.id)}">Accept</button><button type="button" data-reject-assignment="${esc(s.id)}">Reject</button></div></div>`).join('')}<div class="objective-review-actions"><button type="button" data-classify-asset="${target}">${pending.length?'Choose another…':'Assign…'}</button><button type="button" data-archive-objective-asset="${target}">Archive</button><button type="button" data-trash-objective-asset="${target}">Trash</button></div>`}</div>`;
+    if(requiredAsset(asset))return `<div class="objective-review-asset">${source}<span class="objective-assignment-status">Required task details</span></div>`;
+    return `<div class="objective-review-asset"><div class="objective-review-source">${source}<span class="objective-assignment-status">${archived?'Archived':pending.length?'Suggestion available':rejected?'Suggestion rejected':'No suggestion'}</span></div>${archived?`<div class="objective-review-actions"><button type="button" data-restore-objective-asset="${target}">Restore to Unassigned</button><button type="button" data-trash-objective-asset="${target}">Trash</button></div>`:`${pending.map(s=>`<div class="objective-assignment-suggestion"><div><strong>Suggested → ${esc(assignmentLabel(s.destination))}</strong><p>${esc(s.reason)}</p></div><div class="objective-review-actions"><button type="button" data-accept-assignment="${esc(s.id)}">Accept</button><button type="button" data-reject-assignment="${esc(s.id)}">Reject</button></div></div>`).join('')}<div class="objective-review-actions"><button type="button" data-classify-asset="${target}">${pending.length?'Choose another…':'Assign…'}</button><button type="button" data-archive-objective-asset="${target}">Archive</button><button type="button" data-trash-objective-asset="${target}">Trash</button></div>`}</div>`;
   }
   function overviewReviewSection(label,assets,archived=false) {
-    return `<section class="objective-overview-assets" aria-label="${esc(label)}"><h3>${esc(label)} <span class="objective-result-count">${assets.length}</span></h3><div class="objective-review-list">${assets.map(a=>reviewAssetRow(a,archived)).join('')||'<p class="objective-bucket-empty">No assets.</p>'}</div></section>`;
+    return `<section class="objective-overview-assets" aria-label="${esc(label)}"><h3>${esc(label)} <span class="objective-result-count">${assets.length}</span></h3><div class="objective-review-list">${assetListHtml(assets,'review:'+label,a=>reviewAssetRow(a,archived),a=>reviewAssetRow(a,archived,true))||'<p class="objective-bucket-empty">No assets.</p>'}</div></section>`;
   }
   function paintOverviewResults() {
     const host=document.querySelector('[data-objective-overview-results]');if(!host||openView?.scope!==key(context()))return;
@@ -1112,25 +1203,29 @@
     menu.querySelector('[aria-checked=true]')?.focus({preventScroll:true});
   }
   function closeAssetContextMenu() {assetContextMenu?.remove();assetContextMenu=null;}
+  function openAssetContextMenu(event,node,html) {
+    event.preventDefault();event.stopImmediatePropagation();closeTaskStatusMenu();closeAssetContextMenu();
+    assetContextMenu=document.createElement('div');assetContextMenu.className='objective-asset-context-menu';assetContextMenu.setAttribute('role','menu');assetContextMenu.setAttribute('aria-label','Asset actions');
+    assetContextMenu.innerHTML=html;document.body.append(assetContextMenu);const box=node.getBoundingClientRect();
+    assetContextMenu.style.left=Math.max(8,Math.min(event.clientX||box.left,window.innerWidth-assetContextMenu.offsetWidth-8))+'px';
+    assetContextMenu.style.top=Math.max(8,Math.min(event.clientY||box.bottom,window.innerHeight-assetContextMenu.offsetHeight-8))+'px';assetContextMenu.querySelector('button:not(:disabled)')?.focus();return true;
+  }
   function linkDetailsMenu(asset) {
     return assetInfo(asset)?.resource?.kind==='link'?`<button type="button" role="menuitem" data-edit-link-details="${esc(JSON.stringify(assetTarget(asset)))}">Edit link details…</button>`:'';
   }
   function showAssetContextMenu(event) {
     if(!active(context()?.path)||!event.target.closest?.('[data-objectives-sidebar],.objective-working'))return false;
+    const header=event.target.closest('[data-asset-group-header]');
+    if(header){const id=header.dataset.assetGroupHeader;return openAssetContextMenu(event,header,`<button type="button" role="menuitem" data-rename-asset-group="${esc(id)}">Rename group…</button>${assetOrderButtons({group_id:id},header)}<button type="button" role="menuitem" data-ungroup-assets="${esc(id)}">Ungroup assets</button>`);}
     const node=event.target.closest('[data-objective-asset],[data-objective-resource],[data-classify-asset],[data-objective-star]');if(!node)return false;
     const target=node.dataset.classifyAsset||node.dataset.objectiveStar||node.dataset.objectiveAsset;
     const asset=target?JSON.parse(target):{resource_id:node.dataset.objectiveResource,...(node.dataset.objectiveTab?{tab_id:node.dataset.objectiveTab}:{}),...(node.dataset.objectiveSublink?{sub_link_id:node.dataset.objectiveSublink}:{})};
     if(!assetInfo(asset))return false;
-    event.preventDefault();event.stopImmediatePropagation();closeTaskStatusMenu();closeAssetContextMenu();
-    const json=esc(JSON.stringify(assetTarget(asset))),required=requiredAsset(asset);
-    assetContextMenu=document.createElement('div');assetContextMenu.className='objective-asset-context-menu';assetContextMenu.setAttribute('role','menu');assetContextMenu.setAttribute('aria-label','Asset actions');
-    assetContextMenu.innerHTML=linkDetailsMenu(asset)+`<button type="button" role="menuitem" data-objective-star="${json}">${isShared(asset)?'Unpin':'Pin above tasks'}</button>${required?'<span class="objective-bucket-empty">Required task details</span>':`<button type="button" role="menuitem" data-menu-asset="${json}" data-menu-assignment="task">Move to task…</button><button type="button" role="menuitem" data-menu-asset="${json}" data-menu-assignment="objective">Move to Objective…</button><button type="button" role="menuitem" data-menu-asset="${json}" data-menu-bucket="unassigned">Move to Unassigned</button><button type="button" role="menuitem" data-menu-asset="${json}" data-menu-bucket="archive">Archive</button><button type="button" role="menuitem" data-trash-objective-asset="${json}">Trash…</button>`}`;
-    document.body.append(assetContextMenu);const box=node.getBoundingClientRect();
-    assetContextMenu.style.left=Math.max(8,Math.min(event.clientX||box.left,window.innerWidth-assetContextMenu.offsetWidth-8))+'px';
-    assetContextMenu.style.top=Math.max(8,Math.min(event.clientY||box.bottom,window.innerHeight-assetContextMenu.offsetHeight-8))+'px';assetContextMenu.querySelector('button')?.focus();return true;
+    const json=esc(JSON.stringify(assetTarget(asset))),required=requiredAsset(asset),group=assetGroupFor(asset);
+    return openAssetContextMenu(event,node,linkDetailsMenu(asset)+`<button type="button" role="menuitem" data-objective-star="${json}">${isShared(asset)?'Unpin':'Pin above tasks'}</button>${required?'<span class="objective-bucket-empty">Required task details</span>':`<button type="button" role="menuitem" data-group-asset="${json}">Group asset…</button>${group?`<button type="button" role="menuitem" data-remove-asset-group="${json}">Remove from group</button>`:''}${assetOrderButtons(assetTarget(asset),node)}<button type="button" role="menuitem" data-menu-asset="${json}" data-menu-assignment="task">Move to task…</button><button type="button" role="menuitem" data-menu-asset="${json}" data-menu-assignment="objective">Move to Objective…</button><button type="button" role="menuitem" data-menu-asset="${json}" data-menu-bucket="unassigned">Move to Unassigned</button><button type="button" role="menuitem" data-menu-asset="${json}" data-menu-bucket="archive">Archive</button><button type="button" role="menuitem" data-trash-objective-asset="${json}">Trash…</button>`}`);
   }
   document.addEventListener('contextmenu',event=>{if(showAssetContextMenu(event))return;const row=event.target.closest?.('[data-objectives-sidebar] .objective-sidebar-task');if(row&&active(context()?.path))showTaskStatusMenu(event,row);},true);
-  document.addEventListener('keydown',event=>{if(assetContextMenu&&event.target.closest?.('.objective-asset-context-menu')){const rows=[...assetContextMenu.querySelectorAll('button')];if(event.key==='Escape'){closeAssetContextMenu();event.preventDefault();}else if(['ArrowDown','ArrowUp','Home','End'].includes(event.key)){event.preventDefault();const i=rows.indexOf(document.activeElement);rows[event.key==='Home'?0:event.key==='End'?rows.length-1:(i+(event.key==='ArrowDown'?1:rows.length-1))%rows.length]?.focus();}return;}if(event.key==='ContextMenu'||event.shiftKey&&event.key==='F10')showAssetContextMenu(event);},true);
+  document.addEventListener('keydown',event=>{if(assetContextMenu&&event.target.closest?.('.objective-asset-context-menu')){const rows=[...assetContextMenu.querySelectorAll('button:not(:disabled)')];if(event.key==='Escape'){closeAssetContextMenu();event.preventDefault();}else if(['ArrowDown','ArrowUp','Home','End'].includes(event.key)){event.preventDefault();const i=rows.indexOf(document.activeElement);rows[event.key==='Home'?0:event.key==='End'?rows.length-1:(i+(event.key==='ArrowDown'?1:rows.length-1))%rows.length]?.focus();}return;}if(event.key==='ContextMenu'||event.shiftKey&&event.key==='F10')showAssetContextMenu(event);},true);
   document.addEventListener('pointerdown',event=>{if(!event.target.closest?.('.objective-asset-context-menu'))closeAssetContextMenu();});
   document.addEventListener('scroll',event=>{if(!event.target.closest?.('.objective-asset-context-menu'))closeAssetContextMenu();},true);
   window.addEventListener('resize',closeAssetContextMenu);
@@ -1146,10 +1241,17 @@
     if(node.disabled)return;
     if(node.closest('.objective-asset-context-menu'))closeAssetContextMenu();
     if(node.hasAttribute('data-edit-link-details')){const asset=JSON.parse(node.dataset.editLinkDetails);openResource(asset.resource_id,asset.tab_id||null,asset.sub_link_id||null);return;}
+    if(node.hasAttribute('data-asset-group-toggle')){openAssetGroup(node.closest('[data-asset-group]'),true);return;}
+    if(node.hasAttribute('data-asset-group-menu')){showAssetContextMenu(e);return;}
+    if(node.hasAttribute('data-group-asset')){groupAsset(JSON.parse(node.dataset.groupAsset));return;}
+    if(node.hasAttribute('data-remove-asset-group')){void change({type:'asset-group-member',objective_id:objective().id,...JSON.parse(node.dataset.removeAssetGroup),group_id:null}).catch(()=>{});return;}
+    if(node.hasAttribute('data-rename-asset-group')){renameAssetGroup(node.dataset.renameAssetGroup);return;}
+    if(node.hasAttribute('data-ungroup-assets')){void change({type:'asset-group-ungroup',objective_id:objective().id,group_id:node.dataset.ungroupAssets}).catch(()=>{});return;}
+    if(node.hasAttribute('data-asset-order')){void change({type:'asset-order',objective_id:objective().id,...JSON.parse(node.dataset.assetOrder)}).catch(()=>{});return;}
     if(node.dataset.menuAssignment){classifyAsset(JSON.parse(node.dataset.menuAsset),node.dataset.menuAssignment);return;}
     if(node.dataset.menuBucket){void change({type:'asset-bucket',objective_id:objective().id,...JSON.parse(node.dataset.menuAsset),bucket:node.dataset.menuBucket}).catch(()=>{});return;}
     if(node.hasAttribute('data-objective-star')){const target=JSON.parse(node.dataset.objectiveStar);void change({type:'asset-star',objective_id:objective().id,...target,starred:!isShared(target)}).catch(()=>{});return;}
-    if(node.hasAttribute('data-classify-asset')){classifyAsset(JSON.parse(node.dataset.classifyAsset));return;}
+    if(node.hasAttribute('data-classify-asset')){if(node.classList.contains('objective-asset-menu'))showAssetContextMenu(e);else classifyAsset(JSON.parse(node.dataset.classifyAsset));return;}
     if(node.dataset.acceptAssignment||node.dataset.rejectAssignment){const accept=!!node.dataset.acceptAssignment;void change({type:accept?'accept-assignment':'reject-assignment',objective_id:objective().id,suggestion_id:node.dataset.acceptAssignment||node.dataset.rejectAssignment}).catch(()=>{});return;}
     if(node.hasAttribute('data-trash-objective-asset')){trashAsset(JSON.parse(node.dataset.trashObjectiveAsset));return;}
     if(node.hasAttribute('data-archive-objective-asset')||node.hasAttribute('data-restore-objective-asset')){void change({type:'asset-bucket',objective_id:objective().id,...JSON.parse(node.dataset.archiveObjectiveAsset||node.dataset.restoreObjectiveAsset),bucket:node.hasAttribute('data-archive-objective-asset')?'archive':'unassigned'}).catch(()=>{});return;}
@@ -1285,7 +1387,7 @@
   document.addEventListener('dragover',e=>{const slot=e.target.closest?.('[data-objective-slot]');if(slot&&e.dataTransfer.types.includes(objectiveMime)){e.preventDefault();e.dataTransfer.dropEffect='move';slot.classList.add('objective-drop-target');}},true);
   document.addEventListener('dragleave',e=>e.target.closest?.('[data-objective-slot]')?.classList.remove('objective-drop-target'));
   document.addEventListener('dragend',()=>document.querySelectorAll('.objective-drop-target').forEach(n=>n.classList.remove('objective-drop-target')));
-  const linkDropSelector='[data-task-id],[data-task-icon],[data-objective-asset],[data-objective-resource],[data-objective-root],[data-objective-worktree],[data-objective-bucket],.objective-archive,[data-objectives-sidebar] [data-select-objective],[data-objective-tasks-drop],[data-objectives-sidebar] [data-open-objective-tasks],#sidebar [data-entry-kind],[data-open-file][data-filepath],#termSessionList .sess';
+  const linkDropSelector='[data-asset-group-header],[data-task-id],[data-task-icon],[data-objective-asset],[data-objective-resource],[data-objective-root],[data-objective-worktree],[data-objective-bucket],.objective-archive,[data-objectives-sidebar] [data-select-objective],[data-objective-tasks-drop],[data-objectives-sidebar] [data-open-objective-tasks],#sidebar [data-entry-kind],[data-open-file][data-filepath],#termSessionList .sess';
   const taskMoveTarget='.objective-sidebar-task,.objective-task-row,[data-open-objective-tasks]';
   document.addEventListener('dragover',event=>{
     if(!active(context()?.path)||!event.dataTransfer.types.includes(taskMoveMime))return;
@@ -1297,8 +1399,8 @@
     event.preventDefault();event.stopImmediatePropagation();target.classList.remove('objective-drop-target');
     try{moveTaskDrop(JSON.parse(raw),target.dataset.taskId);}catch(error){notify(error.message,true);}
   },true);
-  document.addEventListener('dragover',e=>{if(!active(context()?.path))return;const draft=taskDocumentDraft();if(e.target.closest?.('.objective-task-mode-head')&&draft&&!draftEditable(draft)){e.preventDefault();e.stopImmediatePropagation();e.dataTransfer.dropEffect='none';return;}const target=e.target.closest?.(linkDropSelector);if(e.dataTransfer.types.includes('application/x-lab-terminal')&&e.target.closest('#content,.assistant-inline-host')&&!e.target.closest('#sidebar')){e.preventDefault();e.stopImmediatePropagation();e.dataTransfer.dropEffect='none';return;}if(target&&[resourceMime,documentMime,'application/x-lab-file-path','application/x-lab-terminal',...(target.classList.contains('sess')?[objectiveMime]:[]),...(target.closest('[data-task-id],[data-objective-bucket]')?['text/uri-list','application/x-lab-reference']:[])].some(m=>e.dataTransfer.types.includes(m))){e.preventDefault();e.dataTransfer.dropEffect='link';const row=target.closest('[data-objective-tasks-drop]')||target;if(row.hasAttribute('data-task-id')||row.hasAttribute('data-objective-tasks-drop'))row.classList.add('objective-drop-target');}},true);
-  document.addEventListener('dragleave',e=>{const row=e.target.closest?.('[data-task-id],[data-objective-tasks-drop]');if(row&&!row.contains(e.relatedTarget))row.classList.remove('objective-drop-target');});
+  document.addEventListener('dragover',e=>{if(!active(context()?.path))return;const draft=taskDocumentDraft();if(e.target.closest?.('.objective-task-mode-head')&&draft&&!draftEditable(draft)){e.preventDefault();e.stopImmediatePropagation();e.dataTransfer.dropEffect='none';return;}const target=e.target.closest?.(linkDropSelector);if(e.dataTransfer.types.includes('application/x-lab-terminal')&&e.target.closest('#content,.assistant-inline-host')&&!e.target.closest('#sidebar')){e.preventDefault();e.stopImmediatePropagation();e.dataTransfer.dropEffect='none';return;}if(target&&[resourceMime,documentMime,'application/x-lab-file-path','application/x-lab-terminal',...(target.classList.contains('sess')?[objectiveMime]:[]),...(target.closest('[data-task-id],[data-objective-bucket]')?['text/uri-list','application/x-lab-reference']:[])].some(m=>e.dataTransfer.types.includes(m))){e.preventDefault();e.dataTransfer.dropEffect='link';const row=target.closest('[data-objective-tasks-drop]')||target;if(row.hasAttribute('data-task-id')||row.hasAttribute('data-objective-tasks-drop')||row.hasAttribute('data-asset-group-header'))row.classList.add('objective-drop-target');}},true);
+  document.addEventListener('dragleave',e=>{const row=e.target.closest?.('[data-asset-group-header],[data-task-id],[data-objective-tasks-drop]');if(row&&!row.contains(e.relatedTarget))row.classList.remove('objective-drop-target');});
   document.addEventListener('drop',e=>{
     const draft=taskDocumentDraft();if(e.target.closest?.('.objective-task-mode-head')&&draft&&!draftEditable(draft)){e.preventDefault();e.stopImmediatePropagation();return;}
     if(active(context()?.path)&&e.target.closest?.('#termSessionList [data-terminal-main]')){e.preventDefault();e.stopImmediatePropagation();notify('Main terminals have a fixed workflow or Objective context',true);return;}
@@ -1312,6 +1414,17 @@
     if(terminal&&target.classList.contains('sess')&&!raw&&!assistant&&!file)return;
     e.preventDefault();e.stopImmediatePropagation();
     target.closest('[data-objective-tasks-drop]')?.classList.remove('objective-drop-target');
+    const groupHeader=target.closest('[data-asset-group-header]');
+    if(groupHeader){
+      groupHeader.classList.remove('objective-drop-target');
+      try{
+        if(!raw||terminal)throw new Error('Drop an existing Objective asset onto the group');
+        const {scope,...item}=JSON.parse(raw);
+        if(scope!==key(context())||item.objective_id!==objective().id||(!item.resource_id&&!item.folder)||item.task_id||item.view)throw new Error('Choose an asset in this Objective');
+        void change({type:'asset-group-member',...item,group_id:groupHeader.dataset.assetGroupHeader}).catch(()=>{});
+      }catch(error){notify(error.message,true);}
+      return;
+    }
     if(terminal&&!target.closest('#sidebar')&&!target.classList.contains('sess'))return;
     if(terminal&&target.closest('[data-objective-tasks-drop]')){
       const session=bridge.session?.(terminal);

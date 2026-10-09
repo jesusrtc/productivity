@@ -91,6 +91,17 @@ but retains the source for recovery; expand it to move references back. A task's
 mandatory details cannot be detached or archived. Only registered references
 appear in Unassigned; the native Files tree supplies additional sources.
 
+Choose **Group asset…** in an asset's **⋯** menu to create a named group or add
+it to an existing group. Groups have one level of children, revealed after a
+one-second hover; clicking the group also opens it. Moving away cancels a pending
+reveal. Drag an existing Objective asset onto a group header to add it. Asset
+menus offer **Remove from group** and **Move up / Move down**; group menus offer
+**Rename group…**, ordering and **Ungroup assets**. Ordering survives reload.
+Groups apply within the Objective and show the members belonging to each
+current task or bucket. They retain the original references, URLs (including
+Google Doc section fragments), task assignments, stars and terminal links.
+Grouping is always the client's choice; matching URLs do not create groups.
+
 **Trash** requires confirmation and removes the asset registration and its
 optional task attachments. It preserves source files, original Assistant
 documents and running terminals. Trashing an individual document subtab or link

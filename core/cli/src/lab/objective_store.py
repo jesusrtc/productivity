@@ -14,7 +14,7 @@ from pathlib import Path
 import re
 from lab import task_cycles
 
-from lab import assistant_records, storage
+from lab import assistant_records, storage, objective_asset_groups
 
 LAYOUT = 'objective-files-v1'
 MANIFEST = '.objective.json'
@@ -57,6 +57,7 @@ def _json(target):
 def _validate(value, target):
     """Validate editable file structure before any metadata can be overwritten."""
     value = deepcopy(value)
+    objective_asset_groups.validate(value)
     oid = value.get('id')
     if not isinstance(oid, str) or not re.fullmatch(r'[A-Za-z0-9_.-]{1,128}', oid) or oid in {'.', '..'}:
         raise ValueError(f'{target}: Objective needs a stable id')
