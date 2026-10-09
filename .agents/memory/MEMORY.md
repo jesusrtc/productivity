@@ -1,5 +1,8 @@
 # Memory index
 
+- [Terminal worktree colors stay local](terminal-worktree-colors-stay-local.md) — neutral ordinary names and independent worktree colors, with no Objective-color inheritance across names.
+- [Tasks header is a full-width drop area](tasks-header-is-full-width-drop-area.md) — the whole highlighted header accepts task/primary-terminal promotion while preserving terminal ownership.
+
 - [Objective agents read vault and workspace instructions](objective-agents-read-vault-and-workspace-instructions.md) — shared Lab context requires both owning roots even when launched in an Objective folder or external worktree.
 
 - [Resource pop-outs cycle through positions 2, 3 and 4](resource-popouts-cycle-through-positions-2-3-4.md) — start at the former second window's full geometry and repeat those three positions only.
@@ -39,7 +42,7 @@
 
 - [Task terminals are opt-in by workspace](task-terminals-are-opt-in-by-workspace.md) — off by default; workspace-saved policy controls recommended rows and task-click creation while retaining existing/manual terminals.
 - [Added terminals keep their chosen group](added-terminals-keep-their-chosen-group.md) — workflow/Objective launches create independent visible tabs without reusing or replacing fixed mains.
-- [Objective terminal names follow Objective color](objective-terminal-names-follow-objective-color.md) — active Objective names match their header while keeping worktree, automation and display-main colors.
+- [Objective terminal names follow Objective color](objective-terminal-names-follow-objective-color.md) — historical group coloring, superseded by neutral ordinary names and local worktree colors above.
 
 - [Main terminals use laptop icons](main-terminals-use-laptop-icons.md) — plain 💻 for both workflow and Objective main terminals; supersedes distinct icons and diamond decoration.
 

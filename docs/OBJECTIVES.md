@@ -346,7 +346,8 @@ The fixed **💻 Objective main** appears immediately after the active Objective
 divider; inactive Objective mains stay hidden, including in Show all mode.
 Clicking a main row creates its session if needed and reuses it thereafter.
 Default main and task launches start the configured workspace agent with Lab
-context. Active Objective terminal names use their Objective color.
+context. Objective headers and dividers use their Objective color; ordinary
+terminal names remain neutral. Worktree names keep their own assigned colors.
 These tabs cannot be moved,
 nested, renamed or reassigned through the tab controls. Existing extra
 sessions remain ordinary terminals. Main roles are saved as

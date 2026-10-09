@@ -40,7 +40,9 @@ def test_objective_inline_editor_serializes_sibling_saves_and_retains_conflicts(
     from core.routes import term
     term._upsert_workspace_session(monorepo,'demo',{'name':'native-drag-shell','kind':'terminal','cwd':str(folder),'agent_session_id':'preserved'})
     saved_session=term._get_workspace_sessions(monorepo,'demo')[0]
-    fixture = {'folder':str(folder),'oid':oid,'rid':rid,'child':resource['content']['tabs'][0]['id'],'checkout':str(checkout),'session':saved_session,'editorPath':resource['path']}
+    term._upsert_workspace_session(monorepo,'demo',{'name':'task-promotion-shell','kind':'terminal','cwd':str(folder),'agent_session_id':'promotion-preserved'})
+    move_session=next(s for s in term._get_workspace_sessions(monorepo,'demo') if s['name']=='task-promotion-shell')
+    fixture = {'folder':str(folder),'oid':oid,'rid':rid,'child':resource['content']['tabs'][0]['id'],'checkout':str(checkout),'session':saved_session,'moveSession':move_session,'editorPath':resource['path']}
     scripts = '\n'.join('<script>'+(STATIC/path).read_text()+'</script>' for path in [
         'vendor/marked@12.0.1/marked.min.js','vendor/dompurify@3.4.15/purify.min.js',
         'js/lib/markdown-content.js','vendor/lab-markdown-editor/markdown-editor.min.js','js/lib/task-context.js','js/lib/workspace-objectives.js'])
@@ -100,7 +102,7 @@ window.checkLink=async(selector,expected)=>{
  const target=(await read()).objectives[0].resources.find(r=>r.id===expected.resource_id);
  if(target?.kind==='link'){assert(document.querySelector('.objective-link-details')&&opened.filter(item=>item.url).length===browserCount,'linked terminal opens metadata without opening the URL');document.querySelector('[data-open-objective-link]').click();}
 };
-LabObjectives.connect({fileIcon:fileIconHtml,context:()=>({workspace_id:'demo',path:FIX.folder}),refreshTabs:()=>document.getElementById('tabs').innerHTML=LabObjectives.tabsHtml(FIX.folder),readyContent:()=>window.awaitAssets?.()||Promise.resolve(),prepareCenter:()=>{},scopeRoot:()=>scopeRoot,selectWorktree:row=>{scopeRoot=row.path},session:name=>name===FIX.session.name?FIX.session:null,sessions:()=>[FIX.session],activateLinkedTerminal:ids=>activated.push(ids),openLink:link=>opened.push({url:link.url}),openFile:file=>opened.push({file}),openNotebook:r=>opened.push({notebook:r.path}),openFolder:folder=>opened.push({folder})});
+LabObjectives.connect({fileIcon:fileIconHtml,context:()=>({workspace_id:'demo',path:FIX.folder}),refreshTabs:()=>document.getElementById('tabs').innerHTML=LabObjectives.tabsHtml(FIX.folder),readyContent:()=>window.awaitAssets?.()||Promise.resolve(),prepareCenter:()=>{},scopeRoot:()=>scopeRoot,selectWorktree:row=>{scopeRoot=row.path},session:name=>[FIX.session,FIX.moveSession].find(s=>s.name===name),sessions:()=>[FIX.session],activateLinkedTerminal:ids=>activated.push(ids),openLink:link=>opened.push({url:link.url}),openFile:file=>opened.push({file}),openNotebook:r=>opened.push({notebook:r.path}),openFolder:folder=>opened.push({folder})});
 (async()=>{await LabObjectives.load();LabObjectives.selectObjective(FIX.oid);document.getElementById('result').textContent='READY'})().catch(e=>document.getElementById('result').textContent=e.stack);
 '''
     app = (STATIC/'js/lab-app.js').read_text()
@@ -483,8 +485,26 @@ const fs=require('node:fs');
  await moveTaskDrag(moveSource,moveTarget);
  await evaluate(`until(()=>!!document.querySelector('.objective-dialog [name=placement]'))`);await click('.objective-dialog [type=submit]');
  await evaluate(`until(async()=>{const o=(await read()).objectives.find(o=>o.id===FIX.oid);return o.tasks.find(t=>t.id===keepSibling).children[0]?.id===moveChild})`);
- await moveTaskDrag(moveSource,'.objective-working h2[data-open-objective-tasks]');
+ await evaluate(`(()=>{const header=ensureAsset('[data-objective-tasks-drop]'),row=document.querySelector('.objective-sidebar-task');assert(header.getBoundingClientRect().width>=row.getBoundingClientRect().width&&header.getBoundingClientRect().height>=row.getBoundingClientRect().height,'Tasks drop area is at least as large as a task row')})()`);
+ await moveTaskDrag(moveSource,'[data-objective-tasks-drop] .objective-progress');
  await evaluate(`until(async()=>(await read()).objectives.find(o=>o.id===FIX.oid).tasks.some(t=>t.id===moveChild))`);
+ await moveTaskDrag(moveSource,await evaluate(`'.objective-task-row[data-task-id="'+branchId+'"]'`));
+ await evaluate(`until(()=>!!document.querySelector('.objective-dialog [name=placement]'))`);await click('.objective-dialog [type=submit]');
+ await evaluate(`until(async()=>(await read()).objectives.find(o=>o.id===FIX.oid).tasks.find(t=>t.id===branchId).children[0]?.id===moveChild)`);
+ await evaluate(`(async()=>{
+   await LabObjectives.change({type:'terminal',objective_id:FIX.oid,session_id:FIX.moveSession.session_id,task_id:moveChild});
+   const saved=await realFetch('/api/term/sessions/saved?workspace_id=demo').then(r=>r.json()),identity=saved.find(s=>s.session_id===FIX.moveSession.session_id),inputCount=pasted.length;
+   const transfer=new DataTransfer();transfer.setData('application/x-lab-terminal',FIX.moveSession.name);
+   const header=ensureAsset('[data-objective-tasks-drop]'),target=header.querySelector('[data-new-objective-task]');
+   target.dispatchEvent(new DragEvent('dragover',{bubbles:true,cancelable:true,dataTransfer:transfer}));
+   assert(header.classList.contains('objective-drop-target'),'terminal drag highlights the entire Tasks header');
+   target.dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:transfer}));
+   await until(async()=>{const d=await read();return d.objectives.find(o=>o.id===FIX.oid).tasks.some(t=>t.id===moveChild)&&d.terminal_links[FIX.moveSession.session_id]?.task_id===moveChild});
+   const after=(await realFetch('/api/term/sessions/saved?workspace_id=demo').then(r=>r.json())).find(s=>s.session_id===FIX.moveSession.session_id);
+   for(const field of ['session_id','name','cwd','agent_session_id','label'])assert(after[field]===identity[field],'Tasks promotion preserves terminal '+field);
+   assert(pasted.length===inputCount&&!document.querySelector('.objective-dialog'),'terminal promotion needs no terminal input or extra dialog');
+   await LabObjectives.change({type:'terminal',objective_id:FIX.oid,session_id:FIX.moveSession.session_id,view:'tasks'});
+ })()`);
  await moveTaskDrag(moveSource,await evaluate(`'.objective-task-row[data-task-id="'+branchId+'"]'`));
  await evaluate(`until(()=>!!document.querySelector('.objective-dialog [name=placement]'))`);await click('.objective-dialog [type=submit]');
  await evaluate(`until(async()=>(await read()).objectives.find(o=>o.id===FIX.oid).tasks.find(t=>t.id===branchId).children[0]?.id===moveChild)`);
@@ -515,6 +535,6 @@ const fs=require('node:fs');
         assert result.returncode==0,result.stdout+result.stderr
         assert 'PASS' in result.stdout
         task = objectives.load(monorepo,'demo')['objectives'][0]['tasks'][0]
-        assert term._get_workspace_sessions(monorepo,'demo') == [{**saved_session,'label':task['title']}]
+        assert term._get_workspace_sessions(monorepo,'demo') == [{**saved_session,'label':task['title']}, move_session]
     finally:
         process.terminate();process.wait(timeout=10);server.shutdown();server.server_close()

@@ -1,7 +1,9 @@
 # Moving and deleting Objective tasks
 
 Drag a task title or sidebar task onto another task to choose **Make subtask**,
-**Move above**, or **Move below**. Drop onto **Tasks** to make it a top-level task.
+**Move above**, or **Move below**. Drop anywhere on the full-width **Tasks** header
+to make it a top-level task. The header highlights during a drag; dropping a
+primary task terminal there promotes its task while retaining that association.
 The whole branch moves together, including deeper subtasks. A primary terminal
 drag also updates its owning task when placed under, beside, or outside another
 task's terminal.

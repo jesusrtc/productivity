@@ -376,7 +376,7 @@
     host.innerHTML=`<div class="objective-sidebar-heading" style="--objective-color:${esc(o.color)}"><button type="button" data-select-objective="${esc(o.id)}" data-drag-objective="${esc(o.id)}" draggable="true" aria-pressed="${!task&&state().view==='objective'}" title="${esc(o.name)} · Drag into a terminal for the full context"><span class="objective-library-dot" aria-hidden="true"></span><span>${esc(o.name)}</span></button><button type="button" data-objective-settings aria-label="Objective settings">⚙</button></div>`+
       `<section class="objective-worktree-navigation" aria-label="Worktrees"><div class="sidebar-title objective-title"><button type="button" class="objective-bucket-label" data-fold-worktrees aria-expanded="${!!state().worktreesOpen}">${state().worktreesOpen?'▾':'▸'} Worktrees <small>${scopeRows(o).length}</small></button><button type="button" data-associate-worktree aria-label="Associate worktree">+</button></div><div class="objective-worktrees" ${state().worktreesOpen?'':'hidden'}>${worktreeNavigationHtml(o)}</div></section>`+
       ((o.shared_assets||[]).length?bucketHtml('objective','Objective · pinned',o.shared_assets.filter(a=>!isArchived(a,o))):'')+
-      `<section class="objective-bucket objective-sidebar-tasks" data-objective-bucket="tasks"><div class="sidebar-title objective-title"><button type="button" class="objective-bucket-label" data-open-objective-tasks draggable="true" title="Drop a task here to make it a top-level task">Tasks</button>${badge(o)}<button type="button" data-new-objective-task aria-label="New objective task">+</button></div><div class="objective-sidebar-task-list" style="--objective-task-rows:${reservedTaskRows}">${sidebarRows.map(({task,parent,depth})=>sidebarTaskRow(task,parent,depth)).join('')||'<p class="objective-bucket-empty">Add a task to start.</p>'}</div></section>`+
+      `<section class="objective-bucket objective-sidebar-tasks" data-objective-bucket="tasks"><div class="sidebar-title objective-title objective-tasks-drop" data-objective-tasks-drop title="Drop a task or its terminal here to make it a top-level task"><button type="button" class="objective-bucket-label" data-open-objective-tasks draggable="true">Tasks</button>${badge(o)}<button type="button" data-new-objective-task aria-label="New objective task">+</button></div><div class="objective-sidebar-task-list" style="--objective-task-rows:${reservedTaskRows}">${sidebarRows.map(({task,parent,depth})=>sidebarTaskRow(task,parent,depth)).join('')||'<p class="objective-bucket-empty">Add a task to start.</p>'}</div></section>`+
       bucketHtml('task','Task assets',selectedAssets.filter(a=>!worktreeAssetScope(a,o)))+
       (task?`<section class="objective-bucket objective-task-worktrees" data-task-id="${esc(task.id)}" aria-label="Worktrees for this task"><div class="sidebar-title objective-title">Worktrees</div><div class="objective-resources">${selectedWorktrees.map(asset=>scopeRow(worktreeAssetScope(asset,o),asset)).join('')||'<p class="objective-bucket-empty">No worktrees assigned to this task.</p>'}</div></section>`:'')+
       (overview?bucketHtml('unassigned','Unassigned',unassigned,true)+`<details class="objective-archive" ${state().archiveOpen?'open':''}><summary>Archive · ${(o.archived_assets||[]).length}</summary>${bucketHtml('archive','Archived assets',o.archived_assets||[])}</details>`:'');
@@ -915,7 +915,7 @@
   function taskForTerminal(t) {const binding=terminalTask(t);return binding?{title:taskDisplayName(binding.task,binding.objective),icon:taskIcon(binding.task,binding.objective),assetIcon:customTaskIcon(binding.task,binding.objective),inherited:binding.inherited,status:taskStatus(binding.task)}:null;}
   function terminalTaskNameHtml(t) {const binding=terminalTask(t);return binding?taskNameHtml(binding.task,binding.objective):null;}
   function terminalWorktreeColor(t) {const binding=terminalTask(t),assigned=binding?taskWorktrees(binding.task,binding.objective):[];return assigned.length===1?assigned[0].color:null;}
-  function terminalColor(t) {return terminalWorktreeColor(t)||terminalObjective(t)?.color;}
+  function terminalColor(t) {return terminalWorktreeColor(t);}
   function terminalObjective(t) {const d=data();if(!d?.enabled)return null;const link=terminalLink(t);if(link?.main==='workflow'||link?.view==='workflow')return null;return d.objectives.find(o=>o.id===link?.objective_id)||d.objectives.find(o=>o.worktrees.some(w=>t.linked_scope?.root&&[w.path,w.resolved_path].includes(t.linked_scope.root)||t.cwd&&[w.path,w.resolved_path].includes(t.cwd)))||d.objectives[0];}
   function terminalSessions(sessions,{wipOnly=true}={}) {
     if(!active(context()?.path))return sessions;
@@ -1072,7 +1072,7 @@
     const task=node.closest?.('[data-open-task],[data-task-id]');if(task)return {task_id:task.dataset.openTask||task.dataset.taskId};
     const asset=node.closest?.('[data-objective-asset]');if(asset)return JSON.parse(asset.dataset.objectiveAsset);
     const resource=node.closest?.('[data-objective-resource]');if(resource)return {resource_id:resource.dataset.objectiveResource,tab_id:resource.dataset.objectiveTab||null,sub_link_id:resource.dataset.objectiveSublink||null};
-    if(node.closest?.('[data-objectives-sidebar] [data-open-objective-tasks]'))return {view:'tasks'};
+    if(node.closest?.('[data-objective-tasks-drop],[data-objectives-sidebar] [data-open-objective-tasks]'))return {view:'tasks'};
     const row=node.closest?.('[data-objective-root],[data-objective-worktree]'),tree=scopeRows(o).find(t=>t.id===(row?.dataset.objectiveRoot||row?.dataset.objectiveWorktree));
     if(tree)return {folder:{root:tree.path,path:'.'}};
     const file=node.closest?.('[data-open-file][data-filepath],[data-entry-kind][data-entry-path]'),target=file&&nativeAssetTarget(file);
@@ -1278,20 +1278,20 @@
   document.addEventListener('dragover',e=>{const slot=e.target.closest?.('[data-objective-slot]');if(slot&&e.dataTransfer.types.includes(objectiveMime)){e.preventDefault();e.dataTransfer.dropEffect='move';slot.classList.add('objective-drop-target');}},true);
   document.addEventListener('dragleave',e=>e.target.closest?.('[data-objective-slot]')?.classList.remove('objective-drop-target'));
   document.addEventListener('dragend',()=>document.querySelectorAll('.objective-drop-target').forEach(n=>n.classList.remove('objective-drop-target')));
-  const linkDropSelector='[data-task-id],[data-task-icon],[data-objective-asset],[data-objective-resource],[data-objective-root],[data-objective-worktree],[data-objective-bucket],.objective-archive,[data-objectives-sidebar] [data-select-objective],[data-objectives-sidebar] [data-open-objective-tasks],#sidebar [data-entry-kind],[data-open-file][data-filepath],#termSessionList .sess';
+  const linkDropSelector='[data-task-id],[data-task-icon],[data-objective-asset],[data-objective-resource],[data-objective-root],[data-objective-worktree],[data-objective-bucket],.objective-archive,[data-objectives-sidebar] [data-select-objective],[data-objective-tasks-drop],[data-objectives-sidebar] [data-open-objective-tasks],#sidebar [data-entry-kind],[data-open-file][data-filepath],#termSessionList .sess';
   const taskMoveTarget='.objective-sidebar-task,.objective-task-row,[data-open-objective-tasks]';
   document.addEventListener('dragover',event=>{
     if(!active(context()?.path)||!event.dataTransfer.types.includes(taskMoveMime))return;
-    const target=event.target.closest?.(taskMoveTarget);if(!target)return;
+    const target=event.target.closest?.('[data-objective-tasks-drop]')||event.target.closest?.(taskMoveTarget);if(!target)return;
     event.preventDefault();event.stopImmediatePropagation();event.dataTransfer.dropEffect='move';target.classList.add('objective-drop-target');
   },true);
   document.addEventListener('drop',event=>{
-    if(!active(context()?.path))return;const raw=event.dataTransfer.getData(taskMoveMime),target=event.target.closest?.(taskMoveTarget);if(!raw||!target)return;
+    if(!active(context()?.path))return;const raw=event.dataTransfer.getData(taskMoveMime),target=event.target.closest?.('[data-objective-tasks-drop]')||event.target.closest?.(taskMoveTarget);if(!raw||!target)return;
     event.preventDefault();event.stopImmediatePropagation();target.classList.remove('objective-drop-target');
     try{moveTaskDrop(JSON.parse(raw),target.dataset.taskId);}catch(error){notify(error.message,true);}
   },true);
-  document.addEventListener('dragover',e=>{if(!active(context()?.path))return;const draft=taskDocumentDraft();if(e.target.closest?.('.objective-task-mode-head')&&draft&&!draftEditable(draft)){e.preventDefault();e.stopImmediatePropagation();e.dataTransfer.dropEffect='none';return;}const target=e.target.closest?.(linkDropSelector);if(e.dataTransfer.types.includes('application/x-lab-terminal')&&e.target.closest('#content,.assistant-inline-host')&&!e.target.closest('#sidebar')){e.preventDefault();e.stopImmediatePropagation();e.dataTransfer.dropEffect='none';return;}if(target&&[resourceMime,documentMime,'application/x-lab-file-path','application/x-lab-terminal',...(target.classList.contains('sess')?[objectiveMime]:[]),...(target.closest('[data-task-id],[data-objective-bucket]')?['text/uri-list','application/x-lab-reference']:[])].some(m=>e.dataTransfer.types.includes(m))){e.preventDefault();e.dataTransfer.dropEffect='link';if(target.hasAttribute('data-task-id'))target.classList.add('objective-drop-target');}},true);
-  document.addEventListener('dragleave',e=>{const row=e.target.closest?.('[data-task-id]');if(row&&!row.contains(e.relatedTarget))row.classList.remove('objective-drop-target');});
+  document.addEventListener('dragover',e=>{if(!active(context()?.path))return;const draft=taskDocumentDraft();if(e.target.closest?.('.objective-task-mode-head')&&draft&&!draftEditable(draft)){e.preventDefault();e.stopImmediatePropagation();e.dataTransfer.dropEffect='none';return;}const target=e.target.closest?.(linkDropSelector);if(e.dataTransfer.types.includes('application/x-lab-terminal')&&e.target.closest('#content,.assistant-inline-host')&&!e.target.closest('#sidebar')){e.preventDefault();e.stopImmediatePropagation();e.dataTransfer.dropEffect='none';return;}if(target&&[resourceMime,documentMime,'application/x-lab-file-path','application/x-lab-terminal',...(target.classList.contains('sess')?[objectiveMime]:[]),...(target.closest('[data-task-id],[data-objective-bucket]')?['text/uri-list','application/x-lab-reference']:[])].some(m=>e.dataTransfer.types.includes(m))){e.preventDefault();e.dataTransfer.dropEffect='link';const row=target.closest('[data-objective-tasks-drop]')||target;if(row.hasAttribute('data-task-id')||row.hasAttribute('data-objective-tasks-drop'))row.classList.add('objective-drop-target');}},true);
+  document.addEventListener('dragleave',e=>{const row=e.target.closest?.('[data-task-id],[data-objective-tasks-drop]');if(row&&!row.contains(e.relatedTarget))row.classList.remove('objective-drop-target');});
   document.addEventListener('drop',e=>{
     const draft=taskDocumentDraft();if(e.target.closest?.('.objective-task-mode-head')&&draft&&!draftEditable(draft)){e.preventDefault();e.stopImmediatePropagation();return;}
     if(active(context()?.path)&&e.target.closest?.('#termSessionList [data-terminal-main]')){e.preventDefault();e.stopImmediatePropagation();notify('Main terminals have a fixed workflow or Objective context',true);return;}
@@ -1304,7 +1304,12 @@
     const raw=e.dataTransfer.getData(resourceMime),assistant=e.dataTransfer.getData(documentMime),file=e.dataTransfer.getData('application/x-lab-file-path'),terminal=e.dataTransfer.getData('application/x-lab-terminal'),external=target.closest('[data-task-id],[data-objective-bucket]')&&(e.dataTransfer.getData('text/uri-list')||e.dataTransfer.getData('application/x-lab-reference'));if(!raw&&!assistant&&!file&&!terminal&&!external)return;
     if(terminal&&target.classList.contains('sess')&&!raw&&!assistant&&!file)return;
     e.preventDefault();e.stopImmediatePropagation();
+    target.closest('[data-objective-tasks-drop]')?.classList.remove('objective-drop-target');
     if(terminal&&!target.closest('#sidebar')&&!target.classList.contains('sess'))return;
+    if(terminal&&target.closest('[data-objective-tasks-drop]')){
+      const session=bridge.session?.(terminal);
+      void moveForTerminalDrop(session,null).then(moved=>moved||linkTerminal(session,{view:'tasks'})).catch(error=>notify(error.message,true));return;
+    }
     // A worktree remains a scope drop target even when its row lives in a bucket.
     const worktree=target.closest('[data-objective-worktree]');
     if(worktree&&!terminal&&(raw||assistant)){try{
