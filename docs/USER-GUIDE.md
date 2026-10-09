@@ -146,6 +146,49 @@ an identical rejected suggestion, or use assignment, star, bucket, trash or
 removal actions to implement inferred organization without an explicit user
 request for the actual change.
 
+## Operate the same UI through the CLI
+
+Every public Lab API is discoverable with `lab api routes`, including new
+endpoints. `lab api describe METHOD /api/path` shows its parameters and JSON
+models; `lab api call METHOD /api/path --body-file request.json` invokes the
+same handler and validation as the UI. Repeat `--query KEY=VALUE` for query
+parameters, including the owning vault/workspace. Existing domain commands
+remain available; use them or the shared API instead of editing managed JSON.
+
+Browser-only actions use `lab ui`. Open or reload Lab, run `lab ui clients`,
+then select the intended view with `--client ID` (or `LAB_UI_CLIENT`). A single
+connected view can be used without that option; multiple views require an
+explicit selection. `lab ui --client ID inspect` lists visible controls and
+unique selectors. Use `click`, `contextmenu`, `fill`, `key`, `hover`, `scroll`,
+`drag` and `wait` to operate those controls and their actual menus and dialogs.
+
+```bash
+lab workspace open demo --vault my-vault --client VIEW_ID
+lab ui --client VIEW_ID rename-tab TERMINAL_NAME 'Review'
+lab ui --client VIEW_ID inspect
+lab ui --client VIEW_ID contextmenu 'ASSET_SELECTOR'
+lab ui --client VIEW_ID click 'EDIT_SELECTOR'
+lab ui --client VIEW_ID fill 'URL_SELECTOR' 'https://example.com/new'
+lab ui --client VIEW_ID click 'SAVE_SELECTOR'
+lab ui --client VIEW_ID wait '[data-link-details-status]' --text Saved
+lab ui --client VIEW_ID key Escape
+```
+
+Secondary-click an asset link and choose **Edit** to edit it in a modal over
+the current task/document. Sublinks and the Task assets dialog have the same
+action. Save preserves the asset's identity and task/terminal associations;
+close/Escape retains drafts. Normal link clicks open pop-out windows;
+Command/Ctrl-click opens browser tabs.
+
+`lab ui paste TEXT --terminal NAME` pastes through the selected terminal;
+`--file PATH` accepts longer text, and `--submit` explicitly sends Enter.
+Native prompt answers use `click --prompt VALUE` or `--confirm yes|no` for that
+invocation only. Custom deletion dialogs retain their confirmation steps.
+Use API reads and `wait` to verify asynchronous changes; a timed-out command
+may have run, so inspect before repeating it. API/CLI credentials stay local
+and owner-readable. See `lab context cli` for the full command/action map and
+browser-native permission limitations.
+
 ## Tasks, subtasks and action items
 
 Task Markdown checklists represent required work. Checked and pending counts

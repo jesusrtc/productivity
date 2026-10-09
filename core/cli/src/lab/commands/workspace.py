@@ -88,6 +88,17 @@ def workspace_group() -> None:
     """Workspace lifecycle commands."""
 
 
+@workspace_group.command('open')
+@click.argument('workspace_id')
+@click.option('--vault', default=None, help='Owning vault ID; useful for duplicate workspace IDs.')
+@click.option('--client', envvar='LAB_UI_CLIENT', default=None, help='Open in this connected Lab view.')
+def open_workspace(workspace_id, vault, client):
+    """Open a workspace in Lab, using the same navigation as a tab click."""
+    from lab.api_client import output
+    from lab.commands.ui import invoke
+    output(invoke('workspace-open', {'workspace':workspace_id,'vault':vault}, client=client))
+
+
 @workspace_group.command("new")
 @click.argument("workspace_id")
 @click.option("--name", default=None, help="Display name (defaults to the workspace id)")

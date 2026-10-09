@@ -5,6 +5,22 @@ guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 
 ## 2026-10-09
 
+### Asset link editing and CLI access to the UI
+
+- Secondary-click **Edit** opens an asset link modal over the current view,
+  including sublinks and the Task assets dialog. Drafts, metadata, IDs and
+  task/terminal associations are preserved; Command/Ctrl-click opens a tab.
+- Added `lab api routes`, `describe` and `call` for the same public endpoints,
+  schemas and validation used by the UI. New endpoints appear automatically.
+- Added `lab ui` to inspect and operate a selected authenticated Lab view,
+  including menus, fields, keyboard shortcuts, expansion and drag/drop.
+  Multiple views require a chosen client; commands are never broadcast.
+- Added `lab workspace open`, `lab ui rename-tab`, terminal paste and named
+  document/Objective/task/terminal navigation actions. Local owner API access
+  uses the existing private CLI credential with an explicit owner scope.
+- `lab context cli` documents discovery, action parameters, prompts and
+  asynchronous verification. Existing domain commands remain available.
+
 ### Task terminal visibility
 
 - Task terminal tabs now appear by default only for In progress tasks. Selecting

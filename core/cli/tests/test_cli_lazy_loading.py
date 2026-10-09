@@ -31,7 +31,8 @@ assert result.exit_code==0,(result.output,result.exception)
 assert len(calls)==1
 binary,argv,env=calls[0]
 assert binary=='/synthetic/claude'
-assert argv==[binary,'--append-system-prompt-file',str(agent_context.guide_path()),'--session-id','saved-id']
+assert argv[0]==binary and argv[1]=='--append-system-prompt' and argv[-2:]==['--session-id','saved-id']
+assert 'Lab user guide' in argv[2] and str(agent_context.guide_path('user-guide').resolve()) in argv[2]
 assert env['LAB_VAULT']==str(root) and env['LAB_ASSISTANT_HOME']==str(root)
 assert env['LAB_DOCUMENT_CONTEXT']==context
 commands=sorted(name for name in sys.modules if name.startswith('lab.commands.'))
@@ -46,6 +47,8 @@ print(json.dumps({'commands':commands,'launches':len(calls)}))
 def test_all_help_errors_aliases_and_completion_match_eager_click_registration():
     # The previous public command registration, independent of the lazy table.
     registrations = {
+        'api': [('api', 'api_group')],
+        'ui': [('ui', 'ui_group')],
         'agents': [('agents', 'agents_group'), ('agent', 'agents_group')],
         'assistant': [('assistant', 'assistant_group')],
         'app': [('app', 'app_group')],

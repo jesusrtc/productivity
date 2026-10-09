@@ -178,7 +178,7 @@
   function actionLink(task,item) {return `data-open-action="${esc(task.id)}" data-action-line="${item.line}" href="${esc(taskHref(task,item))}"`;}
   function actionRow(task,item,depth=0) {
     const due=item.due||taskDeadline(task),label=item.label||item.title||'Untitled action item';
-    return `<div class="${sidebar?'objective-sidebar-action':'objective-action-row'} ${dueClass(due)}" style="--objective-task-depth:${depth+1}"><span aria-hidden="true">☐</span><a ${actionLink(task,item)} title="${esc(label+' · '+task.title+(due?' · '+due.replace('T',' '):''))}">${esc(label)}</a>${dueBadge(due,!item.due)}</div>`;
+    return `<div class="objective-action-row ${dueClass(due)}" style="--objective-task-depth:${depth+1}"><span aria-hidden="true">☐</span><a ${actionLink(task,item)} title="${esc(label+' · '+task.title+(due?' · '+due.replace('T',' '):''))}">${esc(label)}</a>${dueBadge(due,!item.due)}</div>`;
   }
   function taskWithActions(task,parent=null,depth=0) {return taskRow(task,parent,depth)+(!complete(task)&&taskStatus(task)!=='wont_do'?pendingActions(task).map(item=>actionRow(task,item,depth)).join(''):'');}
   function dueDashboard(o) {
@@ -1557,7 +1557,7 @@
       else if(terminal){const item=sidebarTarget(target);if(item)linkTerminal(bridge.session?.(terminal),item).catch(()=>{});}
     }catch(error){notify(error.message,true);}
   },true);
-  window.LabObjectives={connect(adapter){bridge=adapter;startRefreshing();},load,active,sidebarHtml,paint,worktrees,tree,associate,terminalHtml,taskForTerminal,openForTerminal,collapse,progress,complete,change,selectObjective,renderTasks,tabsHtml,showAll,terminalLaunchContext,associateNewTerminal,
+  window.LabObjectives={connect(adapter){bridge=adapter;startRefreshing();},load,active,sidebarHtml,paint,worktrees,tree,associate,terminalHtml,taskForTerminal,openForTerminal,collapse,progress,complete,change,selectObjective,openTask,renderTasks,tabsHtml,showAll,terminalLaunchContext,associateNewTerminal,
     instructionRoot(path){return active(path)?scopeRows().find(row=>row.id==='objective-root')?.path:null;},
     terminalSessions,terminalParents,terminalExpanded,terminalMain,openMainTerminal,openTaskTerminal,terminalTaskNameHtml,terminalWorktreeColor,terminalColor,sidebarMode,recentScopes,moveForTerminalDrop,
     syncTerminalHierarchy(){if(active(context()?.path))bridge.syncTaskHierarchy?.(data());},

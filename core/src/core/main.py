@@ -51,6 +51,7 @@ from core.routes import terminal_cleanup as terminal_cleanup_route
 from core.routes import workspace_documents as workspace_documents_route
 from core.routes import objectives as objectives_route
 from core.routes import ui as ui_route
+from core.routes import ui_control as ui_control_route
 from core.routes import vault as vault_route
 from core.routes import ws as ws_route
 from core.state import IndexCache, IndexUpdatedEvent, WsBroadcaster
@@ -490,6 +491,7 @@ def create_app() -> FastAPI:
         docs_url=None,
         redoc_url=None,
     )
+    app.state.ui_views = ui_control_route.Views()
     from core.workspace_snapshot import Store
     app.state.workspace_snapshots = Store()
     from core.sidebar_cache import Store as SidebarStore
@@ -553,6 +555,7 @@ def create_app() -> FastAPI:
     app.include_router(servers_route.router)
     app.include_router(cerebro_route.router)
     app.include_router(ui_route.router)
+    app.include_router(ui_control_route.router)
     app.include_router(vault_route.router)
     app.include_router(log_route.router)
     app.include_router(git_route.router)

@@ -8,6 +8,8 @@ import click
 # and other commands adds startup work before the agent can produce output.
 # Help and completion still resolve the same command objects through Click.
 _COMMANDS = {
+    'api': ('api', 'api_group'),
+    'ui': ('ui', 'ui_group'),
     'workspace': ('workspace', 'workspace_group'),
     'objective': ('objective', 'objective_group'),
     'assistant': ('assistant', 'assistant_group'),

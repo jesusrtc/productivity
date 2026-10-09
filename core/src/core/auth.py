@@ -79,8 +79,14 @@ def ensure_local_cli_token() -> str:
 def is_local_cli_request(request: Request) -> bool:
     """Authenticate an owner-local bearer token on explicitly allowed APIs."""
     path = request.url.path
+    owner_api = request.headers.get('x-lab-cli-scope') == 'owner'
     if not any(path == prefix or path.startswith(prefix + "/")
-               for prefix in _LOCAL_CLI_API_PREFIXES):
+               for prefix in _LOCAL_CLI_API_PREFIXES) and not (owner_api and path.startswith('/api/')):
+        return False
+    # Full UI/API parity is an explicit owner-local CLI scope. Notebook-only
+    # callers retain their narrower access; browsers cannot use it cross-origin.
+    origin = request.headers.get('origin')
+    if owner_api and origin and origin != str(request.base_url).rstrip('/'):
         return False
     client = request.client
     host = str(client.host if client else "").split("%", 1)[0].lower()

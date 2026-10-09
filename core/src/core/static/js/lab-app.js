@@ -12091,7 +12091,7 @@
     resizer.addEventListener('pointerdown', event => {
       if (event.button !== 0 || drag || termSessionOrientation !== 'vertical') return;
       drag = {id: event.pointerId, x: event.clientX, width: rail.getBoundingClientRect().width, previous: termSessionWidth};
-      resizer.setPointerCapture(event.pointerId);
+      if(event.isTrusted)resizer.setPointerCapture(event.pointerId);
       resizer.focus();
       resizer.classList.add('dragging');
       document.body.classList.add('term-resizing');
@@ -17909,12 +17909,12 @@
     if (opts.deleteTarget?.path === path) _workspaceDeleteTarget = opts.deleteTarget;
     const dispatch = () => {
       const workspace = (workspacesList || []).find(p => p.path === path);
-      if (workspace) selectRepo(workspace.path, {historySettled: workspace === knownWorkspace});
+      if (workspace) return selectRepo(workspace.path, {historySettled: workspace === knownWorkspace});
     };
     if (workspacesList && workspacesList.length) {
-      dispatch();
+      return dispatch();
     } else {
-      fetchRepos().then(workspaces => { workspacesList = workspaces; dispatch(); });
+      return fetchRepos().then(workspaces => { workspacesList = workspaces; return dispatch(); });
     }
   }
 
@@ -21675,3 +21675,17 @@
   }
 
   _termInstallTaskLinkActions();
+  if(LAB_IS_ADMIN)window.LabUiControl?.start({
+    context:()=>({workspace:currentWorkspace?.name||'',vault:_workspaceVaultId(currentWorkspace)||currentVaultId,
+      path:currentWorkspace?.path||'',document:_workspaceDocPath||null,
+      terminals:(termSessions||[]).map(s=>({name:s.name,logical_name:s.logical_name,label:s.label,state:s.state}))}),
+    actions:{
+      'workspace-open':async p=>{workspacesList=await fetchRepos();const rows=workspacesList.filter(w=>(w.name===p.workspace||w.path===p.workspace)&&(!p.vault||_workspaceVaultId(w)===p.vault));if(rows.length!==1)throw Error(rows.length?'Workspace ID is ambiguous. Include its vault.':'Workspace not found.');const row=rows[0];await goToWorkspace(row.path);return{workspace:row.name,path:row.path};},
+      'document-open':async p=>{if(!currentWorkspace)throw Error('Open a workspace first.');await openWorkspaceDoc(p.path,p.root?{root:p.root}:{});return{path:p.path};},
+      'objective-select':async p=>{const data=await window.LabObjectives.load();if(!data?.objectives.some(o=>o.id===p.objective))throw Error('Objective not found.');window.LabObjectives.selectObjective(p.objective);return{objective:p.objective};},
+      'task-open':async p=>{const data=await window.LabObjectives.load(),contains=rows=>rows.some(t=>t.id===p.task||contains(t.children||[])),owners=(data?.objectives||[]).filter(o=>(!p.objective||o.id===p.objective)&&contains(o.tasks));if(owners.length!==1)throw Error('Task not found or ambiguous. Include its Objective.');window.LabObjectives.selectObjective(owners[0].id,{activateTerminal:false});window.LabObjectives.openTask(p.task);return{task:p.task,objective:owners[0].id};},
+      'terminal-select':async p=>{const s=(termSessions||[]).find(s=>s.name===p.name||s.logical_name===p.name);if(!s)throw Error('Terminal not found.');await _termActivateTab(s.name);return{name:s.name};},
+      'terminal-rename':async p=>{const s=(termSessions||[]).find(s=>s.name===p.name||s.logical_name===p.name);if(!s)throw Error('Terminal not found.');if(window.LabObjectives?.terminalMain?.(s))throw Error('Main terminal names follow their workflow or Objective.');const saved=await _termPatchLinks(s,{label:String(p.label||'').trim()||null});return{name:s.name,label:saved.label||null};},
+      'terminal-input':async p=>{if(p.name){const s=(termSessions||[]).find(s=>s.name===p.name||s.logical_name===p.name);if(!s)throw Error('Terminal not found.');await _termActivateTab(s.name);}if(!termXterm||!termWS||termWS.readyState!==WebSocket.OPEN)throw Error('Terminal is not connected.');const text=String(p.text??'');termXterm.paste(termXterm.modes?.bracketedPasteMode?text:text.replace(/[\r\n]+/g,' '));if(p.submit===true){termWS.send(JSON.stringify({type:'input',data:'\r'}));_termRequestSubmitted(termCurrentSession,termCurrentWorkspaceId,'\r');}return{name:termCurrentSession,submitted:p.submit===true};},
+    },
+  });

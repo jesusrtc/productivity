@@ -1,5 +1,7 @@
 # Memory index
 
+- [UI actions have Lab commands](ui-actions-have-lab-commands.md) — shared API discovery and selected-view UI commands cover navigation, editing, layouts, menus and drag/drop for agents.
+
 - [Task terminal status overrides selection](task-terminal-status-overrides-selection.md) — only In progress by default, including selected tasks, active families and merged children; explicit Show all remains available.
 
 - [Lab operating docs and absolute context](lab-operating-docs-and-absolute-context.md) — ALWAYS update the user guide with requested Lab changes; maintained changelog, absolute installation paths, META readers and owning scopes; supersedes relative references.
