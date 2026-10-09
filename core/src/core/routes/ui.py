@@ -15,10 +15,9 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, Field, FiniteFloat, HttpUrl
+from pydantic import BaseModel, HttpUrl
 
 from core import auth
 
@@ -44,29 +43,6 @@ class ExternalLink(BaseModel):
 
 def can_reuse_browser_tabs(request: Request) -> bool:
     return sys.platform == 'darwin' and can_open_external(request)
-
-
-class ResourceWindowAction(BaseModel):
-    owner: str = Field(pattern=r'^[a-f0-9-]{36}$')
-    operation: Literal['register', 'focus', 'raise', 'close', 'permission']
-    url: HttpUrl | None = None
-    marker: str | None = Field(default=None, pattern=r'^Lab resource [a-f0-9-]{36}$')
-    parentBounds: list[FiniteFloat] | None = Field(default=None, min_length=4, max_length=4)
-    bounds: list[FiniteFloat] | None = Field(default=None, min_length=4, max_length=4)
-
-
-@router.post('/api/ui/resource-windows')
-def resource_window_action(body: ResourceWindowAction, request: Request) -> dict:
-    auth.require_admin(request)
-    if not can_reuse_browser_tabs(request) or request.headers.get('origin') != str(request.base_url).rstrip('/'):
-        raise HTTPException(status_code=403, detail='Window control requires a local macOS Lab session')
-    if body.operation == 'register' and (not body.url or not body.marker or not body.parentBounds or not body.bounds):
-        raise HTTPException(status_code=422, detail='Missing resource window identity')
-    if body.operation in {'focus', 'close'} and not body.url:
-        raise HTTPException(status_code=422, detail='Missing resource URL')
-    from core import resource_windows
-    values = body.model_dump(exclude={'owner', 'operation'}, exclude_none=True, mode='json')
-    return resource_windows.manage(body.owner, body.operation, **values)
 
 
 @router.post("/api/ui/open-external")

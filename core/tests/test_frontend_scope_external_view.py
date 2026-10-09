@@ -72,14 +72,13 @@ window.until=async fn=>{for(let i=0;i<400;i++){if(fn())return;await new Promise(
 let activeRoot='/trees/topic';
 const calls=[];
 window.LAB_EXTERNAL_BROWSER=true;
-window.LAB_NATIVE_BROWSER_REUSE=FIX.coop;
+window.LAB_NATIVE_BROWSER_REUSE=true;
 window.LabTaskTerminalBridge={cancelNavigation:()=>{throw Error('Pop-outs must not cancel Lab navigation')}};
 const external={id:'google',kind:'external',url:FIX.url,label:'Team dashboard',type:'grafana'};
 window.fetch=async(url,options={})=>{
  const u=new URL(url,location.href),body=options.body?JSON.parse(options.body):null;
  calls.push({path:u.pathname,method:options.method||'GET',body});let data;
- if(u.pathname==='/api/ui/resource-windows')data={ok:true,reused:true,urls:[FIX.url]};
- else if(u.pathname==='/api/scope-links')data={links:[{...FIX.link,id:'doc',kind:'internal'},external],types:[],revision:'v1'};
+ if(u.pathname==='/api/scope-links')data={links:[{...FIX.link,id:'doc',kind:'internal'},external],types:[],revision:'v1'};
  else if(u.pathname==='/api/assistant')data=FIX.index;
  else if(u.pathname==='/api/assistant/note')data=FIX.details[u.searchParams.get('path')];
  else if(u.pathname==='/api/assistant/content')return {ok:false,json:async()=>({detail:'Offline — keep the draft'})};
@@ -106,7 +105,8 @@ window.prepare=async()=>{
 window.verify=()=>{
  assert(originalGuard(),'pop-out preserves pending document navigation');
  assert(originalDraft.isConnected&&originalDraft.value==='Keep unsaved document draft','pop-out retains editor and draft');
- assert(calls.slice(originalCalls).every(c=>c.path==='/api/ui/resource-windows'),'pop-out never saves or uses host browser opening');
+ assert(calls.length===originalCalls,'pop-out never saves or calls native window management');
+ assert(!document.querySelector('dialog'),'pop-out never requires confirmation');
  assert(document.getElementById('localDraft').value==='Unsent file changes'&&document.getElementById('terminalDraft').value==='Unsent terminal command','existing drafts retained');
  assert(!document.querySelector('.workspace-external-host')&&!document.body.classList.contains('workspace-external-link'),'resource never creates an embedded view');
 };
@@ -168,21 +168,23 @@ const fs=require('node:fs');
  assert(await resource.evaluate('opener===null'),'resource cannot access Lab through an opener');
  assert(await resource.evaluate('document.referrer===""'),'resource receives no Lab referrer');
  await resource.evaluate('document.getElementById("resource-content").textContent="Retained resource state"');
- await click();
- const repeated=(await parent.send('Target.getTargets')).targetInfos.filter(t=>t.type==='page'&&t.url===finalUrl);
- assert(repeated.length===1&&repeated[0].targetId===popup.targetId,'same URL never creates another window');
- assert(await resource.evaluate('document.getElementById("resource-content").textContent==="Retained resource state"'),'reuse never reloads resource');
- if(await parent.evaluate('FIX.coop')) {
-  assert(await parent.evaluate('calls.some(c=>c.path==="/api/ui/resource-windows"&&c.body.operation==="focus"&&c.body.url===FIX.url)'),
-    'native URL registry activates the original URL through redirects and real COOP severing');
+ const popups=[{targetId:popup.targetId,...windowInfo}];
+ for(let i=1;i<6;i++) {
+  await click();
+  const next=await until(async()=> (await parent.send('Target.getTargets')).targetInfos.find(
+   t=>t.type==='page'&&t.url===finalUrl&&!popups.some(p=>p.targetId===t.targetId)));
+  const info=await parent.send('Browser.getWindowForTarget',{targetId:next.targetId});
+  assert(!popups.some(p=>p.windowId===info.windowId),'every repeated resource click creates a separate window');
+  popups.push({targetId:next.targetId,...info});
  }
- await parent.evaluate('LabExternalLinks.open(FIX.finalUrl+"-second",{popup:true})');
- const second=await until(async()=> (await parent.send('Target.getTargets')).targetInfos.find(t=>t.url===finalUrl+'-second'));
- const secondWindow=await parent.send('Browser.getWindowForTarget',{targetId:second.targetId});
+ assert(await resource.evaluate('document.getElementById("resource-content").textContent==="Retained resource state"'),'opening another resource preserves existing resource content');
  assert(windowInfo.bounds.width>=parentWindow.bounds.width-50,'resource is almost full Lab width');
- assert(secondWindow.bounds.top-windowInfo.bounds.top===36,'next resource exposes previous title bar');
- assert(secondWindow.bounds.left-windowInfo.bounds.left===12,'resource windows cascade horizontally');
- await parent.send('Target.closeTarget',{targetId:second.targetId});
+ assert(windowInfo.bounds.top>=parentWindow.bounds.top+56,'resource leaves the top of Lab visible');
+ assert(popups[1].bounds.top-windowInfo.bounds.top===36,'next resource exposes previous title bar');
+ assert(popups[1].bounds.left-windowInfo.bounds.left===12,'resource windows cascade horizontally');
+ assert(new Set(popups.slice(0,5).map(p=>`${p.bounds.left},${p.bounds.top}`)).size===5,'first five windows have distinct cascade positions');
+ assert(JSON.stringify(popups[5].bounds)===JSON.stringify(windowInfo.bounds),'sixth window repeats the first cascade position and size');
+ for(const extra of popups.slice(1))await parent.send('Target.closeTarget',{targetId:extra.targetId});
  await parent.evaluate('verify();LabScopeLinks.closeExternal()');
  assert(await resourceTarget(),'Lab navigation leaves the independent resource window open');
  await parent.send('Target.closeTarget',{targetId:popup.targetId});resource.ws.close();

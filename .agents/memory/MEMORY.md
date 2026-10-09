@@ -1,6 +1,8 @@
 # Memory index
 
-- [Resource windows cascade and reuse URLs](resource-windows-cascade-and-reuse.md) — almost full width, exposed title bars, exact URL activation, and an integrated macOS helper for return-to-Lab stacking.
+- [Resource pop-outs use a five-position cycle](resource-popouts-use-five-position-cycle.md) — every click immediately opens a fresh window; almost full width below Lab's tabs, no confirmation, registry, reuse or macOS helper.
+
+- [Resource windows cascade and reuse URLs](resource-windows-cascade-and-reuse.md) — historical native-management approach, superseded by the five-position pop-out cycle above.
 
 - [Resource links default to pop-outs](resource-links-default-to-popouts.md) — direct windows over Lab, preserved drafts and terminals; Alfred attachment needs native window handling.
 

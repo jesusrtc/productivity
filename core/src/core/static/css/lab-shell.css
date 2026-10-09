@@ -3587,12 +3587,3 @@ body.workspace-external-link .layout { height:100dvh; min-height:0; overflow:hid
   .scope-document-search label { flex-basis:100%; }
   .scope-document-search > small { padding:0; }
 }
-/* Independent resource windows retain their own native title bars. */
-.resource-windows-button { flex:none; padding:4px 8px; margin:0 6px; cursor:pointer; color:var(--text-primary); background:var(--bg-secondary); border:1px solid var(--border); border-radius:5px; }
-.resource-windows-dialog { max-width:min(700px, 90vw); max-height:80vh; overflow:auto; margin:auto; color:var(--text-primary, #ddd); background:var(--bg-secondary, #202329); border:1px solid var(--border, #555); border-radius:8px; padding:20px; }
-.resource-windows-dialog p { margin:12px 0; }
-.resource-windows-dialog::backdrop { background:#0005; }
-.resource-windows-dialog button { cursor:pointer; margin:4px; padding:6px 10px; color:var(--text-primary); background:var(--bg-tertiary); border:1px solid var(--border); border-radius:4px; font:inherit; font-size:13px; }
-.resource-windows-dialog button:hover { border-color:var(--accent); }
-.resource-window-row { display:flex; align-items:center; gap:8px; }
-.resource-window-row button:first-child { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-align:left; }

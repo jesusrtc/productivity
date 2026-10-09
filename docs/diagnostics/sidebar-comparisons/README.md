@@ -62,12 +62,11 @@ link opens a normal browser tab. Objective Cmd/Ctrl-click retains editable
 link details; their explicit Open action uses a pop-out.
 
 The pop-out remains open when Lab navigates. Windows fill almost all of Lab's
-width and cascade to leave previous title bars exposed. Repeating a URL activates
-the existing window without reloading it. **⧉** lists this Lab window's resources.
-On the local Mac, enable **Lab Resource Windows** in Accessibility via that menu
-and reopen resources to register them. Returning to Lab or clicking the top bar
-then raises its resource windows, without an Alfred workflow. Native identities
-survive redirects; an uncertain native failure does not silently create a duplicate.
+width, leave Lab's workspace tabs visible and cascade to expose previous title
+bars. Every click opens a new window, including repeated URLs, without a
+confirmation. Five cascade positions repeat, starting over on the sixth window.
+Use the windows' own controls to activate or close them; there is no resource
+registry, native helper or automatic window raising.
 The Objectives demo retains all three opening options for comparison.
 External service types and icons are inferred from the URL. Use
 **Settings → Global → Links and icons** to map self-hosted domains to a service

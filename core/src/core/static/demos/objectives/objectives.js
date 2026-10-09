@@ -3,6 +3,7 @@
       const find = name => root.querySelector('[data-' + name + ']');
       const channel = 'lab-objectives-demo-v1';
       let hydrated = false;
+      let popupCount = 0;
       const focusSlots = 5;
       const iconNames = {document:'file-text',assistant:'files',notebook:'notebook',link:'external-link',task:'square-check',file:'file-code',folder:'folder'};
       const objectives = [
@@ -181,13 +182,15 @@
         } else {
           if(mode === 'popup' && window.parent !== window) {
             window.parent.postMessage({channel:'lab-objectives-demo-v1', type:'resource-popup', url:url.href}, '*');
-            find('link-help').textContent = 'Opened over Lab. Clicking the same URL activates its existing resource window.';
+            find('link-help').textContent = 'Opened a new pop-out over Lab. The cascade repeats every five windows.';
             return;
           }
-          const width = Math.max(320, window.outerWidth - 24);
-          const height = Math.max(320, window.outerHeight - 72);
-          const left = Math.round(window.screenX + 12);
-          const top = Math.round(window.screenY + 56);
+          const slot = mode === 'popup' ? popupCount++ % 5 : 0;
+          const offset = Math.round(Math.min(slot * 12, 72, window.outerWidth * .04));
+          const width = Math.max(320, window.outerWidth - 24 - offset);
+          const height = Math.max(100, window.outerHeight - 172 - slot * 36);
+          const left = Math.round(window.screenX + 12 + offset);
+          const top = Math.round(window.screenY + 56 + slot * 36);
           // Open during the click, directly on this device, without an iframe
           // or an asynchronous native-browser handoff losing user activation.
           window.open(url.href, '_blank', mode === 'popup'
