@@ -141,6 +141,58 @@
       function icon(name) { const el=element('span','ob-icon',({'target':'◎','git-branch':'⑂','file-text':'▤','files':'▥','notebook':'▦','terminal':'›_','external-link':'↗','square-check':'☑','file-code':'◇','folder':'▸'})[name]||'◇');el.setAttribute('aria-hidden','true');return el; }
       function button(label, className, action) { const el=element('button',className,label); el.type='button'; el.onclick=action; return el; }
       function message(text) { find('message').textContent=text; }
+      const linkUrl = find('link-url'), linkPreview = find('link-preview');
+      let linkPreviewFocus;
+      find('link-example').onchange = event => { linkUrl.value = event.target.value; };
+      function closeLinkPreview() {
+        linkPreview.hidden = true;
+        find('link-frame').replaceChildren();
+        linkPreviewFocus?.focus();
+      }
+      find('link-close').onclick = closeLinkPreview;
+      document.addEventListener('keydown', event => {
+        if(event.key === 'Escape' && !linkPreview.hidden) { event.preventDefault(); closeLinkPreview(); }
+        if(event.key === 'Tab' && !linkPreview.hidden) {
+          // Keep keyboard navigation within the preview and its embedded page.
+          const close = find('link-close'), frame = find('link-frame').querySelector('iframe');
+          if(event.shiftKey && document.activeElement === close) { event.preventDefault(); frame?.focus(); }
+          else if(!event.shiftKey && document.activeElement === frame) { event.preventDefault(); close.focus(); }
+        }
+      });
+      root.querySelectorAll('[data-link-open]').forEach(control => control.onclick = () => {
+        let url;
+        try { url = new URL(linkUrl.value); } catch {}
+        if(!url || !['https:', 'http:'].includes(url.protocol)) {
+          find('link-help').textContent = 'Enter a full http:// or https:// resource URL.';
+          linkUrl.focus(); return;
+        }
+        const mode = control.dataset.linkOpen;
+        if(mode === 'inline') {
+          linkPreviewFocus = control;
+          const frame = element('iframe');
+          frame.title = 'Resource preview';
+          frame.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox');
+          frame.referrerPolicy = 'strict-origin-when-cross-origin';
+          frame.src = url.href;
+          find('link-frame').replaceChildren(frame);
+          find('link-preview-url').textContent = url.href;
+          linkPreview.hidden = false;
+          find('link-close').focus();
+        } else {
+          const width = Math.max(320, Math.min(1100, window.outerWidth - 100));
+          const height = Math.max(320, Math.min(800, window.outerHeight - 100));
+          const left = Math.round(window.screenX + (window.outerWidth - width) / 2);
+          const top = Math.round(window.screenY + (window.outerHeight - height) / 2);
+          // Open during the click, directly on this device, without an iframe
+          // or an asynchronous native-browser handoff losing user activation.
+          window.open(url.href, '_blank', mode === 'popup'
+            ? `popup,width=${width},height=${height},left=${left},top=${top},noopener,noreferrer`
+            : 'noopener,noreferrer');
+          find('link-help').textContent = mode === 'popup'
+            ? 'Pop-out requested. If no window appeared, allow pop-ups for Lab. Chrome controls the window frame.'
+            : 'Opened in a browser tab on this device.';
+        }
+      });
       function refreshIcons() {}
       function todoCount(o) { return o.items.filter(i=>i.kind==='task').reduce((n,i)=>n+(i.checks.length?i.checks.filter(c=>!c.done).length:Number(!taskComplete(i))),0); }
       function showTasks(o=objective()) {o.view='tasks';o.activeTask=null;o.selectedTab=null;render();}

@@ -25,7 +25,7 @@
     frame = document.createElement('iframe');
     frame.className = 'objectives-demo-frame';
     frame.title = 'Interactive objectives demo — simulated files and terminals';
-    frame.setAttribute('sandbox', 'allow-scripts allow-forms');
+    frame.setAttribute('sandbox', 'allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox');
     frame.src = '/static/demos/objectives/index.html' + (version ? '?v=' + encodeURIComponent(version) : '');
     host.replaceChildren(frame);
   }

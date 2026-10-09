@@ -1,5 +1,7 @@
 # Memory index
 
+- [Resource link opening trials live in the demo](resource-link-opening-trials-in-demo.md) — compare direct pop-outs over Lab, embedded panels and browser tabs; real URLs are explicit trials only.
+
 - [Terminal activity verifies content](terminal-activity-verifies-content.md) — raw tmux I/O is only a capture gate; ignore SSH/TUI noise and cloned-cache timer resets, retaining click-only review.
 
 - [Green terminal dot clears on tab click](green-terminal-dot-clears-on-tab-click.md) — immediate explicit tab/green-dot acknowledgement; selected viewing never clears green and the timer setting is removed.

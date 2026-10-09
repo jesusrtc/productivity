@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'none'; img-src 'self' data:; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'none'; frame-src https: http:; img-src 'self' data:; base-uri 'none'; form-action 'none'">
 <title>Objectives demo</title>
 <link rel="stylesheet" href="../../css/lab-shell.css">
 <link rel="stylesheet" href="./objectives.css">
@@ -17,6 +17,24 @@
 <body>
 <div id="lab-objectives-proposal" aria-label="Workspace objectives proposal">
   <div class="ob-shell"><span><strong>Objectives demo</strong> <span class="ob-muted">/ Simulated workspace</span></span><div class="ob-demo-actions"><span class="ob-muted">Demo data only</span><button type="button" class="ob-action" data-reset>Reset demo</button></div></div>
+  <section class="ob-link-trials" aria-label="Try resource link opening">
+    <strong>Try a resource link</strong>
+    <select data-link-example aria-label="Example resource">
+      <option value="https://example.com/">Example site</option>
+      <option value="https://github.com/">GitHub</option>
+      <option value="https://docs.google.com/">Google Docs</option>
+    </select>
+    <input data-link-url type="url" aria-label="Resource URL" value="https://example.com/" placeholder="https://…">
+    <button type="button" class="ob-action ob-link-popout" data-link-open="popup">Pop-out over Lab ↗</button>
+    <button type="button" class="ob-action" data-link-open="inline">Inside Lab</button>
+    <button type="button" class="ob-action" data-link-open="tab">Browser tab ↗</button>
+    <p class="ob-muted" data-link-help>Pop-out opens a separate window over Lab. Inside Lab uses an embedded view; some sites block it.</p>
+  </section>
+  <section class="ob-link-preview" data-link-preview hidden role="dialog" aria-modal="true" aria-label="Resource link inside Lab">
+    <div class="ob-link-preview-toolbar"><strong>Inside Lab</strong><span class="ob-muted" data-link-preview-url></span><button type="button" class="ob-action" data-link-close aria-label="Close resource preview">×</button></div>
+    <p class="ob-muted">If the site refuses to load or sign in, try Pop-out over Lab.</p>
+    <div data-link-frame></div>
+  </section>
   <nav class="ob-focus" aria-label="Objectives navigation" data-focus></nav>
 
   <section class="ob-dialog" data-dialog hidden aria-label="Objective action"></section>
