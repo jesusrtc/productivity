@@ -72,3 +72,42 @@ def test_agent_context_reads_the_installed_launch_guide(client, monkeypatch):
     response = client.get('/api/agents/context/guide')
     assert response.status_code == 200
     assert response.json() == {'content': guide}
+
+
+def test_agent_context_instantiates_owning_paths_for_objective_and_worktree(client, monorepo, seed_workspace, tmp_path):
+    import os
+    from pathlib import Path
+    from lab import objectives, settings
+    workspace = seed_workspace('client')
+    first = objectives.mutate(monorepo, 'client', {'type': 'create', 'name': 'Audit'})['objectives'][0]
+    second = objectives.mutate(monorepo, 'client', {'type': 'create', 'name': 'Recovery'})['objectives'][1]
+    tree = tmp_path / 'checkouts' / 'audit'
+    tree.mkdir(parents=True)
+    settings.update_global(monorepo, {'worktreesFolder': str(tree.parent)})
+    for root in [monorepo, workspace, Path(first['path']), Path(second['path']), tree]:
+        (root / 'AGENTS.md').write_text('Scope rules\n')
+    for source in [workspace, Path(first['path']), tree]:
+        response = client.get('/api/agents/context/guide', params={
+            'path': str(source), 'workspace_id': 'client', 'objective_id': first['id']})
+        assert response.status_code == 200, response.text
+        content = response.json()['content']
+        assert f'Source folder: `{source}`' in content
+        for label, root in [('Vault', monorepo), ('Workspace', workspace), ('Objective', Path(first['path']))]:
+            assert f'- {label} root: `{os.path.relpath(root, source)}`; instructions: `{os.path.relpath(root / "AGENTS.md", source)}`' in content
+        assert '{{' not in content
+    response = client.get('/api/agents/context/guide', params={
+        'path': str(tree), 'workspace_id': 'client', 'objective_id': second['id']})
+    content = response.json()['content']
+    assert os.path.relpath(Path(second['path']) / 'AGENTS.md', tree) in content
+    assert os.path.relpath(Path(first['path']) / 'AGENTS.md', tree) not in content
+
+
+def test_agent_context_rejects_invalid_scope_and_unapproved_source(client, monorepo, seed_workspace, tmp_path):
+    workspace = seed_workspace('client')
+    url = '/api/agents/context/guide'
+    assert client.get(url, params={'path': str(workspace), 'objective_id': 'missing'}).status_code == 400
+    assert client.get(url, params={'path': str(workspace), 'workspace_id': 'client', 'objective_id': 'missing'}).status_code == 404
+    assert client.get(url, params={'path': str(workspace), 'workspace_id': '../outside'}).status_code == 400
+    outside = tmp_path / 'unapproved'
+    outside.mkdir()
+    assert client.get(url, params={'path': str(outside)}).status_code == 403

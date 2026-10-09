@@ -27,8 +27,41 @@ def guide_path(topic: str = 'overview') -> Path:
     return GUIDE_DIR / TOPICS[topic]
 
 
-def read_context(topic: str = 'overview') -> str:
-    return guide_path(topic).read_text(encoding='utf-8')
+def _path_code(path: Path | str) -> str:
+    value = str(path).replace('\n', '\\n').replace('\r', '\\r')
+    fence = '`' * (max((len(run) for run in re.findall(r'`+', value)), default=0) + 1)
+    return f'{fence} {value} {fence}' if '`' in value else f'{fence}{value}{fence}'
+
+
+def read_context(topic: str = 'overview', *, source_root: Path | None = None,
+                 vault_root: Path | None = None, workspace_root: Path | None = None,
+                 objective_root: Path | None = None) -> str:
+    """Read the shared guide, optionally adding source-relative scope references."""
+    guide = guide_path(topic).read_text(encoding='utf-8')
+    if topic != 'overview' or source_root is None:
+        return guide
+    # One packaged template, instantiated against the captured explorer scope.
+    # Preserve the visible path spelling, including linked checkout directories.
+    source = Path(os.path.abspath(source_root))
+    roots = [('Vault', vault_root), ('Workspace', workspace_root), ('Objective', objective_root)]
+    if source not in [Path(os.path.abspath(root)) for _, root in roots if root is not None]:
+        roots.append(('Source folder / worktree', source))
+    rows = []
+    for label, root in roots:
+        if root is None:
+            continue
+        root = Path(os.path.abspath(root))
+        def relative(target):
+            return _path_code(os.path.relpath(target, source))
+        files = [relative(root / name) for name in
+                 ('AGENTS.md', 'agent.md', 'CLAUDE.md', '.github/copilot-instructions.md')
+                 if (root / name).is_file()]
+        instructions = ', '.join(files) if files else 'no root instruction files found'
+        rows.append(f'- {label} root: {relative(root)}; instructions: {instructions}.')
+    template = (GUIDE_DIR / 'instruction-paths.md').read_text(encoding='utf-8')
+    scoped = template.replace('{{source_root}}', _path_code(source)).replace('{{instruction_paths}}', '\n'.join(rows))
+    intro, rest = guide.split('\n\n', 1)
+    return intro + '\n\n' + scoped.rstrip() + '\n\n' + rest
 
 
 def _codex_config_options(args: list[str], cwd: Path) -> tuple[list[str], list[str], Path]:

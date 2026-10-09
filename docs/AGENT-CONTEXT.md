@@ -42,8 +42,13 @@ way to discard old conversational instructions across providers.
 Every workspace sidebar includes **Lab agent context**, including Objective
 and worktree Files views. Click it to read the installed launch guide, or drag
 the shortcut or the reader's **Drag context to terminal** button onto a terminal
-console to paste the full guide without submitting it. Switching terminals
-while the guide loads cancels the paste.
+console to paste the full guide without submitting it. A packaged template adds
+the owning vault, workspace and selected Objective instruction paths, relative
+to the source Files folder or worktree. It lists existing `AGENTS.md`, `agent.md`,
+`CLAUDE.md` and Copilot instruction files and identifies the absolute source
+folder used as their base. The reader and drag retain their captured scope when
+selection changes; another Objective or worktree gets its own rendered guide.
+Switching terminals while the guide loads cancels the paste.
 
 Workspace sidebars also show **Vault AGENTS.md**, **Workspace AGENTS.md**, and
 **Objective AGENTS.md** for the current Objective. Each shortcut opens the

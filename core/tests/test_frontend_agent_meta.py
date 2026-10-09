@@ -25,13 +25,14 @@ def test_meta_contains_context_and_workspace_instruction_documents_only():
 
 def test_meta_keeps_workspace_and_selected_folder_independent():
     source = SOURCE.read_text()
-    helpers = source[source.index('  function _agentContextMetaHtml('):source.index('  async function openAgentContext()')]
+    helpers = source[source.index('  function _agentContextSource('):source.index('  async function openAgentContext(')]
     highlight = source[source.index('    // Match both root and path:'):source.index('    // preserveScroll early-return:')]
     script = r'''
 const esc = value => value.replaceAll('&', '&amp;').replaceAll('<', '&lt;');
 const escAttr = value => esc(value).replaceAll('"', '&quot;');
 const fileIconHtml = () => '', symlinkClass = () => '', symlinkTitle = () => '';
 let _workspaceDocRoot = '/workspace', _workspaceDocPath = 'AGENTS.md';
+const currentWorkspace = null, _vaultForWorkspace = () => null;
 ''' + helpers + r'''
 (async () => {
   const base = '/workspace', folder = '/worktree';
@@ -74,15 +75,16 @@ let _workspaceDocRoot = '/workspace', _workspaceDocPath = 'AGENTS.md';
 
 def test_context_view_displays_exact_escaped_launcher_context():
     source = SOURCE.read_text()
-    helper = source[source.index('  function _readAgentContextGuide()'):source.index('  function _agentInstructionRowsHtml(')]
-    helper += source[source.index('  async function openAgentContext()'):source.index('  window.openAgentContext =')]
+    helper = source[source.index('  function _agentContextSourceFromRow('):source.index('  function _agentInstructionRowsHtml(')]
+    helper += source[source.index('  async function openAgentContext('):source.index('  window.openAgentContext =')]
     script = r'''
 const nodes = Object.fromEntries(['docViewModal', 'docModalBody', 'docModalTitle', 'docModalFiles'].map(id => [id,
-  {innerHTML: '', textContent: '', classList: {add() {}}}]));
-const document = {getElementById: id => nodes[id], addEventListener() {}, removeEventListener() {}};
+  {innerHTML: '', textContent: '', querySelector: () => ({}), classList: {add() {}, contains: () => true}}]));
+const document = {querySelector: () => null, getElementById: id => nodes[id], addEventListener() {}, removeEventListener() {}};
 let _workspaceDocEditing = true, _docModalEscHandler = null, _docModalFilesGeneration = 0;
 const closeDocModal = () => {};
 const esc = value => value.replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+const escAttr = esc;
 const fetch = async url => {
   if (url !== '/api/agents/context/guide') throw Error('wrong source');
   return {ok: true, json: async () => ({content: '# Actual launch context\n<instructions>'})};
@@ -109,13 +111,13 @@ def test_project_workspaces_expose_context_and_drop_its_full_text_in_chrome(tmp_
     helpers = section('  function _sidebarProjectView(', '  function _sidebarProjectOwnsView(')
     helpers += section('  function _sidebarFilesTitle(', '  function _explorerContextFromRow(')
     helpers += section('  function _sidebarRecentSectionHtml(', '  function _sidebarConfigFolderCardHtml(')
-    helpers += section('  function _agentContextMetaHtml(', '  // ─── Keep Alive and Lid Awake')
+    helpers += section('  function _agentContextSource(', '  // ─── Keep Alive and Lid Awake')
     helpers += section("  document.addEventListener('dragstart', event => {", '  function _termReflowSelection(')
     setup = r'''
 const assert=(ok,message)=>{if(!ok)throw Error(message)};
 let now=100000;Date.now=()=>now;
-let base='/workspace-one',folder='/tree-one',vault='/vault-one',objectiveRoot=base+'/objectives/first',currentRepo=null,currentWorkspace={path:base};
-const VAULT_ROOT='/shell-vault',_vaultForWorkspace=()=>({path:vault});
+let base='/workspace-one',folder='/tree-one',vault='/vault-one',objectiveRoot=base+'/objectives/first',currentRepo=null,currentWorkspace={name:'one',path:base,is_workspace:true};
+const VAULT_ROOT='/shell-vault',_vaultForWorkspace=()=>({path:vault,id:vault.slice(1)});
 const _sidebarWorktreeBaseRoot=()=>base,_sidebarScopedRoot=()=>folder,_sidebarScopeTransition=null;
 let _sidebarProjectTimer=1,_sidebarProjectGeneration=0;
 const _sidebarMarkPainted=()=>{},_sidebarProjectDirectory=host=>{host.innerHTML='<a class="sidebar-file" data-entry-kind="file">File one</a><a class="sidebar-file" data-entry-kind="file">File two</a>'};
@@ -126,13 +128,13 @@ const _canCreateExecutableNotebook=()=>false,_sidebarSortSelectHtml=()=>'',_side
 const _sidebarRecentTreeModel=files=>({folders:[],files}),symlinkClass=()=>'',symlinkTitle=()=>'',symlinkMarker=()=>'',_sidebarGitHistoryButtonHtml=()=>'';
 const esc=value=>String(value).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;'),escAttr=value=>esc(value).replaceAll('"','&quot;').replaceAll("'",'&#39;');
 const fileIconHtml=()=>'<span class="ft-icon ft-md"></span>';
-window.LabObjectives={active:()=>true,instructionRoot:()=>objectiveRoot};
+window.LabObjectives={active:()=>true,instructionRoot:()=>objectiveRoot,terminalLaunchContext:()=>({id:objectiveRoot.split('/').at(-1),context:{path:base}})};
 let _workspaceDocEditing=false,_docModalEscHandler=null,_docModalFilesGeneration=0,_workspaceDocRoot=base,_workspaceDocPath=null;
 const opened=[];window.openWorkspaceDoc=(path,{root})=>opened.push({root,path});
 window.openWorkspaceDocModal=()=>{};
 const closeDocModal=()=>document.getElementById('docViewModal').classList.remove('active');
 const guide='# Lab framework capabilities\n\nUse `lab` for tasks & notebooks.\n<instructions>\n';
-let reads=0;
+let reads=0,guideRequests=[];
 window.fetch=async url=>{
  if(url.startsWith('/api/agents/context/files?'))return {ok:true,json:async()=>[{name:'AGENTS.md',path:'AGENTS.md'}]};
  reads++;return {ok:true,json:async()=>({content:guide})};
@@ -142,7 +144,7 @@ const pastes=[],notices=[],termXterm={modes:{bracketedPasteMode:true},paste:text
 const termWS={readyState:WebSocket.OPEN},explorerToast=(...args)=>notices.push(args);
 (async()=>{try{
  for(const suffix of ['one','two']){
-  base='/workspace-'+suffix;folder='/tree-'+suffix;vault='/vault-'+suffix;objectiveRoot=base+'/objectives/first';currentWorkspace.path=base;
+  base='/workspace-'+suffix;folder='/tree-'+suffix;vault='/vault-'+suffix;objectiveRoot=base+'/objectives/first';currentWorkspace.path=base;currentWorkspace.name=suffix;
   assert(_sidebarProjectView(base,folder),'project sidebar mounts');
   await new Promise(resolve=>setTimeout(resolve,0));
   assert(document.querySelectorAll('#sidebar [data-lab-agent-context]').length===1,'each workspace has one draggable Lab context item');
@@ -164,7 +166,7 @@ const termWS={readyState:WebSocket.OPEN},explorerToast=(...args)=>notices.push(a
  now+=5000;_sidebarProjectAgentContext(scopedView,base,folder);
  await new Promise(resolve=>setTimeout(resolve,0));
  assert(document.querySelectorAll('[data-agent-instructions-scope] a').length===4&&!document.querySelector('[data-agent-instructions-scope] [aria-disabled="true"]'),'newly created instruction files become clickable on the next refresh without switching roots');
- window.fetch=async()=>{reads++;return {ok:true,json:async()=>({content:guide})};};
+ window.fetch=async url=>{reads++;guideRequests.push(new URL(url,'http://lab').searchParams);return {ok:true,json:async()=>({content:guide})};};
  const icons=()=>[...document.querySelectorAll('#sidebar [data-sidebar-section-shortcut]')].filter(row=>row.getClientRects().length);
  const project=document.querySelector('[data-project-sidebar]');project.dataset.objectiveSidebarMode='worktree';project.dataset.objectiveRecentScopes='2';
  assert(icons().length===2&&icons().map(row=>row.getAttribute('aria-label')).sort().join(',')==='Files,Recently updated','one Files icon and one icon for the entire two-worktree recent union');
@@ -177,8 +179,12 @@ const termWS={readyState:WebSocket.OPEN},explorerToast=(...args)=>notices.push(a
  const transfer=new DataTransfer(),row=document.querySelector('#sidebar [data-lab-agent-context]');
  row.dispatchEvent(new DragEvent('dragstart',{bubbles:true,dataTransfer:transfer}));
  assert(transfer.getData('application/x-lab-agent-context')==='overview','context drag carries the full-content action');
+ const captured=JSON.parse(transfer.getData('application/x-lab-agent-context-source')).source;
+ assert(captured.path===folder&&captured.workspace_id==='two'&&captured.objective_id==='second'&&captured.vault==='vault-two','drag captures checkout and all owning scope identities');
+ objectiveRoot=base+'/objectives/third';folder='/another-tree';
  const drop=()=>_termHandleDrop({dataTransfer:transfer,preventDefault(){},stopPropagation(){}});
  await drop();assert(pastes[0]===guide,'cold drag fetches and pastes exact context with line breaks, without Enter');
+ assert(guideRequests[0].get('path')===captured.path&&guideRequests[0].get('objective_id')==='second','dropping after a scope switch fetches the captured source');
  await openAgentContext();
  assert(document.querySelector('#docModalBody pre').textContent===guide,'read view uses the same context content');
  const viewed=new DataTransfer();document.querySelector('#docModalBody [data-lab-agent-context]').dispatchEvent(new DragEvent('dragstart',{bubbles:true,dataTransfer:viewed}));
@@ -186,10 +192,15 @@ const termWS={readyState:WebSocket.OPEN},explorerToast=(...args)=>notices.push(a
  assert(viewed.getData('text/plain')===guide&&!document.getElementById('docViewModal').classList.contains('active'),'drag from reader exposes the terminal and carries the full text');
  termXterm.modes.bracketedPasteMode=false;await drop();
  assert(pastes[1]===guide.replace(/\n/g,' ')&&reads===1,'plain shell receives one unsent line and context requests are shared');
- delete _readAgentContextGuide.content;let release;
+ _readAgentContextGuide.cache.clear();let release;
  window.fetch=()=>new Promise(resolve=>release=resolve);
  const pending=drop();termCurrentSession='elsewhere';release({ok:true,json:async()=>({content:guide})});await pending;
  assert(pastes.length===2,'a delayed context load cannot paste into a newly selected terminal');
+ termCurrentSession='one';
+ window.fetch=async url=>{guideRequests.push(new URL(url,'http://lab').searchParams);return {ok:true,json:async()=>({content:guide+'New scope'})};};
+ _sidebarProjectAgentContext(scopedView,base,folder);await new Promise(resolve=>setTimeout(resolve,0));
+ await openAgentContext();
+ assert(guideRequests.at(-1).get('path')===folder&&guideRequests.at(-1).get('objective_id')==='third'&&document.querySelector('#docModalBody pre').textContent===guide+'New scope','a new Objective and checkout receive their own guide instead of a global cached copy');
  assert(!notices.length,'no context errors');document.body.dataset.result='pass';
 }catch(error){document.body.dataset.result='fail';document.body.append(String(error.stack||error));}})();
 '''

@@ -30,6 +30,45 @@ def test_context_reads_packaged_topics_without_workspace(tmp_path, monkeypatch):
     assert not list(tmp_path.iterdir())
 
 
+@pytest.mark.parametrize('location', ['vault', 'workspace', 'objective', 'worktree'])
+def test_context_template_resolves_existing_instructions_from_source(tmp_path, location):
+    vault = tmp_path / 'vault'
+    workspace = vault / 'workspaces' / 'client'
+    objective = workspace / 'objectives' / 'audit'
+    worktree = tmp_path / 'checkouts' / 'audit'
+    roots = dict(vault=vault, workspace=workspace, objective=objective, worktree=worktree)
+    for root in roots.values():
+        root.mkdir(parents=True, exist_ok=True)
+        (root / 'AGENTS.md').write_text('Owned rules\n')
+    (objective / 'CLAUDE.md').write_text('Objective Claude rules\n')
+    (workspace / '.github').mkdir()
+    (workspace / '.github/copilot-instructions.md').write_text('Copilot rules\n')
+    (worktree / 'agent.md').write_text('Checkout rules\n')
+    (vault / 'CLAUDE.md').symlink_to('missing.md')
+    before = snapshot(tmp_path)
+    source = roots[location]
+    guide = agent_context.read_context(source_root=source, vault_root=vault,
+                                       workspace_root=workspace, objective_root=objective)
+    assert f'Source folder: `{source}`' in guide
+    assert '{{' not in guide
+    for label, root in [('Vault', vault), ('Workspace', workspace), ('Objective', objective)]:
+        assert f'- {label} root: `{os.path.relpath(root, source)}`; instructions: `{os.path.relpath(root / "AGENTS.md", source)}`' in guide
+    assert f'`{os.path.relpath(objective / "CLAUDE.md", source)}`' in guide
+    assert f'`{os.path.relpath(workspace / ".github/copilot-instructions.md", source)}`' in guide
+    assert f'`{os.path.relpath(vault / "CLAUDE.md", source)}`' not in guide
+    assert ('Source folder / worktree root:' in guide) == (location == 'worktree')
+    if location == 'worktree':
+        assert '`agent.md`' in guide
+    assert snapshot(tmp_path) == before
+
+
+def test_context_template_does_not_invent_missing_instruction_files(tmp_path):
+    text = agent_context.read_context(source_root=tmp_path, vault_root=tmp_path)
+    assert '- Vault root: `.`; instructions: no root instruction files found.' in text
+    assert '- Workspace root:' not in text and '- Objective root:' not in text
+    assert not list(tmp_path.iterdir())
+
+
 def test_sync_is_read_only_and_does_not_impose_agent_files(monorepo, seed_workspace):
     workspace = seed_workspace('independent')
     (workspace / 'AGENTS.md').write_text('Local rules\n')

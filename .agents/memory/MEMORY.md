@@ -773,3 +773,4 @@
 - [Task moves carry terminal hierarchy](task-moves-carry-terminal-hierarchy.md) — recursive branch reparenting with preserved sessions, context and reconciled manual placement.
 
 - [Task deletion requires two confirmations](task-deletion-requires-two-confirmations.md) — exact-name review, whole-branch cleanup, shared/source protection and staged-content recovery.
+- [Lab context captures source paths](lab-agent-context-captures-source-paths.md) — template instruction references for owning scopes relative to the captured Objective/worktree source; keep reader and drag scope stable.

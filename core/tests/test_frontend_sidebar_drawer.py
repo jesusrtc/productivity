@@ -24,7 +24,7 @@ def test_sidebar_drawer_native_pointer_keyboard_resize_and_view_changes(tmp_path
     helpers += between('  function _sidebarRecentSelectorsHtml()', '  async function sidebarSelectRecentMode(')
     helpers += between('  function _sidebarFilesTitle(', '  function _explorerContextFromRow(')
     helpers += between('  function _sidebarRecentSectionHtml(', '  function _sidebarConfigFolderCardHtml(')
-    helpers += between('  function _agentContextMetaHtml(', '  // ─── Keep Alive and Lid Awake')
+    helpers += between('  function _agentContextSource(', '  // ─── Keep Alive and Lid Awake')
     helpers += between("  document.addEventListener('dragstart', event => {", '  function _termReflowSelection(')
     bridge = between('  window.LabSidebarDrawer?.connect({', '  _termApplyRecentSettings();')
     setup = r'''
@@ -45,6 +45,7 @@ const closeDocModal=()=>document.getElementById('docViewModal').classList.remove
 let _termDragState=null,workspaceTabsDragId=null,termCurrentSession='context-target',termCurrentWorkspaceId='alpha';
 const termWS={readyState:WebSocket.OPEN},nativePastes=[],explorerToast=message=>errors.push(message);
 const guide='Lab framework context\nUse lab for tasks and notebooks.';
+window.fetch=async()=>({ok:true,json:async()=>({content:guide})});
 let resets=0,primes=0;
 const _resetSidebarLayout=()=>resets++,_primeSidebarLayout=()=>primes++,termSendResize=()=>{};
 const termXterm=new Terminal({fontSize:14}),termFitAddon=new FitAddon.FitAddon();
@@ -68,7 +69,7 @@ localStorage.setItem('labSidebarShown:workspace:alpha','0');
     html += '</aside><div class="sidebar-resizer" id="sidebarResizer"></div><main class="main" id="content"><textarea id="editor" style="width:600px;height:60px">Draft stays intact</textarea><iframe id="proxy" style="width:600px;height:200px" srcdoc="<button>Embedded app</button>"></iframe></main></div>'
     html += '<section class="term-panel" id="termPanel"><div id="termResizer" class="term-resizer"></div><div class="term-header">Terminal</div><div class="term-stage"><div class="term-console"><div class="term-status">Attached</div><div id="termBody" class="term-body"></div></div></div></section>'+toggle
     html += '<div class="doc-modal-overlay" id="docViewModal"><div class="doc-modal-box"><div class="doc-modal-header"><span id="docModalTitle"></span></div><div class="doc-modal-layout"><nav id="docModalFiles" hidden></nav><div class="doc-modal-body" id="docModalBody"></div></div></div></div>'
-    html += vendors+'<script>'+setup+'</script><script>'+(STATIC / 'js/lib/sidebar-drawer.js').read_text()+'</script><script>'+helpers+bridge+"document.getElementById('recentFilters').innerHTML=_sidebarRecentSelectorsHtml();document.getElementById('recentSection').innerHTML=_sidebarRecentSectionHtml([{path:'recent-one.md'},{path:'recent-two.md'}],null,'/alpha',{resolved:true});document.getElementById('filesTitle').innerHTML=_sidebarFilesTitle('/alpha');document.querySelector('#filesTitle .sidebar-title').id='filesHeading';document.getElementById('sidebar').insertAdjacentHTML('beforeend',_agentContextRowHtml());_readAgentContextGuide.content=guide;document.getElementById('termBody').ondragover=event=>event.preventDefault();document.getElementById('termBody').ondrop=_termHandleDrop;_termApplyRememberedVisibility();termFitAddon.fit();</script>"
+    html += vendors+'<script>'+setup+'</script><script>'+(STATIC / 'js/lib/sidebar-drawer.js').read_text()+'</script><script>'+helpers+bridge+"document.getElementById('recentFilters').innerHTML=_sidebarRecentSelectorsHtml();document.getElementById('recentSection').innerHTML=_sidebarRecentSectionHtml([{path:'recent-one.md'},{path:'recent-two.md'}],null,'/alpha',{resolved:true});document.getElementById('filesTitle').innerHTML=_sidebarFilesTitle('/alpha');document.querySelector('#filesTitle .sidebar-title').id='filesHeading';document.getElementById('sidebar').insertAdjacentHTML('beforeend',_agentContextRowHtml());document.getElementById('termBody').ondragover=event=>event.preventDefault();document.getElementById('termBody').ondrop=_termHandleDrop;_termApplyRememberedVisibility();termFitAddon.fit();</script>"
     page = tmp_path / 'sidebar.html'
     page.write_text(html)
     driver = r'''

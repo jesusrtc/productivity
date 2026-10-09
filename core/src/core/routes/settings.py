@@ -117,13 +117,40 @@ def agents_context(request: Request) -> dict:
 
 
 @router.get("/api/agents/context/guide")
-def agent_launch_context() -> dict:
-    """Read the same installed framework guide used by the agent launcher."""
+def agent_launch_context(request: Request, path: str | None = None,
+                         workspace_id: str | None = None, objective_id: str | None = None,
+                         vault: str | None = None) -> dict:
+    """Instantiate the installed guide for the captured sidebar scope."""
     try:
         from lab.agent_context import read_context
     except ImportError as exc:
         raise HTTPException(status_code=503, detail="The installed Lab CLI does not expose launch context yet.") from exc
-    return {"content": read_context()}
+    if path is None:
+        return {"content": read_context()}
+    from lab import paths, objective_store
+    from core import workspace_documents
+    from core.routes.diff import _entry_root
+
+    root = auth.request_root(request)
+    workspace_root = objective_root = None
+    if workspace_id:
+        root = workspace_documents.workspace(request, workspace_id, vault)
+        workspace_root = paths.workspace_dir(root, workspace_id)
+    if objective_id:
+        if workspace_root is None:
+            raise HTTPException(400, 'Choose the owning workspace for this Objective.')
+        try:
+            data = fsguard.guarded(root, lambda: objective_store.read(workspace_root))
+        except (ValueError, OSError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+        objective = next((row for row in data['objectives'] if row['id'] == objective_id), None)
+        if objective is None:
+            raise HTTPException(404, 'Objective not found')
+        objective_root = Path(objective['path'])
+    source = _entry_root(path, request)
+    return fsguard.guarded(root, lambda: {"content": read_context(
+        source_root=source, vault_root=root, workspace_root=workspace_root,
+        objective_root=objective_root)})
 
 
 @router.get('/api/settings/global')

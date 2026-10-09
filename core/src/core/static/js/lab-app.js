@@ -7152,11 +7152,21 @@
 
   // Keep workspace instructions reachable when Files shows another folder.
   // These are current files, not evidence of a running provider's loaded context.
+  function _agentContextSource(baseRoot, fileRoot) {
+    const workspace = currentWorkspace?.path === baseRoot && currentWorkspace?.is_workspace ? currentWorkspace : null;
+    const vault = _vaultForWorkspace(workspace);
+    const objective = workspace ? window.LabObjectives?.terminalLaunchContext?.() : null;
+    return {path: fileRoot,
+      ...(workspace ? {workspace_id: workspace.name} : {}),
+      ...(vault?.id ? {vault: vault.id} : {}),
+      ...(objective?.context?.path === baseRoot ? {objective_id: objective.id} : {})};
+  }
+
   function _agentContextMetaHtml(baseRoot, fileRoot, baseLabel = 'Workspace instructions', instructionGroups = null) {
     const groups = instructionGroups || [{root: baseRoot, label: baseLabel}];
     if (!instructionGroups && fileRoot !== baseRoot) groups.push({root: fileRoot, label: 'Selected folder instructions'});
     return `<div class="sidebar-title" title="Instruction files on disk. Browsing another folder leaves a running agent's startup context unchanged.">Meta</div>
-      ${_agentContextRowHtml()}`
+      ${_agentContextRowHtml(_agentContextSource(baseRoot, fileRoot))}`
       + groups.map(group => `<div class="sidebar-agent-instructions">
         ${group.label ? `<div class="sidebar-agent-instructions-label" title="${escAttr(group.root)}">${esc(group.label)}</div>` : ''}
         <div data-agent-instructions-root="${escAttr(group.root)}" data-agent-instructions-scope="${escAttr(group.scope || '')}"><div class="sidebar-agent-instructions-note">Loading…</div></div>
@@ -7198,20 +7208,36 @@
     }
   }
 
-  function _agentContextRowHtml() {
-    return `<a class="sidebar-file sidebar-file-meta" data-lab-agent-context draggable="true" role="button" tabindex="0" onclick="openAgentContext()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openAgentContext()}" title="Read Lab agent context, or drag its full text into a terminal">${fileIconHtml('AGENTS.md')}<span class="sidebar-fname">Lab agent context</span></a>`;
+  function _agentContextRowHtml(source = {}) {
+    return `<a class="sidebar-file sidebar-file-meta" data-lab-agent-context data-agent-context-source="${escAttr(JSON.stringify(source))}" draggable="true" role="button" tabindex="0" onclick="openAgentContext(this)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openAgentContext(this)}" title="Read Lab agent context, or drag its full text into a terminal">${fileIconHtml('AGENTS.md')}<span class="sidebar-fname">Lab agent context</span></a>`;
   }
 
-  function _readAgentContextGuide() {
-    if (typeof _readAgentContextGuide.content === 'string') return Promise.resolve(_readAgentContextGuide.content);
-    if (!_readAgentContextGuide.pending) {
-      _readAgentContextGuide.pending = fetch('/api/agents/context/guide').then(async response => {
+  function _agentContextSourceFromRow(row) {
+    try { return JSON.parse(row?.dataset.agentContextSource || '{}'); } catch { return {}; }
+  }
+
+  function _agentContextGuideKey(source) {
+    return new URLSearchParams(['path', 'workspace_id', 'objective_id', 'vault']
+      .filter(key => typeof source?.[key] === 'string' && source[key])
+      .map(key => [key, source[key]])).toString();
+  }
+
+  function _readAgentContextGuide(source = {}) {
+    const key = _agentContextGuideKey(source);
+    const cache = _readAgentContextGuide.cache ||= new Map();
+    let entry = cache.get(key);
+    if (entry?.content && entry.expires > Date.now()) return Promise.resolve(entry.content);
+    if (!entry?.pending) {
+      entry = {};
+      cache.set(key, entry);
+      entry.pending = fetch('/api/agents/context/guide' + (key ? '?' + key : '')).then(async response => {
         const data = await response.json();
         if (!response.ok || typeof data.content !== 'string' || !data.content.trim()) throw new Error(data.detail || 'Could not load agent context.');
-        return _readAgentContextGuide.content = data.content;
-      }).finally(() => { _readAgentContextGuide.pending = null; });
+        entry.expires = Date.now() + 5000;
+        return entry.content = data.content;
+      }).finally(() => { entry.pending = null; });
     }
-    return _readAgentContextGuide.pending;
+    return entry.pending;
   }
 
   function _agentInstructionRowsHtml(files, root, scope = '') {
@@ -7238,10 +7264,11 @@
     }));
   }
 
-  async function openAgentContext() {
+  async function openAgentContext(row = document.querySelector('#sidebar [data-lab-agent-context]')) {
+    const source = _agentContextSourceFromRow(row);
     const modal = document.getElementById('docViewModal');
     const body = document.getElementById('docModalBody');
-    _docModalFilesGeneration++;
+    const generation = ++_docModalFilesGeneration;
     document.getElementById('docModalFiles').hidden = true;
     document.getElementById('docModalTitle').textContent = 'Lab agent context';
     body.innerHTML = '<div class="loading">Loading…</div>';
@@ -7251,10 +7278,12 @@
     _docModalEscHandler = event => { if (event.key === 'Escape') closeDocModal(); };
     document.addEventListener('keydown', _docModalEscHandler);
     try {
-      const content = await _readAgentContextGuide();
-      body.innerHTML = `<button type="button" class="sidebar-file" data-lab-agent-context draggable="true" title="Drag the full Lab context into a terminal">Drag context to terminal</button><pre style="white-space:pre-wrap;overflow-wrap:anywhere;padding:20px">${esc(content)}</pre>`;
+      const content = await _readAgentContextGuide(source);
+      if (generation !== _docModalFilesGeneration || !modal.classList.contains('active')) return;
+      body.innerHTML = `<button type="button" class="sidebar-file" data-lab-agent-context data-agent-context-source="${escAttr(JSON.stringify(source))}" draggable="true" title="Drag the full Lab context into a terminal">Drag context to terminal</button><pre style="white-space:pre-wrap;overflow-wrap:anywhere;padding:20px">${esc(content)}</pre>`;
+      body.querySelector('[data-lab-agent-context]')._agentContextContent = content;
     } catch (error) {
-      body.innerHTML = `<div class="empty">${esc(error.message)}</div>`;
+      if (generation === _docModalFilesGeneration && modal.classList.contains('active')) body.innerHTML = `<div class="empty">${esc(error.message)}</div>`;
     }
   }
   window.openAgentContext = openAgentContext;
@@ -16653,8 +16682,11 @@
     const context = event.target.closest?.('[data-lab-agent-context]');
     if (context?.dataset?.labAgentContext !== undefined && event.dataTransfer) {
       event.dataTransfer.effectAllowed = 'copy';
+      const source = _agentContextSourceFromRow(context);
+      const content = context._agentContextContent;
       event.dataTransfer.setData('application/x-lab-agent-context', 'overview');
-      event.dataTransfer.setData('text/plain', _readAgentContextGuide.content || 'Lab agent context');
+      event.dataTransfer.setData('application/x-lab-agent-context-source', JSON.stringify({source, content}));
+      event.dataTransfer.setData('text/plain', content || _readAgentContextGuide.cache?.get(_agentContextGuideKey(source))?.content || 'Lab agent context');
       // Let the browser capture the dragged element before hiding its modal.
       // Hiding the source during dragstart cancels a native Chrome drag.
       if (context.closest('#docViewModal')) setTimeout(closeDocModal, 0);
@@ -16730,14 +16762,14 @@
     return /^[a-zA-Z0-9_./:@%+=,-]+$/.test(path) ? path : "'" + path.replace(/'/g, "'\\''") + "'";
   }
 
-  async function _termPasteAgentContext() {
+  async function _termPasteAgentContext(source = {}, capturedContent = null) {
     const terminal = termXterm, socket = termWS, session = termCurrentSession, workspace = termCurrentWorkspaceId;
     if (!terminal || !socket || socket.readyState !== WebSocket.OPEN) {
       explorerToast('Connect a terminal before dropping Lab context.', true);
       return;
     }
     try {
-      const content = await _readAgentContextGuide();
+      const content = typeof capturedContent === 'string' ? capturedContent : await _readAgentContextGuide(source);
       if (termXterm !== terminal || termWS !== socket || termCurrentSession !== session
           || termCurrentWorkspaceId !== workspace || socket.readyState !== WebSocket.OPEN) return;
       const text = content.replace(/\r\n?/g, '\n');
@@ -16751,7 +16783,12 @@
         || Array.from(event.dataTransfer?.types || []).includes('application/x-lab-terminal')) return;
     event.preventDefault();
     event.stopPropagation();
-    if (event.dataTransfer?.getData('application/x-lab-agent-context') === 'overview') return _termPasteAgentContext();
+    if (event.dataTransfer?.getData('application/x-lab-agent-context') === 'overview') {
+      try {
+        const captured = JSON.parse(event.dataTransfer.getData('application/x-lab-agent-context-source') || '{}');
+        return _termPasteAgentContext(captured.source, captured.content);
+      } catch { explorerToast('Could not read the dragged Lab context.', true); return; }
+    }
     const references = _termDropReferences(event.dataTransfer);
     if (!references.length) {
       if (event.dataTransfer?.files?.length) explorerToast('The browser did not provide the original path. Drag the file or folder from Lab’s sidebar, or copy its pathname in Finder and paste it here.', true);
