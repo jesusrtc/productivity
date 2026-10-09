@@ -183,8 +183,8 @@ links attached to tasks.
 Every click opens a new pop-out immediately, including repeated clicks on the
 same URL. Windows use almost all of Lab's width, leave its workspace tabs visible,
 and cascade by 36 pixels vertically with a small horizontal offset so previous
-title bars and close buttons remain visible. The cascade repeats every five
-windows: the sixth starts at the first position again. Use each window's own
+title bars and close buttons remain visible. The cascade repeats every three
+windows: the fourth starts at the first position again. Use each window's own
 controls to activate, move or close it. Opening uses the clicking device's browser
 with no resource registry, confirmation, macOS helper or automatic window raising.
 
@@ -621,5 +621,5 @@ sample data. The demo uses the same workflow as the live sidebar but keeps its
 state and simulated terminals separate from workspace data. The header's explicit
 resource trials open real URLs and compare a pop-out over Lab, an embedded panel,
 and a normal browser tab. The pop-out trial uses Lab's shared opening behavior,
-including almost full width and the five-position cascade.
+including almost full width and the three-position cascade.
 Chrome controls the window frame; these remain ordinary native windows.

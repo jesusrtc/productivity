@@ -182,10 +182,10 @@
         } else {
           if(mode === 'popup' && window.parent !== window) {
             window.parent.postMessage({channel:'lab-objectives-demo-v1', type:'resource-popup', url:url.href}, '*');
-            find('link-help').textContent = 'Opened a new pop-out over Lab. The cascade repeats every five windows.';
+            find('link-help').textContent = 'Opened a new pop-out over Lab. The cascade repeats every three windows.';
             return;
           }
-          const slot = mode === 'popup' ? popupCount++ % 5 : 0;
+          const slot = mode === 'popup' ? popupCount++ % 3 + 1 : 0;
           const offset = Math.round(Math.min(slot * 12, 72, window.outerWidth * .04));
           const width = Math.max(320, window.outerWidth - 24 - offset);
           const height = Math.max(100, window.outerHeight - 172 - slot * 36);

@@ -179,11 +179,12 @@ const fs=require('node:fs');
  }
  assert(await resource.evaluate('document.getElementById("resource-content").textContent==="Retained resource state"'),'opening another resource preserves existing resource content');
  assert(windowInfo.bounds.width>=parentWindow.bounds.width-50,'resource is almost full Lab width');
- assert(windowInfo.bounds.top>=parentWindow.bounds.top+56,'resource leaves the top of Lab visible');
+ assert(windowInfo.bounds.top>=parentWindow.bounds.top+92,'first resource starts at the previous second cascade height');
+ assert(windowInfo.bounds.left===parentWindow.bounds.left+24,'first resource starts at the previous second cascade horizontal position');
  assert(popups[1].bounds.top-windowInfo.bounds.top===36,'next resource exposes previous title bar');
  assert(popups[1].bounds.left-windowInfo.bounds.left===12,'resource windows cascade horizontally');
- assert(new Set(popups.slice(0,5).map(p=>`${p.bounds.left},${p.bounds.top}`)).size===5,'first five windows have distinct cascade positions');
- assert(JSON.stringify(popups[5].bounds)===JSON.stringify(windowInfo.bounds),'sixth window repeats the first cascade position and size');
+ assert(new Set(popups.slice(0,3).map(p=>`${p.bounds.left},${p.bounds.top}`)).size===3,'first three windows have distinct cascade positions');
+ for(let i=0;i<3;i++)assert(JSON.stringify(popups[i+3].bounds)===JSON.stringify(popups[i].bounds),'each position repeats after three windows with the same size');
  for(const extra of popups.slice(1))await parent.send('Target.closeTarget',{targetId:extra.targetId});
  await parent.evaluate('verify();LabScopeLinks.closeExternal()');
  assert(await resourceTarget(),'Lab navigation leaves the independent resource window open');

@@ -32,7 +32,7 @@
   }
 
   function popupFeatures() {
-    const slot = popupCount++ % 5;
+    const slot = popupCount++ % 3 + 1;
     const offset = Math.round(Math.min(slot * 12, 72, window.outerWidth * .04));
     const left = Math.round(window.screenX + 12 + offset);
     const top = Math.round(window.screenY + 56 + slot * 36);

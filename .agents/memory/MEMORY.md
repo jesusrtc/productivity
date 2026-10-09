@@ -1,8 +1,10 @@
 # Memory index
 
-- [Resource pop-outs use a five-position cycle](resource-popouts-use-five-position-cycle.md) — every click immediately opens a fresh window; almost full width below Lab's tabs, no confirmation, registry, reuse or macOS helper.
+- [Resource pop-outs cycle through positions 2, 3 and 4](resource-popouts-cycle-through-positions-2-3-4.md) — start at the former second window's full geometry and repeat those three positions only.
 
-- [Resource windows cascade and reuse URLs](resource-windows-cascade-and-reuse.md) — historical native-management approach, superseded by the five-position pop-out cycle above.
+- [Resource pop-outs use a five-position cycle](resource-popouts-use-five-position-cycle.md) — direct fresh opening with no management; its five-position layout is superseded by positions 2, 3 and 4 above.
+
+- [Resource windows cascade and reuse URLs](resource-windows-cascade-and-reuse.md) — historical native-management approach, superseded by direct pop-outs above.
 
 - [Resource links default to pop-outs](resource-links-default-to-popouts.md) — direct windows over Lab, preserved drafts and terminals; Alfred attachment needs native window handling.
 

@@ -64,7 +64,7 @@ link details; their explicit Open action uses a pop-out.
 The pop-out remains open when Lab navigates. Windows fill almost all of Lab's
 width, leave Lab's workspace tabs visible and cascade to expose previous title
 bars. Every click opens a new window, including repeated URLs, without a
-confirmation. Five cascade positions repeat, starting over on the sixth window.
+confirmation. Three cascade positions repeat, starting over on the fourth window.
 Use the windows' own controls to activate or close them; there is no resource
 registry, native helper or automatic window raising.
 The Objectives demo retains all three opening options for comparison.
