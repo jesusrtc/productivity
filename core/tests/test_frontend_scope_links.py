@@ -46,7 +46,7 @@ const host=path=>({dataset:{scopeLinks:path},isConnected:true,paintCount:0,butto
 })().catch(error=>{process.stderr.write(error.stack);process.exitCode=1});
 """)
     assert result == {'oldPaint':0,'newPaint':1,'opened':[
-        {'id':'doc','tab':'tab','whole':False}, {'id':'doc','tab':None,'whole':True}, {'url':'https://new.invalid/','clientOnly':True}]}
+        {'id':'doc','tab':'tab','whole':False}, {'id':'doc','tab':None,'whole':True}, {'url':'https://new.invalid/','clientOnly':True,'popup':True}]}
 
 
 def test_link_drags_capture_original_url_document_and_tab_and_reject_retired_rows():

@@ -30,9 +30,24 @@
     dialog.showModal();
   }
 
-  async function open(value, {clientOnly = false, reuseTab = false} = {}) {
+  function popupFeatures() {
+    const width = Math.max(320, Math.min(1100, window.outerWidth - 100));
+    const height = Math.max(320, Math.min(800, window.outerHeight - 100));
+    const left = Math.round(window.screenX + (window.outerWidth - width) / 2);
+    const top = Math.round(window.screenY + (window.outerHeight - height) / 2);
+    return `popup,width=${width},height=${height},left=${left},top=${top},noopener,noreferrer`;
+  }
+
+  async function open(value, {clientOnly = false, reuseTab = false, popup = false} = {}) {
     const url = webUrl(value);
     if (!url) return false;
+    if (popup) {
+      // Keep the tested resource window on the clicking device and within the
+      // click's user activation, even when native tab reuse is available.
+      window.open(url.href, '_blank', popupFeatures());
+      // noopener deliberately returns no handle, even for successful opens.
+      return true;
+    }
     // Explicit workspace browser opening can use the local Mac's default
     // browser tab search. Remote clients keep their ordinary browser opening.
     if (reuseTab && window.LAB_NATIVE_BROWSER_REUSE) {

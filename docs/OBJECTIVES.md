@@ -171,13 +171,13 @@ links. Each row fits its label up to the sidebar width and shows the locally bun
 icon inferred from its URL. Global **Links and icons** domain mappings also
 apply here and update the rows immediately.
 
-Click a link to visit its URL directly in the clicking browser, leaving the
+Click a link to visit its URL in a separate pop-out positioned over Lab, leaving the
 working area in place. Cmd/Ctrl-click opens its details in the middle working
 area. Edit its title,
 URL, TL;DR and named metadata properties, then use **Save** or Cmd/Ctrl-S.
 **Revert** reloads the saved details. Drafts remain available when navigating
 away; a conflicting edit retains your draft. **Open** visits the URL in the
-clicking browser. These controls apply to shared and scoped links, as well as
+same kind of pop-out. These controls apply to shared and scoped links, as well as
 links attached to tasks.
 
 Use **+ Sublink** in a link's details to add destinations beneath it, such as
@@ -605,4 +605,8 @@ elements reject terminal association drops. No input
 is submitted until **Run simulation**. External-link clicks are simulated;
 Cmd/Ctrl-click shows their editable metadata. **Reset demo** restores the
 sample data. The demo uses the same workflow as the live sidebar but keeps its
-state and simulated terminals separate from workspace data.
+state and simulated terminals separate from workspace data. The header's explicit
+resource trials open real URLs and compare a pop-out over Lab, an embedded panel,
+and a normal browser tab. Pop-outs load sites directly; Chrome controls the
+window frame and stacking. Automatic attachment when Alfred activates Lab needs
+native macOS window handling rather than the browser's popup API.

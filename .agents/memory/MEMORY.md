@@ -1,5 +1,7 @@
 # Memory index
 
+- [Resource links default to pop-outs](resource-links-default-to-popouts.md) — direct windows over Lab, preserved drafts and terminals; Alfred attachment needs native window handling.
+
 - [Task worktrees have their own section](task-worktrees-have-their-own-section.md) — selected-task checkouts below Task assets, with membership, actions and context preserved.
 - [Global Worktrees opens only on click](global-worktrees-open-only-on-click.md) — no hover/focus opening; outside clicks fold navigation while retaining the selected checkout.
 - [Errors tab before Admin](errors-tab-before-admin.md) — always-red Errors label opens the existing consolidated Logs view from Home or a vault.

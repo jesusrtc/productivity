@@ -102,7 +102,7 @@ const click = (link, options = {}) => {
   const googleButton = host.querySelector('[data-scope-link]');
   googleButton.focus();
   activating = true; googleButton.click(); activating = false;
-  assert(tabs.length === 3 && tabs[2][0] === google && requests.length === 7,
+  assert(tabs.length === 3 && tabs[2][0] === google && tabs[2][2].startsWith('popup,') && requests.length === 7,
     'Google folder link opens in the client browser and never the server desktop');
   window.LAB_EXTERNAL_BROWSER = false;
   activating = true; googleButton.click(); activating = false;
@@ -126,21 +126,26 @@ const click = (link, options = {}) => {
   assert(!document.querySelector('dialog'), 'fallback cleans up');
 
   // Local Mac workspace links ask the native helper to focus an existing tab.
-  const nativeCalls = [], tabCount = tabs.length;
+  const nativeCalls = [];
   window.LAB_NATIVE_BROWSER_REUSE = true;
+  await LabExternalLinks.open('https://example.com/popout?x=1#part', {popup:true});
+  assert(tabs.at(-1)[0] === 'https://example.com/popout?x=1#part' && tabs.at(-1)[2].startsWith('popup,')
+    && tabs.at(-1)[2].includes('noopener,noreferrer') && !nativeCalls.length,
+    'resource pop-outs preserve the URL and bypass native browser handoff');
+  const afterPopoutCount = tabs.length;
   window.fetch = async (url, options) => { nativeCalls.push({url, body:JSON.parse(options.body)}); return {ok:true,json:async()=>({ok:true,reused:true})}; };
   assert(await LabExternalLinks.open('https://example.com/native?x=1#part', {clientOnly:true, reuseTab:true}), 'native reuse succeeds');
   assert(nativeCalls.length === 1 && nativeCalls[0].url === '/api/ui/open-external'
     && nativeCalls[0].body.reuse_existing === true && nativeCalls[0].body.url === 'https://example.com/native?x=1#part'
-    && tabs.length === tabCount, 'native reuse avoids an additional browser tab');
+    && tabs.length === afterPopoutCount, 'native reuse avoids an additional browser tab');
   window.fetch = async () => ({ok:true,json:async()=>({ok:false,requires_browser_click:true,detail:'Allow Automation to control Chrome.'})});
   assert(await LabExternalLinks.open('https://example.com/denied', {clientOnly:true, reuseTab:true}) === false, 'denied native reuse is reported');
-  assert(tabs.length === tabCount && document.querySelector('dialog[open] p').textContent.includes('Automation'), 'native failure offers an explicit fresh click without silently duplicating a tab');
+  assert(tabs.length === afterPopoutCount && document.querySelector('dialog[open] p').textContent.includes('Automation'), 'native failure offers an explicit fresh click without silently duplicating a tab');
   document.querySelector('dialog[open]').close();
   window.LAB_NATIVE_BROWSER_REUSE = false;
   window.fetch = async () => {throw Error('Remote reuse must not control the host desktop')};
   await LabExternalLinks.open('https://example.com/remote-reuse', {clientOnly:true, reuseTab:true});
-  assert(tabs.length === tabCount+1 && tabs.at(-1)[0] === 'https://example.com/remote-reuse', 'remote workspace links open on their own client');
+  assert(tabs.length === afterPopoutCount+1 && tabs.at(-1)[0] === 'https://example.com/remote-reuse', 'remote workspace links open on their own client');
   document.getElementById('result').textContent = 'PASS';
 })().catch(error => document.getElementById('result').textContent = 'FAIL: ' + error.stack);
 '''
