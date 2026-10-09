@@ -8,9 +8,10 @@ is created.
 
 ## Pending tasks and action deadlines
 
-The task sidebar and Tasks dashboard show every unfinished task and subtask,
-including unchecked action items from the task's own Markdown tab. Completed
-and **Won’t do** tasks are excluded by default. **Show completed / discarded**
+The task sidebar shows unfinished task and subtask navigation. Unchecked action
+items from each task's own Markdown tab appear in the main Tasks dashboard and
+the source document; they do not add rows or reserved space to the left sidebar.
+Completed and **Won’t do** tasks are excluded by default. **Show completed / discarded**
 reveals task history. Repeating tasks waiting for reactivation remain hidden,
 including their descendants; then the same branch returns unchecked.
 

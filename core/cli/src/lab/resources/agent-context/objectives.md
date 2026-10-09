@@ -1,7 +1,8 @@
 # Workspace Objectives and assignment suggestions
 
-The sidebar and Tasks dashboard list all pending tasks, subtasks and unchecked
-action items from each task's own Markdown tab. Completed or discarded tasks
+The sidebar lists pending task and subtask navigation. Unchecked action items
+from each task's own Markdown tab appear in the main Tasks dashboard and source
+document, without adding rows to the sidebar. Completed or discarded tasks
 are hidden by default. Repeating branches remain hidden while waiting for their
 reactivation time, then return with their existing checkboxes reset.
 

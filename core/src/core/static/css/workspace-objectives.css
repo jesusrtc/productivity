@@ -95,17 +95,6 @@ body.sidebar-drawer-enabled:not(.sidebar-drawer-open) [data-project-sidebar][dat
 .objective-star[aria-pressed=true] { color:var(--yellow,#e3b341); }
 .objective-asset-tools button:hover { color:var(--accent); }
 .objective-sidebar-task-list { display:grid; grid-auto-rows:32px; align-content:start; min-height:calc(var(--objective-task-rows) * 32px); padding:0 12px; }
-.objective-sidebar-action { display:flex; align-items:center; gap:5px; min-width:0; margin-left:calc(17px * var(--objective-task-depth,1)); font-size:11px; }
-.objective-sidebar-action > span { flex-shrink:0; color:var(--text-secondary); }
-.objective-sidebar-action > a { min-width:0; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--accent); }
-.objective-sidebar-action .objective-action-due { max-width:45%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:10px; }
-.objective-sidebar-action .undated { display:none; }
-body.sidebar-drawer-enabled:not(.sidebar-drawer-open) .sidebar .objective-sidebar-action { position:relative; margin-left:0; justify-content:center; gap:0; }
-body.sidebar-drawer-enabled:not(.sidebar-drawer-open) .sidebar .objective-sidebar-action > span { position:relative; pointer-events:none; font-size:16px; }
-body.sidebar-drawer-enabled:not(.sidebar-drawer-open) .sidebar .objective-sidebar-action > a { position:absolute; inset:0; font-size:0; }
-body.sidebar-drawer-enabled:not(.sidebar-drawer-open) .sidebar .objective-sidebar-action > time { display:none; }
-body.sidebar-drawer-enabled:not(.sidebar-drawer-open) .sidebar .objective-sidebar-action.overdue > span { color:var(--red,#ff7b72); }
-body.sidebar-drawer-enabled:not(.sidebar-drawer-open) .sidebar .objective-sidebar-action.risk > span { color:var(--yellow,#e3b341); }
 .objective-sidebar-task { display:flex; gap:5px; align-items:center; min-width:0; border:1px solid transparent; border-radius:4px; font-size:12px; }
 .objective-sidebar-task.child { margin-left:calc(17px * var(--objective-task-depth,1)); }
 .objective-sidebar-task.active { border-color:var(--accent); background:color-mix(in srgb,var(--accent) 12%,var(--bg-secondary)); }

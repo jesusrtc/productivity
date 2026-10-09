@@ -157,9 +157,6 @@
   function tasks(o=objective()) {return taskTree(o?.tasks).map(row=>row.task);}
   function taskParent(task,o=objective()) {return tasks(o).find(t=>t.children.some(c=>c.id===task.id))||null;}
   function taskAncestors(task,o=objective()) {const result=[];let parent=taskParent(task,o);while(parent){result.unshift(parent);parent=taskParent(parent,o);}return result;}
-  function sidebarTaskRows(o,selected) {
-    return pendingTaskRows(o);
-  }
   function waiting(task) {return !!task.recurrence_state?.waiting;}
   function pendingTaskRows(o=objective()) {return taskTree(o?.tasks).filter(({task})=>!waiting(task)&&!taskAncestors(task,o).some(parent=>waiting(parent)||taskStatus(parent)==='wont_do')&&!['done','wont_do'].includes(taskStatus(task)));}
   function pendingActions(task) {return (task.action_items||[]).filter(item=>!item.done);}
@@ -179,7 +176,7 @@
       .map(row=>({...row,at:dueTime(row.due)})).filter(row=>Number.isFinite(row.at)).sort((a,b)=>a.at-b.at);
   }
   function actionLink(task,item) {return `data-open-action="${esc(task.id)}" data-action-line="${item.line}" href="${esc(taskHref(task,item))}"`;}
-  function actionRow(task,item,depth=0,sidebar=false) {
+  function actionRow(task,item,depth=0) {
     const due=item.due||taskDeadline(task),label=item.label||item.title||'Untitled action item';
     return `<div class="${sidebar?'objective-sidebar-action':'objective-action-row'} ${dueClass(due)}" style="--objective-task-depth:${depth+1}"><span aria-hidden="true">☐</span><a ${actionLink(task,item)} title="${esc(label+' · '+task.title+(due?' · '+due.replace('T',' '):''))}">${esc(label)}</a>${dueBadge(due,!item.due)}</div>`;
   }
@@ -485,8 +482,8 @@
     const o=objective();if(!o)return;state().objective=o.id;
     bridge.refreshAgentContext?.();
     host.dataset.worktreeBrowse=String(!!state().worktreeBrowse);
-    const task=focusedTask(),sidebarRows=sidebarTaskRows(o,task);
-    const reservedTaskRows=Math.max(1,sidebarRows.reduce((count,{task})=>count+1+pendingActions(task).length,0));
+    const task=focusedTask(),sidebarRows=pendingTaskRows(o);
+    const reservedTaskRows=Math.max(1,sidebarRows.length);
     const unassigned=unassignedAssets(o,true);
     const selectedAssets=task?taskAssets(task).filter(a=>!isArchived(a,o)):[];
     const selectedWorktrees=selectedAssets.filter(a=>worktreeAssetScope(a,o));
@@ -494,7 +491,7 @@
     host.innerHTML=`<div class="objective-sidebar-heading" style="--objective-color:${esc(o.color)}"><button type="button" data-select-objective="${esc(o.id)}" data-drag-objective="${esc(o.id)}" draggable="true" aria-pressed="${!task&&state().view==='objective'}" title="${esc(o.name)} · Drag into a terminal for the full context"><span class="objective-library-dot" aria-hidden="true"></span><span>${esc(o.name)}</span></button><button type="button" data-objective-settings aria-label="Objective settings">⚙</button></div>`+
       `<section class="objective-worktree-navigation" aria-label="Worktrees"><div class="sidebar-title objective-title"><button type="button" class="objective-bucket-label" data-fold-worktrees aria-expanded="${!!state().worktreesOpen}">${state().worktreesOpen?'▾':'▸'} Worktrees <small>${scopeRows(o).length}</small></button><button type="button" data-associate-worktree aria-label="Associate worktree">+</button></div><div class="objective-worktrees" ${state().worktreesOpen?'':'hidden'}>${worktreeNavigationHtml(o)}</div></section>`+
       ((o.shared_assets||[]).length?bucketHtml('objective','Objective · pinned',o.shared_assets.filter(a=>!isArchived(a,o))):'')+
-      `<section class="objective-bucket objective-sidebar-tasks" data-objective-bucket="tasks"><div class="sidebar-title objective-title objective-tasks-drop" data-objective-tasks-drop title="Drop a task or its terminal here to make it a top-level task"><button type="button" class="objective-bucket-label" data-open-objective-tasks draggable="true">Tasks</button>${badge(o)}<button type="button" data-new-objective-task aria-label="New objective task">+</button></div><div class="objective-sidebar-task-list" style="--objective-task-rows:${reservedTaskRows}">${sidebarRows.map(({task,parent,depth})=>sidebarTaskRow(task,parent,depth)+pendingActions(task).map(item=>actionRow(task,item,depth,true)).join('')).join('')||'<p class="objective-bucket-empty">No pending tasks.</p>'}</div></section>`+
+      `<section class="objective-bucket objective-sidebar-tasks" data-objective-bucket="tasks"><div class="sidebar-title objective-title objective-tasks-drop" data-objective-tasks-drop title="Drop a task or its terminal here to make it a top-level task"><button type="button" class="objective-bucket-label" data-open-objective-tasks draggable="true">Tasks</button>${badge(o)}<button type="button" data-new-objective-task aria-label="New objective task">+</button></div><div class="objective-sidebar-task-list" style="--objective-task-rows:${reservedTaskRows}">${sidebarRows.map(({task,parent,depth})=>sidebarTaskRow(task,parent,depth)).join('')||'<p class="objective-bucket-empty">No pending tasks.</p>'}</div></section>`+
       bucketHtml('task','Task assets',selectedAssets.filter(a=>!worktreeAssetScope(a,o)))+
       (task?`<section class="objective-bucket objective-task-worktrees" data-task-id="${esc(task.id)}" aria-label="Worktrees for this task"><div class="sidebar-title objective-title">Worktrees</div><div class="objective-resources">${assetListHtml(selectedWorktrees,'sidebar:worktrees:'+task.id)||'<p class="objective-bucket-empty">No worktrees assigned to this task.</p>'}</div></section>`:'')+
       (overview?bucketHtml('unassigned','Unassigned',unassigned,true)+`<details class="objective-archive" ${state().archiveOpen?'open':''}><summary>Archive · ${(o.archived_assets||[]).length}</summary>${bucketHtml('archive','Archived assets',o.archived_assets||[])}</details>`:'');
