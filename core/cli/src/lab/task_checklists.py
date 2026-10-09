@@ -1,8 +1,24 @@
 """Required Markdown action items. Never synthesize or rewrite their wording."""
 import re
+from datetime import datetime
 
 ITEM = re.compile(r'^(?P<prefix>[ \t]*(?:[-*+]|\d+[.)])[ \t]+\[)(?P<mark>[ xX])\](?:[ \t]+(?P<title>.*))?(?:\r?\n)?$')
 FENCE = re.compile(r'^[ \t]*(`{3,}|~{3,})(.*)$')
+DUE = re.compile(r'^\[(\d{4}-\d{2}-\d{2})(?:[ \t]+(\d{2}:\d{2}))?\][ \t]*(.*)$')
+
+
+def deadline(title):
+    """Optional local wall-clock deadline; invalid prefixes remain ordinary text."""
+    match = DUE.match(title)
+    if match:
+        due = match[1] + ('T' + match[2] if match[2] else '')
+        try:
+            datetime.strptime(due, '%Y-%m-%dT%H:%M' if match[2] else '%Y-%m-%d')
+        except ValueError:
+            pass
+        else:
+            return due, match[3]
+    return None, title
 
 
 def items(body):
@@ -50,7 +66,10 @@ def items(body):
             list_indents.append(len(bullet[0]))
         match = ITEM.match(line)
         if match:
-            result.append({'line':index + 1, 'title':(match['title'] or '').strip(),
+            title = (match['title'] or '').strip()
+            due, label = deadline(title)
+            result.append({'line':index + 1, 'title':title, 'label':label, 'due':due,
+                           'source':line.rstrip('\r\n'),
                            'done':match['mark'].lower() == 'x', 'column':match.start('mark')})
     return result
 

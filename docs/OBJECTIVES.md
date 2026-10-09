@@ -6,6 +6,30 @@ The Home **Objectives demo** remains an independent browser sandbox. The
 workspace feature stores real content and is enabled when its first objective
 is created.
 
+## Pending tasks and action deadlines
+
+The task sidebar and Tasks dashboard show every unfinished task and subtask,
+including unchecked action items from the task's own Markdown tab. Completed
+and **Won’t do** tasks are excluded by default. **Show completed / discarded**
+reveals task history. Repeating tasks waiting for reactivation remain hidden,
+including their descendants; then the same branch returns unchecked.
+
+An action item can carry an optional deadline immediately after its checkbox:
+
+```markdown
+- [ ] [2026-10-15 09:30] Review the proposal
+- [ ] [2026-10-16] Send the approved summary
+- [ ] An action without a deadline
+```
+
+Dates and times use the viewing browser's local time; date-only deadlines end
+at the end of that day. Invalid date prefixes remain ordinary action text.
+Actions without their own date inherit the task's deadline when available.
+The dashboard lists overdue work and deadlines within two days, earliest first.
+Click an action to open its containing document and tab, reveal folded content,
+scroll to the item and highlight it. In Edit mode, its source line is selected.
+Navigation and highlighting leave the Markdown unchanged.
+
 ## Using the sidebar
 
 Click **+ Objective** in a workspace. On the first creation, **Bring current
@@ -226,12 +250,12 @@ terminal hierarchy following. Delete task requires two confirmations and the
 exact task name. See [task moves and deletion](TASK-LIFECYCLE.md) for ownership,
 source preservation and failure behavior.
 
-The left task list opens task details on a normal click. In progress subtasks
-stay visible under every parent, even without hover or selection. Selecting a
-task also reveals its parent's other subtasks and displays its own assets beneath
-the list. Selecting another parent returns non-WIP children to their collapsed
-state. Task details are not duplicated
-as a separate `Tasks.md` tree in Unassigned.
+The left task list opens task details on a normal click. Every pending subtask
+and action item stays visible under its owner without hover or selection.
+Selecting a task displays its assets beneath the list without hiding other
+pending branches. Task details are not duplicated as a separate `Tasks.md` tree
+in Unassigned. Secondary-click a task in the sidebar, its working header, or
+the dashboard (including task history) to change its status.
 
 Task terminals are optional. **Settings → workspace → Terminal sessions →
 Each task gets its own terminal** is off by default and is saved for that

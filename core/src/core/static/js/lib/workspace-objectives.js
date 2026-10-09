@@ -7,6 +7,7 @@
   const taskMoveMime = 'application/x-lab-objective-task';
   const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const drafts = new Map(), linkDrafts = new Map();
+  let actionTarget = null;
   const assetGroupHovers = new Map();
   let bridge, dialog = null, hoverTimer, openView = null, activeDraft = null, activeLinkDraft = null, switchMenu = null, switchTimer;
   let taskCloseButton, taskCloseHost, taskCloseObserver, taskCloseResizeObserver, taskCloseFrame, taskModeHeader, taskModeSpacer;
@@ -48,9 +49,8 @@
     taskAncestors(task,o).reverse().forEach(parent=>set(parent,childrenStatus(parent.children)));
   }
   function progress(o) {
-    const today=new Date(),day=Date.UTC(today.getFullYear(),today.getMonth(),today.getDate());
-    const dates=tasks(o).filter(t=>!complete(t)).map(t=>t.due||taskAncestors(t,o).reverse().find(p=>p.due)?.due).filter(Boolean).map(d=>(Date.parse(d+'T00:00:00Z')-day)/86400000);
-    const done=o.tasks.filter(complete).length,status=o.tasks.length&&done===o.tasks.length?'complete':dates.some(d=>d<0)?'overdue':dates.some(d=>d<=2)?'risk':'track';
+    const dates=dueEntries(o).map(row=>row.at-Date.now());
+    const done=o.tasks.filter(complete).length,status=!pendingTaskRows(o).length&&o.tasks.length?'complete':dates.some(d=>d<0)?'overdue':dates.some(d=>d<=2*86400000)?'risk':'track';
     return {done,total:o.tasks.length,status,label:{complete:'All complete',overdue:'Past due',risk:'At risk · due within 2 days',track:o.tasks.length?'On track':'No tasks yet'}[status]};
   }
   function badge(o) {const p=progress(o);return `<span class="objective-progress ${p.status}" title="${esc(p.label)}" aria-label="${p.done} of ${p.total} tasks complete · ${esc(p.label)}">${p.done}/${p.total}</span>`;}
@@ -158,10 +158,36 @@
   function taskParent(task,o=objective()) {return tasks(o).find(t=>t.children.some(c=>c.id===task.id))||null;}
   function taskAncestors(task,o=objective()) {const result=[];let parent=taskParent(task,o);while(parent){result.unshift(parent);parent=taskParent(parent,o);}return result;}
   function sidebarTaskRows(o,selected) {
-    const expanded=new Set(selected?[...taskAncestors(selected,o),selected].map(t=>t.id):[]);
-    const working=task=>tasks({tasks:[task]}).some(t=>taskStatus(t)==='in_progress');
-    const rows=[];function visit(items,parent=null,depth=0){for(const task of items){rows.push({task,parent,depth});visit(task.children.filter(child=>expanded.has(task.id)||working(child)),task,depth+1);}}
-    visit(o.tasks);return rows;
+    return pendingTaskRows(o);
+  }
+  function waiting(task) {return !!task.recurrence_state?.waiting;}
+  function pendingTaskRows(o=objective()) {return taskTree(o?.tasks).filter(({task})=>!waiting(task)&&!taskAncestors(task,o).some(parent=>waiting(parent)||taskStatus(parent)==='wont_do')&&!['done','wont_do'].includes(taskStatus(task)));}
+  function pendingActions(task) {return (task.action_items||[]).filter(item=>!item.done);}
+  function taskDeadline(task,o=objective()) {
+    const owner=task.due?task:taskAncestors(task,o).reverse().find(parent=>parent.due);
+    return owner?.recurrence_state?.due_at||owner?.due||null;
+  }
+  function dueTime(due) {return due?new Date(due.length===10?due+'T23:59:59.999':due).getTime():NaN;}
+  function dueClass(due) {const delta=dueTime(due)-Date.now();return delta<0?'overdue':delta<=2*86400000?'risk':'';}
+  function dueBadge(due,inherited=false) {
+    if(!due)return '<span class="objective-action-due undated">No due date</span>';
+    const at=dueTime(due),status=dueClass(due),label=due.length<=16?due.replace('T',' '):new Date(at).toLocaleString();
+    return `<time class="objective-action-due ${status}" datetime="${esc(due)}" title="${esc((inherited?'Inherits task deadline · ':'')+new Date(at).toLocaleString())}">${status==='overdue'?'Past due · ':status==='risk'?'Due soon · ':''}${esc(label)}</time>`;
+  }
+  function dueEntries(o=objective()) {
+    return pendingTaskRows(o).flatMap(({task})=>[{task,due:taskDeadline(task,o)},...pendingActions(task).map(item=>({task,item,due:item.due||taskDeadline(task,o)}))])
+      .map(row=>({...row,at:dueTime(row.due)})).filter(row=>Number.isFinite(row.at)).sort((a,b)=>a.at-b.at);
+  }
+  function actionLink(task,item) {return `data-open-action="${esc(task.id)}" data-action-line="${item.line}" href="${esc(taskHref(task,item))}"`;}
+  function actionRow(task,item,depth=0,sidebar=false) {
+    const due=item.due||taskDeadline(task),label=item.label||item.title||'Untitled action item';
+    return `<div class="${sidebar?'objective-sidebar-action':'objective-action-row'} ${dueClass(due)}" style="--objective-task-depth:${depth+1}"><span aria-hidden="true">☐</span><a ${actionLink(task,item)} title="${esc(label+' · '+task.title+(due?' · '+due.replace('T',' '):''))}">${esc(label)}</a>${dueBadge(due,!item.due)}</div>`;
+  }
+  function taskWithActions(task,parent=null,depth=0) {return taskRow(task,parent,depth)+(!complete(task)&&taskStatus(task)!=='wont_do'?pendingActions(task).map(item=>actionRow(task,item,depth)).join(''):'');}
+  function dueDashboard(o) {
+    const rows=dueEntries(o).filter(row=>row.at<=Date.now()+2*86400000);
+    if(!rows.length)return '';
+    return `<section class="objective-due-dashboard" aria-label="Overdue and due soon"><h3>Overdue & due within 2 days</h3>${rows.map(({task,item,due})=>`<div class="objective-due-row"><a ${item?actionLink(task,item):`data-open-task="${esc(task.id)}" href="${esc(taskHref(task))}"`}>${esc(item?(item.label||item.title):task.title)}<small>${esc(item?task.title:taskParent(task,o)?.title||'Task')}</small></a>${dueBadge(due,item&&!item.due)}</div>`).join('')}</section>`;
   }
   function taskFocus() {const f=state().focus,o=objective();return state().view==='objective'&&f?.objective===o?.id&&tasks(o).some(t=>t.id===f.task)?f:null;}
   function focusedTask() {return tasks().find(t=>t.id===taskFocus()?.task);}
@@ -400,6 +426,7 @@
     host.classList.add('objective-task-center');
     const draft=taskDocumentDraft(),editable=!draft||draftEditable(draft);
     taskModeHeader ||= document.createElement('div');taskModeHeader.className='objective-task-mode-head';taskModeHeader.dataset.taskModeHead='';
+    taskModeHeader.dataset.taskId=task.id;
     taskModeHeader.innerHTML=`<div class="objective-task-mode-title"><button type="button" data-task-icon="${esc(task.id)}" data-task-id="${esc(task.id)}" data-open-task="${esc(task.id)}" aria-label="Open ${esc(task.title)}" title="Drop an asset here to use its icon" draggable="${editable}">${taskIcon(task)}</button><a href="${esc(taskHref(task))}" data-open-task="${esc(task.id)}">${taskNameHtml(task)}</a><label><input type="checkbox" data-task-done="${esc(task.id)}" aria-label="Complete ${esc(task.title)}" ${complete(task)?'checked':''}${editable?'':' disabled'}> Completed</label><span data-task-progress>${window.LabTaskSchedule?.badges(task)||''}</span></div><div class="objective-task-mode-actions"><span>${esc(objective().name)}</span>${draft?`<div class="objective-task-modes objective-document-modes" role="group" aria-label="Document mode">${['view','edit'].map(mode=>`<button type="button" data-task-document-mode="${mode}" aria-pressed="${(mode==='edit')===editable}" title="${mode==='edit'?'Enable editing · returns to View after 3 minutes of inactivity':'Read only'}">${mode==='edit'?'Edit':'View'}</button>`).join('')}</div>`:''}<button type="button" data-edit-objective-task="${esc(task.id)}"${editable?'':' disabled'}>Edit task</button><button type="button" class="objective-task-delete" data-delete-objective-task="${esc(task.id)}">Delete task…</button></div>`;
     taskModeSpacer ||= document.createElement('div');taskModeSpacer.className='objective-task-mode-spacer';taskModeSpacer.setAttribute('aria-hidden','true');
     if(taskModeSpacer.parentElement!==host)host.prepend(taskModeSpacer);
@@ -459,7 +486,7 @@
     bridge.refreshAgentContext?.();
     host.dataset.worktreeBrowse=String(!!state().worktreeBrowse);
     const task=focusedTask(),sidebarRows=sidebarTaskRows(o,task);
-    const reservedTaskRows=Math.max(1,sidebarRows.length,...[null,...tasks(o)].map(selected=>sidebarTaskRows(o,selected).length));
+    const reservedTaskRows=Math.max(1,sidebarRows.reduce((count,{task})=>count+1+pendingActions(task).length,0));
     const unassigned=unassignedAssets(o,true);
     const selectedAssets=task?taskAssets(task).filter(a=>!isArchived(a,o)):[];
     const selectedWorktrees=selectedAssets.filter(a=>worktreeAssetScope(a,o));
@@ -467,7 +494,7 @@
     host.innerHTML=`<div class="objective-sidebar-heading" style="--objective-color:${esc(o.color)}"><button type="button" data-select-objective="${esc(o.id)}" data-drag-objective="${esc(o.id)}" draggable="true" aria-pressed="${!task&&state().view==='objective'}" title="${esc(o.name)} · Drag into a terminal for the full context"><span class="objective-library-dot" aria-hidden="true"></span><span>${esc(o.name)}</span></button><button type="button" data-objective-settings aria-label="Objective settings">⚙</button></div>`+
       `<section class="objective-worktree-navigation" aria-label="Worktrees"><div class="sidebar-title objective-title"><button type="button" class="objective-bucket-label" data-fold-worktrees aria-expanded="${!!state().worktreesOpen}">${state().worktreesOpen?'▾':'▸'} Worktrees <small>${scopeRows(o).length}</small></button><button type="button" data-associate-worktree aria-label="Associate worktree">+</button></div><div class="objective-worktrees" ${state().worktreesOpen?'':'hidden'}>${worktreeNavigationHtml(o)}</div></section>`+
       ((o.shared_assets||[]).length?bucketHtml('objective','Objective · pinned',o.shared_assets.filter(a=>!isArchived(a,o))):'')+
-      `<section class="objective-bucket objective-sidebar-tasks" data-objective-bucket="tasks"><div class="sidebar-title objective-title objective-tasks-drop" data-objective-tasks-drop title="Drop a task or its terminal here to make it a top-level task"><button type="button" class="objective-bucket-label" data-open-objective-tasks draggable="true">Tasks</button>${badge(o)}<button type="button" data-new-objective-task aria-label="New objective task">+</button></div><div class="objective-sidebar-task-list" style="--objective-task-rows:${reservedTaskRows}">${sidebarRows.map(({task,parent,depth})=>sidebarTaskRow(task,parent,depth)).join('')||'<p class="objective-bucket-empty">Add a task to start.</p>'}</div></section>`+
+      `<section class="objective-bucket objective-sidebar-tasks" data-objective-bucket="tasks"><div class="sidebar-title objective-title objective-tasks-drop" data-objective-tasks-drop title="Drop a task or its terminal here to make it a top-level task"><button type="button" class="objective-bucket-label" data-open-objective-tasks draggable="true">Tasks</button>${badge(o)}<button type="button" data-new-objective-task aria-label="New objective task">+</button></div><div class="objective-sidebar-task-list" style="--objective-task-rows:${reservedTaskRows}">${sidebarRows.map(({task,parent,depth})=>sidebarTaskRow(task,parent,depth)+pendingActions(task).map(item=>actionRow(task,item,depth,true)).join('')).join('')||'<p class="objective-bucket-empty">No pending tasks.</p>'}</div></section>`+
       bucketHtml('task','Task assets',selectedAssets.filter(a=>!worktreeAssetScope(a,o)))+
       (task?`<section class="objective-bucket objective-task-worktrees" data-task-id="${esc(task.id)}" aria-label="Worktrees for this task"><div class="sidebar-title objective-title">Worktrees</div><div class="objective-resources">${assetListHtml(selectedWorktrees,'sidebar:worktrees:'+task.id)||'<p class="objective-bucket-empty">No worktrees assigned to this task.</p>'}</div></section>`:'')+
       (overview?bucketHtml('unassigned','Unassigned',unassigned,true)+`<details class="objective-archive" ${state().archiveOpen?'open':''}><summary>Archive · ${(o.archived_assets||[]).length}</summary>${bucketHtml('archive','Archived assets',o.archived_assets||[])}</details>`:'');
@@ -541,15 +568,18 @@
     host.innerHTML=rows.map(o=>`<div class="objective-library-row" data-drag-objective="${esc(o.id)}" draggable="true" style="--objective-color:${esc(o.color)}"><span class="objective-library-dot" aria-hidden="true"></span><button type="button" data-library-objective="${esc(o.id)}"><strong>${esc(o.name)}</strong><span>${esc(o.purpose)}</span></button>${badge(o)}<span class="objective-library-focus">${d.focused.includes(o.id)?'Slot '+(d.focused.indexOf(o.id)+1):'Parked'}</span><button type="button" data-place-objective="${esc(o.id)}" aria-label="Choose focus slot for ${esc(o.name)}">Focus…</button></div>`).join('')||'<p>No objectives match. Create one or change the filters.</p>';
   }
   function showCenter(type) {releaseDraft();bridge.prepareCenter?.(type);openView={type,scope:key(context()),objective:objective()?.id};return document.getElementById('content');}
-  function taskHref(task) {const url=new URL(location.pathname,location.origin);url.searchParams.set('workspace',context().path);url.searchParams.set('objective',objective().id);url.searchParams.set('objective_task',task.id);return url.pathname+url.search;}
+  function taskHref(task,item=null) {const url=new URL(location.pathname,location.origin);url.searchParams.set('workspace',context().path);url.searchParams.set('objective',objective().id);url.searchParams.set('objective_task',task.id);if(item){url.searchParams.set('objective_action_line',item.line);url.searchParams.set('objective_action_source',item.source);}return url.pathname+url.search;}
   function taskRow(task,parent=null,depth=parent?1:0) {
     const done=parent?task.done:complete(task);return `<div class="objective-task-row${parent?' child':''}" style="--objective-task-depth:${depth}" data-task-id="${esc(task.id)}"><input type="checkbox" aria-label="Complete ${esc(task.title)}" data-task-done="${esc(task.id)}" ${done?'checked':''}><a class="objective-task-title${done?' done':''}" href="${esc(taskHref(task))}" data-open-task="${esc(task.id)}" draggable="true">${taskNameHtml(task)}${window.LabTaskSchedule?.badges(task)||''}</a><button type="button" data-task-assets="${esc(task.id)}" aria-label="Assets and icon for ${esc(task.title)}" title="${taskAssets(task).length} assets · drag an asset onto the sidebar task icon to change it">${taskIcon(task)}</button><span class="objective-task-schedule"><input type="date" aria-label="Due date for ${esc(task.title)}" data-task-due="${esc(task.id)}" value="${esc(task.due||'')}" title="${parent&&!task.due?'Inherits '+(parent.due||'parent deadline'):'Due date'}"><button type="button" data-schedule-task="${esc(task.id)}" aria-label="Schedule for ${esc(task.title)}" title="Repeat and reactivation window">↻</button></span><button type="button" data-add-subtask="${esc(task.id)}" aria-label="Add subtask to ${esc(task.title)}">+</button><button type="button" class="objective-task-delete" data-delete-objective-task="${esc(task.id)}" aria-label="Delete ${esc(task.title)}">Delete</button></div>`;
   }
   function renderTasks() {
     const o=objective();if(!o)return;state().focus=null;state().view='objective';persistView();const host=showCenter('tasks'),p=progress(o);state().selected=null;
-    host.innerHTML=`<section class="objective-working"><header><h2 data-open-objective-tasks title="Drop a task here to make it a top-level task">Tasks</h2><button type="button" data-new-objective-task>+ Task</button></header><p class="objective-purpose">${esc(o.name)} · ${esc(o.purpose)}</p>${state().worktreeBrowse?`<p class="objective-worktree-assignment-help">Drag ${esc(tree()?.label)} from Worktrees onto any task below. Repeat to assign it to multiple tasks. Fold Worktrees to return to task assets.</p>`:''}<div class="objective-task-progress">${badge(o)}<span>${esc(p.label)}</span></div><div class="objective-task-list">${taskTree(o.tasks).map(({task,parent,depth})=>taskRow(task,parent,depth)).join('')||'<p>No tasks yet. Add a task and its details document will be created with it.</p>'}</div></section>`;
-    paint();bridge.refreshTerminals?.();
+    const rows=state().showFinished?taskTree(o.tasks).filter(({task})=>!waiting(task)&&!taskAncestors(task,o).some(waiting)):pendingTaskRows(o);
+    host.innerHTML=`<section class="objective-working"><header><h2 data-open-objective-tasks title="Drop a task here to make it a top-level task">Tasks</h2><button type="button" data-new-objective-task>+ Task</button></header><p class="objective-purpose">${esc(o.name)} · ${esc(o.purpose)}</p>${state().worktreeBrowse?`<p class="objective-worktree-assignment-help">Drag ${esc(tree()?.label)} from Worktrees onto any task below. Repeat to assign it to multiple tasks. Fold Worktrees to return to task assets.</p>`:''}<div class="objective-task-progress">${badge(o)}<span>${esc(p.label)}</span></div>${dueDashboard(o)}<div class="objective-task-display-options"><label><input type="checkbox" data-show-finished-tasks ${state().showFinished?'checked':''}> Show completed / discarded</label><p>Add a deadline to an action item: <code>- [ ] [YYYY-MM-DD HH:mm] Action item</code> · local time</p></div><div class="objective-task-list">${rows.map(({task,parent,depth})=>taskWithActions(task,parent,depth)).join('')||'<p>No pending tasks.</p>'}</div></section>`;
+    host.querySelector('[data-show-finished-tasks]').onchange=event=>{state().showFinished=event.target.checked;renderTasks();};
+    paint();
   }
+
   function overviewAssets(label,assets) {
     return `<section class="objective-overview-assets" aria-label="${esc(label)}"><h3>${esc(label)}</h3><div class="objective-resources">${assetListHtml(assets,'overview:'+label)||'<p class="objective-bucket-empty">No assets.</p>'}</div></section>`;
   }
@@ -573,9 +603,9 @@
     const host=document.querySelector('[data-objective-overview-results]');if(!host||openView?.scope!==key(context()))return;
     const o=objective(),s=overviewState(),query=s.query.trim().toLocaleLowerCase(),includes=text=>!query||String(text||'').toLocaleLowerCase().includes(query);
     const matchAsset=a=>{const info=assetInfo(a,o);return info&&includes(info.title+' '+info.reference);};
-    const matchTask=t=>includes(t.title+' '+(t.due||''))||taskAssets(t).filter(a=>!isArchived(a,o)).some(matchAsset);
+    const matchTask=t=>includes(t.title+' '+(t.due||''))||pendingActions(t).some(item=>includes(item.label+' '+(item.due||'')))||taskAssets(t).filter(a=>!isArchived(a,o)).some(matchAsset);
     const sharedMatch=!!query&&(o.shared_assets||[]).filter(a=>!isArchived(a,o)).some(matchAsset);
-    const entries=tasks(o).filter(t=>matchTask(t)||sharedMatch);
+    const entries=pendingTaskRows(o).map(row=>row.task).filter(t=>matchTask(t)||sharedMatch);
     if(s.mode==='archive'){
       host.innerHTML=overviewReviewSection('Archived assets',(o.archived_assets||[]).filter(a=>!isTrashed(a,o)&&matchAsset(a)),true);return;
     }
@@ -583,7 +613,7 @@
     let html=s.mode!=='tasks'?overviewReviewSection('Unassigned assets',unassigned):'';
     if(s.mode!=='unassigned'){
       const empty=t=>!(t.assets||[]).some(a=>!isArchived(a,o));
-      const renderTask=t=>{const parent=taskParent(t,o);return `<section class="objective-overview-task" data-overview-task="${esc(t.id)}">${parent?`<p class="objective-task-parent">Subtask of ${esc(parent.title)}</p>`:''}${taskRow(t,parent)}${s.mode==='assets'?overviewAssets('Task: '+t.title,taskAssets(t).filter(a=>!isArchived(a,o))):''}</section>`;};
+      const renderTask=t=>{const parent=taskParent(t,o);return `<section class="objective-overview-task" data-overview-task="${esc(t.id)}">${parent?`<p class="objective-task-parent">Subtask of ${esc(parent.title)}</p>`:''}${taskWithActions(t,parent,taskAncestors(t,o).length)}${s.mode==='assets'?overviewAssets('Task: '+t.title,taskAssets(t).filter(a=>!isArchived(a,o))):''}</section>`;};
       html+=`<section class="objective-overview-tasks"><header><h3>Tasks</h3><button type="button" data-new-objective-task>+ Task</button></header><div class="objective-task-progress">${badge(o)}<span>${esc(progress(o).label)}</span></div>${[true,false].map(without=>{const rows=entries.filter(t=>empty(t)===without);return rows.length?`<h3 class="objective-task-group-label">${without?'Tasks without attached assets':'Tasks with assets'} · ${rows.length}</h3><div class="objective-task-list">${rows.map(renderTask).join('')}</div>`:'';}).join('')||'<p class="objective-bucket-empty">No matching tasks.</p>'}</section>`;
       if(s.mode==='assets'){
         html+=overviewReviewSection('Global assets · shared across tasks',(o.shared_assets||[]).filter(a=>!isArchived(a,o)&&(matchAsset(a)||query&&entries.length)));
@@ -607,8 +637,9 @@
     renderTasks();
     Promise.resolve(bridge.selectWorktree?.(row)).catch(error=>notify(error.message,true));
   }
-  function openTask(id,{activateTerminal=false}={}) {
+  function openTask(id,{activateTerminal=false,actionItem=null}={}) {
     const o=objective(),task=tasks(o).find(t=>t.id===id);if(!task)return;
+    actionTarget=actionItem?{scope:key(context()),task:id,item:actionItem}:null;
     resetWorktreeBrowse();
     state().focus={objective:o.id,task:id};
     state().view='objective';persistView();openResource(task.document_id,task.tab_id);
@@ -753,6 +784,35 @@
     resetLinkDraft(d,r);if(activeLinkDraft===d&&d.node?.isConnected)mountLinkDetails(d,o,r,document.getElementById('content'));
   }
   const dirtyDraft=draft=>draft.body!==draft.base;
+  function actionLine(draft) {
+    const item=draft.actionTarget;if(!item)return -1;
+    const lines=draft.body.split(/\r?\n/),line=item.line-1;
+    if(lines[line]===item.source)return line;
+    // Retained unsaved drafts can have inserted lines. Never highlight a
+    // different action merely because its old line number still exists.
+    const matches=lines.flatMap((text,index)=>text===item.source?[index]:[]);
+    return matches.length===1?matches[0]:-1;
+  }
+  function highlightedBody(draft) {
+    const line=actionLine(draft);if(line<0)return draft.body;
+    const lines=draft.body.split(/\r?\n/);
+    lines[line]=lines[line].replace(/^(\s*(?:[-*+]|\d+[.)])\s+\[[ xX]\]\s*)(.*)$/,'$1<span class="objective-action-target"></span>$2');
+    return lines.join('\n');
+  }
+  function revealAction(draft) {
+    const line=actionLine(draft);if(line<0)return;
+    if(draftEditable(draft)){
+      const view=draft.input?.view;if(!view)return;
+      const row=view.state.doc.line(line+1);
+      view.dispatch({selection:{anchor:row.from,head:row.to},scrollIntoView:true});view.focus();
+    }else{
+      const target=draft.preview.querySelector('.objective-action-target');if(!target)return;
+      let parent=target.parentElement;
+      while(parent&&parent!==draft.preview){if(parent.tagName==='DETAILS')parent.open=true;parent=parent.parentElement;}
+      const row=target.closest('li')||target;row.classList.add('objective-action-highlight');row.tabIndex=-1;
+      requestAnimationFrame(()=>{if(activeDraft===draft&&row.isConnected){row.scrollIntoView({block:'center'});row.focus({preventScroll:true});}});
+    }
+  }
   const draftEditable=draft=>!draft.taskMode||draft.editMode;
   function taskDocumentDraft() {return activeDraft?.taskMode&&activeDraft.node.isConnected&&activeDraft.objective===objective()?.id&&taskFocus()?activeDraft:null;}
   function touchDraftEditing(draft) {
@@ -834,6 +894,7 @@
       draft.base=draft.body=body;draft.syncing=true;if(draft.input)draft.input.value=body;draft.syncing=false;
     }
     draft.taskMode=!!taskFocus();draft.editMode=!draft.taskMode;
+    draft.actionTarget=actionTarget?.scope===key(scope)&&actionTarget.task===taskFocus()?.task?actionTarget.item:null;
     activeDraft=draft;host.replaceChildren(draft.node);renderDraftSurface(draft);paintTaskClose();
     draftControls(draft);scheduleDraft(draft);
     for(const [entry,value] of drafts){
@@ -858,7 +919,7 @@
     draft.loadingError='';
     if(!draftEditable(draft)){
       draft.preview ||= document.createElement('div');draft.preview.className='assistant-markdown objective-document-preview';
-      draft.preview.innerHTML=window.LabMarkdown?.render(draft.body)??esc(draft.body);
+      draft.preview.innerHTML=window.LabMarkdown?.render(highlightedBody(draft))??esc(draft.body);
       draft.preview.querySelectorAll('[contenteditable]').forEach(node=>node.removeAttribute('contenteditable'));
       draft.preview.querySelectorAll('input,textarea,select').forEach(node=>node.disabled=true);
       draft.node.replaceChildren(draft.preview);
@@ -869,6 +930,7 @@
         onSave:()=>draftEditable(draft)&&saveDraft(draft,true)});
       else draft.input.view?.requestMeasure();
     }
+    revealAction(draft);
     draftControls(draft);
   }
   async function revertDraft(draft) {
@@ -1224,12 +1286,12 @@
     const json=esc(JSON.stringify(assetTarget(asset))),required=requiredAsset(asset),group=assetGroupFor(asset);
     return openAssetContextMenu(event,node,linkDetailsMenu(asset)+`<button type="button" role="menuitem" data-objective-star="${json}">${isShared(asset)?'Unpin':'Pin above tasks'}</button>${required?'<span class="objective-bucket-empty">Required task details</span>':`<button type="button" role="menuitem" data-group-asset="${json}">Group asset…</button>${group?`<button type="button" role="menuitem" data-remove-asset-group="${json}">Remove from group</button>`:''}${assetOrderButtons(assetTarget(asset),node)}<button type="button" role="menuitem" data-menu-asset="${json}" data-menu-assignment="task">Move to task…</button><button type="button" role="menuitem" data-menu-asset="${json}" data-menu-assignment="objective">Move to Objective…</button><button type="button" role="menuitem" data-menu-asset="${json}" data-menu-bucket="unassigned">Move to Unassigned</button><button type="button" role="menuitem" data-menu-asset="${json}" data-menu-bucket="archive">Archive</button><button type="button" role="menuitem" data-trash-objective-asset="${json}">Trash…</button>`}`);
   }
-  document.addEventListener('contextmenu',event=>{if(showAssetContextMenu(event))return;const row=event.target.closest?.('[data-objectives-sidebar] .objective-sidebar-task');if(row&&active(context()?.path))showTaskStatusMenu(event,row);},true);
+  document.addEventListener('contextmenu',event=>{if(showAssetContextMenu(event))return;const row=event.target.closest?.('[data-objectives-sidebar] .objective-sidebar-task,.objective-task-row,.objective-task-mode-head');if(row&&active(context()?.path))showTaskStatusMenu(event,row);},true);
   document.addEventListener('keydown',event=>{if(assetContextMenu&&event.target.closest?.('.objective-asset-context-menu')){const rows=[...assetContextMenu.querySelectorAll('button:not(:disabled)')];if(event.key==='Escape'){closeAssetContextMenu();event.preventDefault();}else if(['ArrowDown','ArrowUp','Home','End'].includes(event.key)){event.preventDefault();const i=rows.indexOf(document.activeElement);rows[event.key==='Home'?0:event.key==='End'?rows.length-1:(i+(event.key==='ArrowDown'?1:rows.length-1))%rows.length]?.focus();}return;}if(event.key==='ContextMenu'||event.shiftKey&&event.key==='F10')showAssetContextMenu(event);},true);
   document.addEventListener('pointerdown',event=>{if(!event.target.closest?.('.objective-asset-context-menu'))closeAssetContextMenu();});
   document.addEventListener('scroll',event=>{if(!event.target.closest?.('.objective-asset-context-menu'))closeAssetContextMenu();},true);
   window.addEventListener('resize',closeAssetContextMenu);
-  document.addEventListener('keydown',event=>{if(event.key!=='ContextMenu'&&!(event.shiftKey&&event.key==='F10'))return;const row=event.target.closest?.('[data-objectives-sidebar] .objective-sidebar-task');if(row&&active(context()?.path))showTaskStatusMenu(event,row);},true);
+  document.addEventListener('keydown',event=>{if(event.key!=='ContextMenu'&&!(event.shiftKey&&event.key==='F10'))return;const row=event.target.closest?.('[data-objectives-sidebar] .objective-sidebar-task,.objective-task-row,.objective-task-mode-head');if(row&&active(context()?.path))showTaskStatusMenu(event,row);},true);
   document.addEventListener('pointerdown',event=>{if(!event.target.closest?.('.objective-task-status-menu'))closeTaskStatusMenu();});
   document.addEventListener('scroll',event=>{if(!event.target.closest?.('.objective-task-status-menu'))closeTaskStatusMenu();},true);
   window.addEventListener('resize',closeTaskStatusMenu);
@@ -1259,6 +1321,7 @@
     if(node.hasAttribute('data-task-document-mode')){const draft=taskDocumentDraft();if(draft)setDraftEditMode(draft,node.dataset.taskDocumentMode==='edit');return;}
     if(node.dataset.deleteObjectiveTask){void deleteTask(node.dataset.deleteObjectiveTask);return;}
     if(node.dataset.editObjectiveTask){const draft=taskDocumentDraft();if(draft&&!draftEditable(draft))return;const task=tasks().find(t=>t.id===node.dataset.editObjectiveTask);draftEditDialog(draft,form('Edit task',input('Task','title',task.title)+(window.LabTaskSchedule?.fields(task)||input('Due date','due',task.due||'','date',false)),async values=>{requireDraftEditing(draft);await change({type:'task-update',objective_id:objective().id,task_id:task.id,title:values.get('title'),...(window.LabTaskSchedule?.read(values)||{due:values.get('due')})});}));return;}
+    if(node.dataset.openAction){if(e.metaKey||e.ctrlKey||e.shiftKey||e.altKey)return;e.preventDefault();const task=tasks().find(task=>task.id===node.dataset.openAction),item=task?.action_items?.find(item=>item.line===Number(node.dataset.actionLine));if(item)openTask(task.id,{activateTerminal:true,actionItem:item});return;}
     if(node.dataset.openTask){if(node.tagName==='A'&&(e.metaKey||e.ctrlKey||e.shiftKey||e.altKey))return;e.preventDefault();openTask(node.dataset.openTask,{activateTerminal:true});return;}
     if(node.dataset.scheduleTask){const o=objective(),scope={...context()},task=tasks(o).find(t=>t.id===node.dataset.scheduleTask);window.LabTaskSchedule?.edit(task,values=>change({type:'task-update',objective_id:o.id,task_id:task.id,...values},{scope}));return;}
     if(node.dataset.taskAssets){openTaskAssets(node.dataset.taskAssets);return;}
@@ -1465,7 +1528,7 @@
     childTerminalAssociation(t){const o=terminalObjective(t);return !active(context()?.path)?null:o?{context:{...context()},objective_id:o.id,view:'tasks'}:{context:{...context()},view:'workflow'};},
     findTaskTerminal(sessions,target){return sessions.find(t=>{if(target.main==='workflow')return terminalMain(t)?.kind==='workflow';const link=terminalLink(t);return link?.objective_id===target.objective_id&&(target.task_id?link.task_id===target.task_id:terminalMain(t)?.kind==='objective');});},
     sameTerminalObjective(a,b){return terminalObjective(a)?.id===terminalObjective(b)?.id;},
-    openCurrent(){const params=new URLSearchParams(location.search),o=data()?.objectives.find(o=>o.id===params.get('objective'));if(o&&tasks(o).some(t=>t.id===params.get('objective_task'))){state().objective=o.id;openTask(params.get('objective_task'));return;}const f=taskFocus();if(f){openTask(f.task);return;}state().view==='objective'&&objective()?selectObjective(objective().id,{activateTerminal:false}):showAll();},
+    openCurrent(){const params=new URLSearchParams(location.search),o=data()?.objectives.find(o=>o.id===params.get('objective'));if(o&&tasks(o).some(t=>t.id===params.get('objective_task'))){state().objective=o.id;const task=tasks(o).find(task=>task.id===params.get('objective_task')),line=Number(params.get('objective_action_line')),source=params.get('objective_action_source');const item=source?{line,source}:task.action_items?.find(item=>item.line===line);openTask(task.id,{actionItem:item});return;}const f=taskFocus();if(f){openTask(f.task);return;}state().view==='objective'&&objective()?selectObjective(objective().id,{activateTerminal:false}):showAll();},
     openOwnedFile(root,path){
       if(!active(context()?.path))return false;
       const scope=context(),full=root.replace(/\/$/,'')+'/'+path;

@@ -498,7 +498,10 @@ def payload(root, workspace_id):
             except (OSError, ValueError) as exc:
                 resource['error'] = str(exc)
         for task in _tasks(objective):
-            task['checklist'] = task_checklists.counts(_task_body(folder, objective, task))
+            task['action_items'] = task_checklists.items(_task_body(folder, objective, task))
+            done = sum(item['done'] for item in task['action_items'])
+            total = len(task['action_items'])
+            task['checklist'] = {'total':total, 'done':done, 'pending':total - done}
             task['recurrence_state'] = task_cycles.state(task)
     return data
 

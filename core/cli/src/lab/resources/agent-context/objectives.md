@@ -1,5 +1,17 @@
 # Workspace Objectives and assignment suggestions
 
+The sidebar and Tasks dashboard list all pending tasks, subtasks and unchecked
+action items from each task's own Markdown tab. Completed or discarded tasks
+are hidden by default. Repeating branches remain hidden while waiting for their
+reactivation time, then return with their existing checkboxes reset.
+
+Action deadlines are optional: `- [ ] [YYYY-MM-DD HH:mm] Action item`. A date
+without a time ends that local day; invalid dates remain ordinary text. Undated
+actions inherit their task's deadline when available. Overdue items and items
+due within two days appear in the dashboard, sorted by deadline. Clicking an
+action opens its source tab, reveals folded content and highlights the exact
+line without rewriting its Markdown. Preserve existing wording and ownership.
+
 Objectives own tasks, links, file/document references and worktree memberships
 in their workspace's `objectives/<folder>/.objective.json`. Use Lab's locked
 store, never hand-edit these manifests or workspace/task metadata.
