@@ -31,6 +31,8 @@ def test_cli_operates_link_modal_drag_workspace_and_terminal_label(client,monore
     tid=data['objectives'][0]['tasks'][0]['id']
     from core.routes import term
     term._upsert_workspace_session(monorepo,'demo',{'name':'ui-shell','kind':'terminal','cwd':str(folder)})
+    term._upsert_workspace_session(monorepo,'demo',{'name':'ui-task','kind':'terminal','cwd':str(folder)})
+    objectives.mutate(monorepo,'demo',{'type':'terminal','objective_id':oid,'task_id':tid,'session_id':'ui-task'})
     app_source=(STATIC/'js/lab-app.js').read_text()
     patch_links=app_source[app_source.index('  async function _termPatchLinks('):app_source.index('  window.LabTaskTerminalBridge =')]
     navigation=app_source[app_source.index('  function goToWorkspace('):app_source.index('  // Navigate to a workspace by its id')]
@@ -41,14 +43,15 @@ def test_cli_operates_link_modal_drag_workspace_and_terminal_label(client,monore
 const LAB_IS_ADMIN=true,currentVaultId=null;let currentWorkspace={name:'demo',path:FIX.folder,is_workspace:true},workspacesList=[currentWorkspace],_workspaceDocPath=null;
 const _workspaceVaultId=()=>null,_swapViewState=()=>{},_settleWorkspaceHistory=()=>{},fetchRepos=async()=>workspacesList;
 const selectRepo=async path=>{currentWorkspace=workspacesList.find(w=>w.path===path);document.querySelector('#view-status').textContent=path;};
-let termSessions=[{name:'ui-shell-live',logical_name:'ui-shell',label:null,state:'running'}];
+let termSessions=[{name:'ui-shell-live',logical_name:'ui-shell',label:null,state:'running'},{name:'ui-task-live',logical_name:'ui-task',session_id:'ui-task',state:'running'}];
 let termCurrentSession='ui-shell-live';const termCurrentWorkspaceId='demo',requestSubmissions=[],_termRequestSubmitted=(...parts)=>requestSubmissions.push(parts);const pasted=[],sent=[],termXterm={modes:{bracketedPasteMode:true},paste:text=>pasted.push(text)},termWS={readyState:WebSocket.OPEN,send:value=>sent.push(JSON.parse(value))},_termActivateTab=async name=>{termCurrentSession=name};
 const _termLinkContext=()=>({workspaceId:'demo',vaultId:null}),_termActiveWorkspaceId=()=> 'demo',_termVaultId=()=>null;
 const _termSessionsCache=new Map(),_termSessionsKey=(w,v)=>w+'::'+v,termRenderSessionList=()=>document.querySelector('#terminal-label').textContent=termSessions[0].label||'Shell',_termRenderActiveSessionHeader=()=>{};
 let termSessionWidth=180,termSessionOrientation='vertical';const _TERM_SESSION_WIDTH_KEY='cli-test-width',_termSessionWidthBounds=()=>({min:160,max:220}),_termApplySessionView=()=>{document.querySelector('#termSessionList').style.width=termSessionWidth+'px'};
 window.explorerToast=message=>{document.querySelector('#notice').textContent=message};
 window.LabExternalLinks={open:()=>Promise.resolve(true)};
-LabObjectives.connect({context:()=>({workspace_id:'demo',path:FIX.folder}),refreshTabs:()=>{},readyContent:()=>Promise.resolve(),prepareCenter:()=>{}});
+LabObjectives.connect({context:()=>({workspace_id:'demo',path:FIX.folder}),refreshTabs:()=>{},readyContent:()=>Promise.resolve(),prepareCenter:()=>{},
+ sessions:()=>termSessions,activateLinkedTerminal:ids=>{const terminal=termSessions.find(t=>ids.includes(t.session_id||t.name));if(terminal)return _termActivateTab(terminal.name);}});
 LabObjectives.load().then(()=>LabObjectives.selectObjective(FIX.oid));
 '''
     page='<!doctype html><meta charset="utf-8"><style>'+(STATIC/'css/workspace-objectives.css').read_text()+'body{background:#0d1117;color:white;display:flex}#sidebar{width:350px}#content{flex:1}</style><aside id="sidebar"><section data-objectives-sidebar></section></aside><main id="content"></main><section><button id="tasks" onclick="LabObjectives.renderTasks()">Tasks</button><button id="native" onclick="const value=prompt(\'Name\');if(value!==null)document.querySelector(\'#native-value\').textContent=value">Native prompt</button><span id="native-value"></span><span id="terminal-label">Shell</span><span id="view-status"></span><p id="notice"></p></section>'
@@ -105,6 +108,25 @@ const fs=require('node:fs'),{execFileSync}=require('node:child_process');
  ui('click','#tasks');ui('drag','[data-objectives-sidebar] [data-objective-resource="'+process.argv[4]+'"]','.objective-task-row[data-task-id="'+process.argv[5]+'"]');
  for(let i=0;i<100;i++){data=cli('api','call','GET','/api/objectives','--query','workspace_id=demo');if(data.objectives[0].tasks[0].assets?.some(a=>a.resource_id===process.argv[4]))break;await new Promise(r=>setTimeout(r,30));}
  assert(data.objectives[0].tasks[0].assets.some(a=>a.resource_id===process.argv[4]),'CLI drag uses task asset drop handler');
+ const task=process.argv[5],objective=data.objectives[0].id;
+ const status=value=>cli('api','call','POST','/api/objectives','--json',JSON.stringify({workspace_id:'demo',action:{type:'task-update',objective_id:objective,task_id:task,status:value}}));
+ const openTask=()=>ui('command','task-open','--json',JSON.stringify({task,objective}));
+ const shown=()=>evaluate(`LabObjectives.terminalSessions(termSessions).some(t=>t.logical_name==='ui-task')`);
+ openTask();assert(await evaluate(`termCurrentSession==='ui-shell-live'&&LabObjectives.terminalLaunchContext().task.id===${JSON.stringify(task)}`)&&!await shown(),'CLI opens Todo details without revealing or activating its terminal');
+ status('in_progress');openTask();
+ assert(await evaluate(`termCurrentSession==='ui-task-live'`)&&await shown(),'CLI task opening reuses its In progress terminal like a normal click');
+ ui('command','terminal-select','--json',JSON.stringify({name:'ui-shell'}));
+ status('paused');openTask();
+ assert(await evaluate(`termCurrentSession==='ui-shell-live'`)&&!await shown(),'CLI paused-task navigation respects the terminal status filter');
+ ui('click','a.objective-sidebar-task-title[data-open-task="'+task+'"]');
+ assert(await evaluate(`termCurrentSession==='ui-shell-live'`)&&!await shown(),'normal paused-task click agrees with CLI navigation');
+ status('in_progress');await evaluate(`LabObjectives.load(undefined,true)`);
+ ui('click','a.objective-sidebar-task-title[data-open-task="'+task+'"]');
+ assert(await evaluate(`termCurrentSession==='ui-task-live'`)&&await shown(),'resuming restores the same linked terminal through a normal click');
+ data=cli('api','call','POST','/api/objectives','--json',JSON.stringify({workspace_id:'demo',action:{type:'create',name:'Created through API'}}));
+ const added=data.objectives.find(o=>o.name==='Created through API');
+ ui('command','objective-select','--json',JSON.stringify({objective:added.id}));
+ assert(await evaluate(`LabObjectives.terminalLaunchContext().id===${JSON.stringify(added.id)}`),'UI navigation sees an API-created Objective immediately');
  const opened=cli('workspace','open','demo','--client',view.id);assert(opened.workspace==='demo'&&await evaluate(`document.querySelector('#view-status').textContent===FIX.folder&&new URL(location.href).searchParams.get('workspace')===FIX.folder`),'workspace command awaits real in-page navigation');
  ws.close();console.log('PASS');
 })().catch(e=>{console.error(e.stack);process.exit(1)});

@@ -5,6 +5,14 @@ guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 
 ## 2026-10-09
 
+### Combined CLI and task navigation
+
+- CLI task opening now follows normal task-click terminal behavior, including
+  In progress selection and paused-task filtering. Named task and Objective
+  navigation refresh data so preceding API changes are visible immediately.
+- Added a combined browser regression covering link editing, asset assignment,
+  terminal renaming, task status changes and subsequent CLI/UI navigation.
+
 ### Asset link editing and CLI access to the UI
 
 - Secondary-click **Edit** opens an asset link modal over the current view,

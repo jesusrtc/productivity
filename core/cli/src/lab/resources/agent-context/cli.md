@@ -99,6 +99,13 @@ their data operations. Browser popup and clipboard permissions still apply.
 | `scroll` | `selector`, `x`, `y` |
 | `wait` | `selector`, optional `text`, `absent`, `ms` |
 
+`task-open` and `objective-select` refresh Objective data before navigating, so
+they see preceding API changes. `task-open` uses the same terminal policy as a
+normal task click: In progress tasks activate existing linked terminals; the
+workspace task-terminal setting controls creation of missing ones. Paused and
+other filtered tasks open details without activating a terminal. Explicit
+Show all still overrides the status filter.
+
 For terminal text, prefer `lab ui paste TEXT --terminal NAME` or
 `lab ui paste --file PATH --terminal NAME`. Text is pasted through the existing
 terminal connection; Enter is sent only when you explicitly add `--submit`.

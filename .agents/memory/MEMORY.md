@@ -1,5 +1,7 @@
 # Memory index
 
+- [CLI task navigation shares terminal policy](cli-task-navigation-shares-terminal-policy.md) — fresh API changes, normal task activation and paused-task filtering verified in the combined CLI/browser flow.
+
 - [UI actions have Lab commands](ui-actions-have-lab-commands.md) — shared API discovery and selected-view UI commands cover navigation, editing, layouts, menus and drag/drop for agents.
 
 - [Task terminal status overrides selection](task-terminal-status-overrides-selection.md) — only In progress by default, including selected tasks, active families and merged children; explicit Show all remains available.

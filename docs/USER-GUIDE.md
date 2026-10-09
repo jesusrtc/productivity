@@ -162,6 +162,12 @@ explicit selection. `lab ui --client ID inspect` lists visible controls and
 unique selectors. Use `click`, `contextmenu`, `fill`, `key`, `hover`, `scroll`,
 `drag` and `wait` to operate those controls and their actual menus and dialogs.
 
+Named `task-open` and `objective-select` actions refresh Objective data before
+navigating, so they see preceding API changes immediately. Opening a task by
+CLI follows the same terminal policy as clicking it: eligible In progress tasks
+activate their linked terminal, while paused tasks open details with their
+terminals hidden under the default filter.
+
 ```bash
 lab workspace open demo --vault my-vault --client VIEW_ID
 lab ui --client VIEW_ID rename-tab TERMINAL_NAME 'Review'
