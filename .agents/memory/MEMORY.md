@@ -1,5 +1,7 @@
 # Memory index
 
+- [Default terminals have distinct emojis](default-terminals-have-distinct-emojis.md) — 🏠 workspace main, 🎯 Objective main, including compact and dormant rows; other terminal icons stay as configured.
+
 - [CLI task navigation shares terminal policy](cli-task-navigation-shares-terminal-policy.md) — fresh API changes, normal task activation and paused-task filtering verified in the combined CLI/browser flow.
 
 - [UI actions have Lab commands](ui-actions-have-lab-commands.md) — shared API discovery and selected-view UI commands cover navigation, editing, layouts, menus and drag/drop for agents.

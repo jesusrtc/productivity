@@ -5,6 +5,12 @@ guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 
 ## 2026-10-09
 
+### Default terminal identifiers
+
+- The default workspace main now uses 🏠 and the default Objective main uses
+  🎯 in compact and expanded lists, including dormant launch rows. Other
+  terminals retain their 💻 compact fallback and custom task icons.
+
 ### Combined CLI and task navigation
 
 - CLI task opening now follows normal task-click terminal behavior, including

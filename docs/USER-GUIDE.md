@@ -118,6 +118,11 @@ provider-owned. See `lab context` for the context of the current terminal.
 Opening a terminal does not itself authorize an agent to modify content. Work
 within the user's request and follow the owning instructions.
 
+The default workspace main terminal uses **🏠**, and the default Objective main
+uses **🎯**, in both compact and expanded terminal lists, including before their
+sessions start. Other terminals keep the **💻** compact icon unless their task
+has a custom icon.
+
 Objective task terminal tabs appear by default only while the task is **In
 progress**. Paused, Not started, Completed and Won’t do tasks stay hidden even
 when selected, including child terminals that inherit their status. Selecting

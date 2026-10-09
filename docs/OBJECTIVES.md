@@ -388,9 +388,11 @@ enabled. Objective choices save a whole-Objective terminal association;
 worktree choices save a folder association. The Home demo offers the same
 choices with simulated terminals. See [TERMINALS.md](TERMINALS.md#new-terminal-location).
 
-The terminal selector always shows one fixed **💻 workflow main** at the top.
-The fixed **💻 Objective main** appears immediately after the active Objective's
+The terminal selector always shows one fixed **🏠 workspace (workflow) main** at the top.
+The fixed **🎯 Objective main** appears immediately after the active Objective's
 divider; inactive Objective mains stay hidden, including in Show all mode.
+These identifiers appear in compact and expanded lists, including dormant launch
+rows. Other terminals keep the compact 💻 fallback or their task's custom icon.
 Clicking a main row creates its session if needed and reuses it thereafter.
 Default main and task launches start the configured workspace agent with Lab
 context. Objective headers and dividers use their Objective color; ordinary

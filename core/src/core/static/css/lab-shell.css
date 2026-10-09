@@ -2217,10 +2217,12 @@
   .term-sessions-horizontal .term-tab-group, .term-sessions-horizontal .term-tab-group-tabs { flex-direction: row; }
   .term-sessions-horizontal .term-tab-group-label { max-width: 160px; }
   .term-sessions-horizontal .term-tab-group-tabs { border-left: 0; border-bottom: 2px solid var(--term-group-color); padding-left: 0; padding-bottom: 3px; }
-  /* Compact terminals honor custom task icons, with a computer fallback and
-     a flat layout. The live hierarchy stays intact when the rail expands. */
+  /* Compact mains keep their role icons; task terminals honor custom icons
+     with a computer fallback. The live hierarchy stays intact when expanded. */
   :is(.term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open), .term-panel.term-sessions-horizontal:not(.term-sessions-full)) .term-sessions .sess { justify-content:center; height:36px; padding:0; }
   :is(.term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open), .term-panel.term-sessions-horizontal:not(.term-sessions-full)) .term-sessions .sess::before { content:'💻'; display:block; flex:none; width:20px; height:20px; border-radius:0; background:none; font-size:20px; line-height:1; pointer-events:none; }
+  :is(.term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open), .term-panel.term-sessions-horizontal:not(.term-sessions-full)) .term-sessions .sess[data-terminal-main="workflow"]::before { content:'🏠'; }
+  :is(.term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open), .term-panel.term-sessions-horizontal:not(.term-sessions-full)) .term-sessions .sess[data-terminal-main="objective"]::before { content:'🎯'; }
   :is(.term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open), .term-panel.term-sessions-horizontal:not(.term-sessions-full)) .term-sessions :is(.sess-icon, .sess-label, .term-subtab-caret, .term-home-association span, .term-folder-association small) { display:none; }
   :is(.term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open), .term-panel.term-sessions-horizontal:not(.term-sessions-full)) .term-sessions .sess:has(.sess-task-icon)::before { display:none; }
   :is(.term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open), .term-panel.term-sessions-horizontal:not(.term-sessions-full)) .term-sessions .sess .sess-task-icon { display:flex; align-items:center; justify-content:center; flex:none; order:0; width:20px; height:20px; margin:0; font-size:20px; line-height:1; }
