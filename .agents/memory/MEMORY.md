@@ -1,5 +1,7 @@
 # Memory index
 
+- [Terminal renewal only with visible titles](terminal-renewal-only-with-visible-titles.md) — hide ↻ while titles are folded and keep task icons visible in the compact rail.
+
 - [Terminal rail reveals titles without moving icons](terminal-rail-reveals-titles-without-moving-icons.md) — stable icon sizes and controls on hover, left tinted icons and no yellow or task-status dots.
 - [Child terminals default to record icon](child-terminals-default-to-record-icon.md) — ⏺ for children, with custom icons and fixed main identifiers retained.
 

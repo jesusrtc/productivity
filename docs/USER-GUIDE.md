@@ -126,8 +126,10 @@ when titles are visible. GitHub and other monochrome icons follow the terminal
 title's chosen color or its own assigned worktree color.
 
 Hovering over the vertical terminal rail reveals titles beside the existing
-icons. Icon sizes, row heights, colored markers and renewal/review controls
-stay in place. Terminal tabs omit task-status dots and yellow activity dots;
+icons. Icon sizes, row heights, colored markers and green review controls
+stay in place. Renewal (**↻**) appears beside the title only when terminal titles
+are visible. It hides again when the rail collapses; task emojis and custom icons
+remain visible. Terminal tabs omit task-status dots and yellow activity dots;
 status remains in hover and accessible labels. Green results still wait for
 an explicit tab or green-dot click to be reviewed.
 

@@ -5,6 +5,13 @@ guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 
 ## 2026-10-09
 
+### Collapsed terminal icons and refresh visibility
+
+- Collapsed terminal tabs retain their emojis and custom task icons; compact
+  mode no longer hides icon spans.
+- The refresh/renewal button appears beside the title only when terminal titles
+  are visible, in both vertical and horizontal layouts.
+
 ### Stable terminal icons and hover expansion
 
 - Task terminal icons sit on the left. Monochrome icons such as GitHub follow

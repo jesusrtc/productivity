@@ -104,6 +104,7 @@ window.LabObjectives={terminalMain:()=>null,taskForTerminal:()=>null};
  assert(row('stopped').querySelector('[data-automation-relaunch]'),'stopped SSH gets recovery');
  assert(row('parent').querySelector('[data-automation-relaunch]').title.includes('1 stopped child'),'parent recovers only stopped child');
  assert(!row('running').querySelector('[data-automation-relaunch]')&&!row('unknown').querySelector('[data-automation-relaunch]'),'running and unknown hidden');
+ assert([...list.querySelectorAll('[data-automation-relaunch]')].every(n=>getComputedStyle(n).display==='none'),'compact recovery buttons hidden');
  for(const name of ['parent','stopped','running','unknown']){
   assert(row(name).querySelector('.sess-icon').textContent===(name==='parent'?'💻':'⏺'),'compact parent and child identifiers');
  }
@@ -116,6 +117,7 @@ window.LabObjectives={terminalMain:()=>null,taskForTerminal:()=>null};
  assert(getComputedStyle(row('stopped'),'::before').display==='none','expanded marker hidden');
  assert(getComputedStyle(row('stopped').querySelector('.sess-label')).display==='block','expanded name visible');
  assert(row('stopped').querySelector('.sess-icon').getClientRects().length>0,'expanded child keeps its icon');
+ assert([...list.querySelectorAll('[data-automation-relaunch]')].every(n=>n.getClientRects().length>0),'expanded recovery buttons visible');
  const host=document.getElementById('guidelines');LabTerminalAutomations.renderGuidelines(host,stopped);
  assert(!host.hidden&&host.querySelectorAll('pre').length===2,'guidelines visible');
  host.querySelector('button').click();await Promise.resolve();await Promise.resolve();

@@ -109,8 +109,10 @@ icons such as GitHub follow the title's custom or assigned worktree color.
 Merged tabs use the parent's icon while retaining activity from the selected
 child's actual console. Compact horizontal tabs use the same icons and corner
 markers. Hover reveals names immediately beside the existing vertical icons;
-their size, row heights, markers and renewal/review controls remain fixed.
-Leaving after a brief hover hides the names again. Clicking
+their size, row heights, markers and green review controls remain fixed.
+The renewal (**↻**) button appears beside the title only while titles are
+visible; collapsing the rail hides renewal while keeping its emojis and custom
+icons visible. Leaving after a brief hover hides the names again. Clicking
 the rail or hovering for 3 seconds keeps the names open while moving to Files
 or other views; clicking inside the terminal console hides them. Escape also
 closes the names for keyboard navigation. The expanded list overlays the

@@ -454,8 +454,10 @@ dots; status names remain in hover and accessible labels, and green result revie
 remains available. The sidebar keeps its task status controls.
 
 The vertical terminal rail keeps the same icon sizes, row heights and marker
-and control positions when hovering to reveal titles. Hierarchy relationships
+and green review positions when hovering to reveal titles. Hierarchy relationships
 and disclosure remain intact without shifting the icon column.
+The renewal (**↻**) button is shown beside visible terminal titles and hidden
+when titles are folded. Custom task icons and default emojis remain visible.
 
 Task terminals follow the sidebar hierarchy. Drag one ordinary terminal over
 another to choose **Move below**, **Make child** or **Cancel**. Children unfold

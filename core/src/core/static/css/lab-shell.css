@@ -2193,7 +2193,8 @@
   .term-panel .term-sessions .sess.term-automation-terminal { justify-content:flex-start; padding:7px 8px; color:var(--text-primary); }
   .term-sessions .sess.term-automation-terminal::before { display:none; }
   .term-sessions .sess.term-automation-terminal .term-subtab-caret { display:none; }
-  .term-sessions .sess .term-automation-relaunch { position:absolute; right:1px; top:50%; transform:translateY(-50%); width:16px; height:20px; padding:0; border:0; border-radius:3px; background:transparent; color:var(--accent); font:15px/20px sans-serif; cursor:pointer; }
+  .term-sessions .sess .term-automation-relaunch { display:none; position:absolute; right:1px; top:50%; transform:translateY(-50%); width:16px; height:20px; padding:0; border:0; border-radius:3px; background:transparent; color:var(--accent); font:15px/20px sans-serif; cursor:pointer; }
+  :is(.term-panel:not(.term-sessions-horizontal).term-sessions-full .term-session-switcher.term-tabs-open, .term-panel.term-sessions-horizontal.term-sessions-full) .term-sessions .sess .term-automation-relaunch { display:block; }
   .term-sessions .sess .term-automation-relaunch:hover { background:var(--bg-tertiary); }
   .term-sessions .sess .term-automation-relaunch:focus-visible { outline:1px solid var(--accent); }
   .term-sessions .sess .term-automation-relaunch:disabled { opacity:.4; cursor:wait; }
@@ -2213,7 +2214,7 @@
   :is(.term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open), .term-panel.term-sessions-horizontal:not(.term-sessions-full)) .term-sessions .sess[data-terminal-child]::before { content:'⏺'; }
   :is(.term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open), .term-panel.term-sessions-horizontal:not(.term-sessions-full)) .term-sessions .sess[data-terminal-main="workflow"]::before { content:'🏠'; }
   :is(.term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open), .term-panel.term-sessions-horizontal:not(.term-sessions-full)) .term-sessions .sess[data-terminal-main="objective"]::before { content:'🎯'; }
-  :is(.term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open), .term-panel.term-sessions-horizontal:not(.term-sessions-full)) .term-sessions :is(.sess-icon, .sess-label, .term-subtab-caret, .term-home-association span, .term-folder-association small) { display:none; }
+  :is(.term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open), .term-panel.term-sessions-horizontal:not(.term-sessions-full)) .term-sessions :is(.sess-label, .term-subtab-caret, .term-home-association span, .term-folder-association small) { display:none; }
   :is(.term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open), .term-panel.term-sessions-horizontal:not(.term-sessions-full)) .term-sessions .sess:has(.sess-icon)::before { display:none; }
   :is(.term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open), .term-panel.term-sessions-horizontal:not(.term-sessions-full)) .term-sessions .sess .sess-icon { display:flex; align-items:center; justify-content:center; position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); flex:none; order:0; width:20px; height:20px; margin:0; font-size:20px; line-height:1; }
   :is(.term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open), .term-panel.term-sessions-horizontal:not(.term-sessions-full)) .term-sessions .sess .sess-activity { top:3px; right:3px; }
@@ -2230,7 +2231,6 @@
   .term-panel:not(.term-sessions-horizontal) .term-session-switcher .term-sessions .sess { height:36px; min-height:36px; }
   .term-panel:not(.term-sessions-horizontal) .term-session-switcher.term-tabs-open .term-sessions .sess { padding-left:54px; }
   .term-panel:not(.term-sessions-horizontal) .term-session-switcher .term-sessions .sess .sess-icon { display:flex; position:absolute; left:calc((var(--term-icon-column) - 2px)/2); top:50%; transform:translate(-50%,-50%); width:20px; height:20px; margin:0; font-size:20px; line-height:1; }
-  .term-panel:not(.term-sessions-horizontal) .term-session-switcher .term-sessions .sess .term-automation-relaunch { left:30px; right:auto; }
   .term-panel:not(.term-sessions-horizontal) .term-session-switcher .term-sessions .sess .sess-activity { left:38px; right:auto; top:3px; }
   .term-panel:not(.term-sessions-horizontal) .term-session-switcher .term-sessions .sess .term-display-main-dot,
   .term-panel:not(.term-sessions-horizontal) .term-session-switcher .term-sessions .sess .sess-label .objective-task-worktree-name i { position:absolute; left:38px; right:auto; bottom:3px; margin:0; }
