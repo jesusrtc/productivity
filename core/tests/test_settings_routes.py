@@ -93,13 +93,13 @@ def test_agent_context_instantiates_owning_paths_for_objective_and_worktree(clie
         content = response.json()['content']
         assert f'Source folder: `{source}`' in content
         for label, root in [('Vault', monorepo), ('Workspace', workspace), ('Objective', Path(first['path']))]:
-            assert f'- {label} root: `{os.path.relpath(root, source)}`; instructions: `{os.path.relpath(root / "AGENTS.md", source)}`' in content
+            assert f'- {label} root: `{root}`; instructions: `{root / "AGENTS.md"}`' in content
         assert '{{' not in content
     response = client.get('/api/agents/context/guide', params={
         'path': str(tree), 'workspace_id': 'client', 'objective_id': second['id']})
     content = response.json()['content']
-    assert os.path.relpath(Path(second['path']) / 'AGENTS.md', tree) in content
-    assert os.path.relpath(Path(first['path']) / 'AGENTS.md', tree) not in content
+    assert str(Path(second['path']) / 'AGENTS.md') in content
+    assert str(Path(first['path']) / 'AGENTS.md') not in content
 
 
 def test_agent_context_rejects_invalid_scope_and_unapproved_source(client, monorepo, seed_workspace, tmp_path):
@@ -111,3 +111,17 @@ def test_agent_context_rejects_invalid_scope_and_unapproved_source(client, monor
     outside = tmp_path / 'unapproved'
     outside.mkdir()
     assert client.get(url, params={'path': str(outside)}).status_code == 403
+
+
+def test_lab_docs_are_readable_outside_vault_without_arbitrary_file_access(client):
+    from pathlib import Path
+    from lab.agent_context import documentation, read_context
+    response = client.get('/api/agents/context/documents')
+    assert response.status_code == 200 and response.json() == documentation()
+    for doc in response.json():
+        assert Path(doc['path']).is_absolute()
+        response = client.get('/api/agents/context/document', params={'name': doc['name']})
+        assert response.status_code == 200
+        assert response.json() == {**doc, 'content': read_context(doc['name'])}
+    for name in ['overview', '../AGENTS.md', '/etc/passwd']:
+        assert client.get('/api/agents/context/document', params={'name': name}).status_code == 404

@@ -10,7 +10,7 @@ SOURCE = Path(__file__).parents[1] / 'src/core/static/js/lab-app.js'
 
 def test_meta_contains_context_and_workspace_instruction_documents_only():
     source = SOURCE.read_text()
-    assert "const META_FILES = new Set(['AGENTS.md', 'CLAUDE.md', '.github/copilot-instructions.md'])" in source
+    assert "const META_FILES = new Set(['AGENTS.md', 'agent.md', 'CLAUDE.md', '.github/copilot-instructions.md'])" in source
     assert 'const mainFiles = otherFiles.filter(f => !META_FILES.has(f.path))' in source
     assert 'Lab agent context' in source
     assert '_vaultProjectionMetaHtml' not in source
@@ -33,6 +33,7 @@ const escAttr = value => esc(value).replaceAll('"', '&quot;');
 const fileIconHtml = () => '', symlinkClass = () => '', symlinkTitle = () => '';
 let _workspaceDocRoot = '/workspace', _workspaceDocPath = 'AGENTS.md';
 const currentWorkspace = null, _vaultForWorkspace = () => null;
+const window = {};
 ''' + helpers + r'''
 (async () => {
   const base = '/workspace', folder = '/worktree';
@@ -50,7 +51,7 @@ const currentWorkspace = null, _vaultForWorkspace = () => null;
   let finish;
   global.fetch = () => new Promise(resolve => {finish = resolve;});
   const slot = {dataset: {agentInstructionsRoot: base}, isConnected: true, innerHTML: 'original'};
-  const pending = _populateAgentContextMeta({querySelectorAll: () => [slot]});
+  const pending = _populateAgentContextMeta({querySelectorAll: selector => selector === '[data-agent-instructions-root]' ? [slot] : []});
   slot.isConnected = false;
   finish({ok: true, json: async () => files});
   await pending;
@@ -133,9 +134,12 @@ let _workspaceDocEditing=false,_docModalEscHandler=null,_docModalFilesGeneration
 const opened=[];window.openWorkspaceDoc=(path,{root})=>opened.push({root,path});
 window.openWorkspaceDocModal=()=>{};
 const closeDocModal=()=>document.getElementById('docViewModal').classList.remove('active');
+const ensureMarked=async()=>{};
 const guide='# Lab framework capabilities\n\nUse `lab` for tasks & notebooks.\n<instructions>\n';
 let reads=0,guideRequests=[];
+const docs=[{name:'user-guide',title:'Lab user guide',path:'/installed/lab/resources/docs/USER-GUIDE.md'},{name:'changelog',title:'Lab changelog',path:'/installed/lab/resources/docs/CHANGELOG.md'}];
 window.fetch=async url=>{
+ if(url==='/api/agents/context/documents')return {ok:true,json:async()=>docs};
  if(url.startsWith('/api/agents/context/files?'))return {ok:true,json:async()=>[{name:'AGENTS.md',path:'AGENTS.md'}]};
  reads++;return {ok:true,json:async()=>({content:guide})};
 };
@@ -148,6 +152,10 @@ const termWS={readyState:WebSocket.OPEN},explorerToast=(...args)=>notices.push(a
   assert(_sidebarProjectView(base,folder),'project sidebar mounts');
   await new Promise(resolve=>setTimeout(resolve,0));
   assert(document.querySelectorAll('#sidebar [data-lab-agent-context]').length===1,'each workspace has one draggable Lab context item');
+  for(const doc of docs){
+   const link=document.querySelector(`[data-lab-document="${doc.name}"]`);
+   assert(link?.textContent===doc.title&&link.title===doc.path,'META exposes both installed docs with absolute paths');
+  }
   for(const [scope,root] of [['Vault',vault],['Workspace',base],['Objective',objectiveRoot]]){
    const row=document.querySelector(`[data-agent-instructions-scope="${scope}"] a`);
    assert(row?.textContent===scope+' AGENTS.md'&&row.dataset.entryRoot===root,'scoped instruction links retain the owning roots');
@@ -159,19 +167,30 @@ const termWS={readyState:WebSocket.OPEN},explorerToast=(...args)=>notices.push(a
  objectiveRoot=base+'/objectives/second';_sidebarProjectAgentContext(scopedView,base,folder);
  await new Promise(resolve=>setTimeout(resolve,0));
  assert(document.querySelector('[data-agent-instructions-scope="Objective"] a').dataset.entryRoot===objectiveRoot&&!document.querySelector('[data-agent-instructions-root="'+oldObjectiveRoot+'"]'),'Objective switches update instructions even when Files keeps the same worktree');
- window.fetch=async()=>({ok:true,json:async()=>[{name:'AGENTS.md',path:'AGENTS.md',broken:true}]});
+ window.fetch=async url=>({ok:true,json:async()=>url==='/api/agents/context/documents'?docs:[{name:'AGENTS.md',path:'AGENTS.md',broken:true}]});
  await _populateAgentContextMeta(scopedView.querySelector('[data-project-agent-context]'));
  assert([...document.querySelectorAll('[data-agent-instructions-scope]:not([data-agent-instructions-scope=""])')].every(slot=>!slot.textContent.trim()),'missing instruction files and broken links have no scoped shortcut or placeholder');
- window.fetch=async()=>({ok:true,json:async()=>[{name:'AGENTS.md',path:'AGENTS.md'}]});
+ window.fetch=async url=>({ok:true,json:async()=>url==='/api/agents/context/documents'?docs:[{name:'AGENTS.md',path:'AGENTS.md'}]});
  now+=5000;_sidebarProjectAgentContext(scopedView,base,folder);
  await new Promise(resolve=>setTimeout(resolve,0));
  assert(document.querySelectorAll('[data-agent-instructions-scope] a').length===4&&!document.querySelector('[data-agent-instructions-scope] [aria-disabled="true"]'),'newly created instruction files become clickable on the next refresh without switching roots');
+ window.fetch=async url=>({ok:true,json:async()=>({...docs.find(doc=>url.endsWith(doc.name)),content:'# Full operating documentation'})});
+ for(const doc of docs){
+  await openLabDocumentation(doc.name);
+  assert(document.getElementById('docModalTitle').textContent===doc.title&&document.getElementById('docModalBody').textContent.includes(doc.path),'documentation opens read-only with its installation path');
+  assert(document.querySelector('#docModalBody pre').textContent==='# Full operating documentation'&&!_workspaceDocEditing,'reader shows the whole guide and never enters Edit');
+ }
+ let releaseDocument;window.fetch=()=>new Promise(resolve=>releaseDocument=resolve);
+ const oldDocument=openLabDocumentation('user-guide');closeDocModal();
+ releaseDocument({ok:true,json:async()=>({...docs[0],content:'Late document'})});await oldDocument;
+ assert(!document.getElementById('docModalBody').textContent.includes('Late document'),'late document responses do not repopulate a closed reader');
  window.fetch=async url=>{reads++;guideRequests.push(new URL(url,'http://lab').searchParams);return {ok:true,json:async()=>({content:guide})};};
  const icons=()=>[...document.querySelectorAll('#sidebar [data-sidebar-section-shortcut]')].filter(row=>row.getClientRects().length);
  const project=document.querySelector('[data-project-sidebar]');project.dataset.objectiveSidebarMode='worktree';project.dataset.objectiveRecentScopes='2';
  assert(icons().length===2&&icons().map(row=>row.getAttribute('aria-label')).sort().join(',')==='Files,Recently updated','one Files icon and one icon for the entire two-worktree recent union');
  assert(![...document.querySelectorAll('#sidebar [data-entry-kind=file]:not(.sidebar-file-meta),#sidebar .sidebar-file-recent')].some(row=>row.getClientRects().length),'compact project view hides individual files in both lists');
  assert([...document.querySelectorAll('[data-agent-instructions-scope] .sidebar-file-meta')].every(row=>row.getClientRects().length),'instruction shortcuts remain visible in the compact sidebar');
+ assert([...document.querySelectorAll('[data-lab-document]')].length===2&&[...document.querySelectorAll('[data-lab-document]')].every(row=>row.getClientRects().length),'guide and changelog remain visible in the compact sidebar');
  project.dataset.objectiveSidebarMode='task';assert(icons().length===1&&icons()[0].dataset.sidebarSectionShortcut==='recent','task mode keeps only the available recent list icon');
  project.dataset.objectiveRecentScopes='0';assert(icons().length===0,'empty task scopes do not leave an orphan recent icon');
  project.dataset.objectiveSidebarMode='worktree';project.dataset.objectiveRecentScopes='2';document.body.classList.add('sidebar-drawer-open');

@@ -5,6 +5,25 @@ guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 
 ## 2026-10-09
 
+### Documentation and agent context
+
+- Added a central user guide covering context, CLI operation, documents,
+  tasks, recurrence, live notebooks, local servers and migrations. Operating
+  guidance previously embedded in the startup context now lives in that guide.
+- Agent context supplies absolute paths to the installed user guide and
+  changelog, and to existing owning vault, workspace, Objective and selected
+  folder instructions. Launchers require agents to read the operating guide
+  and owning instructions before working.
+- Agent launches retain owning workspace/Objective identities in linked
+  worktrees. Manual launches support `lab agents run --workspace <id>
+  --objective <id> <agent>`; later `lab context` reads use the same ownership.
+- META exposes the user guide and changelog alongside scoped instruction
+  files. Both documents ship in installed packages; editable checkouts read
+  the canonical `docs/` files. Read them with `lab context user-guide` and
+  `lab context changelog`, or add `--path` to locate them.
+- Every requested Lab change must ALWAYS update the user guide, changelog and
+  relevant topic in the same change, including changes to operational guidance.
+
 ### Pending tasks and action deadlines
 
 - Objective task navigation includes unfinished tasks and subtasks. Unchecked

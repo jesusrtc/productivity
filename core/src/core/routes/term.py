@@ -2173,6 +2173,7 @@ class LinkedScope(BaseModel):
 
 class NewSession(BaseModel):
     workspace_id: str | None = None
+    objective_id: str | None = Field(default=None, max_length=512)
     vault: str | None = None
     cwd: str | None = None
     linked_scope: LinkedScope | None = None
@@ -3275,6 +3276,20 @@ def create_session(body: NewSession, request: Request) -> dict:
             _sanitize(body.name or agent or "bash"), {}
         )
     saved_scope = saved_session.get("linked_scope")
+    owns_workspace = body.workspace_id and body.workspace_id not in {
+        SELF_WORKSPACE_ID, CEREBRO_WORKSPACE_ID, LOGS_WORKSPACE_ID,
+        VAULT_WORKSPACE_ID, ASSISTANT_WORKSPACE_ID,
+    } and not _cs_repo_name(body.workspace_id)
+    context_objective = body.objective_id or saved_session.get('context_objective_id')
+    if context_objective and kind == 'claude':
+        from lab import objective_store
+        if not owns_workspace:
+            raise HTTPException(400, 'Choose the owning workspace for this Objective.')
+        objective_rows = objective_store.read(_workspace_cwd(root, body.workspace_id))['objectives']
+        if not any(row['id'] == context_objective for row in objective_rows):
+            if body.objective_id:
+                raise HTTPException(404, 'Objective not found')
+            context_objective = None
     linked_scope = body.linked_scope.model_dump() if body.linked_scope else saved_scope
     # Resolve cwd.
     if saved_session:
@@ -3466,8 +3481,11 @@ def create_session(body: NewSession, request: Request) -> dict:
         # The wrapper execs the provider with process-local framework context.
         # It does not create files in cwd or alter the provider's repository rules.
         # Pin Lab commands to this terminal's owning vault, not the active global one.
+        context_args = ['--workspace', body.workspace_id] if owns_workspace else []
+        if context_objective:
+            context_args += ['--objective', context_objective]
         cmd_argv = [sys.executable, "-m", "lab", "agents", "run", "--vault", str(root),
-                    agent, "--", *cmd_argv[1:]]
+                    *context_args, agent, "--", *cmd_argv[1:]]
 
     # Spawn tmux. We pass argv via shell so tmux can parse it; simpler for
     # claude's flag expansion and matches what users see in `tmux ls`.
@@ -3550,6 +3568,8 @@ def create_session(body: NewSession, request: Request) -> dict:
             entry["linked_scope"] = linked_scope
         if agent:
             entry["agent"] = agent
+        if context_objective and kind == 'claude':
+            entry['context_objective_id'] = context_objective
         if claude_session_id:
             entry["claude_session_id"] = claude_session_id
         if agent_session_id and agent != "claude":

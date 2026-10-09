@@ -17,16 +17,27 @@ def agents_group() -> None:
 @agents_group.command('run', context_settings={'ignore_unknown_options': True})
 @click.option('--vault', type=click.Path(path_type=Path, exists=True, file_okay=False),
               help='Pin Lab commands in this agent process to an owning vault.')
+@click.option('--workspace', 'workspace_id', help='Owning workspace ID, including launches in linked worktrees.')
+@click.option('--objective', 'objective_id', help='Owning Objective ID within that workspace.')
 @click.argument('agent', type=click.Choice(agent_context.AGENTS))
 @click.argument('args', nargs=-1, type=click.UNPROCESSED)
-def run(vault: Path | None, agent: str, args: tuple[str, ...]) -> None:
+def run(vault: Path | None, workspace_id: str | None, objective_id: str | None,
+        agent: str, args: tuple[str, ...]) -> None:
     """Launch AGENT with framework context and its own repository instructions.
 
     Example: lab agents run codex -- resume --last
     """
     env = dict(os.environ)
     if vault:
+        if str(vault.resolve()) != env.get('LAB_VAULT'):
+            env.pop('LAB_CONTEXT_WORKSPACE', None)
+            env.pop('LAB_CONTEXT_OBJECTIVE', None)
         env['LAB_VAULT'] = str(vault.resolve())
+    if workspace_id:
+        env['LAB_CONTEXT_WORKSPACE'] = workspace_id
+        env.pop('LAB_CONTEXT_OBJECTIVE', None)
+    if objective_id:
+        env['LAB_CONTEXT_OBJECTIVE'] = objective_id
     try:
         argv, env = agent_context.prepare_launch(agent, list(args), env=env)
         os.execvpe(argv[0], argv, env)

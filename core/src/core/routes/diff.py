@@ -828,7 +828,7 @@ def api_agent_instruction_files(path: str, request: Request):
 
     def collect():
         files = []
-        for rel in ("AGENTS.md", "CLAUDE.md", ".github/copilot-instructions.md"):
+        for rel in ("AGENTS.md", "agent.md", "CLAUDE.md", ".github/copilot-instructions.md"):
             candidate = root / rel
             if candidate.is_file() or candidate.is_symlink():
                 entry = {"name": rel, "path": rel, "type": "file"}

@@ -25,8 +25,11 @@ def test_context_reads_packaged_topics_without_workspace(tmp_path, monkeypatch):
         assert result.exit_code == 0, result.output
         assert len(result.output) > 100
     overview = agent_context.read_context()
-    assert '<details>' in overview and 'take precedence' in overview
-    assert 'lab context notebooks' in overview
+    assert 'take precedence' in overview and 'lab context user-guide' in overview
+    assert '<details>' in agent_context.read_context('user-guide')
+    assert 'lab context notebooks' in agent_context.read_context('user-guide')
+    for doc in agent_context.documentation():
+        assert f'`{doc["path"]}`' in overview and Path(doc['path']).is_absolute()
     assert not list(tmp_path.iterdir())
 
 
@@ -52,19 +55,19 @@ def test_context_template_resolves_existing_instructions_from_source(tmp_path, l
     assert f'Source folder: `{source}`' in guide
     assert '{{' not in guide
     for label, root in [('Vault', vault), ('Workspace', workspace), ('Objective', objective)]:
-        assert f'- {label} root: `{os.path.relpath(root, source)}`; instructions: `{os.path.relpath(root / "AGENTS.md", source)}`' in guide
-    assert f'`{os.path.relpath(objective / "CLAUDE.md", source)}`' in guide
-    assert f'`{os.path.relpath(workspace / ".github/copilot-instructions.md", source)}`' in guide
-    assert f'`{os.path.relpath(vault / "CLAUDE.md", source)}`' not in guide
+        assert f'- {label} root: `{root}`; instructions: `{root / "AGENTS.md"}`' in guide
+    assert f'`{objective / "CLAUDE.md"}`' in guide
+    assert f'`{workspace / ".github/copilot-instructions.md"}`' in guide
+    assert f'`{vault / "CLAUDE.md"}`' not in guide
     assert ('Source folder / worktree root:' in guide) == (location == 'worktree')
     if location == 'worktree':
-        assert '`agent.md`' in guide
+        assert f'`{worktree / "agent.md"}`' in guide
     assert snapshot(tmp_path) == before
 
 
 def test_context_template_does_not_invent_missing_instruction_files(tmp_path):
     text = agent_context.read_context(source_root=tmp_path, vault_root=tmp_path)
-    assert '- Vault root: `.`; instructions: no root instruction files found.' in text
+    assert f'- Vault root: `{tmp_path}`; instructions: no root instruction files found.' in text
     assert '- Workspace root:' not in text and '- Objective root:' not in text
     assert not list(tmp_path.iterdir())
 
@@ -191,7 +194,10 @@ def test_codex_rpc_failure_does_not_launch_without_user_instructions(tmp_path, b
 
 def test_claude_appends_context_and_preserves_resume(tmp_path, binaries):
     argv, _ = agent_context.prepare_launch('claude', ['--resume', 'session'], cwd=tmp_path, env={'PATH': str(binaries)})
-    assert argv[1:] == ['--append-system-prompt-file', str(agent_context.guide_path()), '--resume', 'session']
+    assert argv[1] == '--append-system-prompt'
+    assert 'Lab framework capabilities' in argv[2]
+    assert str(agent_context.guide_path('user-guide')) in argv[2]
+    assert argv[3:] == ['--resume', 'session']
     extra = tmp_path / 'extra.md'; extra.write_text('USER_APPEND')
     argv, _ = agent_context.prepare_launch('claude', ['--append-system-prompt-file', str(extra), '--resume', 'session'], cwd=tmp_path, env={'PATH': str(binaries)})
     assert argv[1] == '--append-system-prompt'
@@ -206,6 +212,59 @@ def test_copilot_preserves_existing_environment_and_args(tmp_path, binaries):
     assert env['COPILOT_HOME'] == '/custom/home'
     assert env['COPILOT_CUSTOM_INSTRUCTIONS_DIRS'] == '/custom/one,/custom/two,' + str(agent_context.GUIDE_DIR)
     assert original['COPILOT_CUSTOM_INSTRUCTIONS_DIRS'] == '/custom/one,/custom/two'
+    assert str(agent_context.guide_path('user-guide')) in env['LAB_AGENT_CONTEXT']
+    assert str(agent_context.guide_path('changelog')) in env['LAB_AGENT_CONTEXT']
+    assert 'LAB_AGENT_CONTEXT' not in original
+
+
+def test_launch_paths_follow_pinned_vault_objective_and_codex_cd(monorepo, seed_workspace, binaries):
+    from lab import objectives
+    workspace = seed_workspace('client')
+    objective = Path(objectives.mutate(monorepo, 'client', {'type': 'create', 'name': 'Audit'})['objectives'][0]['path'])
+    for root in [monorepo, workspace, objective]:
+        (root / 'AGENTS.md').write_text('Scope rules\n')
+    before = snapshot(monorepo)
+    env = {'PATH': str(binaries), 'LAB_VAULT': str(monorepo)}
+    for agent in agent_context.AGENTS:
+        args = ['--cd', str(objective)] if agent == 'codex' else []
+        argv, child = agent_context.prepare_launch(agent, args, cwd=monorepo if args else objective, env=env)
+        content = json.loads(argv[2].split('=', 1)[1]) if agent == 'codex' else argv[2] if agent == 'claude' else child['LAB_AGENT_CONTEXT']
+        for label, root in [('Vault', monorepo), ('Workspace', workspace), ('Objective', objective)]:
+            assert f'- {label} root: `{root}`; instructions: `{root / "AGENTS.md"}`' in content
+        assert f'Source folder: `{objective}`' in content
+    assert snapshot(monorepo) == before
+
+
+def test_document_commands_and_aliases_resolve_canonical_source_docs():
+    for name in agent_context.DOCUMENTS:
+        expected = Path(__file__).resolve().parents[3] / 'docs' / agent_context.TOPICS[name]
+        assert agent_context.guide_path(name) == expected
+        for command in [['context'], ['agent', 'context'], ['agents', 'context']]:
+            result = CliRunner().invoke(main, [*command, name, '--path'])
+            assert result.exit_code == 0 and result.output.strip() == str(expected)
+
+
+def test_manual_external_worktree_launch_pins_owning_scope(monorepo, seed_workspace, binaries, tmp_path, monkeypatch):
+    from lab import objectives
+    workspace = seed_workspace('client')
+    objective = objectives.mutate(monorepo, 'client', {'type': 'create', 'name': 'Audit'})['objectives'][0]
+    tree = tmp_path / 'linked-checkout'; tree.mkdir()
+    monkeypatch.chdir(tree)
+    monkeypatch.setenv('PATH', str(binaries))
+    calls = []
+    monkeypatch.setattr(os, 'execvpe', lambda binary, argv, env: calls.append((argv, env)))
+    result = CliRunner().invoke(main, ['agents', 'run', '--vault', str(monorepo),
+        '--workspace', 'client', '--objective', objective['id'], 'copilot', '--', '--resume', 'abc'])
+    assert result.exit_code == 0, result.output
+    argv, env = calls[0]
+    assert argv[1:] == ['--resume', 'abc']
+    assert env['LAB_CONTEXT_WORKSPACE'] == 'client' and env['LAB_CONTEXT_OBJECTIVE'] == objective['id']
+    content = env['LAB_AGENT_CONTEXT']
+    assert f'- Workspace root: `{workspace}`' in content and f'- Objective root: `{objective["path"]}`' in content
+    assert f'Source folder: `{tree}`' in content
+    for bad in ['../outside', 'missing']:
+        result = CliRunner().invoke(main, ['agents', 'run', '--vault', str(monorepo), '--workspace', bad, 'copilot'])
+        assert result.exit_code != 0 and len(calls) == 1
 
 
 def test_run_execs_agent_with_pinned_vault_without_writing(monorepo, binaries, monkeypatch):

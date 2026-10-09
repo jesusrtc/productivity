@@ -1,0 +1,2 @@
+include src/lab_build.py
+recursive-include src/lab/resources/docs *.md

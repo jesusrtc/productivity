@@ -2213,7 +2213,7 @@ def test_copilot_launch_appends_autopilot_flag(client, seed_workspace, isolated_
     uuid.UUID(session_id)
     state = json.loads((tmp_path / "fake-tmux-state.json").read_text())
     assert state["sessions"][r.json()["name"]]["cmd"] == (
-        f"{term_route._shell_quote(sys.executable)} -m lab agents run --vault {term_route._shell_quote(str(monorepo))} copilot -- --session-id {session_id}"
+        f"{term_route._shell_quote(sys.executable)} -m lab agents run --vault {term_route._shell_quote(str(monorepo))} --workspace demo copilot -- --session-id {session_id}"
     )
     assert r.json()["auto"] is False
 
@@ -2227,7 +2227,7 @@ def test_copilot_launch_appends_autopilot_flag(client, seed_workspace, isolated_
     session_id = r.json()["agent_session_id"]
     state = json.loads((tmp_path / "fake-tmux-state.json").read_text())
     assert state["sessions"][r.json()["name"]]["cmd"] == (
-        f"{term_route._shell_quote(sys.executable)} -m lab agents run --vault {term_route._shell_quote(str(monorepo))} copilot -- --session-id {session_id} --autopilot"
+        f"{term_route._shell_quote(sys.executable)} -m lab agents run --vault {term_route._shell_quote(str(monorepo))} --workspace demo copilot -- --session-id {session_id} --autopilot"
     )
 
 
@@ -2259,7 +2259,7 @@ def test_copilot_explicit_auto_false_overrides_vault(client, seed_workspace, iso
     session_id = r.json()["agent_session_id"]
     state = json.loads((tmp_path / "fake-tmux-state.json").read_text())
     assert state["sessions"][r.json()["name"]]["cmd"] == (
-        f"{term_route._shell_quote(sys.executable)} -m lab agents run --vault {term_route._shell_quote(str(monorepo))} copilot -- --session-id {session_id}"
+        f"{term_route._shell_quote(sys.executable)} -m lab agents run --vault {term_route._shell_quote(str(monorepo))} --workspace demo copilot -- --session-id {session_id}"
     )
 
 
@@ -2641,7 +2641,42 @@ def test_agent_launch_uses_context_wrapper_without_workspace_files(
     assert response.status_code == 200, response.text
     state = json.loads((tmp_path / 'fake-tmux-state.json').read_text())
     command = shlex.split(state['sessions'][response.json()['name']]['cmd'])
-    assert command[:8] == [sys.executable, '-m', 'lab', 'agents', 'run', '--vault', str(monorepo), agent]
-    assert command[8] == '--'
+    assert command[:10] == [sys.executable, '-m', 'lab', 'agents', 'run', '--vault', str(monorepo), '--workspace', 'context-demo', agent]
+    assert command[10] == '--'
     assert {p.name for p in workspace.iterdir()} == before
     assert (workspace / 'AGENTS.md').read_text() == 'Workspace-specific rules\n'
+
+
+def test_agent_launch_retains_objective_context_in_external_folder_and_restore(
+    client, seed_workspace, isolated_prefix, monorepo, tmp_path, monkeypatch
+):
+    import shlex
+    from lab import objectives
+    from core.routes import term as term_route
+    workspace = seed_workspace('context-demo')
+    objective = objectives.mutate(monorepo, 'context-demo', {'type': 'create', 'name': 'Audit'})['objectives'][0]
+    tree = tmp_path / 'linked-checkout'; tree.mkdir()
+    real_which = term_route.shutil.which
+    monkeypatch.setattr(term_route.shutil, 'which', lambda name: '/fake/copilot' if name == 'copilot' else real_which(name))
+    response = client.post('/api/term/sessions', json={
+        'workspace_id': 'context-demo', 'objective_id': objective['id'],
+        'cwd': str(tree), 'kind': 'claude', 'agent': 'copilot', 'name': 'audit',
+    })
+    assert response.status_code == 200, response.text
+    created = response.json()
+    state_path = tmp_path / 'fake-tmux-state.json'
+    state = json.loads(state_path.read_text())
+    command = shlex.split(state['sessions'][created['name']]['cmd'])
+    assert command[7:11] == ['--workspace', 'context-demo', '--objective', objective['id']]
+    assert json.loads((workspace / 'workspace.json').read_text())['sessions'][0]['context_objective_id'] == objective['id']
+    del state['sessions'][created['name']]
+    state_path.write_text(json.dumps(state))
+    restored = client.post('/api/term/sessions', json={
+        'workspace_id': 'context-demo', 'kind': 'claude', 'agent': 'copilot', 'name': 'audit',
+    })
+    assert restored.status_code == 200, restored.text
+    command = shlex.split(json.loads(state_path.read_text())['sessions'][restored.json()['name']]['cmd'])
+    assert command[7:11] == ['--workspace', 'context-demo', '--objective', objective['id']]
+    assert client.post('/api/term/sessions', json={
+        'workspace_id': 'context-demo', 'kind': 'claude', 'objective_id': 'missing',
+    }).status_code == 404

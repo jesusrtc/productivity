@@ -36,6 +36,11 @@ Use `lab context` for the guide and `lab agents run codex` (or `claude` /
 `copilot`) when launching manually. See [Agent context](docs/AGENT-CONTEXT.md)
 for migration from the old symlink setup.
 
+Read the [Lab user guide](docs/USER-GUIDE.md) for operation and the
+[changelog](docs/CHANGELOG.md) for recent changes. Both ship with installed Lab,
+appear in META, and are available through `lab context user-guide` and
+`lab context changelog`.
+
 Assistant supports client-authored Markdown tasks and notes with embedded tabs,
 optional planning metadata, recurrence history, series, and original captures.
 Content structure and formatting belong entirely to the client. Read

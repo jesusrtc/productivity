@@ -169,7 +169,8 @@ def _looks_like_vault(candidate: Path) -> bool:
     return (candidate / ".git").exists() and (candidate / "content").is_dir()
 
 
-def find_vault_root(start: Path | None = None, *, use_registry: bool = True) -> Path:
+def find_vault_root(start: Path | None = None, *, use_registry: bool = True,
+                    env: dict[str, str] | None = None) -> Path:
     """Locate the active Lab vault.
 
     Resolution order:
@@ -180,11 +181,12 @@ def find_vault_root(start: Path | None = None, *, use_registry: bool = True) -> 
 
     Raises `MonorepoNotFound` if neither resolves.
     """
-    env_vault = os.environ.get("LAB_VAULT") or os.environ.get(naming.LEGACY_ROOT_ENV)
+    env = os.environ if env is None else env
+    env_vault = env.get("LAB_VAULT") or env.get(naming.LEGACY_ROOT_ENV)
     if env_vault:
         return Path(env_vault).expanduser().resolve()
 
-    env_root = os.environ.get("LAB_ROOT")
+    env_root = env.get("LAB_ROOT")
     if env_root:
         return Path(env_root).expanduser().resolve()
 

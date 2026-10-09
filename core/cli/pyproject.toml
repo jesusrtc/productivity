@@ -23,8 +23,12 @@ dev = [
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.cmdclass]
+build_py = "lab_build.BuildPy"
+sdist = "lab_build.Sdist"
+
 [tool.setuptools.package-data]
-lab = ["resources/agent-context/*.md", "resources/agent-context/migrations/*.md", "resources/assistant/*.md", "resources/assistant/*.json", "resources/assistant/dashboard/*.json", "resources/assistant/embedded/*.md"]
+lab = ["resources/docs/*.md", "resources/agent-context/*.md", "resources/agent-context/migrations/*.md", "resources/assistant/*.md", "resources/assistant/*.json", "resources/assistant/dashboard/*.json", "resources/assistant/embedded/*.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

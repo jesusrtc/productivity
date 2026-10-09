@@ -153,6 +153,27 @@ def agent_launch_context(request: Request, path: str | None = None,
         objective_root=objective_root)})
 
 
+@router.get('/api/agents/context/documents')
+def lab_documentation() -> list[dict[str, str]]:
+    """Framework-owned documentation, including installations outside the vault."""
+    from lab.agent_context import documentation
+    return documentation()
+
+
+@router.get('/api/agents/context/document')
+def lab_document(name: str) -> dict:
+    from lab.agent_context import DOCUMENTS, documentation, read_context
+    # This endpoint intentionally accepts only these two packaged documents.
+    # It does not grant explorer access to a site-packages directory or any path.
+    if name not in DOCUMENTS:
+        raise HTTPException(404, 'Lab document not found')
+    try:
+        return {**next(doc for doc in documentation() if doc['name'] == name),
+                'content': read_context(name)}
+    except OSError as exc:
+        raise HTTPException(503, 'Lab documentation is unavailable; reinstall the Lab CLI.') from exc
+
+
 @router.get('/api/settings/global')
 def get_global_settings(request: Request) -> dict:
     auth.require_admin(request)

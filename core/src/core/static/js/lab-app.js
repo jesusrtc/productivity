@@ -7167,6 +7167,7 @@
     if (!instructionGroups && fileRoot !== baseRoot) groups.push({root: fileRoot, label: 'Selected folder instructions'});
     return `<div class="sidebar-title" title="Instruction files on disk. Browsing another folder leaves a running agent's startup context unchanged.">Meta</div>
       ${_agentContextRowHtml(_agentContextSource(baseRoot, fileRoot))}`
+      + '<div data-lab-documentation><div class="sidebar-agent-instructions-note">Loading Lab documentation…</div></div>'
       + groups.map(group => `<div class="sidebar-agent-instructions">
         ${group.label ? `<div class="sidebar-agent-instructions-label" title="${escAttr(group.root)}">${esc(group.label)}</div>` : ''}
         <div data-agent-instructions-root="${escAttr(group.root)}" data-agent-instructions-scope="${escAttr(group.scope || '')}"><div class="sidebar-agent-instructions-note">Loading…</div></div>
@@ -7250,7 +7251,7 @@
   }
 
   async function _populateAgentContextMeta(sidebar) {
-    await Promise.all([...sidebar.querySelectorAll('[data-agent-instructions-root]')].map(async slot => {
+    await Promise.all([_populateLabDocumentation(sidebar), ...[...sidebar.querySelectorAll('[data-agent-instructions-root]')].map(async slot => {
       const root = slot.dataset.agentInstructionsRoot;
       try {
         const response = await fetch(`/api/agents/context/files?path=${encodeURIComponent(root)}`);
@@ -7261,8 +7262,62 @@
       } catch (error) {
         if (slot.isConnected) slot.innerHTML = `<div class="sidebar-agent-instructions-note">${esc(error.message)}</div>`;
       }
-    }));
+    })]);
   }
+
+  function _readLabDocumentation() {
+    if (_readLabDocumentation.docs && _readLabDocumentation.expires > Date.now()) return Promise.resolve(_readLabDocumentation.docs);
+    return _readLabDocumentation.pending ||= fetch('/api/agents/context/documents').then(async response => {
+      const docs = await response.json();
+      if (!response.ok || !Array.isArray(docs)) throw new Error(docs.detail || 'Could not load Lab documentation.');
+      _readLabDocumentation.expires = Date.now() + 5000;
+      return _readLabDocumentation.docs = docs;
+    }).finally(() => { _readLabDocumentation.pending = null; });
+  }
+
+  async function _populateLabDocumentation(sidebar) {
+    const slots = [...sidebar.querySelectorAll('[data-lab-documentation]')];
+    if (!slots.length) return;
+    try {
+      const docs = await _readLabDocumentation();
+      for (const slot of slots) if (slot.isConnected) slot.innerHTML = docs.map(doc => {
+        const action = `openLabDocumentation(${JSON.stringify(doc.name)})`;
+        return `<a class="sidebar-file sidebar-file-meta" data-lab-document="${escAttr(doc.name)}" role="button" tabindex="0" onclick="${escAttr(action)}" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click()}" title="${escAttr(doc.path)}">${fileIconHtml(doc.path)}<span class="sidebar-fname">${esc(doc.title)}</span></a>`;
+      }).join('');
+    } catch (error) {
+      for (const slot of slots) if (slot.isConnected) slot.innerHTML = `<div class="sidebar-agent-instructions-note">${esc(error.message)}</div>`;
+    }
+  }
+
+  async function openLabDocumentation(name) {
+    const modal = document.getElementById('docViewModal');
+    const body = document.getElementById('docModalBody');
+    const title = document.getElementById('docModalTitle');
+    const generation = ++_docModalFilesGeneration;
+    document.getElementById('docModalFiles').hidden = true;
+    title.textContent = name === 'user-guide' ? 'Lab user guide' : 'Lab changelog';
+    title.title = '';
+    body.innerHTML = '<div class="loading">Loading…</div>';
+    modal.classList.add('active');
+    _workspaceDocEditing = false;
+    if (_docModalEscHandler) document.removeEventListener('keydown', _docModalEscHandler);
+    _docModalEscHandler = event => { if (event.key === 'Escape') closeDocModal(); };
+    document.addEventListener('keydown', _docModalEscHandler);
+    try {
+      const response = await fetch('/api/agents/context/document?name=' + encodeURIComponent(name));
+      const doc = await response.json();
+      if (!response.ok || typeof doc.content !== 'string') throw new Error(doc.detail || 'Could not load Lab documentation.');
+      await ensureMarked();
+      if (generation !== _docModalFilesGeneration || !modal.classList.contains('active')) return;
+      title.textContent = doc.title;
+      title.title = doc.path;
+      const rendered = window.LabMarkdown ? LabMarkdown.render(doc.content) : `<pre style="white-space:pre-wrap">${esc(doc.content)}</pre>`;
+      body.innerHTML = `<div class="sidebar-agent-instructions-note">${esc(doc.path)}</div><div class="nb-markdown" style="padding:20px">${rendered}</div>`;
+    } catch (error) {
+      if (generation === _docModalFilesGeneration && modal.classList.contains('active')) body.innerHTML = `<div class="empty">${esc(error.message)}</div>`;
+    }
+  }
+  window.openLabDocumentation = openLabDocumentation;
 
   async function openAgentContext(row = document.querySelector('#sidebar [data-lab-agent-context]')) {
     const source = _agentContextSourceFromRow(row);
@@ -7271,6 +7326,7 @@
     const generation = ++_docModalFilesGeneration;
     document.getElementById('docModalFiles').hidden = true;
     document.getElementById('docModalTitle').textContent = 'Lab agent context';
+    document.getElementById('docModalTitle').title = '';
     body.innerHTML = '<div class="loading">Loading…</div>';
     modal.classList.add('active');
     _workspaceDocEditing = false;
@@ -10455,9 +10511,9 @@
       _sidebarRememberAvailableExtensions(fileEntries);
       _sidebarMaybeLogRecentDiagnostics(fileEntries, fileRoot);
 
-      // Only agent instruction documents belong in Meta. Workspace settings
+      // Framework documentation and scoped instructions belong in Meta. Workspace settings
       // and local skills stay in Files, rooted at the selected folder/worktree.
-      const META_FILES = new Set(['AGENTS.md', 'CLAUDE.md', '.github/copilot-instructions.md']);
+      const META_FILES = new Set(['AGENTS.md', 'agent.md', 'CLAUDE.md', '.github/copilot-instructions.md']);
       // Folders that should open automatically — docs is where 95% of the
       // reading lives, so showing it collapsed by default hides everything.
       const AUTO_OPEN_FOLDERS = new Set(['docs', 'notebooks', 'links']);
@@ -16434,6 +16490,7 @@
           vault: vaultId,
           kind,
           agent,  // null → server resolves workspace override / global default
+          objective_id: choice.association?.objective_id || null,
           name,
           start_fresh: startFresh,
           linked_scope: scope,

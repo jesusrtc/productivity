@@ -1,5 +1,7 @@
 # Memory index
 
+- [Lab operating docs and absolute context](lab-operating-docs-and-absolute-context.md) — ALWAYS update the user guide with requested Lab changes; maintained changelog, absolute installation paths, META readers and owning scopes; supersedes relative references.
+
 - [Task sidebar omits Markdown actions](task-sidebar-omits-markdown-actions.md) — left task navigation has no document checklist rows or reserved gaps; actions remain in the dashboard and source.
 
 - [Asset link Edit opens a modal](asset-link-edit-opens-modal.md) — secondary-click Edit overlays the current view, including sublinks and Task assets, with retained drafts and associations.

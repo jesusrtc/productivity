@@ -16,6 +16,16 @@ Use `lab`. Run `lab --help` for commands. Never hand-edit `workspace.json`, `tas
 - `scripts/` — framework helper scripts.
 - `.claude/agents/` — shared framework agents.
 
+## Keep operating documentation current
+
+Read `docs/USER-GUIDE.md` and `docs/CHANGELOG.md` for Lab operation and recent
+changes. ALWAYS update `docs/USER-GUIDE.md` with every Lab change the user
+requests, including changes to operational guidance. Update `docs/CHANGELOG.md`
+and any relevant topic in the same change; documentation is required work.
+These two canonical documents ship with installed Lab packages and are linked
+in agent context and META. Keep their instructions installation-independent and resolve runtime
+references to absolute paths; do not maintain separate manual package copies.
+
 ## Notebooks
 
 **When the user wants a notebook run to show up live in the Lab UI**, do NOT

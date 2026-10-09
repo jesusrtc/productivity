@@ -14,8 +14,10 @@ GUIDE_DIR = Path(__file__).parent / 'resources' / 'agent-context'
 TOPICS = {'overview': 'AGENTS.md', 'markdown': 'markdown.md',
           'notebooks': 'notebooks.md', 'servers': 'servers.md',
           'meetings': 'meetings.md', 'tasks': 'tasks.md',
-          'objectives': 'objectives.md',
-          'migrations': 'migrations.md'}
+          'objectives': 'objectives.md', 'cli': 'cli.md',
+          'migrations': 'migrations.md', 'user-guide': 'USER-GUIDE.md',
+          'changelog': 'CHANGELOG.md'}
+DOCUMENTS = {'user-guide': 'Lab user guide', 'changelog': 'Lab changelog'}
 AGENTS = ('codex', 'claude', 'copilot')
 
 
@@ -24,7 +26,20 @@ class ContextError(RuntimeError):
 
 
 def guide_path(topic: str = 'overview') -> Path:
+    if topic in DOCUMENTS:
+        # Editable checkouts read the canonical docs; wheels/sdists carry copies
+        # made by the package build, independent of the developer's checkout.
+        source = Path(__file__).resolve()
+        checkout = source.parents[4] if len(source.parents) > 4 else None
+        if checkout is not None and source.parent == checkout / 'core/cli/src/lab':
+            return checkout / 'docs' / TOPICS[topic]
+        return Path(__file__).parent / 'resources/docs' / TOPICS[topic]
     return GUIDE_DIR / TOPICS[topic]
+
+
+def documentation() -> list[dict[str, str]]:
+    return [{'name': name, 'title': title, 'path': str(guide_path(name).resolve())}
+            for name, title in DOCUMENTS.items()]
 
 
 def _path_code(path: Path | str) -> str:
@@ -36,9 +51,15 @@ def _path_code(path: Path | str) -> str:
 def read_context(topic: str = 'overview', *, source_root: Path | None = None,
                  vault_root: Path | None = None, workspace_root: Path | None = None,
                  objective_root: Path | None = None) -> str:
-    """Read the shared guide, optionally adding source-relative scope references."""
+    """Read the guide with installation-specific, absolute documentation paths."""
     guide = guide_path(topic).read_text(encoding='utf-8')
-    if topic != 'overview' or source_root is None:
+    if topic != 'overview':
+        return guide
+    docs = '## Lab documentation\n\nRead the user guide and changelog before working with Lab, unless already loaded.\n\n'
+    docs += '\n'.join(f'- {doc["title"]}: {_path_code(doc["path"])}.' for doc in documentation())
+    intro, rest = guide.split('\n\n', 1)
+    guide = intro + '\n\n' + docs + '\n\n' + rest
+    if source_root is None:
         return guide
     # One packaged template, instantiated against the captured explorer scope.
     # Preserve the visible path spelling, including linked checkout directories.
@@ -51,17 +72,54 @@ def read_context(topic: str = 'overview', *, source_root: Path | None = None,
         if root is None:
             continue
         root = Path(os.path.abspath(root))
-        def relative(target):
-            return _path_code(os.path.relpath(target, source))
-        files = [relative(root / name) for name in
+        files = [_path_code(root / name) for name in
                  ('AGENTS.md', 'agent.md', 'CLAUDE.md', '.github/copilot-instructions.md')
                  if (root / name).is_file()]
         instructions = ', '.join(files) if files else 'no root instruction files found'
-        rows.append(f'- {label} root: {relative(root)}; instructions: {instructions}.')
+        rows.append(f'- {label} root: {_path_code(root)}; instructions: {instructions}.')
     template = (GUIDE_DIR / 'instruction-paths.md').read_text(encoding='utf-8')
     scoped = template.replace('{{source_root}}', _path_code(source)).replace('{{instruction_paths}}', '\n'.join(rows))
     intro, rest = guide.split('\n\n', 1)
     return intro + '\n\n' + scoped.rstrip() + '\n\n' + rest
+
+
+def current_context(*, cwd: Path | None = None, env: dict[str, str] | None = None) -> str:
+    """Include owning roots discoverable from this terminal without creating files."""
+    from lab import paths, objective_store
+    cwd = (cwd or Path.cwd()).resolve()
+    env = os.environ if env is None else env
+    selected = env.get('LAB_VAULT') or env.get('LAB_WORKSPACE') or env.get('LAB_ROOT')
+    vault = workspace = objective = None
+    try:
+        vault = Path(selected).expanduser().resolve() if selected else paths.find_vault_root(cwd, use_registry=False, env=env)
+        workspace = paths.workspace_dir(vault, paths.find_workspace_id_from_pwd(vault, cwd))
+    except (paths.MonorepoNotFound, paths.WorkspaceNotFound):
+        pass
+    workspace_id = env.get('LAB_CONTEXT_WORKSPACE')
+    objective_id = env.get('LAB_CONTEXT_OBJECTIVE')
+    if workspace_id:
+        if vault is None or workspace_id in ('.', '..') or any(c in workspace_id for c in ('/', '\\', '\x00')):
+            raise ContextError('Invalid owning workspace for agent context')
+        workspace = paths.workspace_dir(vault, workspace_id).resolve()
+        if not workspace.is_dir():
+            raise ContextError(f'Owning workspace not found: {workspace_id}')
+    if objective_id and workspace is None:
+        raise ContextError('Choose the owning workspace for this Objective')
+    if workspace is not None:
+        try:
+            rows = objective_store.read(workspace)['objectives']
+        except (ValueError, OSError):
+            if objective_id:
+                raise ContextError('Unable to read the owning Objective metadata')
+            rows = []
+        for row in rows:
+            root = Path(row['path']).resolve()
+            if row['id'] == objective_id or (not objective_id and cwd.is_relative_to(root)
+                    and (objective is None or len(root.parts) > len(objective.parts))):
+                objective = root
+        if objective_id and objective is None:
+            raise ContextError(f'Owning Objective not found: {objective_id}')
+    return read_context(source_root=cwd, vault_root=vault, workspace_root=workspace, objective_root=objective)
 
 
 def _codex_config_options(args: list[str], cwd: Path) -> tuple[list[str], list[str], Path]:
@@ -171,13 +229,14 @@ def prepare_launch(agent: str, args: list[str], *, cwd: Path | None = None,
     if not binary:
         raise ContextError(f'{agent} CLI not found on PATH')
     cwd = (cwd or Path.cwd()).resolve()
-    guide = read_context()
     if agent == 'codex':
         overrides, remaining, config_cwd = _codex_config_options(args, cwd)
+        guide = current_context(cwd=config_cwd, env=child_env)
         existing = _codex_developer_instructions(binary, overrides, config_cwd, child_env)
         combined = guide + ('\n\n' + existing if existing else '')
         return [binary, '-c', 'developer_instructions=' + json.dumps(combined), *remaining], child_env
     if agent == 'claude':
+        guide = current_context(cwd=cwd, env=child_env)
         # Recent Claude versions retain a resumed conversation's initial system
         # prompt. Refresh it where supported; older versions already rebuild when
         # an append flag is supplied. Preserve an explicit user snapshot choice.
@@ -211,13 +270,12 @@ def prepare_launch(agent: str, args: list[str], *, cwd: Path | None = None,
             else:
                 remaining.append(item)
             index += 1
-        if additions:
-            return [binary, *refresh, '--append-system-prompt', '\n\n'.join([guide, *additions]), *remaining], child_env
-        return [binary, *refresh, '--append-system-prompt-file', str(guide_path()), *args], child_env
+        return [binary, *refresh, '--append-system-prompt', '\n\n'.join([guide, *additions]), *remaining], child_env
     # This process-local setting is additive; the user's own instruction dirs,
     # agent home, auth, and repository discovery all retain their normal behavior.
     dirs = [part for part in child_env.get('COPILOT_CUSTOM_INSTRUCTIONS_DIRS', '').split(',') if part]
     if str(GUIDE_DIR) not in dirs:
         dirs.append(str(GUIDE_DIR))
     child_env['COPILOT_CUSTOM_INSTRUCTIONS_DIRS'] = ','.join(dirs)
+    child_env['LAB_AGENT_CONTEXT'] = current_context(cwd=cwd, env=child_env)
     return [binary, *args], child_env
