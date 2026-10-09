@@ -37,7 +37,7 @@ const bridge={sessions:()=>sessions,refreshTerminals:()=>{},activateLinkedTermin
     assert result['defaults'] == result['disabled'] == ['workflow-terminal:work:main', 'main', 'existing']
     assert result['enabled'] == ['workflow-terminal:work:main', 'main', 'existing', 'missing']
     assert result['createdByDefault'] == [] and result['created'] == ['missing']
-    assert result['activated'] == [[], ['existing']]
+    assert result['activated'] == [['existing']]
     assert result['opened'] == [['doc-missing', 'missing'], ['doc-existing', 'existing'], ['doc-missing', 'missing']]
     assert result['unchanged']
 
@@ -72,7 +72,7 @@ console.log(JSON.stringify({objectiveAll:objectiveAll.map(s=>s.task_id||s.name),
     assert result['unchanged']
 
 
-def test_worktree_hover_assignments_restore_task_and_union_recent_files_in_chrome(tmp_path):
+def test_worktree_click_assignments_restore_task_and_union_recent_files_in_chrome(tmp_path):
     app = LAB_APP.read_text()
     recent = app[app.index('  function _sidebarObjectiveRecent('):app.index('  function _sidebarProjectRecent(')]
     setup = r'''
@@ -116,9 +116,19 @@ const reply=(request,path)=>{if(request.current())request.update({entries:[{path
  click('.objective-sidebar-task [data-open-task="parent"]');await tick();
  assert(document.querySelector('.objective-sidebar-task-title').textContent==='Original task'&&!document.querySelector('.objective-sidebar-task.active .objective-task-worktree-name'),'multiple worktrees preserve the task name');
  assert(document.querySelector('#content').textContent.includes('Details of Original task'),'original task Markdown is opened: '+errors.join(' / '));
+ const taskAssets=document.querySelector('[data-objective-bucket=task]'),taskWorktrees=document.querySelector('.objective-task-worktrees');
+ assert(taskAssets.nextElementSibling===taskWorktrees&&taskWorktrees.getAttribute('aria-label')==='Worktrees for this task','task Worktrees immediately follows assets');
+ assert(!taskAssets.querySelector('[data-objective-worktree]')&&taskAssets.querySelector('[data-objective-root=workspace-root]'),'assets retain the Root folder and omit worktrees');
+ assert(taskWorktrees.querySelectorAll('[data-objective-worktree]').length===1&&taskWorktrees.querySelector('[data-select-worktree=topic]'),'only assigned worktrees in task section');
  const oldRequests=requests.slice();
  document.querySelector('.objective-worktree-navigation').dispatchEvent(new MouseEvent('mouseenter'));
- assert(!document.querySelector('.objective-worktrees').hidden,'hover reveals Worktrees');
+ assert(document.querySelector('.objective-worktrees').hidden,'hover keeps Worktrees folded');
+ document.querySelector('[data-fold-worktrees]').focus();
+ assert(document.querySelector('.objective-worktrees').hidden,'focus keeps Worktrees folded');
+ click('[data-fold-worktrees]');
+ assert(!document.querySelector('.objective-worktrees').hidden,'explicit click reveals Worktrees');
+ document.querySelector('.objective-worktree-navigation').dispatchEvent(new MouseEvent('mouseleave'));
+ assert(!document.querySelector('.objective-worktrees').hidden,'leaving navigation keeps it open until an outside click');
  click('.objective-worktrees [data-select-worktree="topic"]');await tick();
  assert(LabObjectives.sidebarMode('/workspace')==='worktree'&&fileRoot==='/trees/topic','selected checkout owns file mode');
  assert(getComputedStyle(document.querySelector('.objective-sidebar-tasks')).display==='none'&&getComputedStyle(document.querySelector('[data-objective-bucket=task]')).display==='none','task assets replaced by files');
@@ -134,6 +144,10 @@ const reply=(request,path)=>{if(request.current())request.update({entries:[{path
  assert(second.assets.some(a=>a.folder.root==='/trees/topic')&&parent.children[0].assets.some(a=>a.folder.root===o.path),'task and subtask memberships persist');
  assert(parent.assets.length===2&&second.title==='Second task'&&parent.title==='Original task','assignment retains earlier owners and canonical titles');
  assert(LabObjectives.sidebarMode('/workspace')==='worktree','assignments keep browse mode open');
+ document.querySelector('#content').click();
+ assert(document.querySelector('.objective-worktrees').hidden&&document.querySelector('[data-fold-worktrees]').getAttribute('aria-expanded')==='false','clicking elsewhere folds the navigation');
+ assert(LabObjectives.sidebarMode('/workspace')==='worktree'&&fileRoot==='/trees/topic','outside click retains the selected checkout and assignment view');
+ click('[data-fold-worktrees]');
  click('[data-fold-worktrees]');await tick();
  assert(document.querySelector('.objective-worktrees').hidden&&LabObjectives.sidebarMode('/workspace')==='task','fold returns to task mode');
  assert(document.querySelector('.objective-sidebar-task.active').dataset.taskId==='parent'&&document.querySelector('#content').textContent.includes('Details of Original task'),'fold restores previous task and own document');
@@ -158,6 +172,13 @@ const reply=(request,path)=>{if(request.current())request.update({entries:[{path
  assert(getComputedStyle(host.querySelector('.objective-recent-status')).fontSize==='12px'&&host.textContent.includes('Choose Uncommitted or a time filter'),'comparison notice has explicit compact typography and explains alternate filters');
  comparisons[0].update({entries:[],total:0,available:true});comparisons[1].update({entries:[],total:0,available:true});
  assert(host.querySelectorAll('.objective-recent-status').length===1&&host.textContent==='No matching recent files','empty results share one quiet message');
+ click('.objective-sidebar-task [data-open-task="second"]');await tick();
+ assert(document.querySelector('.objective-task-worktrees [data-select-worktree=topic]'),'switching tasks displays that task worktree');
+ assert(!document.querySelector('[data-objective-bucket=task] [data-objective-worktree]'),'worktrees never return to task assets');
+ click('.objective-task-worktrees [data-select-worktree=topic]');await tick();
+ assert(document.querySelector('.objective-worktrees').hidden&&LabObjectives.sidebarMode('/workspace')==='worktree','task worktree opens its checkout without unfolding global navigation');
+ click('.objective-sidebar-task [data-open-task="child"]');await tick();
+ assert(!document.querySelector('.objective-task-worktrees [data-objective-worktree]')&&document.querySelector('.objective-task-worktrees').textContent.includes('No worktrees assigned'),'unassigned child has its own empty worktree section');
  assert(errors.length===0,'no browser errors: '+errors.join('\n'));document.body.dataset.result='pass';
 }catch(error){document.body.dataset.result='fail';document.body.append(String(error.stack||error));}})();
 '''

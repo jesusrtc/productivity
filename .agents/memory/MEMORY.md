@@ -1,5 +1,9 @@
 # Memory index
 
+- [Task worktrees have their own section](task-worktrees-have-their-own-section.md) — selected-task checkouts below Task assets, with membership, actions and context preserved.
+- [Global Worktrees opens only on click](global-worktrees-open-only-on-click.md) — no hover/focus opening; outside clicks fold navigation while retaining the selected checkout.
+- [Errors tab before Admin](errors-tab-before-admin.md) — always-red Errors label opens the existing consolidated Logs view from Home or a vault.
+
 - [Resource link opening trials live in the demo](resource-link-opening-trials-in-demo.md) — compare direct pop-outs over Lab, embedded panels and browser tabs; real URLs are explicit trials only.
 
 - [Terminal activity verifies content](terminal-activity-verifies-content.md) — raw tmux I/O is only a capture gate; ignore SSH/TUI noise and cloned-cache timer resets, retaining click-only review.

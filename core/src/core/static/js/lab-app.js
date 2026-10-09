@@ -7687,6 +7687,7 @@
         const action = active ? 'vaultShowOverview()' : `goToVault(${JSON.stringify(vault.id)})`;
         html += `<button class="repo-tab vault-context-tab${active ? ' active' : ''}" style="--vault-color:${escAttr(vault.color || '#8b949e')}" onclick="${escAttr(action)}"><span class="vault-mark"></span>${esc(vault.name || vault.id)}</button>`;
       }
+      if (LAB_IS_ADMIN) html += `<button class="repo-tab home-logs-tab${isSelf && _contextSubView === 'logs' ? ' active' : ''}" onclick="${isSelf ? 'selfShowLogs()' : "goToProductivity({subview:'logs'})"}">Errors</button>`;
       if (LAB_IS_ADMIN) html += `<button class="repo-tab${isSelf && _contextSubView === 'admin' ? ' active' : ''}" onclick="${isSelf ? 'selfShowAdmin()' : "goToProductivity({subview:'admin'})"}">&#x2699; Admin</button>`;
       if (LAB_IS_ADMIN) html += `<button class="repo-tab objectives-demo-tab${isSelf && _contextSubView === 'objectives-demo' ? ' active' : ''}" onclick="${isSelf ? 'selfShowObjectivesDemo()' : "goToProductivity({subview:'objectives-demo'})"}">&#x25CE; Objectives demo</button>`;
     } else if (currentWorkspace.is_workspace) {

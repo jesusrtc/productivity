@@ -1763,7 +1763,7 @@
   .home-log-entry.error { border-left-color: var(--red); background: color-mix(in srgb, var(--red) 4%, transparent); }
   .home-log-entry.warning { border-left-color: var(--yellow); }
   .home-logs-empty { display: block; padding: 48px 12px; text-align: center; color: var(--text-secondary); }
-  body.logs-have-unseen-errors .home-logs-tab:not(.active) { color: var(--red); }
+  .repo-tab.home-logs-tab { color: var(--red); }
   @media (max-width: 720px) {
     .home-logs { grid-template-columns: 135px minmax(0, 1fr); }
     .home-logs-sources { padding: 18px 6px 12px; }

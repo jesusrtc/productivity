@@ -40,21 +40,27 @@ Notebooks open from their resources or Files. Global **Servers**, **Logs** and
 
 The sidebar order is:
 
-1. The **Objective name**, followed by **Objective · pinned** assets when any
-   are starred. Pinned assets stay above Tasks in every working view.
-2. **Worktrees**, folded by default and revealed on hover or keyboard focus.
+1. The **Objective name**.
+2. **Worktrees**, folded by default and opened only by clicking its header.
+   Hover and keyboard focus leave it folded. Clicking elsewhere folds the list
+   while preserving the selected checkout and its Files/assignment view.
    Each worktree has a down-arrow beside Terminal. Select its row, then click
    the arrow to fetch `origin/master` and rebase the current worktree branch onto
    that fetched commit. The result window shows Git output. Local tracked edits
    use Git's autostash; conflicts remain available to resolve, continue or abort.
    This does not switch branches, update sibling branches or push. A repository
    without remote `master` reports an error rather than substituting a branch.
+   **Objective · pinned** assets follow Worktrees when any are starred and stay
+   above Tasks in every working view.
 3. **Tasks**, completion/status badge, task links and status context menu.
 4. **Task assets**, including the selected task's mandatory details and attachments.
-5. **Unassigned** assets with neither a shared star nor a task association,
+5. **Worktrees** for the selected task, directly below Task assets. Whole checkout
+   references appear here with their existing actions; Root/Objective folders
+   and checkout subfolders remain in Task assets.
+6. **Unassigned** assets with neither a shared star nor a task association,
    shown only while the Objective overview is open.
-6. Collapsed **Archive** in the Objective overview.
-7. Native recently updated files and the Files tree for the selected worktree.
+7. Collapsed **Archive** in the Objective overview.
+8. Native recently updated files and the Files tree for the selected worktree.
    Task mode shows recent files across only the worktrees assigned to that task.
 
 Click the **Objective name** to leave task mode and open its overview. The
@@ -112,8 +118,9 @@ Unassigned; dropping it on a task puts it in that task's context. Every associat
 worktree also stays in the **Worktrees** section, regardless of the selected
 task or working view. Root and Objective folders come first, followed by
 the associated checkout buttons. The list has no task or assignment-group
-headings. A worktree attached to multiple tasks appears once. Shared pins and task asset
-lists continue to show their contextual references. Archived worktrees remain
+headings. A worktree attached to multiple tasks appears once. Shared pins retain
+their contextual references; each task's checkout references appear in its own
+Worktrees section below Task assets. Archived worktrees remain
 recoverable in a collapsed Archive group in the Worktrees section. Worktree
 rows retain their folder navigation, drag targets, stars and classification
 menus. Root and Objective remain gray draggable terminal references.
@@ -128,8 +135,10 @@ objective creates its directory, including when it has no resources yet.
 Clicking Root, Objective or a worktree exits task focus, selects that exact file
 scope and shows the native Files tree, including when it was already the selected
 scope. Recently updated appears on the left and all tasks/subtasks unfold in
-the middle so a worktree can be dragged onto multiple tasks. Folding Worktrees
-restores the previous task and its assets. Exactly one assigned worktree replaces
+the middle so a worktree can be dragged onto multiple tasks. Explicitly folding
+the open Worktrees header restores the previous task and its assets. Opening a
+checkout from the task Worktrees section keeps the top navigation folded.
+Exactly one assigned worktree replaces
 a task's displayed name with its name and color. With zero or multiple assigned
 worktrees, the task keeps its own name, including in task headers and terminal
 tabs. Its own Markdown, icon, context and assets remain.
