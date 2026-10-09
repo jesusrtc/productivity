@@ -756,3 +756,7 @@
 - [Automation recovery only for stopped work](automation-recovery-only-for-stopped-work.md) — explicit child/parent recovery, fresh TTY checks, running-work protection and retained output.
 
 - [Automation guidelines are copy-only](automation-guidelines-are-copy-only.md) — optional labeled commands near requests, exact copy and manual execution.
+
+- [Task moves carry terminal hierarchy](task-moves-carry-terminal-hierarchy.md) — recursive branch reparenting with preserved sessions, context and reconciled manual placement.
+
+- [Task deletion requires two confirmations](task-deletion-requires-two-confirmations.md) — exact-name review, whole-branch cleanup, shared/source protection and staged-content recovery.

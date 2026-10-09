@@ -219,3 +219,10 @@ def command(row, value):
 def history(name):
     with _LOCK, closing(_connect()) as conn:
         return [dict(row) for row in conn.execute('SELECT id, provider, thread, type, text, command, timestamp FROM entries WHERE terminal = ? ORDER BY id', (name,))]
+
+
+def forget(names):
+    """Remove Lab's local history for explicitly deleted terminals."""
+    with _LOCK, closing(_connect()) as conn, conn:
+        conn.executemany('DELETE FROM entries WHERE terminal = ?', [(name,) for name in names])
+        conn.executemany('DELETE FROM terminals WHERE name = ?', [(name,) for name in names])

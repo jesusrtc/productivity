@@ -4,6 +4,7 @@
   const cache = new Map(), views = new Map(), pending = new Map(), queues = new Map(), overlays = new Map(), loadedAt = new Map();
   const resourceMime = 'application/x-lab-objective-resource', documentMime = 'application/x-lab-assistant-document';
   const objectiveMime = 'application/x-lab-workspace-objective', focusSlots = 5;
+  const taskMoveMime = 'application/x-lab-objective-task';
   const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const drafts = new Map(), linkDrafts = new Map();
   let bridge, dialog = null, hoverTimer, openView = null, activeDraft = null, activeLinkDraft = null, switchMenu = null, switchTimer;
@@ -42,13 +43,12 @@
   function patchTaskStatus(o,id,status) {
     const task=tasks(o).find(t=>t.id===id);if(!task)return;
     const set=(t,s)=>Object.assign(t,{status:s,done:s==='done'});
-    set(task,status);if(status!=='in_progress')task.children.forEach(c=>set(c,status));
-    const parent=o.tasks.find(p=>p.children.includes(task));
-    if(parent)set(parent,childrenStatus(parent.children));
+    set(task,status);if(status!=='in_progress')tasks({tasks:task.children}).forEach(c=>set(c,status));
+    taskAncestors(task,o).reverse().forEach(parent=>set(parent,childrenStatus(parent.children)));
   }
   function progress(o) {
     const today=new Date(),day=Date.UTC(today.getFullYear(),today.getMonth(),today.getDate());
-    const dates=o.tasks.flatMap(t=>complete(t)?[]:[t.due,...t.children.filter(c=>!c.done).map(c=>c.due||t.due)]).filter(Boolean).map(d=>(Date.parse(d+'T00:00:00Z')-day)/86400000);
+    const dates=tasks(o).filter(t=>!complete(t)).map(t=>t.due||taskAncestors(t,o).reverse().find(p=>p.due)?.due).filter(Boolean).map(d=>(Date.parse(d+'T00:00:00Z')-day)/86400000);
     const done=o.tasks.filter(complete).length,status=o.tasks.length&&done===o.tasks.length?'complete':dates.some(d=>d<0)?'overdue':dates.some(d=>d<=2)?'risk':'track';
     return {done,total:o.tasks.length,status,label:{complete:'All complete',overdue:'Past due',risk:'At risk · due within 2 days',track:o.tasks.length?'On track':'No tasks yet'}[status]};
   }
@@ -116,6 +116,7 @@
       if(d.enabled&&!background)await Promise.all([bridge.readyContent?.(),scope.path&&bridge.warmWorktrees?.([{path:scope.path},...d.objectives.filter(o=>d.focused.includes(o.id)).flatMap(o=>[{path:o.path||scope.path+'/objectives/'+o.id},...o.worktrees])],scope)]);
       for(const overlay of overlays.get(id)||[])overlay.apply(d);
       const changed=JSON.stringify(previous)!==JSON.stringify(d);cache.set(id,d);loadedAt.set(id,Date.now());
+      if(key(context())===id)bridge.syncTaskHierarchy?.(d);
       if(key(context())===id){if(changed||!background)paint();if(changed){bridge.refreshSidebar?.();bridge.refreshTerminals?.();if(openView?.type==='all')paintLibrary();else if(openView?.type==='overview')renderOverview();else if(openView?.type==='tasks')renderTasks();}if(!previous)bridge.openDefault?.();}return d;
     }).catch(e=>{if(!background&&key(context())===id)notify(e.message,true);}).finally(()=>pending.delete(id));pending.set(id,request);return request;
   }
@@ -131,15 +132,16 @@
     window.addEventListener('focus',()=>void refreshCurrent());
   }
   function notify(text,error=false) {window.explorerToast?.(text,error);}
-  function change(action,{optimistic,scope:destination}={}) {
+  function change(action,{optimistic,scope:destination,expected}={}) {
     const scope={...(destination||context())},id=key(scope);
     const overlay=optimistic?{apply:optimistic}:null;
     if(overlay){overlays.set(id,[...(overlays.get(id)||[]),overlay]);overlay.apply(cache.get(id));paint();if(openView?.type==='tasks')renderTasks();else if(openView?.type==='overview')renderOverview();}
     const previous=queues.get(id)||Promise.resolve();
     const next=previous.catch(()=>{}).then(async()=>{
       const resolvedAction=typeof action==='function'?action(cache.get(id)):action;
-      const r=await fetch('/api/objectives',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({workspace_id:scope.workspace_id,vault:scope.vault,expected:cache.get(id)?.revision,action:resolvedAction})});
+      const r=await fetch('/api/objectives',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({workspace_id:scope.workspace_id,vault:scope.vault,expected:expected??cache.get(id)?.revision,action:resolvedAction})});
       const d=await r.json();if(!r.ok)throw new Error(d.detail||'Could not save objective');if(d.enabled)await bridge.readyContent?.();overlays.set(id,(overlays.get(id)||[]).filter(item=>item!==overlay));cache.set(id,d);loadedAt.set(id,Date.now());
+      if(key(context())===id)bridge.syncTaskHierarchy?.(d);
       for(const item of overlays.get(id)||[])item.apply(d);
       if(key(context())===id){paint();bridge.refreshTerminals?.();if(openView?.type==='tasks')renderTasks();else if(openView?.type==='overview')renderOverview();else if(openView?.type==='all')paintLibrary();}return d;
     }).catch(async e=>{overlays.set(id,(overlays.get(id)||[]).filter(item=>item!==overlay));notify(e.message,true);await load(scope,true);throw e;});queues.set(id,next);
@@ -150,13 +152,21 @@
     const root=resource.document_id||resource.id,rows=resource.content?.tabs||[],children=new Map();rows.forEach(t=>{const parent=t.parent?.id||root;if(!children.has(parent))children.set(parent,[]);children.get(parent).push(t);});
     const result=[],seen=new Set();function visit(id,depth){for(const t of children.get(id)||[]){if(seen.has(t.id))continue;seen.add(t.id);result.push({...t,depth});visit(t.id,depth+1);}}visit(root,0);rows.filter(t=>!seen.has(t.id)).forEach(t=>result.push({...t,depth:0}));return result;
   }
-  function tasks(o=objective()) {return o?.tasks.flatMap(t=>[t,...t.children])||[];}
+  function taskTree(rows,parent=null,depth=0) {return (rows||[]).flatMap(task=>[{task,parent,depth},...taskTree(task.children,task,depth+1)]);}
+  function tasks(o=objective()) {return taskTree(o?.tasks).map(row=>row.task);}
+  function taskParent(task,o=objective()) {return tasks(o).find(t=>t.children.some(c=>c.id===task.id))||null;}
+  function taskAncestors(task,o=objective()) {const result=[];let parent=taskParent(task,o);while(parent){result.unshift(parent);parent=taskParent(parent,o);}return result;}
+  function sidebarTaskRows(o,selected) {
+    const expanded=new Set(selected?[...taskAncestors(selected,o),selected].map(t=>t.id):[]);
+    const working=task=>tasks({tasks:[task]}).some(t=>taskStatus(t)==='in_progress');
+    const rows=[];function visit(items,parent=null,depth=0){for(const task of items){rows.push({task,parent,depth});visit(task.children.filter(child=>expanded.has(task.id)||working(child)),task,depth+1);}}
+    visit(o.tasks);return rows;
+  }
   function taskFocus() {const f=state().focus,o=objective();return state().view==='objective'&&f?.objective===o?.id&&tasks(o).some(t=>t.id===f.task)?f:null;}
   function focusedTask() {return tasks().find(t=>t.id===taskFocus()?.task);}
   function taskAssets(task) {return [{id:'details',resource_id:task.document_id,tab_id:task.tab_id,required:true},...(task.assets||[])];}
   function contextAssets(task,o=objective()) {
-    const parent=o.tasks.find(t=>t.children.some(c=>c.id===task.id));
-    return [...(o.shared_assets||[]),...(parent?taskAssets(parent):[]),...taskAssets(task)].filter(a=>!isArchived(a,o));
+    return [...(o.shared_assets||[]),...taskAncestors(task,o).flatMap(taskAssets),...taskAssets(task)].filter(a=>!isArchived(a,o));
   }
 
   function contextReferenceRows(rows,o=objective()) {
@@ -169,8 +179,8 @@
     });
   }
   function taskContext(task,o=objective()) {
-    const parent=o.tasks.find(t=>t.children.some(c=>c.id===task.id)),assets=rows=>contextReferenceRows(rows,o);
-    return {version:1,objective:{title:o.name,purpose:o.purpose||'',assets:assets(o.shared_assets||[])},parents:parent?[{title:parent.title,assets:assets(taskAssets(parent))}]:[],task:{title:task.title,assets:assets(taskAssets(task))}};
+    const assets=rows=>contextReferenceRows(rows,o);
+    return {version:1,objective:{title:o.name,purpose:o.purpose||'',assets:assets(o.shared_assets||[])},parents:taskAncestors(task,o).map(parent=>({title:parent.title,assets:assets(taskAssets(parent))})),task:{title:task.title,assets:assets(taskAssets(task))}};
   }
   function objectiveContext(o) {
     const children=o.resources.filter(r=>!isArchived({resource_id:r.id},o)).flatMap(r=>
@@ -178,7 +188,7 @@
     return {version:1,kind:'objective',objective:{title:o.name,purpose:o.purpose||'',assets:[
       {title:o.name,type:'Objective manifest',reference:o.manifest_path||context().path+'/.lab/objectives.json#objective='+encodeURIComponent(o.id)},
       {title:o.name,type:'Objective folder',reference:o.path},...contextReferenceRows(o.shared_assets||[],o)]},
-      tasks:tasks(o).map(task=>({title:task.title,parent:o.tasks.find(t=>t.children.some(c=>c.id===task.id))?.title||'',assets:contextReferenceRows(taskAssets(task),o)})),
+      tasks:tasks(o).map(task=>({title:task.title,parent:taskParent(task,o)?.title||'',assets:contextReferenceRows(taskAssets(task),o)})),
       unassigned_assets:contextReferenceRows(unassignedAssets(o),o),
       assets:contextReferenceRows([...assetCatalog(o),...o.resources.map(r=>({resource_id:r.id})),...children],o)};
   }
@@ -206,9 +216,9 @@
     const assigned=tasks(o).flatMap(taskAssets);
     return assetCatalog(o).filter(a=>!isShared(a,o)&&!isArchived(a,o)&&!assigned.some(b=>sameAsset(a,b))&&(!visible||visibleAsset(a,o)));
   }
-  function sidebarTaskRow(task,parent=null) {
+  function sidebarTaskRow(task,parent=null,depth=parent?1:0) {
     const status=taskStatus(task),done=status==='done',selected=focusedTask()?.id===task.id;
-    return `<div class="objective-sidebar-task${parent?' child':''}${selected?' active':''}" data-task-id="${esc(task.id)}"><span class="objective-sidebar-task-status objective-task-status-icon" data-task-status="${status}" aria-label="${taskStatuses[status].label}" title="${taskStatuses[status].label} · Secondary-click to change status">${taskStatuses[status].icon}</span><a class="objective-sidebar-task-title${done?' done':''}" data-open-task="${esc(task.id)}" href="${esc(taskHref(task))}" draggable="true" title="${esc(task.title)}">${taskNameHtml(task)}</a><span class="objective-sidebar-task-count" title="${taskAssets(task).length} assets">${taskAssets(task).length}</span><button type="button" data-task-icon="${esc(task.id)}" data-open-task="${esc(task.id)}" aria-label="Icon for ${esc(task.title)}" title="Drop an asset here to set the terminal icon" draggable="true">${customTaskIcon(task)}</button></div>`;
+    return `<div class="objective-sidebar-task${parent?' child':''}${selected?' active':''}" style="--objective-task-depth:${depth}" data-task-id="${esc(task.id)}"><span class="objective-sidebar-task-status objective-task-status-icon" data-task-status="${status}" aria-label="${taskStatuses[status].label}" title="${taskStatuses[status].label} · Secondary-click to change status">${taskStatuses[status].icon}</span><a class="objective-sidebar-task-title${done?' done':''}" data-open-task="${esc(task.id)}" href="${esc(taskHref(task))}" draggable="true" title="${esc(task.title)}">${taskNameHtml(task)}</a><span class="objective-sidebar-task-count" title="${taskAssets(task).length} assets">${taskAssets(task).length}</span><button type="button" data-task-icon="${esc(task.id)}" data-open-task="${esc(task.id)}" aria-label="Icon for ${esc(task.title)}" title="Drop an asset here to set the terminal icon" draggable="true">${customTaskIcon(task)}</button></div>`;
   }
   function bucketHtml(id,label,assets,add=false) {
     return `<section class="objective-bucket" data-objective-bucket="${id}" aria-label="${label}"><div class="sidebar-title objective-title">${id==='unassigned'?`<button type="button" class="objective-bucket-label" data-show-unassigned>${label}</button>`:`<span${id==='objective'?` data-drag-objective="${esc(objective().id)}" draggable="true" title="Drag ${esc(objective().name)} into a terminal to pass its whole context"`:''}>${label}</span>`}${add?'<button type="button" data-add-resource="document" aria-label="Add objective asset">+</button>':''}</div><div class="objective-resources">${assets.map(asset=>assetRow(asset)).join('')||`<p class="objective-bucket-empty">${{unassigned:'All assets are assigned.',objective:'Star an asset to share it across tasks.',task:'Select a task to see its assets.',archive:'Drop assets here to set them aside.'}[id]}</p>`}</div></section>`;
@@ -226,7 +236,7 @@
   }
   function worktreeNavigationHtml(o) {
     const scopes=scopeRows(o),entries=tasks(o),groups=new Map(),archived=[];
-    const taskName=t=>{const parent=o.tasks.find(p=>p.children.some(c=>c.id===t.id));return (parent?parent.title+' / ':'')+t.title;};
+    const taskName=t=>[...taskAncestors(t,o),t].map(t=>t.title).join(' / ');
     for(const scope of scopes.filter(s=>!s.fixed)){
       const asset={folder:{root:scope.path,path:'.'}};
       if(isArchived(asset,o)){archived.push(scopeRow(scope,asset));continue;}
@@ -300,7 +310,7 @@
     host.classList.add('objective-task-center');
     const draft=taskDocumentDraft(),editable=!draft||draftEditable(draft);
     taskModeHeader ||= document.createElement('div');taskModeHeader.className='objective-task-mode-head';taskModeHeader.dataset.taskModeHead='';
-    taskModeHeader.innerHTML=`<div class="objective-task-mode-title"><button type="button" data-task-icon="${esc(task.id)}" data-task-id="${esc(task.id)}" data-open-task="${esc(task.id)}" aria-label="Open ${esc(task.title)}" title="Drop an asset here to use its icon" draggable="${editable}">${taskIcon(task)}</button><a href="${esc(taskHref(task))}" data-open-task="${esc(task.id)}">${taskNameHtml(task)}</a><label><input type="checkbox" data-task-done="${esc(task.id)}" aria-label="Complete ${esc(task.title)}" ${complete(task)?'checked':''}${editable?'':' disabled'}> Completed</label><span data-task-progress>${window.LabTaskSchedule?.badges(task)||''}</span></div><div class="objective-task-mode-actions"><span>${esc(objective().name)}</span>${draft?`<div class="objective-task-modes objective-document-modes" role="group" aria-label="Document mode">${['view','edit'].map(mode=>`<button type="button" data-task-document-mode="${mode}" aria-pressed="${(mode==='edit')===editable}" title="${mode==='edit'?'Enable editing · returns to View after 3 minutes of inactivity':'Read only'}">${mode==='edit'?'Edit':'View'}</button>`).join('')}</div>`:''}<button type="button" data-edit-objective-task="${esc(task.id)}"${editable?'':' disabled'}>Edit task</button></div>`;
+    taskModeHeader.innerHTML=`<div class="objective-task-mode-title"><button type="button" data-task-icon="${esc(task.id)}" data-task-id="${esc(task.id)}" data-open-task="${esc(task.id)}" aria-label="Open ${esc(task.title)}" title="Drop an asset here to use its icon" draggable="${editable}">${taskIcon(task)}</button><a href="${esc(taskHref(task))}" data-open-task="${esc(task.id)}">${taskNameHtml(task)}</a><label><input type="checkbox" data-task-done="${esc(task.id)}" aria-label="Complete ${esc(task.title)}" ${complete(task)?'checked':''}${editable?'':' disabled'}> Completed</label><span data-task-progress>${window.LabTaskSchedule?.badges(task)||''}</span></div><div class="objective-task-mode-actions"><span>${esc(objective().name)}</span>${draft?`<div class="objective-task-modes objective-document-modes" role="group" aria-label="Document mode">${['view','edit'].map(mode=>`<button type="button" data-task-document-mode="${mode}" aria-pressed="${(mode==='edit')===editable}" title="${mode==='edit'?'Enable editing · returns to View after 3 minutes of inactivity':'Read only'}">${mode==='edit'?'Edit':'View'}</button>`).join('')}</div>`:''}<button type="button" data-edit-objective-task="${esc(task.id)}"${editable?'':' disabled'}>Edit task</button><button type="button" class="objective-task-delete" data-delete-objective-task="${esc(task.id)}">Delete task…</button></div>`;
     taskModeSpacer ||= document.createElement('div');taskModeSpacer.className='objective-task-mode-spacer';taskModeSpacer.setAttribute('aria-hidden','true');
     if(taskModeSpacer.parentElement!==host)host.prepend(taskModeSpacer);
     if(taskModeHeader.parentElement!==host)host.append(taskModeHeader);
@@ -357,10 +367,8 @@
     if(!d.enabled){host.innerHTML='<button type="button" class="sidebar-objective-add" data-new-objective>+ Objective</button>';return;}
     const o=objective();if(!o)return;state().objective=o.id;
     host.dataset.worktreeBrowse=String(!!state().worktreeBrowse);
-    const task=focusedTask(),expanded=task&&(task.children.length?task:o.tasks.find(t=>t.children.some(c=>c.id===task.id)));
-    const workingChildren=t=>t.children.filter(child=>taskStatus(child)==='in_progress');
-    const reservedTaskRows=Math.max(1,o.tasks.length+o.tasks.reduce((sum,t)=>sum+workingChildren(t).length,0)
-      +Math.max(0,...o.tasks.map(t=>t.children.length-workingChildren(t).length)));
+    const task=focusedTask(),sidebarRows=sidebarTaskRows(o,task);
+    const reservedTaskRows=Math.max(1,sidebarRows.length,...[null,...tasks(o)].map(selected=>sidebarTaskRows(o,selected).length));
     const unassigned=unassignedAssets(o,true);
     const selectedAssets=task?taskAssets(task).filter(a=>!isArchived(a,o)):[];
     const selectedWorktrees=selectedAssets.filter(a=>worktreeAssetScope(a,o));
@@ -368,7 +376,7 @@
     host.innerHTML=`<div class="objective-sidebar-heading" style="--objective-color:${esc(o.color)}"><button type="button" data-select-objective="${esc(o.id)}" data-drag-objective="${esc(o.id)}" draggable="true" aria-pressed="${!task&&state().view==='objective'}" title="${esc(o.name)} · Drag into a terminal for the full context"><span class="objective-library-dot" aria-hidden="true"></span><span>${esc(o.name)}</span></button><button type="button" data-objective-settings aria-label="Objective settings">⚙</button></div>`+
       `<section class="objective-worktree-navigation" aria-label="Worktrees"><div class="sidebar-title objective-title"><button type="button" class="objective-bucket-label" data-fold-worktrees aria-expanded="${!!state().worktreesOpen}">${state().worktreesOpen?'▾':'▸'} Worktrees <small>${scopeRows(o).length}</small></button><button type="button" data-associate-worktree aria-label="Associate worktree">+</button></div><div class="objective-worktrees" ${state().worktreesOpen?'':'hidden'}>${worktreeNavigationHtml(o)}</div></section>`+
       ((o.shared_assets||[]).length?bucketHtml('objective','Objective · pinned',o.shared_assets.filter(a=>!isArchived(a,o))):'')+
-      `<section class="objective-bucket objective-sidebar-tasks" data-objective-bucket="tasks"><div class="sidebar-title objective-title"><button type="button" class="objective-bucket-label" data-open-objective-tasks draggable="true">Tasks</button>${badge(o)}<button type="button" data-new-objective-task aria-label="New objective task">+</button></div><div class="objective-sidebar-task-list" style="--objective-task-rows:${reservedTaskRows}">${o.tasks.map(t=>sidebarTaskRow(t)+(t.id===expanded?.id?t.children:workingChildren(t)).map(c=>sidebarTaskRow(c,t)).join('')).join('')||'<p class="objective-bucket-empty">Add a task to start.</p>'}</div></section>`+
+      `<section class="objective-bucket objective-sidebar-tasks" data-objective-bucket="tasks"><div class="sidebar-title objective-title"><button type="button" class="objective-bucket-label" data-open-objective-tasks draggable="true" title="Drop a task here to make it a top-level task">Tasks</button>${badge(o)}<button type="button" data-new-objective-task aria-label="New objective task">+</button></div><div class="objective-sidebar-task-list" style="--objective-task-rows:${reservedTaskRows}">${sidebarRows.map(({task,parent,depth})=>sidebarTaskRow(task,parent,depth)).join('')||'<p class="objective-bucket-empty">Add a task to start.</p>'}</div></section>`+
       bucketHtml('task','Task assets',selectedAssets.filter(a=>!worktreeAssetScope(a,o)))+
       (task?`<section class="objective-bucket objective-task-worktrees" data-task-id="${esc(task.id)}" aria-label="Worktrees for this task"><div class="sidebar-title objective-title">Worktrees</div><div class="objective-resources">${selectedWorktrees.map(asset=>scopeRow(worktreeAssetScope(asset,o),asset)).join('')||'<p class="objective-bucket-empty">No worktrees assigned to this task.</p>'}</div></section>`:'')+
       (overview?bucketHtml('unassigned','Unassigned',unassigned,true)+`<details class="objective-archive" ${state().archiveOpen?'open':''}><summary>Archive · ${(o.archived_assets||[]).length}</summary>${bucketHtml('archive','Archived assets',o.archived_assets||[])}</details>`:'');
@@ -443,12 +451,12 @@
   }
   function showCenter(type) {releaseDraft();bridge.prepareCenter?.(type);openView={type,scope:key(context()),objective:objective()?.id};return document.getElementById('content');}
   function taskHref(task) {const url=new URL(location.pathname,location.origin);url.searchParams.set('workspace',context().path);url.searchParams.set('objective',objective().id);url.searchParams.set('objective_task',task.id);return url.pathname+url.search;}
-  function taskRow(task,parent=null) {
-    const done=parent?task.done:complete(task);return `<div class="objective-task-row${parent?' child':''}" data-task-id="${esc(task.id)}"><input type="checkbox" aria-label="Complete ${esc(task.title)}" data-task-done="${esc(task.id)}" ${done?'checked':''}><a class="objective-task-title${done?' done':''}" href="${esc(taskHref(task))}" data-open-task="${esc(task.id)}" draggable="true">${taskNameHtml(task)}${window.LabTaskSchedule?.badges(task)||''}</a><button type="button" data-task-assets="${esc(task.id)}" aria-label="Assets and icon for ${esc(task.title)}" title="${taskAssets(task).length} assets · drag an asset onto the sidebar task icon to change it">${taskIcon(task)}</button><span class="objective-task-schedule"><input type="date" aria-label="Due date for ${esc(task.title)}" data-task-due="${esc(task.id)}" value="${esc(task.due||'')}" title="${parent&&!task.due?'Inherits '+(parent.due||'parent deadline'):'Due date'}"><button type="button" data-schedule-task="${esc(task.id)}" aria-label="Schedule for ${esc(task.title)}" title="Repeat and reactivation window">↻</button></span><button type="button" data-add-subtask="${esc(task.id)}" ${parent?'hidden':''} aria-label="Add subtask to ${esc(task.title)}">+</button></div>`;
+  function taskRow(task,parent=null,depth=parent?1:0) {
+    const done=parent?task.done:complete(task);return `<div class="objective-task-row${parent?' child':''}" style="--objective-task-depth:${depth}" data-task-id="${esc(task.id)}"><input type="checkbox" aria-label="Complete ${esc(task.title)}" data-task-done="${esc(task.id)}" ${done?'checked':''}><a class="objective-task-title${done?' done':''}" href="${esc(taskHref(task))}" data-open-task="${esc(task.id)}" draggable="true">${taskNameHtml(task)}${window.LabTaskSchedule?.badges(task)||''}</a><button type="button" data-task-assets="${esc(task.id)}" aria-label="Assets and icon for ${esc(task.title)}" title="${taskAssets(task).length} assets · drag an asset onto the sidebar task icon to change it">${taskIcon(task)}</button><span class="objective-task-schedule"><input type="date" aria-label="Due date for ${esc(task.title)}" data-task-due="${esc(task.id)}" value="${esc(task.due||'')}" title="${parent&&!task.due?'Inherits '+(parent.due||'parent deadline'):'Due date'}"><button type="button" data-schedule-task="${esc(task.id)}" aria-label="Schedule for ${esc(task.title)}" title="Repeat and reactivation window">↻</button></span><button type="button" data-add-subtask="${esc(task.id)}" aria-label="Add subtask to ${esc(task.title)}">+</button><button type="button" class="objective-task-delete" data-delete-objective-task="${esc(task.id)}" aria-label="Delete ${esc(task.title)}">Delete</button></div>`;
   }
   function renderTasks() {
     const o=objective();if(!o)return;state().focus=null;state().view='objective';persistView();const host=showCenter('tasks'),p=progress(o);state().selected=null;
-    host.innerHTML=`<section class="objective-working"><header><h2>Tasks</h2><button type="button" data-new-objective-task>+ Task</button></header><p class="objective-purpose">${esc(o.name)} · ${esc(o.purpose)}</p>${state().worktreeBrowse?`<p class="objective-worktree-assignment-help">Drag ${esc(tree()?.label)} from Worktrees onto any task below. Repeat to assign it to multiple tasks. Fold Worktrees to return to task assets.</p>`:''}<div class="objective-task-progress">${badge(o)}<span>${esc(p.label)}</span></div><div class="objective-task-list">${o.tasks.map(t=>taskRow(t)+t.children.map(c=>taskRow(c,t)).join('')).join('')||'<p>No tasks yet. Add a task and its details document will be created with it.</p>'}</div></section>`;
+    host.innerHTML=`<section class="objective-working"><header><h2 data-open-objective-tasks title="Drop a task here to make it a top-level task">Tasks</h2><button type="button" data-new-objective-task>+ Task</button></header><p class="objective-purpose">${esc(o.name)} · ${esc(o.purpose)}</p>${state().worktreeBrowse?`<p class="objective-worktree-assignment-help">Drag ${esc(tree()?.label)} from Worktrees onto any task below. Repeat to assign it to multiple tasks. Fold Worktrees to return to task assets.</p>`:''}<div class="objective-task-progress">${badge(o)}<span>${esc(p.label)}</span></div><div class="objective-task-list">${taskTree(o.tasks).map(({task,parent,depth})=>taskRow(task,parent,depth)).join('')||'<p>No tasks yet. Add a task and its details document will be created with it.</p>'}</div></section>`;
     paint();bridge.refreshTerminals?.();
   }
   function overviewAssets(label,assets) {
@@ -483,7 +491,7 @@
     let html=s.mode!=='tasks'?overviewReviewSection('Unassigned assets',unassigned):'';
     if(s.mode!=='unassigned'){
       const empty=t=>!(t.assets||[]).some(a=>!isArchived(a,o));
-      const renderTask=t=>{const parent=o.tasks.find(p=>p.children.some(c=>c.id===t.id));return `<section class="objective-overview-task" data-overview-task="${esc(t.id)}">${parent?`<p class="objective-task-parent">Subtask of ${esc(parent.title)}</p>`:''}${taskRow(t,parent)}${s.mode==='assets'?overviewAssets('Task: '+t.title,taskAssets(t).filter(a=>!isArchived(a,o))):''}</section>`;};
+      const renderTask=t=>{const parent=taskParent(t,o);return `<section class="objective-overview-task" data-overview-task="${esc(t.id)}">${parent?`<p class="objective-task-parent">Subtask of ${esc(parent.title)}</p>`:''}${taskRow(t,parent)}${s.mode==='assets'?overviewAssets('Task: '+t.title,taskAssets(t).filter(a=>!isArchived(a,o))):''}</section>`;};
       html+=`<section class="objective-overview-tasks"><header><h3>Tasks</h3><button type="button" data-new-objective-task>+ Task</button></header><div class="objective-task-progress">${badge(o)}<span>${esc(progress(o).label)}</span></div>${[true,false].map(without=>{const rows=entries.filter(t=>empty(t)===without);return rows.length?`<h3 class="objective-task-group-label">${without?'Tasks without attached assets':'Tasks with assets'} · ${rows.length}</h3><div class="objective-task-list">${rows.map(renderTask).join('')}</div>`:'';}).join('')||'<p class="objective-bucket-empty">No matching tasks.</p>'}</section>`;
       if(s.mode==='assets'){
         html+=overviewReviewSection('Global assets · shared across tasks',(o.shared_assets||[]).filter(a=>!isArchived(a,o)&&(matchAsset(a)||query&&entries.length)));
@@ -775,8 +783,8 @@
     const body=draftBody(draftResource(draft),draft.tab);if(typeof body!=='string')return;
     draft.base=draft.body=body;draft.error='';draft.syncing=true;if(draft.input)draft.input.value=body;draft.syncing=false;renderDraftSurface(draft);
   }
-  function form(title,fields,submit) {
-    dialog?.remove();const node=document.createElement('dialog');node.className='objective-dialog';node.innerHTML=`<form><header><h2>${esc(title)}</h2></header>${fields}<footer><button type="button" data-cancel>Cancel</button><button type="submit">Save</button></footer><p role="status"></p></form>`;document.body.append(node);dialog=node;window.LabTaskSchedule?.bind(node);node.showModal();node.querySelector('[data-cancel]').onclick=()=>{node.close();node.remove();};node.querySelector('form').onsubmit=async e=>{e.preventDefault();const button=node.querySelector('[type=submit]');button.disabled=true;try{await submit(new FormData(e.target));node.close();node.remove();}catch(error){node.querySelector('[role=status]').textContent=error.message;button.disabled=!!node._editDraft&&!draftEditable(node._editDraft);}};return node;
+  function form(title,fields,submit,{submitLabel='Save',destructive=false}={}) {
+    dialog?.remove();const node=document.createElement('dialog');node.className='objective-dialog';node.innerHTML=`<form><header><h2>${esc(title)}</h2></header>${fields}<footer><button type="button" data-cancel>Cancel</button><button type="submit"${destructive?' class="objective-task-delete"':''}>${esc(submitLabel)}</button></footer><p role="status"></p></form>`;document.body.append(node);dialog=node;window.LabTaskSchedule?.bind(node);node.showModal();node.querySelector('[data-cancel]').onclick=()=>{node.close();node.remove();if(dialog===node)dialog=null;};node.querySelector('form').onsubmit=async e=>{e.preventDefault();const button=node.querySelector('[type=submit]');button.disabled=true;try{await submit(new FormData(e.target));if(node.isConnected){node.close();node.remove();}if(dialog===node)dialog=null;}catch(error){node.querySelector('[role=status]').textContent=error.message;button.disabled=!!node._editDraft&&!draftEditable(node._editDraft);}};return node;
   }
   const input=(label,name,value='',type='text',required=true)=>`<label>${esc(label)}<input name="${name}" type="${type}" value="${esc(value)}" ${required?'required':''}></label>`;
   function newObjective(slot=null) {const d=data();if(!d){const scope=key(context());void load().then(result=>{if(result&&key(context())===scope)newObjective(slot);});return;}form('New objective',input('Name','name')+input('Outcome','purpose','','text',false)+(d.objectives.length?'':'<label><span><input name="import_existing" type="checkbox" checked> Bring current workspace worktrees, files and links</span></label>')+(slot===null&&d.focused.filter(Boolean).length===focusSlots?`<label>Insert at<select name="slot">${d.focused.map((id,i)=>`<option value="${i}">Slot ${i+1} · ${esc(d.objectives.find(o=>o.id===id).name)}</option>`).join('')}</select></label>`:''),async values=>{const result=await change({type:'create',name:values.get('name'),purpose:values.get('purpose'),slot:values.has('slot')?Number(values.get('slot')):slot,import_existing:values.has('import_existing')});selectObjective(result.objectives.at(-1).id);bridge.refreshSidebar?.();});}
@@ -798,6 +806,80 @@
     if(kind==='link'){form('Add link',input('Title','title')+input('URL','url','','url')+'<label>TL;DR<textarea name="tldr" rows="3" maxlength="8192"></textarea></label>',async values=>{const o=objective(),result=await change({type:'resource',objective_id:o.id,kind:'link',title:values.get('title'),url:values.get('url'),tldr:values.get('tldr')});openResource(result.objectives.find(row=>row.id===o.id).resources.at(-1).id);});return;}
     form('Add objective resource',`<label>Type<select name="kind"><option value="document">Markdown document</option><option value="notebook">Notebook</option><option value="link">Link</option><option value="file">Existing workspace file</option></select></label>`+input('Name','title')+input('URL (links only)','url','','text',false)+input('Workspace-relative path (existing files only)','path','','text',false),async values=>{const result=await change({type:'resource',objective_id:objective().id,kind:values.get('kind'),title:values.get('title'),url:values.get('url'),path:values.get('path')});openResource(result.objectives.find(o=>o.id===objective().id).resources.at(-1).id);});dialog.querySelector('[name=kind]').value=kind;}
   function addTask(parentId=null) {const o=objective();form(parentId?'New subtask':'New task',input('Task','title')+(window.LabTaskSchedule?.fields()||input('Due date','due','','date',false)),async values=>{await change({type:'task',objective_id:o.id,parent_id:parentId,title:values.get('title'),...(window.LabTaskSchedule?.read(values)||{due:values.get('due')})});renderTasks();});}
+  async function deleteTask(taskId) {
+    const o=objective(),scope={...context()};
+    const action={objective_id:o.id,task_id:taskId,terminal_parents:bridge.taskDeletionHierarchy?.()||{}};
+    try{
+      // Drain editor saves before reviewing files that may contain siblings.
+      for(const draft of drafts.values())if(key(draft.scope)===key(scope)&&draft.objective===o.id){
+        clearTimeout(draft.timer);await saveDraft(draft,true);
+        if(draft.error||dirtyDraft(draft))throw new Error(draft.error||'Save the task Markdown before deleting it.');
+      }
+      const response=await fetch('/api/objectives/task-delete-preview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({workspace_id:scope.workspace_id,vault:scope.vault,action})});
+      const review=await response.json();if(!response.ok)throw new Error(review.detail||'Could not review task deletion');
+      if(key(context())!==key(scope))return;
+      const summary=`<p>Permanently delete <strong>${esc(review.title)}</strong> and its whole task branch?</p><ul>${review.tasks.map(t=>`<li>${esc(t.title)}</li>`).join('')}</ul><p>${review.terminal_ids.length} terminals will close. ${review.asset_count} exclusive assets or document tabs will be deleted.</p>${review.files.length?`<p>Owned files to delete:</p><ul>${review.files.map(path=>`<li>${esc(path)}</li>`).join('')}</ul>`:''}<p>Shared assets, external source files, and worktree folders stay intact. Task associations are removed. This cannot be undone.</p>`;
+      form('Delete task · 1 of 2',summary,()=>{
+        const confirm=form('Delete task · 2 of 2',`<p>Type <strong>${esc(review.title)}</strong> exactly to confirm permanent deletion.</p><label>Task name<input name="confirm_title" autocomplete="off" spellcheck="false" required></label>`,async values=>{
+          if(values.get('confirm_title')!==review.title)throw new Error('Type the exact task name.');
+          const result=await change({...action,type:'task-delete',confirmed:true,confirm_title:values.get('confirm_title'),review_token:review.review_token},{scope,expected:review.revision});
+          const owner=result.objectives.find(item=>item.id===o.id);
+          for(const [id,draft] of drafts)if(key(draft.scope)===key(scope)&&draft.objective===o.id){
+            const resource=owner.resources.find(r=>r.id===draft.resource);
+            if(!resource||draft.tab&&!resource.content?.tabs.some(t=>t.id===draft.tab)){
+              clearTimeout(draft.timer);clearTimeout(draft.editTimer);draft.input?.destroy();drafts.delete(id);if(activeDraft===draft)activeDraft=null;
+            }
+          }
+          for(const [id,draft] of linkDrafts)if(key(draft.scope)===key(scope)&&draft.objective===o.id&&!owner.resources.some(r=>r.id===draft.resource)){
+            clearTimeout(draft.timer);linkDrafts.delete(id);if(activeLinkDraft===draft)activeLinkDraft=null;
+          }
+          if(key(context())===key(scope)){
+            if(review.tasks.some(t=>t.id===state().focus?.task))state().focus=null;
+            await bridge.taskDeleted?.(review.terminal_ids);renderTasks();bridge.refreshSidebar?.();notify('Task branch deleted.');
+          }
+        },{submitLabel:'Delete permanently',destructive:true});
+        const typed=confirm.querySelector('[name=confirm_title]'),button=confirm.querySelector('[type=submit]');button.disabled=true;
+        typed.addEventListener('input',()=>{button.disabled=typed.value!==review.title;});typed.focus();
+      },{submitLabel:'Continue'});
+    }catch(error){notify(error.message,true);}
+  }
+  function moveTaskDrop(source,targetId) {
+    const o=objective(),scope={...context()},task=tasks(o).find(t=>t.id===source.task_id),target=tasks(o).find(t=>t.id===targetId);
+    if(source.scope!==key(scope)||source.objective_id!==o.id||!task)throw new Error('Move a task within this Objective.');
+    if(target&&tasks({tasks:[task]}).some(t=>t.id===target.id))throw new Error('A task cannot be moved into itself or its descendants.');
+    const move=async(parent,before=null)=>{
+      const result=await change({type:'task-move',objective_id:o.id,task_id:task.id,parent_id:parent,before_id:before},{scope});
+      if(key(context())!==key(scope))return;
+      if(focusedTask()&&openView?.type==='document')paint();else renderTasks();
+      bridge.refreshTerminals?.();notify('Task and its terminals moved.');return result;
+    };
+    if(!target){void move(null).catch(()=>{});return;}
+    form('Move '+task.title,`<p>Move this task with its subtasks and terminals.</p><label>Placement<select name="placement"><option value="child">Make subtask of ${esc(target.title)}</option><option value="before">Move above ${esc(target.title)}</option><option value="after">Move below ${esc(target.title)}</option><option value="root">Make top-level task</option></select></label>`,values=>{
+      const placement=values.get('placement'),parent=taskParent(target,o);
+      if(placement==='child')return move(target.id);
+      if(placement==='root')return move(null);
+      const siblings=(parent?parent.children:o.tasks).filter(t=>t.id!==task.id),next=siblings[siblings.indexOf(target)+1];
+      return move(parent?.id||null,placement==='before'?target.id:next?.id||null);
+    });
+  }
+  async function moveForTerminalDrop(source,destination,{relation,placeBefore}={}) {
+    if(!active(context()?.path))return false;
+    const binding=terminalTask(source);if(!binding||binding.inherited)return false;
+    const target=destination?terminalTask(destination):null;
+    if(destination&&!target)return false;
+    if(target&&target.objective.id!==binding.objective.id)throw new Error('Move a task within its Objective.');
+    const o=binding.objective,task=binding.task,scope={...context()};
+    let parent=null,before=null;
+    if(target){
+      parent=relation==='child'||target.inherited?target.task:taskParent(target.task,o);
+      if(relation!=='child'&&!target.inherited){
+        const siblings=(parent?parent.children:o.tasks).filter(t=>t.id!==task.id);
+        before=placeBefore?target.task.id:siblings[siblings.indexOf(target.task)+1]?.id||null;
+      }
+    }
+    await change({type:'task-move',objective_id:o.id,task_id:task.id,parent_id:parent?.id||null,before_id:before},{scope});
+    if(key(context())===key(scope))bridge.refreshTerminals?.();return true;
+  }
   function associate(row) {return change({type:'worktree',objective_id:objective().id,path:row.path,label:row.label||row.name||row.path.split('/').pop(),repo:row.projectPath||row.path,branch:row.branch,kind:row.kind||'worktree'}).then(d=>{const o=d.objectives.find(o=>o.id===objective().id);state().tree[o.id]=o.worktrees.at(-1).id;persistView();return o.worktrees.at(-1);});}
   function terminalIdentity(t) {return t.session_id||t.name;}
   function terminalLink(t) {return t.objective_placeholder?{objective_id:t.objective_id,task_id:t.task_id,main:t.main}:data()?.terminal_links[terminalIdentity(t)];}
@@ -878,7 +960,7 @@
     const fixed=new Set(sessions.filter(t=>terminalMain(t)).map(t=>t.logical_name));
     for(const child of Object.keys(parents))if(fixed.has(child))delete parents[child];
     const find=(o,task)=>sessions.find(t=>terminalObjective(t)?.id===o.id&&terminalLink(t)?.task_id===task.id);
-    for(const o of data()?.objectives||[])for(const parent of o.tasks){
+    for(const o of data()?.objectives||[])for(const parent of tasks(o)){
       const terminal=find(o,parent);if(!terminal)continue;
       for(const child of parent.children){const sub=find(o,child);if(!sub||parents[sub.logical_name])continue;
         let ancestor=terminal.logical_name;const seen=new Set();while(parents[ancestor]&&!seen.has(ancestor)){seen.add(ancestor);ancestor=parents[ancestor];}
@@ -897,7 +979,8 @@
   }
   function terminalExpanded(t) {
     const link=terminalLink(t),o=terminalObjective(t),task=tasks(o).find(task=>task.id===link?.task_id);if(!task)return undefined;
-    const selected=focusedTask();return o?.id===objective()?.id&&(selected?.id===task.id||task.children.some(child=>child.id===selected?.id));
+    const selected=focusedTask(),contains=rows=>rows.some(child=>child.id===selected?.id||contains(child.children));
+    return o?.id===objective()?.id&&(selected?.id===task.id||contains(task.children));
   }
   const openingTerminals=new Map();
   async function openMainTerminal(kind,objectiveId) {
@@ -1013,8 +1096,8 @@
     event.preventDefault();event.stopImmediatePropagation();closeTaskStatusMenu();
     const scope={...context()},oid=o.id,anchor=row.querySelector('[data-open-task]'),status=taskStatus(task);
     const menu=document.createElement('div');taskStatusMenu=menu;menu.className='objective-task-status-menu';menu.setAttribute('role','menu');menu.setAttribute('aria-label','Status for '+task.title);
-    menu.innerHTML=`<div class="objective-task-status-menu-title">${esc(task.title)}</div>`+['done','todo','in_progress','paused','wont_do'].map(s=>`<button type="button" role="menuitemradio" aria-checked="${status===s}" data-set-task-status="${s}"><span class="objective-task-status-icon" data-task-status="${s}" aria-hidden="true">${taskStatuses[s].icon}</span><span>Set to ${taskStatuses[s].label.toLowerCase()}</span></button>`).join('');
-    menu.addEventListener('click',e=>{const button=e.target.closest('[data-set-task-status]');if(!button)return;const next=button.dataset.setTaskStatus;closeTaskStatusMenu();void change({type:'task-update',objective_id:oid,task_id:task.id,status:next},{scope,optimistic:d=>{const owner=d?.objectives.find(o=>o.id===oid);if(owner)patchTaskStatus(owner,task.id,next);}}).catch(()=>{});});
+    menu.innerHTML=`<div class="objective-task-status-menu-title">${esc(task.title)}</div>`+['done','todo','in_progress','paused','wont_do'].map(s=>`<button type="button" role="menuitemradio" aria-checked="${status===s}" data-set-task-status="${s}"><span class="objective-task-status-icon" data-task-status="${s}" aria-hidden="true">${taskStatuses[s].icon}</span><span>Set to ${taskStatuses[s].label.toLowerCase()}</span></button>`).join('')+`<button type="button" role="menuitem" class="objective-task-delete" data-delete-task>Delete task…</button>`;
+    menu.addEventListener('click',e=>{if(e.target.closest('[data-delete-task]')){closeTaskStatusMenu();void deleteTask(task.id);return;}const button=e.target.closest('[data-set-task-status]');if(!button)return;const next=button.dataset.setTaskStatus;closeTaskStatusMenu();void change({type:'task-update',objective_id:oid,task_id:task.id,status:next},{scope,optimistic:d=>{const owner=d?.objectives.find(o=>o.id===oid);if(owner)patchTaskStatus(owner,task.id,next);}}).catch(()=>{});});
     menu.addEventListener('keydown',e=>{
       const rows=[...menu.querySelectorAll('button')],at=rows.indexOf(document.activeElement);
       if(e.key==='Escape'){e.preventDefault();closeTaskStatusMenu();anchor?.focus({preventScroll:true});}
@@ -1065,6 +1148,7 @@
     if(node.hasAttribute('data-archive-objective-asset')||node.hasAttribute('data-restore-objective-asset')){void change({type:'asset-bucket',objective_id:objective().id,...JSON.parse(node.dataset.archiveObjectiveAsset||node.dataset.restoreObjectiveAsset),bucket:node.hasAttribute('data-archive-objective-asset')?'archive':'unassigned'}).catch(()=>{});return;}
     if(node.hasAttribute('data-show-unassigned')){collapse();Object.assign(overviewState(),{mode:'unassigned',query:''});persistView();renderOverview();return;}
     if(node.hasAttribute('data-task-document-mode')){const draft=taskDocumentDraft();if(draft)setDraftEditMode(draft,node.dataset.taskDocumentMode==='edit');return;}
+    if(node.dataset.deleteObjectiveTask){void deleteTask(node.dataset.deleteObjectiveTask);return;}
     if(node.dataset.editObjectiveTask){const draft=taskDocumentDraft();if(draft&&!draftEditable(draft))return;const task=tasks().find(t=>t.id===node.dataset.editObjectiveTask);draftEditDialog(draft,form('Edit task',input('Task','title',task.title)+(window.LabTaskSchedule?.fields(task)||input('Due date','due',task.due||'','date',false)),async values=>{requireDraftEditing(draft);await change({type:'task-update',objective_id:objective().id,task_id:task.id,title:values.get('title'),...(window.LabTaskSchedule?.read(values)||{due:values.get('due')})});}));return;}
     if(node.dataset.openTask){if(node.tagName==='A'&&(e.metaKey||e.ctrlKey||e.shiftKey||e.altKey))return;e.preventDefault();openTask(node.dataset.openTask,{activateTerminal:true});return;}
     if(node.dataset.scheduleTask){const o=objective(),scope={...context()},task=tasks(o).find(t=>t.id===node.dataset.scheduleTask);window.LabTaskSchedule?.edit(task,values=>change({type:'task-update',objective_id:o.id,task_id:task.id,...values},{scope}));return;}
@@ -1178,7 +1262,7 @@
       e.dataTransfer.setData(window.LabTaskContext.mime,JSON.stringify(payload));e.dataTransfer.setData('text/plain',window.LabTaskContext.format(payload));e.dataTransfer.effectAllowed='all';
     }catch{notify('Some Objective references are unavailable. Check its assets before passing it to the agent.',true);}return;}
     const o=objective(),taskNode=e.target.closest?.('[data-open-task]'),task=taskNode&&tasks(o).find(t=>t.id===taskNode.dataset.openTask);
-    if(task){try{const payload=taskContext(task,o),prompt=window.LabTaskContext.format(payload);if(!dragReference(e.dataTransfer,window.LabTaskContext.references(payload)))throw new Error('Unavailable reference');e.dataTransfer.setData(window.LabTaskContext.mime,JSON.stringify(payload));e.dataTransfer.setData('text/plain',prompt);e.dataTransfer.setData(resourceMime,JSON.stringify({scope:key(context()),objective_id:o.id,task_id:task.id}));}catch{e.preventDefault();notify('Some task assets are unavailable. Check its assets before passing it to the agent.',true);}return;}
+    if(task){e.dataTransfer.setData(taskMoveMime,JSON.stringify({scope:key(context()),objective_id:o.id,task_id:task.id}));try{const payload=taskContext(task,o),prompt=window.LabTaskContext.format(payload);if(!dragReference(e.dataTransfer,window.LabTaskContext.references(payload)))throw new Error('Unavailable reference');e.dataTransfer.setData(window.LabTaskContext.mime,JSON.stringify(payload));e.dataTransfer.setData('text/plain',prompt);e.dataTransfer.setData(resourceMime,JSON.stringify({scope:key(context()),objective_id:o.id,task_id:task.id}));e.dataTransfer.effectAllowed='all';}catch{e.dataTransfer.effectAllowed='move';}return;}
     const assetNode=e.target.closest?.('[data-objective-asset]');if(assetNode&&!assetNode.dataset.objectiveResource){const asset=JSON.parse(assetNode.dataset.objectiveAsset);if(dragReference(e.dataTransfer,assetInfo(asset)?.reference))e.dataTransfer.setData(resourceMime,JSON.stringify({scope:key(context()),objective_id:o.id,...assetTarget(asset)}));else e.preventDefault();return;}
     const row=e.target.closest?.('[data-objective-resource]');
     if(row&&o){const resource=o.resources.find(r=>r.id===row.dataset.objectiveResource);if(!dragReference(e.dataTransfer,resourceReference(resource,row.dataset.objectiveTab,row.dataset.objectiveSublink))) {e.preventDefault();return;}e.dataTransfer.setData(resourceMime,JSON.stringify({scope:key(context()),objective_id:o.id,resource_id:row.dataset.objectiveResource,tab_id:row.dataset.objectiveTab||null,sub_link_id:row.dataset.objectiveSublink||null}));return;}
@@ -1195,6 +1279,17 @@
   document.addEventListener('dragleave',e=>e.target.closest?.('[data-objective-slot]')?.classList.remove('objective-drop-target'));
   document.addEventListener('dragend',()=>document.querySelectorAll('.objective-drop-target').forEach(n=>n.classList.remove('objective-drop-target')));
   const linkDropSelector='[data-task-id],[data-task-icon],[data-objective-asset],[data-objective-resource],[data-objective-root],[data-objective-worktree],[data-objective-bucket],.objective-archive,[data-objectives-sidebar] [data-select-objective],[data-objectives-sidebar] [data-open-objective-tasks],#sidebar [data-entry-kind],[data-open-file][data-filepath],#termSessionList .sess';
+  const taskMoveTarget='.objective-sidebar-task,.objective-task-row,[data-open-objective-tasks]';
+  document.addEventListener('dragover',event=>{
+    if(!active(context()?.path)||!event.dataTransfer.types.includes(taskMoveMime))return;
+    const target=event.target.closest?.(taskMoveTarget);if(!target)return;
+    event.preventDefault();event.stopImmediatePropagation();event.dataTransfer.dropEffect='move';target.classList.add('objective-drop-target');
+  },true);
+  document.addEventListener('drop',event=>{
+    if(!active(context()?.path))return;const raw=event.dataTransfer.getData(taskMoveMime),target=event.target.closest?.(taskMoveTarget);if(!raw||!target)return;
+    event.preventDefault();event.stopImmediatePropagation();target.classList.remove('objective-drop-target');
+    try{moveTaskDrop(JSON.parse(raw),target.dataset.taskId);}catch(error){notify(error.message,true);}
+  },true);
   document.addEventListener('dragover',e=>{if(!active(context()?.path))return;const draft=taskDocumentDraft();if(e.target.closest?.('.objective-task-mode-head')&&draft&&!draftEditable(draft)){e.preventDefault();e.stopImmediatePropagation();e.dataTransfer.dropEffect='none';return;}const target=e.target.closest?.(linkDropSelector);if(e.dataTransfer.types.includes('application/x-lab-terminal')&&e.target.closest('#content,.assistant-inline-host')&&!e.target.closest('#sidebar')){e.preventDefault();e.stopImmediatePropagation();e.dataTransfer.dropEffect='none';return;}if(target&&[resourceMime,documentMime,'application/x-lab-file-path','application/x-lab-terminal',...(target.classList.contains('sess')?[objectiveMime]:[]),...(target.closest('[data-task-id],[data-objective-bucket]')?['text/uri-list','application/x-lab-reference']:[])].some(m=>e.dataTransfer.types.includes(m))){e.preventDefault();e.dataTransfer.dropEffect='link';if(target.hasAttribute('data-task-id'))target.classList.add('objective-drop-target');}},true);
   document.addEventListener('dragleave',e=>{const row=e.target.closest?.('[data-task-id]');if(row&&!row.contains(e.relatedTarget))row.classList.remove('objective-drop-target');});
   document.addEventListener('drop',e=>{
@@ -1238,7 +1333,8 @@
     }catch(error){notify(error.message,true);}
   },true);
   window.LabObjectives={connect(adapter){bridge=adapter;startRefreshing();},load,active,sidebarHtml,paint,worktrees,tree,associate,terminalHtml,taskForTerminal,openForTerminal,collapse,progress,complete,change,selectObjective,renderTasks,tabsHtml,showAll,terminalLaunchContext,associateNewTerminal,
-    terminalSessions,terminalParents,terminalExpanded,terminalMain,openMainTerminal,openTaskTerminal,terminalTaskNameHtml,terminalWorktreeColor,terminalColor,sidebarMode,recentScopes,
+    terminalSessions,terminalParents,terminalExpanded,terminalMain,openMainTerminal,openTaskTerminal,terminalTaskNameHtml,terminalWorktreeColor,terminalColor,sidebarMode,recentScopes,moveForTerminalDrop,
+    syncTerminalHierarchy(){if(active(context()?.path))bridge.syncTaskHierarchy?.(data());},
     terminalTaskContext(t){const binding=terminalTask(t);return binding?taskContext(binding.task,binding.objective):null;},
     childTerminalAssociation(t){const o=terminalObjective(t);return !active(context()?.path)?null:o?{context:{...context()},objective_id:o.id,view:'tasks'}:{context:{...context()},view:'workflow'};},
     findTaskTerminal(sessions,target){return sessions.find(t=>{if(target.main==='workflow')return terminalMain(t)?.kind==='workflow';const link=terminalLink(t);return link?.objective_id===target.objective_id&&(target.task_id?link.task_id===target.task_id:terminalMain(t)?.kind==='objective');});},

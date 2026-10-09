@@ -85,7 +85,7 @@ body.sidebar-drawer-enabled:not(.sidebar-drawer-open) [data-project-sidebar][dat
 .objective-asset-tools button:hover { color:var(--accent); }
 .objective-sidebar-task-list { display:grid; grid-auto-rows:32px; align-content:start; min-height:calc(var(--objective-task-rows) * 32px); padding:0 12px; }
 .objective-sidebar-task { display:flex; gap:5px; align-items:center; min-width:0; border:1px solid transparent; border-radius:4px; font-size:12px; }
-.objective-sidebar-task.child { margin-left:17px; }
+.objective-sidebar-task.child { margin-left:calc(17px * var(--objective-task-depth,1)); }
 .objective-sidebar-task.active { border-color:var(--accent); background:color-mix(in srgb,var(--accent) 12%,var(--bg-secondary)); }
 .objective-sidebar-task > button { display:flex; align-items:center; justify-content:center; flex-shrink:0; width:22px; border:0; background:none; padding:3px; cursor:pointer; color:var(--accent); }
 .objective-sidebar-task > button:empty { opacity:0; }
@@ -172,8 +172,8 @@ body.sidebar-drawer-enabled:not(.sidebar-drawer-open) [data-project-sidebar][dat
 .objective-library-focus { font-size:11px; color:var(--text-secondary); min-width:44px; }
 .objective-task-progress { display:flex; align-items:center; gap:8px; margin:18px 0 12px; font-size:12px; }
 .objective-task-progress .objective-progress { margin-left:0; }
-.objective-task-row { display:grid; grid-template-columns:16px minmax(0,1fr) 23px 115px 20px; align-items:center; gap:6px; min-height:32px; border-bottom:1px solid var(--border); font-size:12px; }
-.objective-task-row.child { padding-left:22px; }
+.objective-task-row { display:grid; grid-template-columns:16px minmax(0,1fr) 23px 115px 20px 42px; align-items:center; gap:6px; min-height:32px; border-bottom:1px solid var(--border); font-size:12px; }
+.objective-task-row.child { padding-left:calc(22px * var(--objective-task-depth,1)); }
 .objective-task-row input[type=checkbox] { margin:0; accent-color:var(--accent); }
 .objective-task-row input[type=date] { background:transparent; color:var(--text-secondary); font:11px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; border:0; width:115px; }
 .objective-task-row button { padding:0; border:0; }
@@ -257,3 +257,6 @@ body.sidebar-drawer-enabled:not(.sidebar-drawer-open) [data-project-sidebar][dat
 .objective-terminal-group[data-objective-active=false] .term-main-terminal .sess-icon { color:var(--text-secondary); }
 .term-sessions-horizontal .objective-terminal-rows,.term-sessions-horizontal .objective-terminal-worktree { flex-direction:row; align-items:center; }
 .term-sessions-horizontal .objective-terminal-worktree + .objective-terminal-worktree { margin-top:0; margin-left:4px; }
+.objective-task-delete { color:#ff7b72 !important; }
+.objective-dialog .objective-task-delete { border-color:#ff7b72; }
+.objective-dialog .objective-task-delete:disabled { opacity:.45; }

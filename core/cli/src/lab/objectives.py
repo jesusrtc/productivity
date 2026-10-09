@@ -64,12 +64,11 @@ def load(root, workspace_id, *, _locked=False):
     _slot_colors(data)
     if not _locked:
         for objective in data['objectives']:
-            for parent in objective['tasks']:
-                for task in [*parent['children'], parent]:
-                    if task.get('done') and task_checklists.counts(_task_body(folder, objective, task))['pending']:
-                        _set_task_status(task, 'in_progress' if task['children'] else 'todo')
-                if parent.get('done') and any(not child.get('done') and child.get('status') != 'wont_do' for child in parent['children']):
-                    _set_task_status(parent, _children_status(parent['children']))
+            for task in reversed(_tasks(objective)):
+                if task.get('done') and task_checklists.counts(_task_body(folder, objective, task))['pending']:
+                    _set_task_status(task, 'in_progress' if task['children'] else 'todo')
+                if task.get('done') and any(not child.get('done') and child.get('status') != 'wont_do' for child in task['children']):
+                    _set_task_status(task, _children_status(task['children']))
     return {**data, 'revision': saved_revision}
 
 
@@ -103,7 +102,20 @@ def _find(rows, key):
 
 
 def _tasks(objective):
-    return [task for parent in objective['tasks'] for task in [parent, *parent['children']]]
+    return [task for task, _ in _task_tree(objective['tasks'])]
+
+
+def _task_tree(rows, parent=None, depth=0):
+    if rows and depth > 32:
+        raise ValueError('Task hierarchy supports up to 32 nested levels')
+    for task in rows:
+        yield task, parent
+        yield from _task_tree(task.get('children', []), task, depth+1)
+
+
+def _validate_task_tree(objective):
+    task_cycles.validate_tree([task | {'parent_id':parent['id'] if parent else None}
+                              for task, parent in _task_tree(objective['tasks'])])
 
 
 def _set_task_status(task, status):
@@ -506,22 +518,20 @@ def _task_body(folder, objective, task):
 
 
 def _settle_tasks(folder, objective):
-    task_cycles.validate_tree([t | {'parent_id':parent['id'] if t is not parent else None}
-                              for parent in objective['tasks'] for t in [parent, *parent['children']]])
-    for parent in objective['tasks']:
-        for task in [*parent['children'], parent]:
-            if task.get('done') and task_checklists.counts(_task_body(folder, objective, task))['pending']:
-                _set_task_status(task, 'todo')
-            if task is parent and task['children']:
-                status = _children_status(task['children'])
-                if status == 'done' and task_checklists.counts(_task_body(folder, objective, task))['pending']:
-                    status = 'in_progress'
-                if parent.get('status') != 'in_progress' or status == 'done':
-                    _set_task_status(parent, status)
-            if task.get('done'):
-                task_cycles.completed(task)
-            else:
-                task_cycles.reopened(task)
+    _validate_task_tree(objective)
+    for task in reversed(_tasks(objective)):
+        if task.get('done') and task_checklists.counts(_task_body(folder, objective, task))['pending']:
+            _set_task_status(task, 'todo')
+        if task['children']:
+            status = _children_status(task['children'])
+            if status == 'done' and task_checklists.counts(_task_body(folder, objective, task))['pending']:
+                status = 'in_progress'
+            if task.get('status') != 'in_progress' or status == 'done':
+                _set_task_status(task, status)
+        if task.get('done'):
+            task_cycles.completed(task)
+        else:
+            task_cycles.reopened(task)
 
 
 def refresh_recurring(root, workspace_id, *, now=None):
@@ -531,7 +541,7 @@ def refresh_recurring(root, workspace_id, *, now=None):
         preview = objective_store.read(folder)
         candidates = any(t.get('done') and isinstance(t.get('recurrence'), dict) and (task_cycles.ready(t, now=now)
             or not t.get('recurrence_next_due')
-            or any(task_checklists.counts(_task_body(folder, o, item))['pending'] for item in [t,*t['children']]))
+            or any(task_checklists.counts(_task_body(folder, o, item))['pending'] for item, _ in _task_tree([t])))
             for o in preview['objectives'] for t in _tasks(o))
     if not candidates:
         return False
@@ -541,11 +551,11 @@ def refresh_recurring(root, workspace_id, *, now=None):
         for objective in data['objectives']:
             if not any(task.get('done') and isinstance(task.get('recurrence'), dict) and
                        (not task.get('recurrence_next_due') or task_cycles.ready(task, now=now) or
-                        any(task_checklists.counts(_task_body(folder, objective, item))['pending'] for item in [task,*task['children']]))
+                        any(task_checklists.counts(_task_body(folder, objective, item))['pending'] for item, _ in _task_tree([task])))
                        for task in _tasks(objective)):
                 continue
             for task in _tasks(objective):
-                branch = [task, *task['children']]
+                branch = [item for item, _ in _task_tree([task])]
                 if not task.get('done') or not task_cycles.ready(task, now=now) or any(task_checklists.counts(_task_body(folder, objective, item))['pending'] for item in branch):
                     continue
                 # Read every affected file before writing any of them. Reset
@@ -704,8 +714,206 @@ def _task_details(folder, objective, task, parent=None, resource_id=None):
     task.update(document_id=resource['id'], tab_id=tab_id)
 
 
-def mutate(root, workspace_id, action, expected=None):
+def _task_delete_plan(folder, data, action):
+    """Resolve exclusive branch ownership before any files or sessions change."""
+    objective = _find(data['objectives'], action.get('objective_id'))
+    task = _find(_tasks(objective), action.get('task_id')) if objective else None
+    if not task:
+        raise ValueError('Task not found')
+    branch = [t for t, _ in _task_tree([task])]
+    ids = {t['id'] for t in branch}
+    links = data['terminal_links']
+    parents = action.get('terminal_parents', {})
+    if not isinstance(parents, dict) or len(parents) > 4096 or any(
+            not isinstance(k, str) or not isinstance(v, str) for k, v in parents.items()):
+        raise ValueError('Invalid terminal hierarchy')
+    terminal_ids = {sid for sid, link in links.items() if link.get('objective_id') == objective['id']
+                    and not link.get('main') and link.get('task_id') in ids}
+    def include_children():
+        changed = True
+        while changed:
+            changed = False
+            for child, parent in parents.items():
+                link = links.get(child, {})
+                if (parent in terminal_ids and child not in terminal_ids
+                        and link.get('objective_id') == objective['id']
+                        and not any(link.get(k) for k in ('main', 'task_id'))):
+                    terminal_ids.add(child)
+                    changed = True
+    include_children()
+    selected = [{'resource_id':t['document_id'], 'tab_id':t['tab_id']} for t in branch]
+    selected += [a for t in branch for a in t.get('assets', [])]
+    surviving = [t for t in _tasks(objective) if t['id'] not in ids]
+    retained = [{'resource_id':t['document_id'], 'tab_id':t['tab_id']} for t in surviving]
+    retained += [a for t in surviving for a in t.get('assets', [])]
+    retained += [a for field in ('shared_assets', 'archived_assets', 'asset_shelf', 'trashed_assets')
+                 for a in objective.get(field, [])]
+    # Terminals with independent ownership also keep their referenced assets.
+    retained += [link for sid, link in links.items()
+                 if link.get('objective_id') == objective['id'] and sid not in terminal_ids
+                 and link.get('resource_id')]
+    selected_resources = {a.get('resource_id') for a in selected}
+    protected_paths = {(Path(r.get('file_root') or folder) / r['path']).resolve()
+        for owner in data['objectives'] for r in owner['resources']
+        if r['kind'] in {'file', 'document', 'notebook'}
+        and (owner['id'] != objective['id'] or r['id'] not in selected_resources)}
+    remove_resources, remove_tabs, remove_sublinks, edits, files = set(), {}, {}, {}, []
+    for resource in objective['resources']:
+        rid = resource['id']
+        attached = [a for a in selected if a.get('resource_id') == rid]
+        if not attached:
+            continue
+        kept = [a for a in retained if a.get('resource_id') == rid]
+        if resource['kind'] in {'document', 'notebook'} and _owned_path(folder, resource).resolve() in protected_paths:
+            kept.append({'resource_id':rid})
+        whole = any(not a.get('tab_id') and not a.get('sub_link_id') for a in attached)
+        if resource['kind'] == 'document':
+            path = _owned_path(folder, resource)
+            original = path.read_bytes()
+            owner, body, tabs = assistant_documents.unpack(original)
+            removed = {a['tab_id'] for a in attached if a.get('tab_id')
+                       and not any(_covers(k, _asset_target(a)) for k in kept)}
+            # A separate, unassociated subtab survives; only selected task and
+            # asset tabs disappear. Reparent survivors out of deleted tabs.
+            boilerplate = '# Task details\n\nOpen a task subtab to read its context.'
+            if not kept and (whole or resource.get('task_document') and body.strip() == boilerplate
+                             and all(m['id'] in removed for m, _ in tabs)):
+                remove_resources.add(rid)
+                files.append(path)
+                continue
+            if removed:
+                parents = {m['id']:m.get('parent', {}).get('id', owner['id']) for m, _ in tabs}
+                remaining = []
+                for meta, text in tabs:
+                    if meta['id'] in removed:
+                        continue
+                    parent, seen = parents[meta['id']], set()
+                    while parent in removed and parent not in seen:
+                        seen.add(parent)
+                        parent = parents.get(parent, owner['id'])
+                    if parent != parents[meta['id']]:
+                        meta = {**meta, 'parent':{'id':parent, 'type':'note'}}
+                    remaining.append((meta, text))
+                edits[path] = (original, assistant_documents.pack(owner, body, remaining))
+                remove_tabs[rid] = removed
+        elif whole and not kept:
+            remove_resources.add(rid)
+            if resource['kind'] == 'notebook':
+                files.append(_owned_path(folder, resource))
+        elif resource['kind'] == 'link':
+            removed = set()
+            for asset in attached:
+                if not asset.get('sub_link_id'):
+                    continue
+                sublink = _find(list(_sublink_rows(resource)), asset['sub_link_id'])
+                descendants = {row['id'] for row in _sublink_rows({'sublinks':[sublink]})} if sublink else set()
+                if not any(not k.get('sub_link_id') or k['sub_link_id'] in descendants for k in kept):
+                    removed.update(descendants)
+            if removed:
+                remove_sublinks[rid] = removed
+    def removed_asset(asset):
+        rid = asset.get('resource_id')
+        return (rid in remove_resources or asset.get('tab_id') in remove_tabs.get(rid, set())
+                or asset.get('sub_link_id') in remove_sublinks.get(rid, set()))
+    terminal_ids.update(sid for sid, link in links.items() if link.get('objective_id') == objective['id']
+                        and not link.get('main') and not link.get('task_id') and removed_asset(link))
+    include_children()
+    review_token = revision({'revision':data.get('revision'), 'tasks':sorted(ids),
+        'terminals':sorted(terminal_ids), 'files':{str(p):hashlib.sha256(p.read_bytes()).hexdigest()
+            for p in [*files, *edits]}})
+    return {'objective':objective, 'task':task, 'title':task['title'], 'task_ids':ids,
+            'review_token':review_token,
+            'tasks':[{'id':t['id'], 'title':t['title']} for t in branch],
+            'resource_ids':remove_resources, 'tabs':remove_tabs, 'sublinks':remove_sublinks,
+            'edits':edits, 'files':files, 'terminal_ids':terminal_ids,
+            'removed_asset':removed_asset,
+            'external_terminal_ids':{sid for sid in terminal_ids if links[sid].get('source')}}
+
+
+def task_delete_preview(root, workspace_id, action):
     folder = directory(root, workspace_id)
+    with objective_store.lock(folder):
+        data = load(root, workspace_id, _locked=True)
+        plan = _task_delete_plan(folder, data, action)
+        return {'revision':data['revision'], 'review_token':plan['review_token'], 'title':plan['title'], 'tasks':plan['tasks'],
+                'terminal_ids':sorted(plan['terminal_ids'] - plan['external_terminal_ids']),
+                'files':[str(p.relative_to(folder)) for p in plan['files']],
+                'asset_count':len(plan['resource_ids']) + sum(map(len, plan['tabs'].values())) + sum(map(len, plan['sublinks'].values()))}
+
+
+def _commit_task_delete(folder, data, plan, delete_terminals):
+    before = deepcopy(data)
+    objective = plan['objective']
+    parent = next(p for t, p in _task_tree(objective['tasks']) if t is plan['task'])
+    (parent['children'] if parent else objective['tasks']).remove(plan['task'])
+    objective['resources'] = [r for r in objective['resources'] if r['id'] not in plan['resource_ids']]
+    def prune_sublinks(rows, removed):
+        return [{**row, 'sublinks':prune_sublinks(row.get('sublinks', []), removed)}
+                for row in rows if row['id'] not in removed]
+    for resource in objective['resources']:
+        if resource['id'] in plan['sublinks']:
+            resource['sublinks'] = prune_sublinks(resource.get('sublinks', []), plan['sublinks'][resource['id']])
+    _prune_assets(objective, plan['removed_asset'])
+    for owner in data['objectives']:
+        owner['assignment_suggestions'] = [s for s in owner.get('assignment_suggestions', [])
+            if not (s.get('destination', {}).get('objective_id', owner['id']) == objective['id']
+                    and s.get('destination', {}).get('task_id') in plan['task_ids'])]
+    for sid in plan['terminal_ids']:
+        data['terminal_links'].pop(sid, None)
+    staged, written, saving, closed = [], [], False, False
+    try:
+        # Stage exclusive files and retain original shared-document bytes so a
+        # refused terminal close or failed write cannot destroy task content.
+        for path in plan['files']:
+            if path.exists():
+                staged_path = path.with_name('.task-delete-' + identifier())
+                path.rename(staged_path)
+                staged.append((path, staged_path))
+        for path, (original, updated) in plan['edits'].items():
+            assistant_records.atomic_bytes(path, updated)
+            written.append((path, original))
+        _settle_tasks(folder, objective)
+        if delete_terminals:
+            delete_terminals(plan)
+            closed = True
+        saving = True
+        objective_store.save(folder, data)
+    except Exception:
+        for path, original in written:
+            assistant_records.atomic_bytes(path, original)
+        for path, staged_path in staged:
+            staged_path.rename(path)
+        if saving:
+            if closed:
+                for sid in plan['terminal_ids']:
+                    before['terminal_links'].pop(sid, None)
+            objective_store.save(folder, before)
+        raise
+    for _, staged_path in staged:
+        staged_path.unlink()
+
+
+def mutate(root, workspace_id, action, expected=None, *, delete_terminals=None, validate_delete=None):
+    folder = directory(root, workspace_id)
+    if action.get('type') == 'task-delete':
+        with workspace_identity.operation_lease(root, workspace_id), objective_store.lock(folder, write=True):
+            data = load(root, workspace_id, _locked=True)
+            if expected is None:
+                raise ValueError('Review the task deletion before confirming it')
+            if data['revision'] != expected:
+                raise ValueError('Objectives changed elsewhere. Review the deletion again.')
+            plan = _task_delete_plan(folder, data, action)
+            if action.get('review_token') != plan['review_token']:
+                raise ValueError('Task content changed elsewhere. Review the deletion again.')
+            if action.get('confirmed') is not True or action.get('confirm_title') != plan['title']:
+                raise ValueError('Confirm deletion and type the exact task name')
+            if plan['terminal_ids'] and delete_terminals is None:
+                raise ValueError('Delete this task through Lab so its terminals can be closed')
+            if validate_delete:
+                validate_delete(plan)
+            data.pop('revision')
+            _commit_task_delete(folder, data, plan, delete_terminals)
+        return payload(root, workspace_id)
     with workspace_identity.operation_lease(root, workspace_id), objective_store.lock(folder, write=True):
         data = load(root, workspace_id, _locked=True)
         if expected is not None and data['revision'] != expected:
@@ -905,7 +1113,7 @@ def mutate(root, workspace_id, action, expected=None):
                         owner, body, tabs = assistant_documents.unpack(destination.read_bytes())
                         assistant_records.atomic_bytes(destination, assistant_documents.pack({**owner, 'title':resource['title']}, body, tabs))
         elif operation == 'task':
-            parent = _find(objective['tasks'], action.get('parent_id')) if action.get('parent_id') else None
+            parent = _find(_tasks(objective), action.get('parent_id')) if action.get('parent_id') else None
             if action.get('parent_id') and parent is None:
                 raise ValueError('Parent task not found')
             task = {'id': identifier(), 'title': _text(action.get('title')), 'done': False, 'status': 'todo', 'due': _date(action.get('due')), 'children': []}
@@ -913,9 +1121,30 @@ def mutate(root, workspace_id, action, expected=None):
                 task_cycles.validate(action['recurrence'], task.get('due'))
                 task['recurrence'] = deepcopy(action['recurrence'])
             task_cycles.configure(task, action)
-            task_cycles.validate_tree([*(_t | {'parent_id':p['id'] if _t is not p else None} for p in objective['tasks'] for _t in [p, *p['children']]), task | {'parent_id':parent['id'] if parent else None}])
+            task_cycles.validate_tree([*(t | {'parent_id':p['id'] if p else None} for t, p in _task_tree(objective['tasks'])), task | {'parent_id':parent['id'] if parent else None}])
             _task_details(folder, objective, task, parent, action.get('document_id') or (parent or {}).get('document_id'))
             (parent['children'] if parent else objective['tasks']).append(task)
+        elif operation == 'task-move':
+            task = _find(_tasks(objective), action.get('task_id'))
+            parent = _find(_tasks(objective), action.get('parent_id')) if action.get('parent_id') else None
+            if task is None or action.get('parent_id') and parent is None:
+                raise ValueError('Task or parent task not found')
+            if parent and parent['id'] in {t['id'] for t, _ in _task_tree([task])}:
+                raise ValueError('A task cannot be moved into itself or its descendants')
+            siblings = parent['children'] if parent else objective['tasks']
+            anchor = _find(siblings, action.get('before_id')) if action.get('before_id') else None
+            if action.get('before_id') and (anchor is None or anchor is task):
+                raise ValueError('Choose another task in the destination list')
+            previous_parent = next(p for t, p in _task_tree(objective['tasks']) if t is task)
+            (previous_parent['children'] if previous_parent else objective['tasks']).remove(task)
+            siblings.insert(siblings.index(anchor) if anchor else len(siblings), task)
+            _validate_task_tree(objective)
+            resource = _find(objective['resources'], task['document_id'])
+            target = _owned_path(folder, resource)
+            owner, body, tabs = assistant_documents.unpack(target.read_bytes())
+            parent_tab = parent['tab_id'] if parent and parent['document_id'] == resource['id'] else owner['id']
+            tabs = [({**meta, 'parent':{'id':parent_tab, 'type':'note'}} if meta['id'] == task['tab_id'] else meta, text) for meta, text in tabs]
+            assistant_records.atomic_bytes(target, assistant_documents.pack(owner, body, tabs))
         elif operation in {'task-update', 'task-asset', 'task-remove-asset'}:
             task = _find(_tasks(objective), action.get('task_id'))
             if task is None:
@@ -927,7 +1156,7 @@ def mutate(root, workspace_id, action, expected=None):
                 task_cycles.validate(action['recurrence'], task.get('due'))
                 task['recurrence'] = deepcopy(action['recurrence'])
             task_cycles.configure(task, action, previous)
-            task_cycles.validate_tree([t | {'parent_id':p['id'] if t is not p else None} for p in objective['tasks'] for t in [p, *p['children']]])
+            _validate_task_tree(objective)
             if operation == 'task-asset':
                 if 'choose_icon' in action and type(action['choose_icon']) is not bool:
                     raise ValueError('Icon selection must be a boolean')
@@ -957,13 +1186,13 @@ def mutate(root, workspace_id, action, expected=None):
                 if 'done' in action and action['done'] != (status == 'done'):
                     raise ValueError('Task status and completion must agree')
                 if status == 'done':
-                    for item in [task, *task['children']]:
+                    for item, _ in _task_tree([task]):
                         task_checklists.require_complete(_task_body(folder, objective, item))
                 _set_task_status(task, status)
                 if status != 'in_progress':
-                    for child in task['children']:
+                    for child in _tasks({'tasks':task['children']}):
                         _set_task_status(child, status)
-                parent = next((p for p in objective['tasks'] if task in p['children']), None)
+                parent = next((p for p in _tasks(objective) if task in p['children']), None)
                 if parent:
                     children = parent['children']
                     _set_task_status(parent, _children_status(children))
@@ -1073,14 +1302,14 @@ def mutate(root, workspace_id, action, expected=None):
                 data['terminal_links'][name]['main'] = 'objective'
         elif operation == 'remove-resource':
             resource_id = action.get('resource_id')
-            if any(t['document_id'] == resource_id for p in objective['tasks'] for t in [p, *p['children']]):
+            if any(t['document_id'] == resource_id for t in _tasks(objective)):
                 raise ValueError('A task still needs this document')
             objective['resources'] = [r for r in objective['resources'] if r['id'] != resource_id]
             _prune_assets(objective, lambda a: a.get('resource_id') == resource_id)
             # Preserve owned files so unlinking never destroys user content.
         else:
             raise ValueError('Unsupported objective action')
-        if objective and operation in {'task', 'task-update', 'document'}:
+        if objective and operation in {'task', 'task-update', 'task-move', 'document'}:
             _settle_tasks(folder, objective)
         objective_store.save(folder, data)
     return payload(root, workspace_id)

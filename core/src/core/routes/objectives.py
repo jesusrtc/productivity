@@ -37,6 +37,73 @@ class Action(BaseModel):
     action: dict = Field(default_factory=dict)
 
 
+def _task_terminal_rows(root, workspace_id, terminal_ids):
+    from core.routes import term
+    return [row for row in term._get_workspace_sessions(root, workspace_id)
+            if isinstance(row, dict) and row.get('session_id') in terminal_ids and not row.get('linked_task')]
+
+
+def _delete_task_terminals(request, root, workspace_id, plan, vault=None):
+    """Close only sessions verified to belong to this workspace and review."""
+    import subprocess
+    from core import terminal_requests, terminal_automation_lifecycle, terminal_automations
+    from core.routes import term, ui
+    rows = _task_terminal_rows(root, workspace_id, plan['terminal_ids'])
+    meta = term._load_meta(root)
+    targets = []
+    for row in rows:
+        owned = [(name, info) for name, info in meta.items()
+                 if info.get('workspace_id') == workspace_id and info.get('session_id') == row['session_id']]
+        name, info = owned[0] if owned else (term._tmux_name_for(workspace_id, row['name'], root), {})
+        existing = meta.get(name)
+        if existing and (existing.get('workspace_id') != workspace_id or existing.get('logical_name') != row['name']):
+            raise ValueError('Terminal ownership changed. Review the deletion again.')
+        socket = term._tmux_find_session_socket(name) if term._tmux_available() else None
+        if not term._tmux_available() and existing:
+            raise ValueError('Cannot close task terminals while tmux is unavailable')
+        targets.append((row, name, socket))
+    # Disable automatic default recreation before closing a selected session.
+    if targets:
+        ui.set_term_autospawn(ui.TermAutoSpawnState(workspace_id=workspace_id, vault=vault, enabled=False), request)
+    for row, name, socket in targets:
+        if socket:
+            try:
+                result = subprocess.run(term._tmux_command(socket, 'kill-session', '-t', name),
+                    capture_output=True, text=True, env=term._tmux_child_env(), timeout=5)
+            except subprocess.TimeoutExpired as exc:
+                raise ValueError('Timed out closing task terminal: ' + row['name']) from exc
+            if result.returncode and term._tmux_find_session_socket(name):
+                raise ValueError('Could not close task terminal: ' + row['name'])
+        meta.pop(name, None)
+        if row['name'] == 'server':
+            from core.routes import servers
+            servers.set_desired(root, workspace_id, 'stopped')
+    if targets:
+        term._save_meta(root, meta)
+        workspace = term._load_workspace(root, workspace_id)
+        workspace['sessions'] = [row for row in workspace.get('sessions', [])
+                                 if not isinstance(row, dict) or row.get('session_id') not in {r['session_id'] for r, _, _ in targets}]
+        term._save_workspace(root, workspace_id, workspace)
+        with terminal_automations.lock:
+            runs = terminal_automation_lifecycle.read(objectives.directory(root, workspace_id))
+            terminal_automation_lifecycle.save(objectives.directory(root, workspace_id),
+                {key:value for key,value in runs.items() if key not in {r['name'] for r, _, _ in targets}})
+        terminal_requests.forget([name for _, name, _ in targets])
+        term._invalidate_workspace_term_caches()
+
+
+@router.post('/task-delete-preview')
+def task_delete_preview(request: Request, body: Action):
+    auth.require_admin(request)
+    root = workspace_documents.workspace(request, body.workspace_id, body.vault)
+    try:
+        result = objectives.task_delete_preview(root, body.workspace_id, body.action)
+        result['terminal_ids'] = [row['session_id'] for row in _task_terminal_rows(root, body.workspace_id, result['terminal_ids'])]
+        return result
+    except (ValueError, OSError) as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
 @router.get('')
 def read(request: Request, workspace_id: str, vault: str | None = None):
     root = workspace_documents.workspace(request, workspace_id, vault)
@@ -109,7 +176,21 @@ def change(request: Request, body: Action):
                 terminal_workspace, terminal_vault = source['workspace_id'], source.get('vault')
             if action.get('rename_to_task') is True and not action.get('task_id'):
                 raise ValueError('Choose a task to name this terminal')
-        if action.get('type') == 'rename' and not action.get('tab_id'):
+        if action.get('type') == 'task-delete':
+            from core import notebook_kernel
+            # Hold the kernel guard through the mutation, preventing a new
+            # execution from starting while an owned notebook is removed.
+            with notebook_kernel._sessions_guard:
+                def validate(plan):
+                    if any(notebook_kernel.workspace_busy(root, path) for path in plan['files']):
+                        raise ValueError('Wait for this task’s notebooks to finish before deleting it')
+                def cleanup(plan):
+                    _delete_task_terminals(request, root, body.workspace_id, plan, body.vault)
+                    for path in plan['files']:
+                        notebook_kernel.shutdown_workspace(root, path)
+                result = objectives.mutate(root, body.workspace_id, action, body.expected,
+                                           delete_terminals=cleanup, validate_delete=validate)
+        elif action.get('type') == 'rename' and not action.get('tab_id'):
             from core import notebook_kernel
             from contextlib import nullcontext
             from lab import paths
@@ -128,7 +209,7 @@ def change(request: Request, body: Action):
             result = objectives.mutate(root, body.workspace_id, action, body.expected)
         if action.get('type') == 'terminal' and action.get('rename_to_task') is True:
             objective = next(o for o in result['objectives'] if o['id'] == action['objective_id'])
-            task = next(t for parent in objective['tasks'] for t in [parent, *parent['children']] if t['id'] == action['task_id'])
+            task = next(t for t in objectives._tasks(objective) if t['id'] == action['task_id'])
             term.update_session_metadata(term.SessionMetadata(workspace_id=terminal_workspace,
                 vault=terminal_vault, name=entry['name'], label=task['title']), request)
         return payload(request, root, body.workspace_id)

@@ -220,6 +220,11 @@ subtab in an objective-owned `Tasks.md` document. Subtask details nest beneath
 their parent's subtab. Clicking the task title opens those details as an
 independent working view. Editing one subtab preserves its siblings.
 
+Task branches can be promoted, nested or reordered by drag and drop, with their
+terminal hierarchy following. Delete task requires two confirmations and the
+exact task name. See [task moves and deletion](TASK-LIFECYCLE.md) for ownership,
+source preservation and failure behavior.
+
 The left task list opens task details on a normal click. In progress subtasks
 stay visible under every parent, even without hover or selection. Selecting a
 task also reveals its parent's other subtasks and displays its own assets beneath

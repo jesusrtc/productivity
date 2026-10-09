@@ -94,27 +94,31 @@ def _validate(value, target):
         if resource.get('kind') not in {'file', 'document', 'notebook', 'link', 'assistant'} or not isinstance(resource.get('title'), str):
             raise ValueError(f'{target}: Resource needs a supported kind and title')
     task_ids = set()
-    for parent in value['tasks']:
-        children = parent.setdefault('children', [])
+    pending = [(task, 0) for task in reversed(value['tasks'])]
+    while pending:
+        task, depth = pending.pop()
+        if depth > 32:
+            raise ValueError(f'{target}: Task hierarchy supports up to 32 nested levels')
+        children = task.setdefault('children', [])
         if not isinstance(children, list) or any(not isinstance(child, dict) for child in children):
             raise ValueError(f'{target}: Task children must be an array')
-        for task in [parent, *children]:
-            if not isinstance(task.get('id'), str) or not task['id'] or task['id'] in task_ids:
-                raise ValueError(f'{target}: Tasks need unique ids')
-            task_ids.add(task['id'])
-            if not isinstance(task.get('title'), str):
-                raise ValueError(f'{target}: Task needs a title')
-            task.setdefault('children', [])
-            task.setdefault('done', False)
-            if 'recurrence' in task:
-                task_cycles.validate(task['recurrence'], task.get('due'))
-            if 'status' in task:
-                if not isinstance(task['status'], str) or task['status'] not in {'todo', 'in_progress', 'done', 'paused', 'wont_do'}:
-                    raise ValueError(f'{target}: Task status must be todo, in_progress, done, paused or wont_do')
-                task['done'] = task['status'] == 'done'
-            if 'completed_at' in task and (type(task['completed_at']) not in {int, float}
-                    or not math.isfinite(task['completed_at']) or task['completed_at'] <= 0):
-                raise ValueError(f'{target}: Task completion time must be a positive timestamp')
+        pending.extend((child, depth+1) for child in reversed(children))
+        if not isinstance(task.get('id'), str) or not task['id'] or task['id'] in task_ids:
+            raise ValueError(f'{target}: Tasks need unique ids')
+        task_ids.add(task['id'])
+        if not isinstance(task.get('title'), str):
+            raise ValueError(f'{target}: Task needs a title')
+        task.setdefault('children', [])
+        task.setdefault('done', False)
+        if 'recurrence' in task:
+            task_cycles.validate(task['recurrence'], task.get('due'))
+        if 'status' in task:
+            if not isinstance(task['status'], str) or task['status'] not in {'todo', 'in_progress', 'done', 'paused', 'wont_do'}:
+                raise ValueError(f'{target}: Task status must be todo, in_progress, done, paused or wont_do')
+            task['done'] = task['status'] == 'done'
+        if 'completed_at' in task and (type(task['completed_at']) not in {int, float}
+                or not math.isfinite(task['completed_at']) or task['completed_at'] <= 0):
+            raise ValueError(f'{target}: Task completion time must be a positive timestamp')
     return value
 
 

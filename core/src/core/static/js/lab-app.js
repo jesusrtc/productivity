@@ -13382,7 +13382,56 @@
       return result;
     };
     const tabRoots=[...new Set((Array.isArray(raw?.tabRoots)?raw.tabRoots:[]).filter(id=>typeof id==='string'&&id&&id.length<=160))];
-    return {groups, order, membership, tabGroups, tabMembership, tabParents:links('tabParents'), tabAfter:links('tabAfter'),tabRoots,tabDisplayMains:links('tabDisplayMains'),tabDisplayMainVersion:raw?.tabDisplayMainVersion === 2 ? 2 : 1};
+    const taskHierarchy = raw?.taskHierarchy && typeof raw.taskHierarchy === 'object' ? raw.taskHierarchy : null;
+    const taskTerminals = raw?.taskTerminals && typeof raw.taskTerminals === 'object' ? raw.taskTerminals : {};
+    return {groups, order, membership, tabGroups, tabMembership, tabParents:links('tabParents'), tabAfter:links('tabAfter'),tabRoots,tabDisplayMains:links('tabDisplayMains'),tabDisplayMainVersion:raw?.tabDisplayMainVersion === 2 ? 2 : 1,taskHierarchy,taskTerminals};
+  }
+
+  function _termSyncTaskHierarchy(data) {
+    const state=_termReadGroupState(),hierarchy={},terminals={},reset=new Set();
+    const primary=new Map(Object.entries(data.terminal_links||{}).filter(([,link])=>link.task_id)
+      .map(([id,link])=>[link.objective_id+'/'+link.task_id,termSessions.find(s=>s.session_id===id)?.logical_name]));
+    for(const objective of data.objectives||[]){
+      function visit(rows,path=[]){rows.forEach((task,index)=>{
+        const id=objective.id+'/'+task.id,lineage=[...path,task.id+':'+index];
+        hierarchy[id]=JSON.stringify(lineage);
+        terminals[id]=[primary.get(id),'objective-terminal:'+objective.id+':'+task.id].filter(Boolean);
+        visit(task.children||[],lineage);
+      });}visit(objective.tasks||[]);
+    }
+    if(state.taskHierarchy)for(const id of new Set([...Object.keys(state.taskHierarchy),...Object.keys(hierarchy)])){
+      if(state.taskHierarchy[id]===hierarchy[id])continue;
+      for(const logical of [...(state.taskTerminals[id]||[]),...(terminals[id]||[])])reset.add(logical);
+    }
+    for(const logical of reset){delete state.tabParents[logical];delete state.tabMembership[logical];}
+    for(const field of ['tabAfter','tabDisplayMains'])for(const [child,parent] of Object.entries(state[field])){
+      if(reset.has(child)||reset.has(parent))delete state[field][child];
+    }
+    state.tabRoots=state.tabRoots.filter(logical=>!reset.has(logical));
+    if(JSON.stringify(state.taskHierarchy)!==JSON.stringify(hierarchy)||JSON.stringify(state.taskTerminals)!==JSON.stringify(terminals)||reset.size){
+      state.taskHierarchy=hierarchy;state.taskTerminals=terminals;_termWriteGroupState(state);
+    }
+  }
+
+  function _termTaskDeletionHierarchy() {
+    const byName=new Map(termSessions.map(s=>[s.logical_name,s.session_id]));
+    return Object.fromEntries(Object.entries(_termSubtabParents(_termReadGroupState(),termSessions))
+      .filter(([child,parent])=>byName.get(child)&&byName.get(parent))
+      .map(([child,parent])=>[byName.get(child),byName.get(parent)]));
+  }
+
+  async function _termTaskDeleted(ids) {
+    const workspace=_termActiveWorkspaceId(),scope=_termGroupScopeKey(),removed=new Set(ids);
+    const rows=termSessions.filter(s=>removed.has(s.session_id)),logical=new Set(rows.map(s=>s.logical_name)),state=_termReadGroupState();
+    for(const row of rows){if(row.name===termCurrentSession)termDetach();_termEvictCache(row.name,workspace);}
+    for(const field of ['tabParents','tabAfter','tabDisplayMains'])for(const [child,parent] of Object.entries(state[field])){
+      if(logical.has(child)||logical.has(parent))delete state[field][child];
+    }
+    for(const name of logical){delete state.tabMembership[name];delete state.membership[name];}
+    state.order=state.order.filter(token=>!logical.has(token.slice(2)));state.tabRoots=state.tabRoots.filter(name=>!logical.has(name));
+    _termWriteGroupState(state,scope);_termInvalidateSessionReads(scope);_termSessionsCache.delete(scope);
+    termSessions=termSessions.filter(s=>!removed.has(s.session_id));termRenderSessionList();
+    await _termRefreshSessionsForWorkspaceId(workspace);
   }
 
   function _termReadGroupState(scope = _termGroupScopeKey()) {
@@ -14709,6 +14758,7 @@
     }
     const el = document.getElementById('termSessionList');
     if (!el) return;
+    window.LabObjectives?.syncTerminalHierarchy?.();
     const groupState = _termReadGroupState();
     const viewSessions=_termIncludeVisibleSubtabs(window.LabObjectives?.terminalSessions?.(termSessions||[],{wipOnly:termWipOnly})||termSessions,termSessions,groupState);
     const pill=(session,index)=>session.objective_placeholder?_termTaskPlaceholderHtml(session):_termSessionPillHtml(session,index);
@@ -15127,6 +15177,14 @@
   async function termReorderItems(srcToken, dstToken, placeBefore, groupId, relation) {
     const groupState = _termPlanItemMove(_termReadGroupState(), srcToken, dstToken, placeBefore, groupId, relation);
     if (!groupState) { termRenderSessionList(); return false; }
+    if(srcToken.startsWith('s:')&&(!dstToken||dstToken.startsWith('s:'))){
+      try{
+        const source=termSessions.find(s=>s.logical_name===srcToken.slice(2)),destination=termSessions.find(s=>s.logical_name===dstToken?.slice(2));
+        if(await window.LabObjectives?.moveForTerminalDrop?.(source,destination,{relation,placeBefore})){
+          termRenderSessionList();return true;
+        }
+      }catch(error){explorerToast(error.message,true);termRenderSessionList();return false;}
+    }
     const current = groupState.order;
     _termWriteGroupState(groupState);
     window.labFeatureUsage?.(srcToken.startsWith('g:') ? 'Move terminal divider (drag and drop)' : 'Move terminal tab (drag and drop)');
@@ -21334,6 +21392,9 @@
     refreshSidebar: () => currentWorkspace?.is_workspace && _refreshWorkspaceSidebar({preserveScroll:true}),
     refreshRecent: () => _sidebarProjectRecent(),
     refreshTerminals: () => termRenderSessionList(),
+    syncTaskHierarchy: data => _termSyncTaskHierarchy(data),
+    taskDeletionHierarchy: () => _termTaskDeletionHierarchy(),
+    taskDeleted: ids => _termTaskDeleted(ids),
     activateLinkedTerminal: identities => _termActivateObjectiveTerminal(identities),
     sessions:()=>termSessions,
     workflowName:()=>_workspaceDisplayName(currentWorkspace),

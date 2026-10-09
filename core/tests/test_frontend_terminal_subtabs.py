@@ -225,6 +225,9 @@ window.fetch=async(url,options={})=>{if(options.method==='POST'){mutations.push(
 window.errors=[];window.addEventListener('error',e=>errors.push(e.error?.stack||e.message));window.addEventListener('unhandledrejection',e=>errors.push(String(e.reason)));
 const created=[];
 fixture.task_terminals=true;
+// This harness isolates manual terminal placement. Task-owned reparenting is
+// covered by test_frontend_task_hierarchy and the native Objective task flow.
+LabObjectives.moveForTerminalDrop=async()=>false;
 LabObjectives.connect({context:()=>({workspace_id:workspace,vault,path:'/workspace'}),refreshTabs:()=>document.querySelector('.repo-tabs').innerHTML=LabObjectives.tabsHtml('/workspace'),refreshTerminals:()=>termRenderSessionList(),prepareCenter:()=>{},scopeRoot:()=>'/workspace',fileIcon:fileIconHtml,
  sessions:()=>termSessions,parentTerminal:t=>termSessions.find(p=>p.logical_name===_termSubtabParents(_termReadGroupState(),termSessions)[t.logical_name]),
  activateLinkedTerminal:ids=>_termActivateObjectiveTerminal(ids),

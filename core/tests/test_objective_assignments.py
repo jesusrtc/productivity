@@ -40,7 +40,7 @@ def test_suggestions_only_add_review_records_and_rejected_pairs_stay_rejected(mo
     assert data['objectives'][0]['assignment_suggestions'][0]['status'] == 'rejected'
     data = propose(monorepo, oid, resource, tasks[0])
     assert len(data['objectives'][0]['assignment_suggestions']) == 1
-    assert data['objectives'][0]['tasks'] == before['tasks']
+    assert objectives.load(monorepo, 'demo')['objectives'][0]['tasks'] == before['tasks']
     data = propose(monorepo, oid, resource, tasks[1])
     assert len(data['objectives'][0]['assignment_suggestions']) == 2
 
