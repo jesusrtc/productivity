@@ -6,6 +6,7 @@ owning vault, workspace, and current Objective, independently of the selected
 Files checkout. Changing Objectives must update the Objective link even when
 the checkout stays the same. Keep selected-folder instructions separate.
 
-Open and highlight each file using both its root and relative path. Keep missing
-AGENTS.md files visible as unavailable rows; do not generate instruction files.
+Open and highlight each file using both its root and relative path. These are
+references only: show a scoped link only when its file exists, with no missing
+file placeholders. Do not generate instruction files.
 Existing CLAUDE.md and Copilot files remain visible at their respective roots.

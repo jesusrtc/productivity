@@ -7215,14 +7215,12 @@
   }
 
   function _agentInstructionRowsHtml(files, root, scope = '') {
-    const missing = scope && !files.some(f => f.path === 'AGENTS.md')
-      ? `<span class="sidebar-file sidebar-file-meta sidebar-agent-instructions-missing" aria-disabled="true" title="${escAttr(root + '/AGENTS.md — not found')}">${fileIconHtml('AGENTS.md')}<span class="sidebar-fname">${esc(scope)} AGENTS.md</span></span>` : '';
-    return missing + files.map(f => {
+    return files.filter(f => !scope || !f.broken).map(f => {
       const action = `openWorkspaceDoc(${JSON.stringify(f.path)}, {root:${JSON.stringify(root)}})`;
       const modalAction = `event.stopPropagation();openWorkspaceDocModal(${JSON.stringify(f.path)}, {root:${JSON.stringify(root)}})`;
       const activeCls = _workspaceDocRoot === root && _workspaceDocPath === f.path ? ' active' : '';
       return `<a class="sidebar-file sidebar-file-meta${activeCls}${symlinkClass(f)}" data-filepath="${escAttr(f.path)}" draggable="true" data-entry-kind="file" data-entry-root="${escAttr(root)}" data-entry-path="${escAttr(f.path)}"${symlinkTitle(f) || ` title="${escAttr(root + '/' + f.path)}"`} onclick="${escAttr(action)}" ondblclick="${escAttr(modalAction)}"><span class="sidebar-fname">${fileIconHtml(f.name, f)}${esc(scope ? scope + ' ' + f.path : f.path)}</span></a>`;
-    }).join('') || '<div class="sidebar-agent-instructions-note">No instruction files here.</div>';
+    }).join('') || (scope ? '' : '<div class="sidebar-agent-instructions-note">No instruction files here.</div>');
   }
 
   async function _populateAgentContextMeta(sidebar) {

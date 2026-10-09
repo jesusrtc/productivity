@@ -157,9 +157,9 @@ const termWS={readyState:WebSocket.OPEN},explorerToast=(...args)=>notices.push(a
  objectiveRoot=base+'/objectives/second';_sidebarProjectAgentContext(scopedView,base,folder);
  await new Promise(resolve=>setTimeout(resolve,0));
  assert(document.querySelector('[data-agent-instructions-scope="Objective"] a').dataset.entryRoot===objectiveRoot&&!document.querySelector('[data-agent-instructions-root="'+oldObjectiveRoot+'"]'),'Objective switches update instructions even when Files keeps the same worktree');
- window.fetch=async()=>({ok:true,json:async()=>[]});
+ window.fetch=async()=>({ok:true,json:async()=>[{name:'AGENTS.md',path:'AGENTS.md',broken:true}]});
  await _populateAgentContextMeta(scopedView.querySelector('[data-project-agent-context]'));
- assert(document.querySelectorAll('[data-agent-instructions-scope] [aria-disabled="true"]').length===3&&!document.querySelector('[data-agent-instructions-scope] a'),'missing AGENTS files keep labeled, unavailable rows without a create action');
+ assert([...document.querySelectorAll('[data-agent-instructions-scope]:not([data-agent-instructions-scope=""])')].every(slot=>!slot.textContent.trim()),'missing instruction files and broken links have no scoped shortcut or placeholder');
  window.fetch=async()=>({ok:true,json:async()=>[{name:'AGENTS.md',path:'AGENTS.md'}]});
  now+=5000;_sidebarProjectAgentContext(scopedView,base,folder);
  await new Promise(resolve=>setTimeout(resolve,0));
