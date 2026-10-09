@@ -3977,12 +3977,7 @@
         view = sidebar.querySelector('[data-project-sidebar]');
       }
     }
-    if (window.openAgentContext && !view.querySelector('[data-project-agent-context]')) {
-      const context = document.createElement('section');
-      context.dataset.projectAgentContext = '';
-      context.innerHTML = _agentContextRowHtml();
-      view.append(context);
-    }
+    if (window.openAgentContext) _sidebarProjectAgentContext(view, baseRoot, fileRoot);
     view._project = {baseRoot, fileRoot, generation};
     if (transition) transition.view = view;
     else _sidebarMarkPainted(baseRoot, fileRoot);
@@ -4004,6 +3999,8 @@
     const sidebar = document.getElementById('sidebar');
     sidebar.replaceChildren(view);
     _sidebarMarkPainted(view._project.baseRoot, view._project.fileRoot);
+    const context = view.querySelector('[data-project-agent-context]');
+    if (context) _populateAgentContextMeta(context);
   }
 
   function _sidebarProjectDirectory(host, view) {
@@ -7155,15 +7152,50 @@
 
   // Keep workspace instructions reachable when Files shows another folder.
   // These are current files, not evidence of a running provider's loaded context.
-  function _agentContextMetaHtml(baseRoot, fileRoot, baseLabel = 'Workspace instructions') {
-    const groups = [{root: baseRoot, label: baseLabel}];
-    if (fileRoot !== baseRoot) groups.push({root: fileRoot, label: 'Selected folder instructions'});
+  function _agentContextMetaHtml(baseRoot, fileRoot, baseLabel = 'Workspace instructions', instructionGroups = null) {
+    const groups = instructionGroups || [{root: baseRoot, label: baseLabel}];
+    if (!instructionGroups && fileRoot !== baseRoot) groups.push({root: fileRoot, label: 'Selected folder instructions'});
     return `<div class="sidebar-title" title="Instruction files on disk. Browsing another folder leaves a running agent's startup context unchanged.">Meta</div>
       ${_agentContextRowHtml()}`
       + groups.map(group => `<div class="sidebar-agent-instructions">
-        <div class="sidebar-agent-instructions-label" title="${escAttr(group.root)}">${esc(group.label)}</div>
-        <div data-agent-instructions-root="${escAttr(group.root)}"><div class="sidebar-agent-instructions-note">Loading…</div></div>
+        ${group.label ? `<div class="sidebar-agent-instructions-label" title="${escAttr(group.root)}">${esc(group.label)}</div>` : ''}
+        <div data-agent-instructions-root="${escAttr(group.root)}" data-agent-instructions-scope="${escAttr(group.scope || '')}"><div class="sidebar-agent-instructions-note">Loading…</div></div>
       </div>`).join('');
+  }
+
+  function _workspaceAgentContextGroups(baseRoot, fileRoot) {
+    const vaultRoot = _vaultForWorkspace(currentWorkspace)?.path || currentWorkspace?.vault_path || VAULT_ROOT;
+    const objectiveRoot = window.LabObjectives?.instructionRoot?.(baseRoot);
+    const groups = [
+      ...(vaultRoot ? [{root: vaultRoot, scope: 'Vault'}] : []),
+      {root: baseRoot, scope: 'Workspace'},
+      ...(objectiveRoot ? [{root: objectiveRoot, scope: 'Objective'}] : []),
+    ];
+    if (!groups.some(group => group.root === fileRoot)) groups.push({root: fileRoot, label: 'Selected folder instructions'});
+    return groups;
+  }
+
+  function _sidebarProjectAgentContext(view, baseRoot, fileRoot) {
+    const groups = _workspaceAgentContextGroups(baseRoot, fileRoot);
+    const signature = JSON.stringify(groups);
+    let section = view.querySelector('[data-project-agent-context]');
+    if (!section) {
+      section = document.createElement('section');
+      section.dataset.projectAgentContext = '';
+      view.append(section);
+    }
+    if (section._signature === signature) {
+      if (section._pending || Date.now() - section._readAt < 5000) return;
+    } else {
+      section._signature = signature;
+      section.innerHTML = _agentContextMetaHtml(baseRoot, fileRoot, 'Workspace instructions', groups);
+    }
+    if (section.isConnected) {
+      section._readAt = Date.now();
+      const pending = _populateAgentContextMeta(section);
+      section._pending = pending;
+      pending.finally(() => { if (section._pending === pending) section._pending = null; });
+    }
   }
 
   function _agentContextRowHtml() {
@@ -7182,12 +7214,14 @@
     return _readAgentContextGuide.pending;
   }
 
-  function _agentInstructionRowsHtml(files, root) {
-    return files.map(f => {
+  function _agentInstructionRowsHtml(files, root, scope = '') {
+    const missing = scope && !files.some(f => f.path === 'AGENTS.md')
+      ? `<span class="sidebar-file sidebar-file-meta sidebar-agent-instructions-missing" aria-disabled="true" title="${escAttr(root + '/AGENTS.md — not found')}">${fileIconHtml('AGENTS.md')}<span class="sidebar-fname">${esc(scope)} AGENTS.md</span></span>` : '';
+    return missing + files.map(f => {
       const action = `openWorkspaceDoc(${JSON.stringify(f.path)}, {root:${JSON.stringify(root)}})`;
       const modalAction = `event.stopPropagation();openWorkspaceDocModal(${JSON.stringify(f.path)}, {root:${JSON.stringify(root)}})`;
       const activeCls = _workspaceDocRoot === root && _workspaceDocPath === f.path ? ' active' : '';
-      return `<a class="sidebar-file sidebar-file-meta${activeCls}${symlinkClass(f)}" data-filepath="${escAttr(f.path)}" draggable="true" data-entry-kind="file" data-entry-root="${escAttr(root)}" data-entry-path="${escAttr(f.path)}"${symlinkTitle(f)} onclick="${escAttr(action)}" ondblclick="${escAttr(modalAction)}"><span class="sidebar-fname">${fileIconHtml(f.name, f)}${esc(f.path)}</span></a>`;
+      return `<a class="sidebar-file sidebar-file-meta${activeCls}${symlinkClass(f)}" data-filepath="${escAttr(f.path)}" draggable="true" data-entry-kind="file" data-entry-root="${escAttr(root)}" data-entry-path="${escAttr(f.path)}"${symlinkTitle(f) || ` title="${escAttr(root + '/' + f.path)}"`} onclick="${escAttr(action)}" ondblclick="${escAttr(modalAction)}"><span class="sidebar-fname">${fileIconHtml(f.name, f)}${esc(scope ? scope + ' ' + f.path : f.path)}</span></a>`;
     }).join('') || '<div class="sidebar-agent-instructions-note">No instruction files here.</div>';
   }
 
@@ -7199,7 +7233,7 @@
         const files = await response.json();
         if (!response.ok) throw new Error(files.detail || 'Could not load instruction files.');
         // A folder switch may have replaced this slot while the request ran.
-        if (slot.isConnected) slot.innerHTML = _agentInstructionRowsHtml(files, root);
+        if (slot.isConnected) slot.innerHTML = _agentInstructionRowsHtml(files, root, slot.dataset.agentInstructionsScope);
       } catch (error) {
         if (slot.isConnected) slot.innerHTML = `<div class="sidebar-agent-instructions-note">${esc(error.message)}</div>`;
       }
@@ -10550,7 +10584,8 @@
       }
 
       sbHtml += _agentContextMetaHtml(workspacePath, fileRoot,
-        isAssistant ? 'Assistant instructions' : 'Workspace instructions');
+        isAssistant ? 'Assistant instructions' : 'Workspace instructions',
+        isAssistant ? null : _workspaceAgentContextGroups(workspacePath, fileRoot));
       // Keep main's cached scope container while reconciling its file rows.
       let scopeView = sidebar.firstElementChild;
       if (sidebar.children.length !== 1 || !scopeView?.classList.contains('sidebar-scope-view')
@@ -21390,6 +21425,13 @@
     },
     addWorktree: button => sidebarAddScope(button),
     refreshSidebar: () => currentWorkspace?.is_workspace && _refreshWorkspaceSidebar({preserveScroll:true}),
+    refreshAgentContext: () => {
+      const view = document.querySelector('#sidebar [data-project-sidebar]');
+      if (currentWorkspace?.is_workspace && view?._project?.baseRoot === currentWorkspace.path
+          && view._project.fileRoot === _sidebarScopedRoot(currentWorkspace.path)) {
+        _sidebarProjectAgentContext(view, view._project.baseRoot, view._project.fileRoot);
+      }
+    },
     refreshRecent: () => _sidebarProjectRecent(),
     refreshTerminals: () => termRenderSessionList(),
     syncTaskHierarchy: data => _termSyncTaskHierarchy(data),

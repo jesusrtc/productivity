@@ -1,5 +1,7 @@
 # Memory index
 
+- [Scoped agent instruction shortcuts](scoped-agent-instruction-shortcuts.md) — visible Vault, Workspace, and Objective AGENTS.md links retain their roots and follow Objective selection.
+
 - [Terminal worktree colors stay local](terminal-worktree-colors-stay-local.md) — neutral ordinary names and independent worktree colors, with no Objective-color inheritance across names.
 - [Tasks header is a full-width drop area](tasks-header-is-full-width-drop-area.md) — the whole highlighted header accepts task/primary-terminal promotion while preserving terminal ownership.
 

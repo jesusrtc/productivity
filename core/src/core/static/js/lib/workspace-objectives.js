@@ -366,6 +366,7 @@
     const d=data();if(!d)return;
     if(!d.enabled){host.innerHTML='<button type="button" class="sidebar-objective-add" data-new-objective>+ Objective</button>';return;}
     const o=objective();if(!o)return;state().objective=o.id;
+    bridge.refreshAgentContext?.();
     host.dataset.worktreeBrowse=String(!!state().worktreeBrowse);
     const task=focusedTask(),sidebarRows=sidebarTaskRows(o,task);
     const reservedTaskRows=Math.max(1,sidebarRows.length,...[null,...tasks(o)].map(selected=>sidebarTaskRows(o,selected).length));
@@ -1338,6 +1339,7 @@
     }catch(error){notify(error.message,true);}
   },true);
   window.LabObjectives={connect(adapter){bridge=adapter;startRefreshing();},load,active,sidebarHtml,paint,worktrees,tree,associate,terminalHtml,taskForTerminal,openForTerminal,collapse,progress,complete,change,selectObjective,renderTasks,tabsHtml,showAll,terminalLaunchContext,associateNewTerminal,
+    instructionRoot(path){return active(path)?scopeRows().find(row=>row.id==='objective-root')?.path:null;},
     terminalSessions,terminalParents,terminalExpanded,terminalMain,openMainTerminal,openTaskTerminal,terminalTaskNameHtml,terminalWorktreeColor,terminalColor,sidebarMode,recentScopes,moveForTerminalDrop,
     syncTerminalHierarchy(){if(active(context()?.path))bridge.syncTaskHierarchy?.(data());},
     terminalTaskContext(t){const binding=terminalTask(t);return binding?taskContext(binding.task,binding.objective):null;},

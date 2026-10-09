@@ -113,7 +113,9 @@ def test_project_workspaces_expose_context_and_drop_its_full_text_in_chrome(tmp_
     helpers += section("  document.addEventListener('dragstart', event => {", '  function _termReflowSelection(')
     setup = r'''
 const assert=(ok,message)=>{if(!ok)throw Error(message)};
-let base='/workspace-one',folder='/tree-one',currentRepo=null,currentWorkspace={path:base};
+let now=100000;Date.now=()=>now;
+let base='/workspace-one',folder='/tree-one',vault='/vault-one',objectiveRoot=base+'/objectives/first',currentRepo=null,currentWorkspace={path:base};
+const VAULT_ROOT='/shell-vault',_vaultForWorkspace=()=>({path:vault});
 const _sidebarWorktreeBaseRoot=()=>base,_sidebarScopedRoot=()=>folder,_sidebarScopeTransition=null;
 let _sidebarProjectTimer=1,_sidebarProjectGeneration=0;
 const _sidebarMarkPainted=()=>{},_sidebarProjectDirectory=host=>{host.innerHTML='<a class="sidebar-file" data-entry-kind="file">File one</a><a class="sidebar-file" data-entry-kind="file">File two</a>'};
@@ -122,27 +124,52 @@ const _sidebarFileScopeButtonsHtml=()=>'<section data-objectives-sidebar></secti
 const _sidebarFileConfigCogHtml=()=>'',_sidebarWorktreePickerHtml=()=>'';
 const _canCreateExecutableNotebook=()=>false,_sidebarSortSelectHtml=()=>'',_sidebarScanStates=new Map(),_sidebarScanLabel=()=>'';
 const _sidebarRecentTreeModel=files=>({folders:[],files}),symlinkClass=()=>'',symlinkTitle=()=>'',symlinkMarker=()=>'',_sidebarGitHistoryButtonHtml=()=>'';
-const esc=value=>String(value).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;'),escAttr=esc;
+const esc=value=>String(value).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;'),escAttr=value=>esc(value).replaceAll('"','&quot;').replaceAll("'",'&#39;');
 const fileIconHtml=()=>'<span class="ft-icon ft-md"></span>';
-window.LabObjectives={active:()=>true};
-let _workspaceDocEditing=false,_docModalEscHandler=null,_docModalFilesGeneration=0;
+window.LabObjectives={active:()=>true,instructionRoot:()=>objectiveRoot};
+let _workspaceDocEditing=false,_docModalEscHandler=null,_docModalFilesGeneration=0,_workspaceDocRoot=base,_workspaceDocPath=null;
+const opened=[];window.openWorkspaceDoc=(path,{root})=>opened.push({root,path});
+window.openWorkspaceDocModal=()=>{};
 const closeDocModal=()=>document.getElementById('docViewModal').classList.remove('active');
 const guide='# Lab framework capabilities\n\nUse `lab` for tasks & notebooks.\n<instructions>\n';
 let reads=0;
-window.fetch=async()=>{reads++;return {ok:true,json:async()=>({content:guide})};};
+window.fetch=async url=>{
+ if(url.startsWith('/api/agents/context/files?'))return {ok:true,json:async()=>[{name:'AGENTS.md',path:'AGENTS.md'}]};
+ reads++;return {ok:true,json:async()=>({content:guide})};
+};
 let _termDragState=null,workspaceTabsDragId=null,termCurrentSession='one',termCurrentWorkspaceId='one';
 const pastes=[],notices=[],termXterm={modes:{bracketedPasteMode:true},paste:text=>pastes.push(text),focus(){}};
 const termWS={readyState:WebSocket.OPEN},explorerToast=(...args)=>notices.push(args);
 (async()=>{try{
  for(const suffix of ['one','two']){
-  base='/workspace-'+suffix;folder='/tree-'+suffix;currentWorkspace.path=base;
+  base='/workspace-'+suffix;folder='/tree-'+suffix;vault='/vault-'+suffix;objectiveRoot=base+'/objectives/first';currentWorkspace.path=base;
   assert(_sidebarProjectView(base,folder),'project sidebar mounts');
+  await new Promise(resolve=>setTimeout(resolve,0));
   assert(document.querySelectorAll('#sidebar [data-lab-agent-context]').length===1,'each workspace has one draggable Lab context item');
+  for(const [scope,root] of [['Vault',vault],['Workspace',base],['Objective',objectiveRoot]]){
+   const row=document.querySelector(`[data-agent-instructions-scope="${scope}"] a`);
+   assert(row?.textContent===scope+' AGENTS.md'&&row.dataset.entryRoot===root,'scoped instruction links retain the owning roots');
+   row.click();assert(opened.at(-1).path==='AGENTS.md'&&opened.at(-1).root===root,'instruction click opens the correct file');
+  }
+  assert(document.querySelector('[data-agent-instructions-root="'+folder+'"] a'),'selected worktree instructions stay separate');
  }
+ const scopedView=document.querySelector('[data-project-sidebar]'),oldObjectiveRoot=objectiveRoot;
+ objectiveRoot=base+'/objectives/second';_sidebarProjectAgentContext(scopedView,base,folder);
+ await new Promise(resolve=>setTimeout(resolve,0));
+ assert(document.querySelector('[data-agent-instructions-scope="Objective"] a').dataset.entryRoot===objectiveRoot&&!document.querySelector('[data-agent-instructions-root="'+oldObjectiveRoot+'"]'),'Objective switches update instructions even when Files keeps the same worktree');
+ window.fetch=async()=>({ok:true,json:async()=>[]});
+ await _populateAgentContextMeta(scopedView.querySelector('[data-project-agent-context]'));
+ assert(document.querySelectorAll('[data-agent-instructions-scope] [aria-disabled="true"]').length===3&&!document.querySelector('[data-agent-instructions-scope] a'),'missing AGENTS files keep labeled, unavailable rows without a create action');
+ window.fetch=async()=>({ok:true,json:async()=>[{name:'AGENTS.md',path:'AGENTS.md'}]});
+ now+=5000;_sidebarProjectAgentContext(scopedView,base,folder);
+ await new Promise(resolve=>setTimeout(resolve,0));
+ assert(document.querySelectorAll('[data-agent-instructions-scope] a').length===4&&!document.querySelector('[data-agent-instructions-scope] [aria-disabled="true"]'),'newly created instruction files become clickable on the next refresh without switching roots');
+ window.fetch=async()=>{reads++;return {ok:true,json:async()=>({content:guide})};};
  const icons=()=>[...document.querySelectorAll('#sidebar [data-sidebar-section-shortcut]')].filter(row=>row.getClientRects().length);
  const project=document.querySelector('[data-project-sidebar]');project.dataset.objectiveSidebarMode='worktree';project.dataset.objectiveRecentScopes='2';
  assert(icons().length===2&&icons().map(row=>row.getAttribute('aria-label')).sort().join(',')==='Files,Recently updated','one Files icon and one icon for the entire two-worktree recent union');
- assert(![...document.querySelectorAll('#sidebar [data-entry-kind=file],#sidebar .sidebar-file-recent')].some(row=>row.getClientRects().length),'compact project view hides individual files in both lists');
+ assert(![...document.querySelectorAll('#sidebar [data-entry-kind=file]:not(.sidebar-file-meta),#sidebar .sidebar-file-recent')].some(row=>row.getClientRects().length),'compact project view hides individual files in both lists');
+ assert([...document.querySelectorAll('[data-agent-instructions-scope] .sidebar-file-meta')].every(row=>row.getClientRects().length),'instruction shortcuts remain visible in the compact sidebar');
  project.dataset.objectiveSidebarMode='task';assert(icons().length===1&&icons()[0].dataset.sidebarSectionShortcut==='recent','task mode keeps only the available recent list icon');
  project.dataset.objectiveRecentScopes='0';assert(icons().length===0,'empty task scopes do not leave an orphan recent icon');
  project.dataset.objectiveSidebarMode='worktree';project.dataset.objectiveRecentScopes='2';document.body.classList.add('sidebar-drawer-open');

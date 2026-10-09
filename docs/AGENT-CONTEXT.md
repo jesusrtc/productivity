@@ -45,6 +45,13 @@ the shortcut or the reader's **Drag context to terminal** button onto a terminal
 console to paste the full guide without submitting it. Switching terminals
 while the guide loads cancels the paste.
 
+Workspace sidebars also show **Vault AGENTS.md**, **Workspace AGENTS.md**, and
+**Objective AGENTS.md** for the current Objective. Each shortcut opens the
+instruction file at its owning root, even when Files shows a linked worktree.
+Switching Objectives updates the Objective shortcut. Missing `AGENTS.md` files
+appear as unavailable rows; Lab does not create them. Existing `CLAUDE.md` and
+Copilot instructions remain visible, as do a selected folder's instructions.
+
 ## How each provider receives context
 
 - Codex: the launcher uses the local app-server `config/read` operation to read
