@@ -121,7 +121,7 @@ console.log(JSON.stringify({nested,sibling,html,activeHtml,unchanged:before===JS
     assert 'data-subtab-hover-only hidden' not in result['activeHtml']
 
 
-def test_inactive_subtab_disclosure_requires_own_wip_task_and_folds_automation():
+def test_inactive_subtab_disclosure_keeps_an_automation_task_primary_visible():
     result = _run_node(r'''
 const _TERM_GROUP_COLORS=['#58a6ff'],termSessEsc=String,_termSessionDisplay=s=>s.name;
 const automation='automation-'+('a'.repeat(32))+'-1';
@@ -136,7 +136,8 @@ console.log(JSON.stringify({html,automation}));
 ''')
     assert '<div class="term-subtab-node has-visible-child" data-term-parent="parent">' in result['html']
     assert 'data-name="wip" data-subtab-hover-only' not in result['html']
-    for name in ('todo', 'done', 'paused', 'none', 'inherited', result['automation']):
+    assert f'data-name="{result["automation"]}" data-subtab-hover-only' not in result['html']
+    for name in ('todo', 'done', 'paused', 'none', 'inherited'):
         assert f'data-name="{name}" data-subtab-hover-only hidden' in result['html']
 
 

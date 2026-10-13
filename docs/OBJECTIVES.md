@@ -485,10 +485,11 @@ another to choose **Move below**, **Make child** or **Cancel**. Children unfold
 on parent hover or keyboard focus. Children with their own In progress task
 association stay visible after leaving the rail or pressing the collapse key.
 Children without their own WIP task, including those with inherited WIP context,
-appear only during parent disclosure. Automation children always use this hover
-behavior. Selecting a hover-only child keeps its console active but does not keep
-its tab row unfolded. Deeply nested WIP terminals remain visible while intervening
-hover-only ancestor rows stay folded. An
+use parent disclosure. **+ New → Launch automation…** assigns its first defined
+terminal as the active task's primary and nests the remaining terminals beneath
+it. This primary follows the same own-WIP visibility rule; the other automation
+terminals inherit its task context. Selecting a child keeps its row, direct
+siblings and ancestor path visible. Other branches retain parent disclosure. An
 independent child opens its parent's task context without taking the parent's
 1:1 task assignment. Task and terminal navigation preserves the original
 process, checkout and agent conversation.

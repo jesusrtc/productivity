@@ -17,6 +17,17 @@ lab api call GET /api/objectives --query workspace_id=demo --query vault=my-vaul
 lab api call PATCH /api/term/sessions/metadata --body-file /tmp/rename.json
 ```
 
+Terminal automations can start without a parent terminal:
+`lab api describe POST /api/term/automations/launch` shows the schema. Read the
+workspace catalog with `GET /api/term/automations`, then submit `workspace_id`,
+`automation_id`, its `revision`, a fresh UUID `run_id`, and the active
+`objective_id` / `task_id` (plus `vault` when needed). Omit `parent`: the first
+defined terminal becomes the task primary. Optional `cwd` overrides the selected
+Objective or workspace folder; `preview: true` resolves all steps without
+starting commands. Supplying `parent` instead retains the existing child-terminal
+launch mode. Through `lab ui`, use **+ New → Launch automation…** to retain the
+browser's tab nesting as well as the server's primary assignment.
+
 Use `--json` for a small JSON request, or `--body-file PATH` (`-` for stdin).
 Repeat `--query KEY=VALUE` for query parameters. `--output PATH` saves a response,
 including binary downloads. `lab api routes --json` includes request schemas;

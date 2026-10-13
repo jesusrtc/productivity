@@ -30,8 +30,8 @@ the workspace-root and pinned-folder chooser.
 
 Configure saved command groups in **Settings → workspace → Terminal automations**.
 The workspace's **Terminal sessions** section also has a shortcut. Each automation
-has a name and an ordered list of child terminals, each with a terminal name,
-working directory and shell command. Each child can also have optional guidelines:
+has a name and an ordered list of terminals, each with a terminal name,
+working directory and shell command. Each terminal can also have optional guidelines:
 labeled notes or commands shown above its console, beside the request history.
 Use **Copy** to copy an entry and paste it into the terminal yourself. Guidelines
 are never executed by launching or relaunching the automation. For example, save
@@ -39,13 +39,24 @@ are never executed by launching or relaunching the automation. For example, save
 the app normally or with a debugger. Add, edit, reorder or remove entries, then
 save. Saving and opening settings never launch commands.
 
-Secondary-click a terminal, including a fixed workspace or Objective main, and
-choose **Launch automation…**. The picker lists this workspace's saved groups and
-previews every command with its resolved directory before **Launch**. Its
-**Configure automations** button opens the same workspace settings.
+Choose **+ New → Launch automation…** to create a group for the active task.
+The first defined terminal becomes the task's primary automatically, and the
+remaining terminals become its children in definition order. No starter terminal
+is needed. If the task had a primary, its session keeps running while the new
+first terminal takes ownership. Without an active task, the group belongs to the
+selected Objective or workspace and its first terminal is the group's primary;
+fixed workspace and Objective mains retain their identities.
 
-An empty directory uses the parent terminal's fixed launch folder. Relative paths
-resolve against that folder; absolute paths and `~/folder` are also supported.
+The picker lists this workspace's saved groups and previews every command with
+its resolved directory before **Launch**, marking the first step **Primary**.
+Its **Configure automations** button opens the same workspace settings.
+Secondary-click a terminal, including a fixed workspace or Objective main, and
+choose **Launch automation…** to open every step as a child of that terminal.
+
+An empty directory uses the selected Objective's folder or the workspace folder.
+When launched from a terminal, it uses that parent's fixed launch folder instead.
+Relative paths resolve against the same base folder for every step; absolute
+paths and `~/folder` are also supported.
 Every directory is checked before any command starts. Commands start in list
 order in separate tmux sessions and run independently. For dependent operations,
 combine them in one command, for example `npm run build && npm run dev`.
@@ -86,8 +97,20 @@ Children inherit the parent task's Objective context without taking its primary
 task association. Children of a workspace main remain available under that main;
 children of an Objective main appear under the active Objective's main on hover.
 Task children follow the usual WIP/selected-task filter and the same parent-hover
-disclosure. The fixed main itself remains a root. A launch selects
-the first child unless the user has navigated to another task or workspace.
+disclosure. An automation primary with its own In progress task remains visible
+like other task primaries. The fixed main itself remains a root. A launch selects
+the first defined terminal unless the user has navigated to another task or workspace.
+
+Agents can use the same menu through `lab ui inspect` and `lab ui click`, or call
+`lab api call POST /api/term/automations/launch --body-file /absolute/launch.json`.
+Inspect its schema with `lab api describe POST /api/term/automations/launch`.
+Both modes require `workspace_id`, `automation_id`, the saved catalog `revision`,
+and a fresh UUID `run_id` (plus `vault` when needed). To create a new group, omit
+`parent`, pass `objective_id` and `task_id` for task ownership, and optionally
+override the base folder with `cwd`. To add children to an existing terminal,
+pass its runtime `parent` name instead of these context fields. `preview: true`
+checks all directories without starting sessions. Task ownership is persisted
+by the API; tab order and child nesting belong to the browser that launched it.
 
 Definitions live in the workspace's `.lab/terminal-automations.json`, so every
 browser sees the same saved recipes. This is separate from browser-owned tab

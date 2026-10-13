@@ -5,6 +5,17 @@ guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 
 ## 2026-10-13
 
+### Launch automations directly from the New terminal menu
+
+- **+ New → Launch automation…** creates the saved recipe's terminals for the
+  active task. The first defined terminal becomes its primary automatically;
+  later terminals appear beneath it, with no extra starter terminal.
+- The preview labels the first terminal **Primary** and retains the chosen
+  task and folder. Partial failures keep earlier sessions and their primary
+  assignment; a previous primary remains running.
+- API/CLI launches can omit `parent` and provide `objective_id`, `task_id` and
+  optional `cwd`. Launching from an existing terminal still creates its children.
+
 ### The entire compact sidebar preserves section spacing
 
 - Home, Vault and workspace sidebars now keep the full height of hidden Files,

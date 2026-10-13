@@ -105,6 +105,74 @@ def test_launch_rejects_cross_workspace_parent_and_reports_partial_failure(clien
     assert len(client.get('/api/term/sessions?workspace_id=demo').json()) == 2
 
 
+def test_direct_launch_creates_its_own_task_primary_in_definition_order(client, seed_workspace, isolated_prefix):
+    folder = seed_workspace()
+    def action(patch):
+        response = client.post('/api/objectives', json={'workspace_id':'demo', 'action':patch})
+        assert response.status_code == 200, response.text
+        return response.json()
+    objective = action({'type':'create', 'name':'Build'})['objectives'][0]
+    oid = objective['id']
+    task = action({'type':'task', 'objective_id':oid, 'title':'Develop'})['objectives'][0]['tasks'][0]
+    cwd = folder / 'objectives' / oid
+    (cwd / 'frontend').mkdir()
+    catalog = _save(client, 'demo', [
+        {'label':'First defined', 'cwd':'frontend', 'command':'printf first'},
+        {'label':'Second defined', 'command':'printf second'},
+    ])
+    body = {'workspace_id':'demo', 'objective_id':oid, 'task_id':task['id'],
+            'automation_id':'dev', 'revision':catalog['revision'], 'run_id':str(uuid.uuid4())}
+    preview = client.post('/api/term/automations/launch', json={**body, 'preview':True})
+    assert preview.status_code == 200, preview.text
+    assert [row['cwd'] for row in preview.json()['steps']] == [str(cwd / 'frontend'), str(cwd)]
+    assert client.get('/api/term/sessions?workspace_id=demo').json() == []
+    result = client.post('/api/term/automations/launch', json=body)
+    assert result.status_code == 200, result.text
+    rows = result.json()['sessions']
+    assert [row['label'] for row in rows] == ['First defined', 'Second defined']
+    assert len(client.get('/api/term/sessions?workspace_id=demo').json()) == 2
+    links = client.get('/api/objectives?workspace_id=demo').json()['terminal_links']
+    assert links[rows[0]['session_id']]['task_id'] == task['id']
+    assert links[rows[1]['session_id']]['view'] == 'tasks'
+    assert not links[rows[1]['session_id']].get('task_id')
+    repeated = client.post('/api/term/automations/launch', json=body).json()['sessions']
+    assert [row['session_id'] for row in repeated] == [row['session_id'] for row in rows]
+    assert all(row['already_running'] for row in repeated)
+    # Another explicit run promotes its first step without killing the old run.
+    replacement = client.post('/api/term/automations/launch', json={**body, 'run_id':str(uuid.uuid4())}).json()['sessions']
+    links = client.get('/api/objectives?workspace_id=demo').json()['terminal_links']
+    assert links[replacement[0]['session_id']]['task_id'] == task['id']
+    assert not links[rows[0]['session_id']].get('task_id')
+    assert len(client.get('/api/term/sessions?workspace_id=demo').json()) == 4
+
+
+def test_direct_launch_preflights_context_and_preserves_primary_on_partial_failure(client, seed_workspace, isolated_prefix, monkeypatch):
+    seed_workspace()
+    objective = client.post('/api/objectives', json={'workspace_id':'demo', 'action':{'type':'create','name':'Build'}}).json()['objectives'][0]
+    oid = objective['id']
+    task = client.post('/api/objectives', json={'workspace_id':'demo', 'action':{'type':'task','objective_id':oid,'title':'Develop'}}).json()['objectives'][0]['tasks'][0]
+    catalog = _save(client, 'demo', [{'label':'First', 'command':'printf first'}, {'label':'Second', 'command':'printf second'}])
+    body = {'workspace_id':'demo', 'objective_id':oid, 'task_id':task['id'], 'automation_id':'dev',
+            'revision':catalog['revision'], 'run_id':str(uuid.uuid4())}
+    for patch, status in [({'objective_id':None},400), ({'objective_id':'missing'},404),
+                          ({'task_id':'missing'},404), ({'cwd':'/missing-automation-folder'},400),
+                          ({'parent':'unrelated'},400), ({'revision':'stale'},409)]:
+        response = client.post('/api/term/automations/launch', json={**body, **patch})
+        assert response.status_code == status, response.text
+        assert client.get('/api/term/sessions?workspace_id=demo').json() == []
+    from core.routes import term
+    original = term.create_session
+    def fail_second(body, request):
+        if body.label == 'Second':
+            raise HTTPException(500, 'sample spawn failure')
+        return original(body, request)
+    monkeypatch.setattr(term, 'create_session', fail_second)
+    result = client.post('/api/term/automations/launch', json=body).json()
+    assert len(result['sessions']) == 1 and result['error'] == 'Second: sample spawn failure'
+    links = client.get('/api/objectives?workspace_id=demo').json()['terminal_links']
+    assert links[result['sessions'][0]['session_id']]['task_id'] == task['id']
+
+
 def test_command_wrapper_preserves_multiline_quoting_exit_logs_and_cwd(tmp_path):
     folder = tmp_path / "spaces and 'quotes"
     folder.mkdir()
@@ -157,7 +225,8 @@ def test_launched_children_can_save_context_without_taking_primary_ownership(cli
     assert 'task_id' not in after['terminal_links'][child['session_id']]
 
 
-def test_native_launch_runs_once_in_tmux_and_keeps_exited_logs(native_creation_tmux, native_creation_client, seed_workspace, monkeypatch):
+@pytest.mark.parametrize('with_parent', [False, True])
+def test_native_launch_runs_once_in_tmux_and_keeps_exited_logs(native_creation_tmux, native_creation_client, seed_workspace, monkeypatch, with_parent):
     run, socket, _ = native_creation_tmux
     monkeypatch.setenv('SHELL', '/bin/sh')
     # The shared creation fixture originally sets a sleeping fake default shell.
@@ -165,16 +234,17 @@ def test_native_launch_runs_once_in_tmux_and_keeps_exited_logs(native_creation_t
     client = native_creation_client
     folder = seed_workspace()
     (folder / 'frontend').mkdir()
-    parent = client.post('/api/term/sessions', json={'workspace_id': 'demo', 'kind': 'terminal'}).json()
+    parent = client.post('/api/term/sessions', json={'workspace_id': 'demo', 'kind': 'terminal'}).json() if with_parent else None
     catalog = _save(client, 'demo', [
         {'label': 'Build', 'command': "printf 'build log\\n'; printf x >> count; exit 4"},
         {'label': 'Frontend', 'cwd': 'frontend', 'command': "printf 'frontend log\\n'; pwd"},
     ])
-    body = _launch(parent, catalog)
+    body = _launch(parent or {'name':None}, catalog)
     response = client.post('/api/term/automations/launch', json=body)
     assert response.status_code == 200, response.text
     rows = response.json()['sessions']
     assert len(rows) == 2 and all(row['tmux_socket'] == socket for row in rows)
+    assert len(client.get('/api/term/sessions?workspace_id=demo').json()) == 2 + int(with_parent)
     deadline = time.monotonic() + 5
     while True:
         logs = [run('capture-pane', '-p', '-J', '-t', row['name'], '-S', '-100').stdout for row in rows]

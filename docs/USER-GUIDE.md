@@ -125,6 +125,25 @@ provider-owned. See `lab context` for the context of the current terminal.
 Opening a terminal does not itself authorize an agent to modify content. Work
 within the user's request and follow the owning instructions.
 
+Choose **+ New → Launch automation…** to start a saved automation in the active
+task without creating a terminal first. The first terminal in the automation's
+definition becomes the task's primary and opens immediately; the remaining
+terminals open beneath it in definition order. A previous primary keeps running.
+The preview identifies **Primary** and shows every command and resolved folder.
+Configure and reorder definitions in **Settings → workspace → Terminal
+automations**. Empty or relative folders use the selected Objective's folder,
+or the workspace folder when no Objective is selected. Without an active task,
+the first terminal is the automation's primary within that Objective or workspace.
+Secondary-clicking an existing terminal → **Launch automation…** still opens all
+steps as that terminal's children. See [Terminals](TERMINALS.md#terminal-automations).
+
+The same launch is available through `lab ui` using the menu's inspected control,
+or `lab api call POST /api/term/automations/launch --body-file /absolute/launch.json`.
+Use `lab api describe POST /api/term/automations/launch` for the request schema.
+Omit `parent` and supply the workspace, automation ID, catalog revision, a fresh
+run UUID, and the active `objective_id` / `task_id`; the server assigns the first
+terminal as primary. Set `preview: true` to check the recipe without starting it.
+
 The default workspace main terminal uses **🏠**, and the default Objective main
 uses **🎯**, in both compact and expanded terminal lists, including before their
 sessions start. Task terminals use **💻** and child terminals use **⏺** by

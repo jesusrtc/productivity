@@ -3614,7 +3614,12 @@ class AutomationSave(terminal_automations.Catalog):
 class AutomationLaunch(BaseModel):
     workspace_id: str
     vault: str | None = None
-    parent: str
+    parent: str | None = Field(default=None, min_length=1, max_length=512)
+    # Without a parent, the recipe creates its own primary terminal. Capture
+    # the selected task explicitly; browser navigation cannot retarget a run.
+    objective_id: str | None = Field(default=None, max_length=512)
+    task_id: str | None = Field(default=None, max_length=512)
+    cwd: str | None = Field(default=None, min_length=1, max_length=4096)
     automation_id: str
     revision: str
     run_id: uuid.UUID
@@ -3657,6 +3662,10 @@ def save_terminal_automations(body: AutomationSave, request: Request) -> dict:
 @router.post("/api/term/automations/launch")
 def launch_terminal_automation(body: AutomationLaunch, request: Request) -> dict:
     root, folder = _automation_folder(request, body.workspace_id, body.vault)
+    if body.parent and any([body.cwd, body.objective_id, body.task_id]):
+        raise HTTPException(400, "Choose an existing parent or a new automation context, not both")
+    if body.task_id and not body.objective_id:
+        raise HTTPException(400, "Choose the Objective that owns this task")
     # Serialize duplicate submissions. Session names include the run UUID, so
     # a repeated request adopts the same live children without replaying input.
     with terminal_automations.lock:
@@ -3667,22 +3676,38 @@ def launch_terminal_automation(body: AutomationLaunch, request: Request) -> dict
             row = next((row for row in catalog["automations"] if row["id"] == body.automation_id), None)
             if row is None:
                 raise HTTPException(404, "Automation not found")
-            parent = _load_meta(root).get(body.parent)
-            if not parent or parent.get("workspace_id") != body.workspace_id:
-                # Shared document terminals retain their canonical owner. Only
-                # accept one explicitly borrowed by this workspace's references.
-                from core.workspace_documents import borrowed_terminals
-                parent = next((row for row in borrowed_terminals(request, root, body.workspace_id, [])
-                               if row["name"] == body.parent), None)
-                if parent is None:
-                    raise HTTPException(404, "Parent terminal is no longer in this workspace")
-            if not _tmux_has_session(body.parent, parent.get("tmux_socket")):
-                raise HTTPException(409, "Open the parent terminal before launching an automation")
-            if parent.get("document_source"):
-                cwd = Path(parent["cwd"]).resolve()
+            if body.parent:
+                parent = _load_meta(root).get(body.parent)
+                if not parent or parent.get("workspace_id") != body.workspace_id:
+                    # Shared document terminals retain their canonical owner. Only
+                    # accept one explicitly borrowed by this workspace's references.
+                    from core.workspace_documents import borrowed_terminals
+                    parent = next((row for row in borrowed_terminals(request, root, body.workspace_id, [])
+                                   if row["name"] == body.parent), None)
+                    if parent is None:
+                        raise HTTPException(404, "Parent terminal is no longer in this workspace")
+                if not _tmux_has_session(body.parent, parent.get("tmux_socket")):
+                    raise HTTPException(409, "Open the parent terminal before launching an automation")
+                if parent.get("document_source"):
+                    cwd = Path(parent["cwd"]).resolve()
+                else:
+                    saved = _workspace_session_by_name(root, body.workspace_id).get(parent["logical_name"], parent)
+                    cwd = _session_launch_folder(root, body.workspace_id, saved)
             else:
-                saved = _workspace_session_by_name(root, body.workspace_id).get(parent["logical_name"], parent)
-                cwd = _session_launch_folder(root, body.workspace_id, saved)
+                cwd = folder
+                if body.objective_id:
+                    from lab import objectives
+                    data = objectives.load(root, body.workspace_id)
+                    objective = next((o for o in data['objectives'] if o['id'] == body.objective_id), None)
+                    if objective is None:
+                        raise HTTPException(404, "Objective not found")
+                    if body.task_id and not any(t['id'] == body.task_id for t in objectives._tasks(objective)):
+                        raise HTTPException(404, "Task not found in this Objective")
+                    cwd = objectives._objective_dir(folder, objective)
+                if body.cwd:
+                    cwd = Path(body.cwd).expanduser().resolve()
+                if not cwd.is_dir():
+                    raise HTTPException(400, f"Working directory does not exist: {cwd}")
             steps = terminal_automations.resolve_steps(terminal_automations.Automation.model_validate(row), cwd)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
@@ -3693,14 +3718,25 @@ def launch_terminal_automation(body: AutomationLaunch, request: Request) -> dict
             try:
                 created.append(create_session(NewSession(
                     workspace_id=body.workspace_id, vault=body.vault, kind="terminal",
+                    objective_id=body.objective_id,
                     name=f"automation-{body.run_id.hex}-{index + 1}",
                     label=step["label"], cwd=step["cwd"], startup_command=step["command"],
                     startup_health_command=step["health_command"], startup_guidelines=step["guidelines"],
                 ), request))
+                if not body.parent and body.objective_id:
+                    # Commit ownership with the launch, including CLI launches
+                    # and partial runs. Only the first defined step owns the task.
+                    from lab import objectives
+                    target = ({'task_id': body.task_id} if body.task_id and index == 0
+                              else {'view': 'tasks' if body.task_id else 'objective'})
+                    objectives.mutate(root, body.workspace_id, {
+                        'type': 'terminal', 'session_id': created[-1]['session_id'],
+                        'objective_id': body.objective_id, **target,
+                    })
             except HTTPException as exc:
                 # Preserve running services and expose them even after a partial failure.
                 return {"sessions": created, "error": f"{step['label']}: {exc.detail}"}
-            except OSError as exc:
+            except (OSError, ValueError) as exc:
                 return {"sessions": created, "error": f"{step['label']}: {exc}"}
         return {"sessions": created}
 

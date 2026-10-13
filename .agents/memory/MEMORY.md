@@ -1,5 +1,7 @@
 # Memory index
 
+- [Automations launch their own primary](automations-launch-their-own-primary.md) — + New starts the defined terminals directly; the first owns the active task and the rest nest beneath it, including API/CLI launches.
+
 - [Compact sidebar preserves section spacing](compact-sidebar-preserves-section-spacing.md) — preserve full gaps for hidden files/recent lists and fixed META positions throughout the first column.
 
 - [Task rail icons stay in place](task-rail-icons-stay-in-place.md) — fixed task/subtask icon geometry and recurring markers, preserving the height of preceding Objective sections.

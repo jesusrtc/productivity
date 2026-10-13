@@ -14,6 +14,8 @@ def test_native_workspace_automation_settings_picker_and_child_adoption(tmp_path
     settings = (static / 'js/lib/settings-center.js').read_text()
     automations = (static / 'js/lib/terminal-automations.js').read_text()
     css = (static / 'css/settings-center.css').read_text()
+    template = (static.parent / 'templates/index.html').read_text()
+    new_button = next(line for line in template.splitlines() if 'id="termNewAutomation"' in line)
     adapter = _js_between('  async function _termLaunchAutomation(', '  async function _termPasteTaskContext(')
     setup = r'''
 localStorage.clear();
@@ -30,10 +32,11 @@ const termSessEsc=v=>String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>
 const _termSessionDisplay=t=>t.label,_termSessionMeta=name=>termSessions.find(t=>t.name===name);
 const explorerToast=()=>{},_termInvalidateSessionReads=()=>{},_termSessionsCache=new Map();
 const termSetAutoSpawnEnabled=async(id,on,vault)=>assert(id==='demo'&&on&&vault==='one','captured restoration preference');
-let adopted=[],activated=[],launchCalls=0,previewCalls=0,saved=0,failPreview=false,partial=false,hold=false,release;
+let adopted=[],activated=[],directRequests=[],objectiveReloads=[],launchCalls=0,previewCalls=0,saved=0,failPreview=false,partial=false,hold=false,release;
 window.LabObjectives={terminalMain:t=>t?.name==='main'?{kind:'workflow'}:null,
  sameTerminalObjective:()=>true,taskForTerminal:t=>({title:'Task'}),
- terminalLaunchContext:()=>({id:activeObjective,task:{id:activeTask}}),
+ terminalLaunchContext:()=>activeObjective?({id:activeObjective,path:'/fixture/objective',context:{workspace_id:'demo',path:scope.path,vault:scope.vault},task:activeTask?{id:activeTask,title:'Active task'}:null}):null,
+ load:async context=>objectiveReloads.push(context),
  childTerminalAssociation:()=>({context:{path:scope.path,workspace_id:scope.id,vault:scope.vault},objective_id:'objective',view:'tasks'}),
  associateNewTerminal:async(t,a)=>{adopted.push({t,a});},terminalExpanded:()=>undefined};
 const _termActivateTab=async name=>{activated.push(name);termCurrentSession=name;termRenderSessionList();};
@@ -51,13 +54,15 @@ window.fetch=async(url,options={})=>{
   if(body){saved++;catalogs[id]={revision:'revision-'+saved,automations:body.automations};}
   data=catalogs[id];
  }else if(url==='/api/term/automations/launch'){
-  assert(body.workspace_id==='demo'&&body.vault==='one'&&body.parent===parent.name,'captured parent scope');
+  assert(body.workspace_id==='demo'&&body.vault==='one','captured workspace scope');
+  if(body.parent)assert(body.parent===parent.name,'captured parent');
+  else {assert(body.cwd==='/fixture/objective'||body.cwd===scope.path,'direct launch uses its own captured folder');directRequests.push(body);}
   const recipe=catalogs.demo.automations.find(row=>row.id===body.automation_id);
   if(body.preview){previewCalls++;if(failPreview)return {ok:false,json:async()=>({detail:'Missing folder'})};
-   data={name:recipe.name,steps:recipe.steps.map(row=>({...row,cwd:row.cwd?'/fixture/checkout/'+row.cwd:'/fixture/checkout'}))};
+   data={name:recipe.name,steps:recipe.steps.map(row=>({...row,cwd:row.cwd?(body.cwd||'/fixture/checkout')+'/'+row.cwd:(body.cwd||'/fixture/checkout')}))};
   }else{
    launchCalls++;if(hold)await new Promise(r=>release=r);
-   data={sessions:recipe.steps.slice(0,partial?1:undefined).map((row,index)=>({name:'run-'+launchCalls+'-'+index,logical_name:'run-'+launchCalls+'-'+index,session_id:'uuid-'+launchCalls+'-'+index,label:row.label,cwd:row.cwd?'/fixture/checkout/'+row.cwd:'/fixture/checkout',workspace_id:'demo'})),...(partial?{error:'Frontend: spawn failed'}:{})};
+   data={sessions:recipe.steps.slice(0,partial?1:undefined).map((row,index)=>({name:'run-'+launchCalls+'-'+index,logical_name:'run-'+launchCalls+'-'+index,session_id:'uuid-'+launchCalls+'-'+index,label:row.label,cwd:row.cwd?(body.cwd||'/fixture/checkout')+'/'+row.cwd:(body.cwd||'/fixture/checkout'),workspace_id:'demo'})),...(partial?{error:'Frontend: spawn failed'}:{})};
   }
  }else throw Error('Unexpected request '+url);
  return {ok:true,json:async()=>structuredClone(data)};
@@ -110,6 +115,37 @@ const launchMenu=async()=>{q('[data-name="'+parent.name+'"]').dispatchEvent(new 
  await launchMenu();await until(()=>!q('[data-launch]').disabled);activeWorkspace='other';q('[data-launch]').click();assert(launchCalls===2&&q('[data-launch]').disabled,'navigation blocks stale launch');q('#termAutomationLauncher [data-close]').click();activeWorkspace='demo';
  partial=true;await launchMenu();await until(()=>!q('[data-launch]').disabled);q('[data-launch]').click();await until(()=>q('[data-status]')?.textContent.includes('spawn failed'));
  assert(termSessions.some(t=>t.name==='run-3-0')&&q('[data-launch]').disabled,'partial launch retains child and prevents replay');q('#termAutomationLauncher [data-close]').click();partial=false;
+
+ // + New creates the whole family, with no starter terminal or primary chooser.
+ termSessions=[];termCurrentSession=null;termRenderSessionList();
+ const directMenu=async()=>{q('#termNewAutomation').click();await until(()=>q('[data-launch]')?.disabled===false);};
+ await directMenu();
+ assert(q('[data-preview] strong').textContent==='1. Logs · Primary'&&q('[data-preview]').textContent.includes('/fixture/objective/frontend'),'first defined step is previewed as primary in the active task folder');
+ assert(q('.term-automation-body').textContent.includes('Active task'),'captured task shown before launching');
+ q('[data-launch]').click();await until(()=>!q('#termAutomationLauncher'));
+ assert(termSessions.length===2&&termCurrentSession==='run-4-0','direct launch creates only its two terminals and selects the first');
+ state=_termReadGroupState();
+ assert(!state.tabParents['run-4-0']&&state.tabParents['run-4-1']==='run-4-0','the first step owns the automation family');
+ assert(state.order.indexOf('s:run-4-0')+1===state.order.indexOf('s:run-4-1'),'recipe order is preserved');
+ assert(directRequests.every(row=>!row.parent&&row.objective_id==='objective'&&row.task_id==='task'),'API captures the exact primary task without a parent terminal');
+ assert(objectiveReloads.length===1&&objectiveReloads[0].workspace_id==='demo','server-side primary assignment is refreshed');
+ await directMenu();activeTask='another-task';q('[data-launch]').click();
+ assert(launchCalls===4&&q('[data-launch]').disabled,'switching task cancels a pending direct launch');q('[data-close]').click();activeTask='task';
+ // A navigation during creation keeps adoption in the captured workspace and
+ // does not select the new group over the user's later choice.
+ await directMenu();hold=true;release=null;const selectedBefore=activated.length;
+ q('[data-launch]').click();await until(()=>!!release);activeWorkspace='other';activeTask='another-task';release();
+ await until(()=>!q('#termAutomationLauncher'));hold=false;
+ const originalState=_termReadGroupState('one::demo');
+ assert(originalState.tabParents['run-5-1']==='run-5-0'&&!originalState.tabParents['run-5-0'],'late direct result retains original hierarchy');
+ assert(activated.length===selectedBefore&&!termSessions.some(row=>row.name==='run-5-0'),'late launch cannot hijack another workspace');
+ assert(directRequests.at(-1).task_id==='task','launch request keeps the original task');
+ activeWorkspace='demo';activeTask='task';
+ // No active task: the same menu still makes a standalone automation group.
+ activeObjective=null;await directMenu();q('[data-launch]').click();await until(()=>!q('#termAutomationLauncher'));
+ assert(!directRequests.at(-1).objective_id&&!directRequests.at(-1).task_id&&directRequests.at(-1).cwd===scope.path,'workspace-only launch uses its workspace root');
+ assert(_termReadGroupState().tabParents['run-6-1']==='run-6-0','workspace-only automation also makes its own primary');
+ activeObjective='objective';termSessions=[parent];termCurrentSession=parent.name;termRenderSessionList();
  await launchMenu();await until(()=>!q('[data-launch]').disabled);q('[data-configure]').click();await until(()=>q('[data-remove-automation]'));document.querySelectorAll('[data-remove-automation]').forEach(button=>button.click());q('.settings-form').requestSubmit();await until(()=>q('[data-message]').textContent==='Saved');LabSettings.close();
  assert(catalogs.demo.automations.length===0,'remove saved automation');
  await _termLaunchAutomation(parent); // Empty catalog: asynchronous open returns after loading.
@@ -119,7 +155,7 @@ const launchMenu=async()=>{q('[data-name="'+parent.name+'"]').dispatchEvent(new 
 })().catch(error=>{document.body.dataset.result='fail';document.body.append(document.createTextNode(error.stack));});
 '''
     html = f'''<!doctype html><html><head><meta name="viewport" content="width=device-width"><style>{css}</style></head><body>
-<div id="termSessionList"></div><div id="termGroupMenu" class="term-group-menu"></div>
+<div id="termNewPicker">{new_button}</div><div id="termSessionList"></div><div id="termGroupMenu" class="term-group-menu"></div>
 <script>{setup}</script><script>{GROUPS}</script><script>{adapter}</script><script>{automations}</script><script>{settings}</script><script>{actions}</script></body></html>'''
     # A narrow native frame exercises the same dialog/media-query layout.
     if width == 390:

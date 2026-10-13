@@ -386,6 +386,7 @@ window.ensureLiveMarkdownEditor = (function () {
         <button data-agent="codex" data-term-option="codex" onclick="termCreateNew('claude','codex')" title="OpenAI Codex CLI">Codex</button>
         <button data-agent="copilot" data-term-option="copilot" onclick="termCreateNew('claude','copilot')" title="GitHub Copilot CLI">Copilot</button>
         <button data-term-option="terminal" onclick="termCreateNew('terminal')" title="Plain $SHELL (bash / zsh)">Terminal</button>
+        <button id="termNewAutomation" type="button" onclick="document.getElementById('termNewPicker').classList.remove('open');_termLaunchAutomation()" title="Create automation terminals for the active task; the first defined terminal becomes primary">Launch automation&hellip;</button>
         <button data-term-option="attach" class="term-attach-open" type="button" onclick="termOpenAttachModal(event)" title="Choose from live tmux sessions without stopping the original session">Attach tmux session&hellip;</button>
         <button id="termNewOptionsEmpty" hidden onclick="termOpenSettings()">Choose available terminals in Settings…</button>
         <button id="termShowAllBtn" type="button" aria-pressed="false" onclick="termToggleAllTerminals()">Show all terminals</button>

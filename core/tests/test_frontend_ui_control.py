@@ -13,11 +13,13 @@ import pytest
 import uvicorn
 
 from lab import objectives
+from .test_term_routes import isolated_prefix  # noqa: F401
+from .test_terminal_automations import _save
 
 STATIC=Path(__file__).resolve().parents[1]/'src/core/static'
 
 
-def test_cli_operates_link_modal_drag_workspace_and_terminal_label(client,monorepo,seed_workspace,tmp_path):
+def test_cli_operates_link_modal_drag_workspace_terminal_label_and_automation(client,monorepo,seed_workspace,tmp_path,isolated_prefix):
     chrome=os.environ.get('CHROME_BIN') or shutil.which('chromium') or '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
     if not Path(chrome).is_file() or not shutil.which('node'):
         pytest.skip('Chrome and Node required')
@@ -33,7 +35,10 @@ def test_cli_operates_link_modal_drag_workspace_and_terminal_label(client,monore
     term._upsert_workspace_session(monorepo,'demo',{'name':'ui-shell','kind':'terminal','cwd':str(folder)})
     term._upsert_workspace_session(monorepo,'demo',{'name':'ui-task','kind':'terminal','cwd':str(folder)})
     objectives.mutate(monorepo,'demo',{'type':'terminal','objective_id':oid,'task_id':tid,'session_id':'ui-task'})
+    _save(client,'demo',[{'label':'First defined','command':'printf first'}, {'label':'Second defined','command':'printf second'}])
     app_source=(STATIC/'js/lab-app.js').read_text()
+    automation_launch=app_source[app_source.index('  async function _termLaunchAutomation('):app_source.index('  async function _termPasteTaskContext(')]
+    new_automation=next(line for line in (STATIC.parent/'templates/index.html').read_text().splitlines() if 'id="termNewAutomation"' in line)
     patch_links=app_source[app_source.index('  async function _termPatchLinks('):app_source.index('  window.LabTaskTerminalBridge =')]
     navigation=app_source[app_source.index('  function goToWorkspace('):app_source.index('  // Navigate to a workspace by its id')]
     resize_start=app_source.index('  function _termInitSessionResize()')
@@ -48,6 +53,10 @@ let termCurrentSession='ui-shell-live';const termCurrentWorkspaceId='demo',reque
 const _termLinkContext=()=>({workspaceId:'demo',vaultId:null}),_termActiveWorkspaceId=()=> 'demo',_termVaultId=()=>null;
 const _termSessionsCache=new Map(),_termSessionsKey=(w,v)=>w+'::'+v,termRenderSessionList=()=>document.querySelector('#terminal-label').textContent=termSessions[0].label||'Shell',_termRenderActiveSessionHeader=()=>{};
 let termSessionWidth=180,termSessionOrientation='vertical';const _TERM_SESSION_WIDTH_KEY='cli-test-width',_termSessionWidthBounds=()=>({min:160,max:220}),_termApplySessionView=()=>{document.querySelector('#termSessionList').style.width=termSessionWidth+'px'};
+let automationGroup={order:[],tabParents:{},tabRoots:[],tabAfter:{},tabMembership:{}};
+const _termGroupScopeKey=()=>_termSessionsKey('demo',null),_termReadGroupState=()=>structuredClone(automationGroup),_termWriteGroupState=state=>{automationGroup=state};
+const _termHomeSection=()=>null,_termInvalidateSessionReads=()=>{},termSetAutoSpawnEnabled=async()=>{},_termRefreshSessionsForWorkspaceId=async()=>{};
+window.LabSettingsBridge={currentScope:()=>({id:'demo',path:FIX.folder,label:'Demo',vault:null})};
 window.explorerToast=message=>{document.querySelector('#notice').textContent=message};
 window.LabExternalLinks={open:()=>Promise.resolve(true)};
 LabObjectives.connect({context:()=>({workspace_id:'demo',path:FIX.folder}),refreshTabs:()=>{},readyContent:()=>Promise.resolve(),prepareCenter:()=>{},
@@ -56,9 +65,10 @@ LabObjectives.load().then(()=>LabObjectives.selectObjective(FIX.oid));
 '''
     page='<!doctype html><meta charset="utf-8"><style>'+(STATIC/'css/workspace-objectives.css').read_text()+'body{background:#0d1117;color:white;display:flex}#sidebar{width:350px}#content{flex:1}</style><aside id="sidebar"><section data-objectives-sidebar></section></aside><main id="content"></main><section><button id="tasks" onclick="LabObjectives.renderTasks()">Tasks</button><button id="native" onclick="const value=prompt(\'Name\');if(value!==null)document.querySelector(\'#native-value\').textContent=value">Native prompt</button><span id="native-value"></span><span id="terminal-label">Shell</span><span id="view-status"></span><p id="notice"></p></section>'
     page+='<script>const FIX='+json.dumps({'folder':str(folder),'oid':oid})+';</script>'
-    page+=''.join('<script>'+(STATIC/'js/lib'/name).read_text()+'</script>' for name in ('workspace-objectives.js','ui-control.js'))
+    page+=''.join('<script>'+(STATIC/'js/lib'/name).read_text()+'</script>' for name in ('workspace-objectives.js','terminal-automations.js','ui-control.js'))
+    page+='<div id="termNewPicker">'+new_automation+'</div>'
     page+='<div id="termPanel"><div id="termSessionSwitcher" class="term-tabs-open"><div id="termSessionList" style="width:180px">Terminal rail</div><div id="termSessionsResizer" role="separator" tabindex="0" aria-label="Resize terminal tabs" style="width:5px;height:30px"></div></div></div>'
-    page+='<script>'+setup+patch_links+navigation+resize+'_termInitSessionResize();'+hooks+'</script>'
+    page+='<script>'+setup+patch_links+navigation+resize+automation_launch+'_termInitSessionResize();'+hooks+'</script>'
     app=client.app
     @app.get('/_cli-test',include_in_schema=False)
     def fixture_page(): return HTMLResponse(page)
@@ -124,6 +134,16 @@ const fs=require('node:fs'),{execFileSync}=require('node:child_process');
  status('in_progress');await evaluate(`LabObjectives.load(undefined,true)`);
  ui('click','a.objective-sidebar-task-title[data-open-task="'+task+'"]');
  assert(await evaluate(`termCurrentSession==='ui-task-live'`)&&await shown(),'resuming restores the same linked terminal through a normal click');
+ // The CLI discovers and operates the same + New action, with real API ownership.
+ ui('click',control('Launch automation…'));
+ ui('wait','#termAutomationLauncher [data-preview]','--text','First defined · Primary');
+ assert(await evaluate(`document.querySelector('#termAutomationLauncher').textContent.includes('CLI task')`),'launcher captures the active task');
+ ui('click','#termAutomationLauncher [data-launch]');
+ for(let i=0;i<100;i++){if(await evaluate(`!document.querySelector('#termAutomationLauncher')`))break;await new Promise(r=>setTimeout(r,30));}
+ assert(await evaluate(`(()=>{const rows=termSessions.filter(s=>s.logical_name.startsWith('automation-')),task=LabObjectives.taskForTerminal(rows[0]);return rows.length===2&&rows[0].label==='First defined'&&termCurrentSession===rows[0].name&&!automationGroup.tabParents[rows[0].logical_name]&&automationGroup.tabParents[rows[1].logical_name]===rows[0].logical_name&&task?.title==='CLI task'&&!task.inherited})()`),'CLI launch creates exactly its recipe terminals, activates first and nests second');
+ const launched=await evaluate(`termSessions.filter(s=>s.logical_name.startsWith('automation-'))`);
+ data=cli('api','call','GET','/api/objectives','--query','workspace_id=demo');
+ assert(data.terminal_links[launched[0].session_id].task_id===task&&!data.terminal_links[launched[1].session_id].task_id&&!data.terminal_links['ui-task'].task_id,'API persists new primary without removing old terminal');
  data=cli('api','call','POST','/api/objectives','--json',JSON.stringify({workspace_id:'demo',action:{type:'create',name:'Created through API'}}));
  const added=data.objectives.find(o=>o.name==='Created through API');
  ui('command','objective-select','--json',JSON.stringify({objective:added.id}));

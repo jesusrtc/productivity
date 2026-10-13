@@ -90,7 +90,11 @@ const parent={name:'parent',logical_name:'parent',label:'Parent'};
 const stopped={name:'stopped',logical_name:'automation-'+ 'a'.repeat(32)+'-1',label:'Stopped',automation:{can_relaunch:true,launch_id:'stopped-run',reason:'SSH disconnected',guidelines:guides}};
 const running={name:'running',logical_name:'automation-'+ 'a'.repeat(32)+'-2',label:'Running',automation:{can_relaunch:false,launch_id:'running-run',reason:'Running'}};
 const unknown={name:'unknown',logical_name:'automation-'+ 'a'.repeat(32)+'-3',label:'Unknown',automation:{can_relaunch:false,launch_id:'unknown-run',reason:'Status unavailable'}};
-const termSessions=[parent,stopped,running,unknown];
+// The subtab renderer supplies child identity; an automation name alone no
+// longer means child, since + New creates an automation primary as well.
+for(const child of [stopped,running,unknown])child.terminal_child=true;
+const primary={name:'primary',logical_name:'automation-'+ 'b'.repeat(32)+'-1',label:'Primary',automation:{can_relaunch:false,reason:'Running'}};
+const termSessions=[parent,stopped,running,unknown,primary];
 let copied=[],calls=[];
 Object.defineProperty(navigator,'clipboard',{value:{writeText:async text=>copied.push(text)}});
 window.fetch=async(url,options)=>{calls.push(url);return{ok:true,json:async()=>({sessions:[]})}};
@@ -105,8 +109,8 @@ window.LabObjectives={terminalMain:()=>null,taskForTerminal:()=>null};
  assert(row('parent').querySelector('[data-automation-relaunch]').title.includes('1 stopped child'),'parent recovers only stopped child');
  assert(!row('running').querySelector('[data-automation-relaunch]')&&!row('unknown').querySelector('[data-automation-relaunch]'),'running and unknown hidden');
  assert([...list.querySelectorAll('[data-automation-relaunch]')].every(n=>getComputedStyle(n).display==='none'),'compact recovery buttons hidden');
- for(const name of ['parent','stopped','running','unknown']){
-  assert(row(name).querySelector('.sess-icon').textContent===(name==='parent'?'💻':'⏺'),'compact parent and child identifiers');
+ for(const name of ['parent','stopped','running','unknown','primary']){
+  assert(row(name).querySelector('.sess-icon').textContent===(['parent','primary'].includes(name)?'💻':'⏺'),'compact parent, automation primary and child identifiers');
  }
  for(const name of ['stopped','running','unknown']){
   const dot=getComputedStyle(row(name),'::after');
