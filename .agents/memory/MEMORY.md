@@ -1,5 +1,7 @@
 # Memory index
 
+- [Terminal asset links preserve origin](terminal-asset-links-preserve-origin.md) — separate asset navigation and icons from workspace/Objective/task ownership, with bidirectional selection and independent unlink.
+
 - [Automations launch their own primary](automations-launch-their-own-primary.md) — + New starts the defined terminals directly; the first owns the active task and the rest nest beneath it, including API/CLI launches.
 
 - [Compact sidebar preserves section spacing](compact-sidebar-preserves-section-spacing.md) — preserve full gaps for hidden files/recent lists and fixed META positions throughout the first column.

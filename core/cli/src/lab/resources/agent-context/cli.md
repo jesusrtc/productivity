@@ -28,6 +28,17 @@ starting commands. Supplying `parent` instead retains the existing child-termina
 launch mode. Through `lab ui`, use **+ New → Launch automation…** to retain the
 browser's tab nesting as well as the server's primary assignment.
 
+Terminal asset navigation uses the `terminal-asset` Objective action, separately
+from the existing `terminal` action for task/Objective ownership. Pass
+`session_id`, the asset's `objective_id`, and `resource_id` (plus optional
+`tab_id` / `sub_link_id`), or `file` / `folder` with `root` and `path`.
+`unlink: true` plus the session ID clears only the asset binding. Use
+`lab objective apply --workspace ID --file /absolute/action.json`, or the same
+action in `POST /api/objectives`. In `lab ui`, inspect the terminal's **Link to
+asset…** or the asset's **Link to active terminal** menu item. The link controls
+bidirectional selection and the asset icon; origin, cwd and task visibility stay
+with the original terminal assignment.
+
 Use `--json` for a small JSON request, or `--body-file PATH` (`-` for stdin).
 Repeat `--query KEY=VALUE` for query parameters. `--output PATH` saves a response,
 including binary downloads. `lab api routes --json` includes request schemas;

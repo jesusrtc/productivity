@@ -1344,7 +1344,7 @@
     if (action === 'copy-content') return _explorerCopyContent(ctx);
     if (action === 'link-active-terminal') return termLinkTarget(ctx, termCurrentSession);
     if (action.startsWith('unlink-terminal:')) return termUnlinkTarget(
-      decodeURIComponent(action.slice('unlink-terminal:'.length)), ctx.kind === 'file' ? 'file' : 'scope');
+      decodeURIComponent(action.slice('unlink-terminal:'.length)), ctx.kind === 'file' ? 'file' : 'scope', ctx);
     if (action === 'link-terminal') return termOpenLinkModal(ctx);
     if (action === 'history') return openExplorerHistory(ctx);
     if (action === 'rename') return openExplorerEntryDialog('rename', ctx);
@@ -11624,6 +11624,13 @@
     const scopeDocument = !session.document_source && session.linked_scope?.root && window.LabScopeLinks;
     if (options.openDocument === false) {
       _termCancelPendingLinkedFileOpen();
+    } else if (window.LabObjectives?.terminalAsset?.(session) && window.LabObjectives.openForTerminal(session)) {
+      _termCancelPendingLinkedFileOpen();
+    } else if (session.linked_file?.activate) {
+      // An explicit asset link takes precedence over the original scope's
+      // suggested documents, while the launch folder stays unchanged.
+      _termCancelPendingLinkedFileOpen();
+      void _termOpenLinkedFile(session);
     } else if ((session.linked_task?.document_id && session.linked_task?.assistant_root || scopeDocument) && window.AssistantView) {
       // Only explicit activation opens documents; polling merely updates the
       // sidebar highlight. Documents and code scopes navigate independently;
@@ -14111,13 +14118,25 @@
       if (menuScope === _termGroupScopeKey() && _termSetDisplayMain(sessionName, action === 'unmerge-parent') && action === 'merge-parent') void _termActivateTab(sessionName);
       return true;
     };
+    const assetSession=parentSession||session;
+    const assetMenu=window.LabObjectives?.terminalLaunchContext?.()
+      ? '<button role="menuitem" class="term-group-menu-row" data-action="link-asset">Link to asset…</button>'
+        +(window.LabObjectives.terminalAsset?.(assetSession)?'<button role="menuitem" class="term-group-menu-row" data-action="unlink-asset">Unlink asset</button>':'') : '';
+    const chooseAsset=action=>{
+      if(!['link-asset','unlink-asset'].includes(action))return false;
+      if(menuScope===_termGroupScopeKey()){
+        if(action==='link-asset')window.LabObjectives.chooseTerminalAsset(assetSession);
+        else void window.LabObjectives.unlinkTerminalAsset(assetSession).catch(error=>explorerToast(error.message,true));
+      }
+      return true;
+    };
     if(window.LabObjectives?.terminalMain?.(parentSession || session)){
-      _termShowGroupMenu(anchor,'<div class="term-group-menu-title">Fixed main terminal</div>'+mainChoice+'<button role="menuitem" class="term-group-menu-row" data-action="automation">Launch automation…</button><button role="menuitem" class="term-group-menu-row" data-action="all">'+(termWipOnly?'Show all terminals':'Show In progress task terminals')+'</button>',action=>{termCloseGroupMenu();if(chooseMain(action))return;if(action==='automation')void _termLaunchAutomation(parentSession || session);else termToggleAllTerminals();});return;
+      _termShowGroupMenu(anchor,'<div class="term-group-menu-title">Fixed main terminal</div>'+mainChoice+assetMenu+'<button role="menuitem" class="term-group-menu-row" data-action="automation">Launch automation…</button><button role="menuitem" class="term-group-menu-row" data-action="all">'+(termWipOnly?'Show all terminals':'Show In progress task terminals')+'</button>',action=>{termCloseGroupMenu();if(chooseMain(action)||chooseAsset(action))return;if(action==='automation')void _termLaunchAutomation(parentSession || session);else termToggleAllTerminals();});return;
     }
     if (session?.document_source) {
-      _termShowGroupMenu(anchor, mainChoice+'<button role="menuitem" class="term-group-menu-row" data-action="automation">Launch automation…</button><button role="menuitem" class="term-group-menu-row" data-action="open">Open document</button><button role="menuitem" class="term-group-menu-row" data-action="unlink">Unlink from document…</button>', action => {
+      _termShowGroupMenu(anchor, mainChoice+assetMenu+'<button role="menuitem" class="term-group-menu-row" data-action="automation">Launch automation…</button><button role="menuitem" class="term-group-menu-row" data-action="open">Open document</button><button role="menuitem" class="term-group-menu-row" data-action="unlink">Unlink from document…</button>', action => {
         termCloseGroupMenu();
-        if(chooseMain(action))return;
+        if(chooseMain(action)||chooseAsset(action))return;
         if(action==='automation')void _termLaunchAutomation(parentSession || session);
         else if (action === 'open') void window.AssistantView.openLinkedTask(session.linked_task);
         else void window.LabWorkspaceDocuments.unlink(session).catch(error => explorerToast(error.message,true));
@@ -14129,6 +14148,7 @@
       row('rename', 'Rename tab…') +
       row('new-child', 'New subterminal') +
       mainChoice +
+      assetMenu +
       row('automation', 'Launch automation…') +
       (window.LabObjectives?.taskForTerminal(session)?row('task-context','Paste task context'):'') +
       (_termActiveWorkspaceId() === '__self__' ? '<hr><div class="term-group-menu-title">Associate with</div>' +
@@ -14143,7 +14163,7 @@
       row('before', `Add divider ${horizontal ? 'before' : 'above'}`) + row('after', `Add divider ${horizontal ? 'after' : 'below'}`) + '<hr>' +
       row('close', 'Close tab', true) + (membership ? row('close-group', 'Close group…', true) : ''), action => {
         termCloseGroupMenu();
-        if(chooseMain(action))return;
+        if(chooseMain(action)||chooseAsset(action))return;
         if (action === 'rename') termRenameSession(parentSession?.name || sessionName);
         else if(action==='new-child')void _termCreateSubterminal(parentSession || session);
         else if(action==='automation')void _termLaunchAutomation(parentSession || session);
@@ -14563,11 +14583,11 @@
       kind,
       agent,
       badge: kind === 'claude' ? (agent || 'claude') : kind,
-      icon: s?.linked_task?.document_id ? '<span class="term-document-icon" aria-hidden="true">▤</span>'
+      icon: window.LabObjectives?.terminalAsset?.(s)?.icon || (s?.linked_file?.activate ? fileIconHtml(linked) : s?.linked_task?.document_id ? '<span class="term-document-icon" aria-hidden="true">▤</span>'
         : linked ? fileIconHtml(linked) : kind !== 'claude' ? '💻'
         : agent === 'codex' ? '🧠'
         : agent === 'copilot' ? '🐙'
-        : '🤖',
+        : '🤖'),
       isClaude: agent === 'claude',
     };
   }
@@ -14860,7 +14880,8 @@
     const main = window.LabObjectives?.terminalMain?.(identity);
     const automation = !main && /^automation-[0-9a-f]{32}-[1-9]\d*$/.test(s.logical_name || '');
     const objectiveTask = window.LabObjectives?.taskForTerminal(identity);
-    const taskIconClass = !main && objectiveTask?.assetIcon ? ' sess-task-icon' : '';
+    const assetIcon=window.LabObjectives?.terminalAsset?.(identity)?.icon;
+    const taskIconClass = assetIcon || !main && objectiveTask?.assetIcon ? ' sess-task-icon' : '';
     const taskOwn=objectiveTask&&!objectiveTask.inherited;
     const taskColorAttrs=objectiveTask?.color?` data-task-terminal-color style="color:${termSessEsc(objectiveTask.color)}"`:'';
     const child=!main&&(identity.terminal_child||objectiveTask?.inherited);
@@ -14890,18 +14911,18 @@
     const ariaLabel = `${display} · ${main ? main.kind+' main terminal · Fixed' : visual.badge}${s.automation?' · '+s.automation.reason:''}${objectiveTask ? (objectiveTask.inherited?' · Parent task context: ':' · Task: ')+objectiveTask.title+' · '+_termTaskStatusLabel(objectiveTask.status) : ''}${working ? ' · Working' : ''}${ready ? ` · ${completion.label}` : ''}${ariaSummary ? ` · ${context.label}: ${ariaSummary}` : ''}`;
     const tooltip = _termSessionTooltipPayload(s, [statusTitle, completion?.label, recentTitle].filter(Boolean).join(' · '));
     if (s.display_main) {
-      const icon=main?.icon || objectiveTask?.assetIcon || (child||objectiveTask?fallbackIcon:visual.icon);
+      const icon=assetIcon || main?.icon || objectiveTask?.assetIcon || (child||objectiveTask?fallbackIcon:visual.icon);
       const worktreeName=!main&&!objectiveTask&&identity.linked_scope?.worktree&&!identity.linked_file?.path;
       const nameHtml=taskOwn?(window.LabObjectives?.terminalTaskNameHtml?.(identity)||termSessEsc(display)):worktreeName?_termSessionAssociationHtml(identity):termSessEsc(display);
       return `<span class="sess ${visual.kind} term-display-main${main?' term-main-terminal':''}${active}${dead}" style="--term-display-main-color:${termSessEsc(s.display_main.color)}" role="tab" aria-label="${termSessEsc(ariaLabel+' · Merged with '+_termSessionDisplay(s)+' · Parent '+s.display_main.parent)}" aria-selected="${active ? 'true' : 'false'}" tabindex="${active ? '0' : '-1'}" draggable="false"${main?` data-terminal-main="${main.kind}"`:''}${childAttrs} data-name="${termSessEsc(s.name)}" data-logical="${termSessEsc(logical)}" data-display-main-parent="${termSessEsc(s.display_main.parent)}" data-tooltip="${termSessEsc(tooltip)}"><span class="sess-icon${taskIconClass}" aria-hidden="true"${iconColorAttrs}>${icon}</span><span class="term-display-main-dot" aria-hidden="true"></span><span class="sess-label custom"${taskColorAttrs}>${nameHtml}</span>${activityHtml}${_termAutomationRelaunchHtml(s)}</span>`;
     }
     if (automation) {
-      return `<span class="sess ${visual.kind} term-automation-terminal${active}${dead}" role="tab" aria-label="${termSessEsc(ariaLabel)}" aria-selected="${active ? 'true' : 'false'}" tabindex="${active ? '0' : '-1'}" draggable="true"${childAttrs} data-order-token="${termSessEsc('s:'+logical)}" data-name="${termSessEsc(s.name)}" data-logical="${termSessEsc(logical)}" data-tooltip="${termSessEsc(tooltip)}"><span class="sess-icon${taskIconClass}" aria-hidden="true"${iconColorAttrs}>${objectiveTask?.assetIcon||fallbackIcon}</span><span class="sess-label custom"${taskColorAttrs}>${termSessEsc(display)}</span>${activityHtml}${_termAutomationRelaunchHtml(s)}</span>`;
+      return `<span class="sess ${visual.kind} term-automation-terminal${active}${dead}" role="tab" aria-label="${termSessEsc(ariaLabel)}" aria-selected="${active ? 'true' : 'false'}" tabindex="${active ? '0' : '-1'}" draggable="true"${childAttrs} data-order-token="${termSessEsc('s:'+logical)}" data-name="${termSessEsc(s.name)}" data-logical="${termSessEsc(logical)}" data-tooltip="${termSessEsc(tooltip)}"><span class="sess-icon${taskIconClass}" aria-hidden="true"${iconColorAttrs}>${assetIcon||objectiveTask?.assetIcon||fallbackIcon}</span><span class="sess-label custom"${taskColorAttrs}>${termSessEsc(display)}</span>${activityHtml}${_termAutomationRelaunchHtml(s)}</span>`;
     }
     const linked = String(s.linked_file && s.linked_file.path || '').trim();
     const scope = s.linked_scope;
     const worktreeOnly = !main && !objectiveTask && scope?.worktree && !linked;
-    const icon = main?.icon || objectiveTask?.assetIcon || (child||objectiveTask?fallbackIcon:visual.icon);
+    const icon = assetIcon || main?.icon || objectiveTask?.assetIcon || (child||objectiveTask?fallbackIcon:visual.icon);
     const nameHtml = taskOwn ? (window.LabObjectives?.terminalTaskNameHtml?.(s)||termSessEsc(display)) : termSessEsc(display);
     const associationHtml = main||taskOwn ? '' : _termSessionAssociationHtml(s);
     const scopeAttrs = scope ? ` style="--term-scope-color:${termSessEsc(_termScopeColor(scope))}" data-linked-scope="${termSessEsc(scope.root)}"` : '';
@@ -15629,8 +15650,9 @@
 
   function _termSessionsLinkedToContext(ctx) {
     const absolute = _termLinkedAbsolutePath(ctx.root, ctx.path);
+    const assets=ctx.kind==='file'?window.LabObjectives?.terminalsForFile?.(ctx.root,ctx.path)||[]:[];
     return (termSessions || []).filter(session => ctx.kind === 'file'
-      ? _termLinkedFileMatches(session.linked_file, ctx.root, ctx.path)
+      ? assets.includes(session)||_termLinkedFileMatches(session.linked_file, ctx.root, ctx.path)
       : _termNormalizeLinkedRoot(session.linked_scope?.root) === _termNormalizeLinkedRoot(absolute));
   }
 
@@ -15646,7 +15668,11 @@
     try {
       if (ctx.kind !== 'file') throw new Error('This terminal’s folder is fixed. Open a new terminal to choose another folder.');
       if (context.workspaceId !== _termActiveWorkspaceId() || context.vaultId !== _termVaultId()) return;
-      const patch = {linked_file: {root: ctx.root, path: ctx.path}, label: _termLinkedFileName(ctx.path)};
+      if(window.LabObjectives?.active?.(currentWorkspace?.path)){
+        await window.LabObjectives.linkTerminal(session,{file:{root:ctx.root,path:ctx.path}});
+        if(clipboard)await clipboard;return;
+      }
+      const patch = {linked_file: {root: ctx.root, path: ctx.path, activate:true}, label: _termLinkedFileName(ctx.path)};
       await _termPatchLinks(session, patch, context);
       window.labFeatureUsage?.(`Link terminal to document (${method})`);
       const copied = clipboard && await clipboard;
@@ -15654,10 +15680,13 @@
     } catch (error) { explorerToast(error.message || String(error), true); }
   }
 
-  async function termUnlinkTarget(sessionName, kind) {
+  async function termUnlinkTarget(sessionName, kind, target = null) {
     if (kind !== 'file') { explorerToast('Terminal folders stay fixed after opening.', true); return; }
     const session = (termSessions || []).find(row => row.name === sessionName);
     if (!session) return;
+    if(target&&window.LabObjectives?.terminalsForFile?.(target.root,target.path).includes(session)){
+      await window.LabObjectives.unlinkTerminalAsset(session).catch(error=>explorerToast(error.message,true));return;
+    }
     const patch = {linked_file: null};
     if (session.label === _termLinkedFileName(session.linked_file?.path)) patch.label = null;
     try {
@@ -16000,7 +16029,10 @@
     const logical = session && session.logical_name;
     if (!state || !logical) throw new Error('This terminal has no saved session identity.');
     const label = linkedFile ? state.fileName : null;
-    return _termPatchLinks(session, {label, linked_file: linkedFile}, state);
+    if(window.LabObjectives?.active?.(currentWorkspace?.path)){
+      return linkedFile?window.LabObjectives.linkTerminal(session,{file:linkedFile}):window.LabObjectives.unlinkTerminalAsset(session);
+    }
+    return _termPatchLinks(session, {label, linked_file: linkedFile?{...linkedFile,activate:true}:null}, state);
   }
 
   async function termLinkExistingSession(sessionName) {
@@ -16108,9 +16140,9 @@
   });
 
   function _termSyncFromFileClick(root, path) {
-    if (!_linkedTerminalSyncOn) return;
+    if(window.LabObjectives?.activateFileTerminal?.(root,path))return;
     const matches = (termSessions || []).filter(session =>
-      _termLinkedFileMatches(session.linked_file, root, path));
+      (_linkedTerminalSyncOn||session.linked_file?.activate)&&_termLinkedFileMatches(session.linked_file, root, path));
     if (!matches.length) return;
     const current = matches.find(session =>
       session.name === termCurrentSession && termCurrentWorkspaceId === _termActiveWorkspaceId());
@@ -16178,9 +16210,10 @@
 
   async function _termOpenLinkedFile(session) {
     const request = ++_termLinkedNavigationSeq;
-    if (!_linkedTerminalSyncOn) return;
+    const sync=()=>_linkedTerminalSyncOn||session?.linked_file?.activate;
+    if (!sync()) return;
     await _termSyncLinkedScope(session && session.linked_scope, request);
-    if (!_linkedTerminalSyncOn || request !== _termLinkedNavigationSeq) return;
+    if (!sync() || request !== _termLinkedNavigationSeq) return;
     const linked = _termLinkedFile(session && session.linked_file);
     if (!linked || !currentWorkspace) return;
     const repoRoot = typeof _activeRepoFileRoot === 'function'
@@ -21556,6 +21589,8 @@
   // workspace/repo init path entirely and render the mdview-style browser.
   window.LabObjectives?.connect({
     fileIcon: fileIconHtml,
+    activeTerminal:()=>termSessions.find(t=>t.name===termCurrentSession),
+    terminalLabel:session=>_termSessionDisplay(session),
     refreshTabs: () => renderRepoTabs(),
     openDefault: () => {if(_contextSubView==='overview'&&!_workspaceDocPath&&!currentRepo)window.LabObjectives.openCurrent();},
     readyContent: () => Promise.all([ensureMarked(),window.ensureLiveMarkdownEditor?.().catch(()=>{})]),
@@ -21721,7 +21756,7 @@
       'document-open':async p=>{if(!currentWorkspace)throw Error('Open a workspace first.');await openWorkspaceDoc(p.path,p.root?{root:p.root}:{});return{path:p.path};},
       'objective-select':async p=>{const data=await window.LabObjectives.load(undefined,true);if(!data?.objectives.some(o=>o.id===p.objective))throw Error('Objective not found.');window.LabObjectives.selectObjective(p.objective);return{objective:p.objective};},
       'task-open':async p=>{const data=await window.LabObjectives.load(undefined,true),contains=rows=>rows.some(t=>t.id===p.task||contains(t.children||[])),owners=(data?.objectives||[]).filter(o=>(!p.objective||o.id===p.objective)&&contains(o.tasks));if(owners.length!==1)throw Error('Task not found or ambiguous. Include its Objective.');window.LabObjectives.selectObjective(owners[0].id,{activateTerminal:false});window.LabObjectives.openTask(p.task,{activateTerminal:true});return{task:p.task,objective:owners[0].id};},
-      'terminal-select':async p=>{const s=(termSessions||[]).find(s=>s.name===p.name||s.logical_name===p.name);if(!s)throw Error('Terminal not found.');await _termActivateTab(s.name);return{name:s.name};},
+      'terminal-select':async p=>{const s=(termSessions||[]).find(s=>s.name===p.name||s.logical_name===p.name);if(!s)throw Error('Terminal not found.');const linked=window.LabObjectives?.openForTerminal(s);await _termActivateTab(s.name,{openDocument:!linked});return{name:s.name};},
       'terminal-rename':async p=>{const s=(termSessions||[]).find(s=>s.name===p.name||s.logical_name===p.name);if(!s)throw Error('Terminal not found.');if(window.LabObjectives?.terminalMain?.(s))throw Error('Main terminal names follow their workflow or Objective.');const saved=await _termPatchLinks(s,{label:String(p.label||'').trim()||null});return{name:s.name,label:saved.label||null};},
       'terminal-input':async p=>{if(p.name){const s=(termSessions||[]).find(s=>s.name===p.name||s.logical_name===p.name);if(!s)throw Error('Terminal not found.');await _termActivateTab(s.name);}if(!termXterm||!termWS||termWS.readyState!==WebSocket.OPEN)throw Error('Terminal is not connected.');const text=String(p.text??'');termXterm.paste(termXterm.modes?.bracketedPasteMode?text:text.replace(/[\r\n]+/g,' '));if(p.submit===true){termWS.send(JSON.stringify({type:'input',data:'\r'}));_termRequestSubmitted(termCurrentSession,termCurrentWorkspaceId,'\r');}return{name:termCurrentSession,submitted:p.submit===true};},
     },

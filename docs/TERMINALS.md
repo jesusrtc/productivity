@@ -191,10 +191,22 @@ read incrementally without sending commands or changing the agent session.
 Sidebar objects dropped inside the console paste a shell-quoted reference
 without Enter: the captured absolute file/folder path, document path with its
 subtab fragment, or external URL. Objective Tasks also has a draggable reference.
-In an Objectives workspace, dropping onto a terminal's name instead stores an
-independent link to the object; clicking that terminal reopens it. Tasks and
-folder/worktree targets use this association without changing the launch folder
-or the running process. See [OBJECTIVES.md](OBJECTIVES.md).
+In an Objectives workspace, dropping an asset onto a terminal's name instead
+stores an independent navigation link. A terminal's workspace, Objective or task
+ownership still controls its launch folder and visibility. The asset link does
+not replace that ownership, including for fixed mains and automation primaries.
+
+Use the terminal menu's **Link to asset…** picker, the asset menu's **Link to
+active terminal**, or drag an ordinary terminal onto a left-column asset.
+Clicking either side activates the other: notebooks/files open their normal
+viewer, document subtabs retain their IDs, and URL links open their exact
+destination through the usual browser action. The tab and active header use the
+asset's shared icon, ahead of task/default icons; the terminal name stays intact.
+**Unlink asset** restores the usual icon without stopping or restarting anything.
+New file links outside Objectives also activate in both directions without
+requiring **Sync linked**; existing links retain that preference until relinked.
+Task/Objective drops still explicitly assign terminal ownership, while asset
+links remain separate. See [OBJECTIVES.md](OBJECTIVES.md).
 
 ## Inactive terminal cleanup
 

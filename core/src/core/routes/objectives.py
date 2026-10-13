@@ -154,7 +154,7 @@ def change(request: Request, body: Action):
                         raise ValueError('Subtab not found')
                 if action.get('reference') is not None:
                     action = {**action, 'reference':{**source, **reference}}
-        if action.get('type') == 'terminal':
+        if action.get('type') in {'terminal', 'terminal-asset'}:
             from core.routes import term
             sessions = term._get_workspace_sessions(root, body.workspace_id)
             entry = next((s for s in sessions if s.get('session_id') == action.get('session_id')), None)

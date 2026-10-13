@@ -151,6 +151,24 @@ default; saved custom icons take precedence. Icons appear on the left, including
 when titles are visible. GitHub and other monochrome icons follow the terminal
 title's chosen color or its own assigned worktree color.
 
+A terminal's workspace, Objective or task determines its launch folder and
+visibility. An **asset link** is separate: secondary-click an asset → **Link to
+active terminal**, or a terminal → **Link to asset…**. You can also drag an asset
+onto a terminal tab, or an ordinary terminal onto a sidebar asset. Clicking the
+asset activates its terminal; clicking the terminal opens that asset, including
+the exact document subtab or URL sublink. The terminal adopts the asset's icon
+(notebook, GitHub, etc.) in its tab and active header, keeping its name and origin.
+This works for task primaries, automation terminals and fixed main terminals.
+**Unlink asset** removes only that navigation link and restores the usual icon.
+New file links outside Objectives also activate in both directions; older file
+links retain their existing **Sync linked** preference until relinked.
+
+Agents can use the same menu through `lab ui`, or apply a `terminal-asset` action
+with `session_id`, `objective_id` and one `resource_id`, `file` or `folder` target
+through `lab objective apply`. Add `tab_id` or `sub_link_id` for a specific child.
+Use `unlink: true` with the session ID to remove the asset link. Linking does not
+replace task ownership, change the launch directory or restart a session.
+
 Hovering over the vertical terminal rail reveals titles beside the existing
 icons. Icon sizes, row heights, colored markers and green review controls
 stay in place. Renewal (**↻**) appears beside the title only when terminal titles

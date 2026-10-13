@@ -2569,6 +2569,7 @@ class SessionOrder(BaseModel):
 class LinkedFile(BaseModel):
     root: str
     path: str
+    activate: bool = False
 
 
 class LinkedTask(BaseModel):
@@ -2775,6 +2776,8 @@ def _update_session_metadata(body: SessionMetadata, request: Request) -> dict:
             if len(file_root) > 4096 or len(file_path) > 4096:
                 raise HTTPException(status_code=400, detail="linked_file path is too long")
             entry["linked_file"] = {"root": file_root, "path": file_path}
+            if body.linked_file.activate:
+                entry["linked_file"]["activate"] = True
 
     if "linked_scope" in fields:
         if body.linked_scope is None:

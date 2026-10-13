@@ -225,8 +225,11 @@ def read(folder):
     for link in links.values():
         if link.get('main') == 'workflow':
             if workflow_main:
+                asset = link.get('asset')
                 link.clear()
                 link['view'] = 'workflow'
+                if asset:
+                    link['asset'] = asset
             workflow_main = True
     return data
 

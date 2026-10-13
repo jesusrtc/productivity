@@ -370,6 +370,7 @@
       (r?.kind!=='assistant'&&bridge.fileIcon?.(r?.path||r?.title))||`<span aria-hidden="true">${r?.kind==='notebook'?'▦':'▤'}</span>`;
   }
   function assetInfo(asset,o=objective()) {
+    if(asset.file)return {title:asset.file.path.split('/').pop(),icon:bridge.fileIcon?.(asset.file.path)||'▤',reference:asset.file.root.replace(/\/$/,'')+'/'+asset.file.path};
     if(asset.reference){const r=asset.reference;return {title:r.title,icon:resourceIcon(r),reference:resourceReference(r)};}
     if(asset.folder){const scope=scopeRows(o).find(t=>[t.path,t.resolved_path].includes(asset.folder.root));return {title:asset.folder.path==='.'?scope?.label||asset.folder.root.split('/').pop():asset.folder.path,icon:`<span aria-hidden="true">${scope?.kind==='worktree'?'⑂':'⌂'}</span>`,reference:asset.folder.root.replace(/\/$/,'')+(asset.folder.path==='.'?'':'/'+asset.folder.path)};}
     const r=o?.resources.find(r=>r.id===asset.resource_id);if(!r)return null;
@@ -710,9 +711,11 @@
     const node=form('Trash '+info.title+'?',`<p>Remove this asset from the Objective and detach its task assignments? Source files and running terminals are preserved.</p>`,()=>change({type:'asset-trash',objective_id:owner,...target,confirmed:true},{scope}));
     node.querySelector('[type=submit]').textContent='Trash asset';
   }
-  function openAsset(asset,event=null) {
+  function openAsset(asset,event=null,{activateTerminal=true}={}) {
+    if(activateTerminal)activateAssetTerminal(asset);
     if(asset.folder){const scope=asset.folder.path==='.'&&scopeRows().find(t=>[t.path,t.resolved_path].includes(asset.folder.root));if(scope)selectScope(scope);else bridge.openFolder?.(asset.folder);return;}
-    const info=assetInfo(asset);if(info?.resource?.kind==='link'){openLinkUrl(info.reference,event);return;}
+    if(asset.file){bridge.openFile?.(asset.file);return;}
+    const info=assetInfo(asset);if(info?.resource?.kind==='link'){state().selected={resource:asset.resource_id,tab:null,subLink:asset.sub_link_id||null};persistView();paint();openLinkUrl(info.reference,event);return;}
     openResource(asset.resource_id,asset.tab_id||null,asset.sub_link_id||null);
   }
   function openResource(resourceId,tabId=null,subLink=null) {
@@ -1106,6 +1109,43 @@
   function associate(row) {return change({type:'worktree',objective_id:objective().id,path:row.path,label:row.label||row.name||row.path.split('/').pop(),repo:row.projectPath||row.path,branch:row.branch,kind:row.kind||'worktree'}).then(d=>{const o=d.objectives.find(o=>o.id===objective().id);state().tree[o.id]=o.worktrees.at(-1).id;persistView();return o.worktrees.at(-1);});}
   function terminalIdentity(t) {return t.session_id||t.name;}
   function terminalLink(t) {return t.objective_placeholder?{objective_id:t.objective_id,task_id:t.task_id,main:t.main}:data()?.terminal_links[terminalIdentity(t)];}
+  function terminalAsset(t) {
+    if(!t||t.objective_placeholder||!active(context()?.path))return null;
+    const link=terminalLink(t),asset=link?.asset||(link?.resource_id||link?.file?link:null);
+    if(!asset)return null;
+    const o=data()?.objectives.find(o=>o.id===asset.objective_id),info=o&&assetInfo(asset,o);
+    return info?{...info,target:asset,objective:o}:null;
+  }
+  function assetFile(asset,o) {
+    if(asset.file)return asset.file;
+    const r=o?.resources.find(r=>r.id===asset.resource_id);
+    return r&&['file','notebook','document'].includes(r.kind)?{root:r.file_root||context()?.path,path:r.path}:null;
+  }
+  function sameTerminalAsset(a,b,o) {
+    const left=assetFile(a,o),right=assetFile(b,o);
+    if(left&&right)return left.root.replace(/\/$/,'')+'/'+left.path===right.root.replace(/\/$/,'')+'/'+right.path
+      &&(a.tab_id||null)===(b.tab_id||null);
+    return ['resource_id','tab_id','sub_link_id'].every(k=>(a[k]||null)===(b[k]||null))
+      &&JSON.stringify(a.folder||null)===JSON.stringify(b.folder||null)&&!left&&!right;
+  }
+  function assetTerminals(asset,o=objective()) {
+    return (bridge.sessions?.()||[]).filter(t=>{const linked=terminalAsset(t);return linked?.objective.id===o?.id&&sameTerminalAsset(linked.target,asset,o);});
+  }
+  function activateAssetTerminal(asset,o=objective()) {
+    const rows=assetTerminals(asset,o);if(!rows.length)return false;
+    Promise.resolve(bridge.activateLinkedTerminal?.(rows.map(terminalIdentity))).catch(error=>notify(error.message,true));return true;
+  }
+  function unlinkTerminalAsset(t) {
+    return change({type:'terminal-asset',session_id:terminalIdentity(t),source:t.document_source,unlink:true}).then(()=>notify('Asset unlinked.'));
+  }
+  function chooseTerminalAsset(t) {
+    if(!t||!active(context()?.path))return;
+    const scope={...context()},o=objective();if(!o)return;
+    const choices=o.resources.flatMap(r=>[{resource_id:r.id},...(r.kind==='link'?subLinksFor(r).map(row=>({resource_id:r.id,sub_link_id:row.id})):tabsFor(r).map(row=>({resource_id:r.id,tab_id:row.id})))])
+      .filter(asset=>!isTrashed(asset,o));
+    const node=form('Link terminal to asset',`<p class="objective-purpose">${esc(bridge.terminalLabel?.(t)||t.label||t.logical_name)} · The terminal keeps its task, Objective and starting folder.</p><label>Asset<select name="asset" required>${choices.map((asset,index)=>`<option value="${index}">${esc(assetInfo(asset,o)?.title||'Asset')}</option>`).join('')}</select></label>`,values=>linkTerminal(t,choices[Number(values.get('asset'))],o,scope));
+    if(!choices.length){node.querySelector('[type=submit]').disabled=true;node.querySelector('select').innerHTML='<option>No assets in this Objective</option>';}
+  }
   function taskTerminalsEnabled() {return data()?.task_terminals===true;}
   function taskTerminalVisible(task,o,wipOnly=bridge?.terminalWipOnly?.()??true) {
     return taskStatus(task)==='in_progress'||!wipOnly||o.id===objective()?.id&&state().terminalAll?.[o.id]===true;
@@ -1278,6 +1318,13 @@
     }).join('')+newButton;
   }
   function openForTerminal(t) {
+    const asset=terminalLink(t)?.asset&&terminalAsset(t);
+    if(asset){
+      const binding=terminalTask(t);
+      if(binding&&binding.objective.id===asset.objective.id){state().objective=binding.objective.id;openTask(binding.task.id);}
+      else if(state().objective!==asset.objective.id){state().objective=asset.objective.id;state().focus=null;}
+      openAsset(asset.target,null,{activateTerminal:false});return true;
+    }
     if(terminalMain(t)?.kind==='workflow')return true;
     const binding=terminalTask(t);
     if(binding?.inherited){state().objective=binding.objective.id;openTask(binding.task.id);paint();return true;}
@@ -1296,19 +1343,20 @@
   }
   function sidebarTarget(node,o=objective()) {
     if(node.closest?.('[data-objectives-sidebar] [data-select-objective]'))return {};
-    const task=node.closest?.('[data-open-task],[data-task-id]');if(task)return {task_id:task.dataset.openTask||task.dataset.taskId};
     const asset=node.closest?.('[data-objective-asset]');if(asset)return JSON.parse(asset.dataset.objectiveAsset);
     const resource=node.closest?.('[data-objective-resource]');if(resource)return {resource_id:resource.dataset.objectiveResource,tab_id:resource.dataset.objectiveTab||null,sub_link_id:resource.dataset.objectiveSublink||null};
+    const task=node.closest?.('[data-open-task],[data-task-id]');if(task)return {task_id:task.dataset.openTask||task.dataset.taskId};
     if(node.closest?.('[data-objective-tasks-drop],[data-objectives-sidebar] [data-open-objective-tasks]'))return {view:'tasks'};
     const row=node.closest?.('[data-objective-root],[data-objective-worktree]'),tree=scopeRows(o).find(t=>t.id===(row?.dataset.objectiveRoot||row?.dataset.objectiveWorktree));
     if(tree)return {folder:{root:tree.path,path:'.'}};
     const file=node.closest?.('[data-open-file][data-filepath],[data-entry-kind][data-entry-path]'),target=file&&nativeAssetTarget(file);
     return target?.reference?{file:{root:target.reference.file_root,path:target.reference.path}}:target;
   }
-  function linkTerminal(t,target,o=objective()) {
+  function linkTerminal(t,target,o=objective(),scope={...context()}) {
     if(!t)throw new Error('Choose a terminal in this workspace');
-    if(terminalMain(t))throw new Error('Main terminals have a fixed workflow or Objective context');
-    return change({type:'terminal',objective_id:o.id,session_id:terminalIdentity(t),source:t.document_source,...target}).then(()=>notify('Terminal linked.'));
+    const asset=target?.resource_id||target?.file||target?.folder;
+    if(!asset&&terminalMain(t))throw new Error('Main terminals have a fixed workflow or Objective context');
+    return change({type:asset?'terminal-asset':'terminal',objective_id:o.id,session_id:terminalIdentity(t),source:t.document_source,...target},{scope}).then(()=>notify('Terminal linked.'));
   }
   function fileDropTarget(transfer) {
     const raw=transfer.getData('application/x-lab-file-context');
@@ -1348,6 +1396,11 @@
     const url=esc(info.reference);
     return `<button type="button" role="menuitem" data-edit-link-details="${esc(JSON.stringify(assetTarget(asset)))}">Edit</button><button type="button" role="menuitem" data-copy-asset-url="${url}">Copy URL</button><button type="button" role="menuitem" data-open-asset-chrome="${url}">Open in Chrome</button>`;
   }
+  function assetTerminalMenu(asset) {
+    const t=bridge.activeTerminal?.(),json=esc(JSON.stringify(assetTarget(asset)));
+    return `<button type="button" role="menuitem" data-link-asset-terminal="${json}" ${t?'':'disabled'}>Link to active terminal</button>`
+      +assetTerminals(asset).map(row=>`<button type="button" role="menuitem" data-unlink-asset-terminal="${esc(row.name)}">Unlink from terminal · ${esc(bridge.terminalLabel?.(row)||row.label||row.logical_name)}</button>`).join('');
+  }
   async function copyAssetUrl(url) {
     const copied=await window._copyToClipboard(url);
     notify(copied?'URL copied.':'Could not copy the URL.',!copied);
@@ -1362,9 +1415,9 @@
     const asset=node.dataset.openTaskAsset?task&&taskAssets(task).find(a=>a.id===node.dataset.openTaskAsset):target?JSON.parse(target):{resource_id:node.dataset.objectiveResource,...(node.dataset.objectiveTab?{tab_id:node.dataset.objectiveTab}:{}),...(node.dataset.objectiveSublink?{sub_link_id:node.dataset.objectiveSublink}:{})};
     if(!asset)return false;
     if(!assetInfo(asset))return false;
-    if(node.dataset.openTaskAsset)return linkDetailsMenu(asset)?openAssetContextMenu(event,node,linkDetailsMenu(asset)):false;
+    if(node.dataset.openTaskAsset)return openAssetContextMenu(event,node,linkDetailsMenu(asset)+assetTerminalMenu(asset));
     const json=esc(JSON.stringify(assetTarget(asset))),required=requiredAsset(asset),group=assetGroupFor(asset);
-    return openAssetContextMenu(event,node,linkDetailsMenu(asset)+`<button type="button" role="menuitem" data-objective-star="${json}">${isShared(asset)?'Unpin':'Pin above tasks'}</button>${required?'<span class="objective-bucket-empty">Required task details</span>':`<button type="button" role="menuitem" data-group-asset="${json}">Group asset…</button>${group?`<button type="button" role="menuitem" data-remove-asset-group="${json}">Remove from group</button>`:''}${assetOrderButtons(assetTarget(asset),node)}<button type="button" role="menuitem" data-menu-asset="${json}" data-menu-assignment="task">Move to task…</button><button type="button" role="menuitem" data-menu-asset="${json}" data-menu-assignment="objective">Move to Objective…</button><button type="button" role="menuitem" data-menu-asset="${json}" data-menu-bucket="unassigned">Move to Unassigned</button><button type="button" role="menuitem" data-menu-asset="${json}" data-menu-bucket="archive">Archive</button><button type="button" role="menuitem" data-trash-objective-asset="${json}">Trash…</button>`}`);
+    return openAssetContextMenu(event,node,linkDetailsMenu(asset)+assetTerminalMenu(asset)+`<button type="button" role="menuitem" data-objective-star="${json}">${isShared(asset)?'Unpin':'Pin above tasks'}</button>${required?'<span class="objective-bucket-empty">Required task details</span>':`<button type="button" role="menuitem" data-group-asset="${json}">Group asset…</button>${group?`<button type="button" role="menuitem" data-remove-asset-group="${json}">Remove from group</button>`:''}${assetOrderButtons(assetTarget(asset),node)}<button type="button" role="menuitem" data-menu-asset="${json}" data-menu-assignment="task">Move to task…</button><button type="button" role="menuitem" data-menu-asset="${json}" data-menu-assignment="objective">Move to Objective…</button><button type="button" role="menuitem" data-menu-asset="${json}" data-menu-bucket="unassigned">Move to Unassigned</button><button type="button" role="menuitem" data-menu-asset="${json}" data-menu-bucket="archive">Archive</button><button type="button" role="menuitem" data-trash-objective-asset="${json}">Trash…</button>`}`);
   }
   document.addEventListener('contextmenu',event=>{if(showAssetContextMenu(event))return;const row=event.target.closest?.('[data-objectives-sidebar] .objective-sidebar-task,.objective-task-row,.objective-task-mode-head');if(row&&active(context()?.path))showTaskStatusMenu(event,row);},true);
   document.addEventListener('keydown',event=>{if(assetContextMenu&&event.target.closest?.('.objective-asset-context-menu')){const rows=[...assetContextMenu.querySelectorAll('button:not(:disabled)')];if(event.key==='Escape'){closeAssetContextMenu();event.preventDefault();}else if(['ArrowDown','ArrowUp','Home','End'].includes(event.key)){event.preventDefault();const i=rows.indexOf(document.activeElement);rows[event.key==='Home'?0:event.key==='End'?rows.length-1:(i+(event.key==='ArrowDown'?1:rows.length-1))%rows.length]?.focus();}return;}if(event.key==='ContextMenu'||event.shiftKey&&event.key==='F10')showAssetContextMenu(event);},true);
@@ -1386,6 +1439,8 @@
     if(node.hasAttribute('data-edit-link-details')){const asset=JSON.parse(node.dataset.editLinkDetails);openLinkEdit(asset.resource_id,asset.sub_link_id||null);return;}
     if(node.hasAttribute('data-copy-asset-url')){void copyAssetUrl(node.dataset.copyAssetUrl);return;}
     if(node.hasAttribute('data-open-asset-chrome')){void window.LabExternalLinks?.openInChrome(node.dataset.openAssetChrome);return;}
+    if(node.hasAttribute('data-link-asset-terminal')){void linkTerminal(bridge.activeTerminal?.(),JSON.parse(node.dataset.linkAssetTerminal)).catch(error=>notify(error.message,true));return;}
+    if(node.hasAttribute('data-unlink-asset-terminal')){const t=bridge.session?.(node.dataset.unlinkAssetTerminal);if(t)void unlinkTerminalAsset(t).catch(()=>{});return;}
     if(node.hasAttribute('data-asset-group-toggle')){openAssetGroup(node.closest('[data-asset-group]'),true);return;}
     if(node.hasAttribute('data-asset-group-menu')){showAssetContextMenu(e);return;}
     if(node.hasAttribute('data-group-asset')){groupAsset(JSON.parse(node.dataset.groupAsset));return;}
@@ -1410,7 +1465,7 @@
     if(node.dataset.scheduleTask){const o=objective(),scope={...context()},task=tasks(o).find(t=>t.id===node.dataset.scheduleTask);window.LabTaskSchedule?.edit(task,values=>change({type:'task-update',objective_id:o.id,task_id:task.id,...values},{scope}));return;}
     if(node.dataset.taskAssets){openTaskAssets(node.dataset.taskAssets);return;}
     if(node.dataset.removeTaskAsset){const id=node.dataset.assetTask;void change({type:'task-remove-asset',objective_id:objective().id,task_id:id,asset_id:node.dataset.removeTaskAsset}).then(()=>openTaskAssets(id)).catch(()=>{});return;}
-    if(node.dataset.openTaskAsset){const task=tasks().find(t=>t.id===node.dataset.assetTask),asset=task&&taskAssets(task).find(a=>a.id===node.dataset.openTaskAsset);if(asset){const info=assetInfo(asset);if(info?.resource?.kind==='link'){openLinkUrl(info.reference,e);return;}dialog?.remove();dialog=null;openTask(task.id);openAsset(asset,e);}return;}
+    if(node.dataset.openTaskAsset){const task=tasks().find(t=>t.id===node.dataset.assetTask),asset=task&&taskAssets(task).find(a=>a.id===node.dataset.openTaskAsset);if(asset){if(assetInfo(asset)?.resource?.kind==='link'){openAsset(asset,e);return;}dialog?.remove();dialog=null;openTask(task.id);openAsset(asset,e);}return;}
     if(node.hasAttribute('data-objective-asset')&&!node.dataset.objectiveResource){openAsset(JSON.parse(node.dataset.objectiveAsset),e);return;}
     if(e.target.closest('[data-toggle-objective-switch]')){switchMenu?closeSwitchMenu():showSwitchMenu();return;}
     if(node.hasAttribute('data-choose-objective-slot')){closeSwitchMenu();showAll();data()?.objectives.length?focusDialog(null,Number(node.dataset.chooseObjectiveSlot)):newObjective(Number(node.dataset.chooseObjectiveSlot));return;}
@@ -1428,7 +1483,7 @@
     if(node.hasAttribute('data-focus-objective')){focusDialog();return;}
     if(node.hasAttribute('data-fold-worktrees')){if(state().worktreesOpen)foldWorktrees();else{state().worktreesOpen=true;paint();}document.querySelector('[data-fold-worktrees]')?.focus({preventScroll:true});return;}
     if(node.hasAttribute('data-open-objective-tasks')){collapse();renderTasks();return;}
-    if(node.dataset.objectiveResource){const r=objective()?.resources.find(r=>r.id===node.dataset.objectiveResource),sub=node.dataset.objectiveSublink||null;e.preventDefault();if(r?.kind==='link')openLinkUrl(linkTarget(r,sub)?.url,e);else openResource(node.dataset.objectiveResource,node.dataset.objectiveTab||null,sub);return;}
+    if(node.dataset.objectiveResource){e.preventDefault();openAsset({resource_id:node.dataset.objectiveResource,tab_id:node.dataset.objectiveTab||null,sub_link_id:node.dataset.objectiveSublink||null},e);return;}
     if(node.dataset.openParentLink){if(node.closest('.objective-link-edit-dialog'))openLinkEdit(node.dataset.openParentLink);else openResource(node.dataset.openParentLink);return;}
     if(node.hasAttribute('data-add-objective-sublink')){const d=activeLinkDraft;form('Add sublink',input('Title','title')+input('URL','url','','url'),values=>change({type:'link-sublink',objective_id:d.objective,resource_id:d.resource,parent_id:d.subLink,title:values.get('title'),url:values.get('url')},{scope:d.scope}));return;}
     if(node.dataset.removeObjectiveSublink){const d=activeLinkDraft;void change({type:'link-remove-sublink',objective_id:d.objective,resource_id:d.resource,sub_link_id:node.dataset.removeObjectiveSublink},{scope:d.scope}).catch(()=>{});return;}
@@ -1550,7 +1605,6 @@
   document.addEventListener('dragleave',e=>{const row=e.target.closest?.('[data-asset-group-header],[data-task-id],[data-objective-tasks-drop]');if(row&&!row.contains(e.relatedTarget))row.classList.remove('objective-drop-target');});
   document.addEventListener('drop',e=>{
     const draft=taskDocumentDraft();if(e.target.closest?.('.objective-task-mode-head')&&draft&&!draftEditable(draft)){e.preventDefault();e.stopImmediatePropagation();return;}
-    if(active(context()?.path)&&e.target.closest?.('#termSessionList [data-terminal-main]')){e.preventDefault();e.stopImmediatePropagation();notify('Main terminals have a fixed workflow or Objective context',true);return;}
     const project=e.dataTransfer.getData(objectiveMime),slot=e.target.closest?.('[data-objective-slot]');
     if(project&&slot){e.preventDefault();e.stopImmediatePropagation();slot.classList.remove('objective-drop-target');try{const item=JSON.parse(project);if(item.scope!==key(context()))throw new Error('Choose an objective in this workspace');void placeObjective(item.objective_id,Number(slot.dataset.objectiveSlot)).catch(()=>{});}catch(error){notify(error.message,true);}return;}
     if(project&&active(context()?.path)&&e.target.closest?.('#termSessionList .sess')){
@@ -1584,7 +1638,7 @@
       else {const ref=JSON.parse(assistant);void change({type:'resource',objective_id:objective().id,kind:'assistant',title:ref.title||'Assistant document',document_id:ref.document_id,assistant_root:ref.assistant_root,worktree:worktree.dataset.objectiveWorktree}).catch(()=>{});return;}
     }catch(error){notify(error.message,true);return;}}
     const bucket=target.closest('[data-objective-bucket]'),bucketId=bucket?.dataset.objectiveBucket;
-    const taskNode=target.closest('[data-task-id]');
+    const taskNode=target.closest('[data-objective-asset],[data-objective-resource]')&&terminal?null:target.closest('[data-task-id]');
     if(taskNode||!terminal&&(bucket||target.closest('.objective-archive'))){taskNode?.classList.remove('objective-drop-target');const id=taskNode?.dataset.taskId||focusedTask()?.id;try{
       if(terminal){void linkTerminal(bridge.session?.(terminal),{task_id:id,rename_to_task:true}).catch(()=>{});return;}
       let item;if(raw){const {scope,...source}=JSON.parse(raw);if(scope!==key(context())||source.objective_id!==objective().id)throw new Error('Choose an asset in this objective');if(source.task_id||source.view)throw new Error('Drop a document, notebook, link or folder onto a task');item=source;}
@@ -1599,7 +1653,7 @@
       }
     }catch(error){notify(error.message,true);}return;}
     try{if(raw){const {scope,...item}=JSON.parse(raw);if(scope!==key(context())||item.objective_id!==objective().id)throw new Error('Choose a resource in this objective');if(target.classList.contains('sess'))linkTerminal(bridge.session?.(target.dataset.name),item).catch(()=>{});else if(item.resource_id&&!target.hasAttribute('data-open-objective-tasks'))change({type:'scope',...item,worktree:target.dataset.objectiveWorktree||null}).catch(()=>{});}
-      else if(assistant){const ref=JSON.parse(assistant),o=objective();change({type:'resource',objective_id:o.id,kind:'assistant',title:ref.title||'Assistant document',document_id:ref.document_id,assistant_root:ref.assistant_root,worktree:target.dataset.objectiveWorktree||null}).then(d=>{if(target.classList.contains('sess'))return change({type:'terminal',objective_id:o.id,session_id:terminalIdentity(bridge.session(target.dataset.name)),source:bridge.session(target.dataset.name).document_source,resource_id:d.objectives.find(item=>item.id===o.id).resources.at(-1).id});}).catch(()=>{});}
+      else if(assistant){const ref=JSON.parse(assistant),o=objective();change({type:'resource',objective_id:o.id,kind:'assistant',title:ref.title||'Assistant document',document_id:ref.document_id,assistant_root:ref.assistant_root,worktree:target.dataset.objectiveWorktree||null}).then(d=>{if(target.classList.contains('sess'))return change({type:'terminal-asset',objective_id:o.id,session_id:terminalIdentity(bridge.session(target.dataset.name)),source:bridge.session(target.dataset.name).document_source,resource_id:d.objectives.find(item=>item.id===o.id).resources.at(-1).id});}).catch(()=>{});}
       else if(file&&target.classList.contains('sess'))linkTerminal(bridge.session?.(target.dataset.name),fileDropTarget(e.dataTransfer)).catch(()=>{});
       else if(terminal){const item=sidebarTarget(target);if(item)linkTerminal(bridge.session?.(terminal),item).catch(()=>{});}
     }catch(error){notify(error.message,true);}
@@ -1607,6 +1661,9 @@
   window.LabObjectives={connect(adapter){bridge=adapter;startRefreshing();},load,active,sidebarHtml,paint,worktrees,tree,associate,terminalHtml,taskForTerminal,openForTerminal,collapse,progress,complete,change,selectObjective,openTask,renderTasks,tabsHtml,showAll,terminalLaunchContext,associateNewTerminal,
     instructionRoot(path){return active(path)?scopeRows().find(row=>row.id==='objective-root')?.path:null;},
     terminalSessions,terminalParents,terminalExpanded,terminalMain,openMainTerminal,openTaskTerminal,terminalTaskNameHtml,terminalWorktreeColor,terminalColor,sidebarMode,recentScopes,moveForTerminalDrop,
+    terminalAsset,chooseTerminalAsset,unlinkTerminalAsset,linkTerminal,
+    activateFileTerminal(root,path){return active(context()?.path)&&activateAssetTerminal({file:{root,path}});},
+    terminalsForFile(root,path){return active(context()?.path)?assetTerminals({file:{root,path}}):[];},
     syncTerminalHierarchy(){if(active(context()?.path))bridge.syncTaskHierarchy?.(data());},
     terminalTaskContext(t){const binding=terminalTask(t);return binding?taskContext(binding.task,binding.objective):null;},
     childTerminalAssociation(t){const o=terminalObjective(t);return !active(context()?.path)?null:o?{context:{...context()},objective_id:o.id,view:'tasks'}:{context:{...context()},view:'workflow'};},

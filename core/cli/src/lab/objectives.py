@@ -236,6 +236,26 @@ def _task_asset(folder, objective, action):
     return result
 
 
+def _terminal_asset(folder, objective, action):
+    """An optional navigation target, independent of the terminal's origin."""
+    if sum(bool(action.get(k)) for k in ('resource_id', 'file', 'folder')) != 1 or any(
+            action.get(k) for k in ('task_id', 'view', 'main', 'reference')):
+        raise ValueError('Choose one asset to link to this terminal')
+    if action.get('file'):
+        linked = action['file']
+        if (not isinstance(linked, dict) or not isinstance(linked.get('root'), str)
+                or not isinstance(linked.get('path'), str) or action.get('tab_id') or action.get('sub_link_id')):
+            raise ValueError('Choose a file in this Objective')
+        root = Path(linked['root']).resolve()
+        allowed = [folder.resolve(), _objective_dir(folder, objective).resolve(),
+                   *(Path(t['path']).resolve() for t in objective['worktrees'])]
+        target = (root / linked['path']).resolve()
+        if root not in allowed or not target.is_relative_to(root) or not target.is_file():
+            raise ValueError('Choose a file in this Objective')
+        return {'file':{'root':str(root), 'path':target.relative_to(root).as_posix()}}
+    return _task_asset(folder, objective, action)
+
+
 def _put_asset(objective, field, target, limit=512):
     rows = objective.setdefault(field, [])
     existing = next((asset for asset in rows if _asset_target(asset) == target), None)
@@ -965,7 +985,26 @@ def mutate(root, workspace_id, action, expected=None, *, delete_terminals=None, 
             if previous.get('main') and (previous['main'] != proposed
                     or previous.get('objective_id') != (None if proposed == 'workflow' else action.get('objective_id'))):
                 raise ValueError('Main terminals have a fixed workflow or Objective context')
-        if operation == 'terminal-policy':
+        if operation == 'terminal-asset':
+            name = _text(action.get('session_id'), 'Terminal identity')
+            if action.get('unlink') is True:
+                link = data['terminal_links'].get(name, {})
+                if 'asset' in link:
+                    link.pop('asset')
+                elif any(link.get(k) for k in ('resource_id', 'file')):
+                    for field in ('resource_id', 'tab_id', 'sub_link_id', 'file'):
+                        link.pop(field, None)
+                    if not any(link.get(k) for k in ('task_id', 'main', 'view')):
+                        link['view'] = 'objective' if link.get('objective_id') else 'workflow'
+            else:
+                if objective is None:
+                    raise ValueError('Objective not found')
+                asset = _terminal_asset(folder, objective, action)
+                # Unassigned legacy sessions retain workspace scope. Linking an
+                # asset never claims an Objective main or replaces a task primary.
+                link = data['terminal_links'].setdefault(name, {'view':'workflow'})
+                link['asset'] = {'objective_id':objective['id'], **asset}
+        elif operation == 'terminal-policy':
             enabled = action.get('task_terminals')
             if not isinstance(enabled, bool):
                 raise ValueError('Choose whether each task gets its own terminal')
@@ -1016,8 +1055,11 @@ def mutate(root, workspace_id, action, expected=None, *, delete_terminals=None, 
                 raise ValueError('A workflow main terminal belongs to the workspace')
             for other, link in data['terminal_links'].items():
                 if other != name and link.get('main') == 'workflow':
+                    asset = link.get('asset')
                     link.clear()
                     link['view'] = 'workflow'
+                    if asset:
+                        link['asset'] = asset
             data['terminal_links'][name] = {'main': 'workflow'}
         elif operation == 'terminal' and action.get('view') == 'workflow':
             if action.get('objective_id') or any(action.get(field) for field in targets if field != 'view'):
@@ -1364,6 +1406,8 @@ def mutate(root, workspace_id, action, expected=None, *, delete_terminals=None, 
             # Preserve owned files so unlinking never destroys user content.
         else:
             raise ValueError('Unsupported objective action')
+        if operation == 'terminal' and previous.get('asset'):
+            data['terminal_links'][name]['asset'] = previous['asset']
         if objective and operation in {'task', 'task-update', 'task-move', 'document'}:
             _settle_tasks(folder, objective)
         objective_store.save(folder, data)

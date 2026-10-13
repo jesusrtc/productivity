@@ -54,6 +54,11 @@ def apply(workspace, action_file, expected):
     terminal_color=null restores the default.
 
     Read `lab context objectives` for action fields and examples.
+
+    Terminal asset links: terminal-asset with session_id, objective_id and
+    resource_id (optional tab_id/sub_link_id), or file/folder={root,path}.
+    Use unlink=true with session_id to clear only the asset link. The terminal
+    keeps its original task/Objective ownership, launch folder and primary role.
     """
     try:
         result = objectives.mutate(paths.find_monorepo_root(), resolve_workspace_id(workspace), json.loads(action_file.read_text()), expected=expected)

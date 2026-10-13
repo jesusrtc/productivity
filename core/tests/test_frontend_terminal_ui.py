@@ -1050,7 +1050,7 @@ process.stdout.write(JSON.stringify({
     }
 
 
-def test_linked_file_sync_is_opt_in_and_reveals_the_terminal_panel() -> None:
+def test_legacy_file_sync_is_opt_in_and_explicit_asset_links_always_activate() -> None:
     sync_helper = _js_between(
         "function _termSyncFromFileClick(root, path)",
         "async function _termOpenLinkedFile(session)",
@@ -1082,7 +1082,10 @@ _termSyncFromFileClick('/repo', 'a.ipynb');
 const active = {classes: [...classes], attaches: [...attaches], remembered: [...remembered]};
 termCurrentSession = 'other';
 _termSyncFromFileClick('/repo', 'a.ipynb');
-process.stdout.write(JSON.stringify({whileOff, active, finalAttaches: attaches}));
+const legacyAttaches=[...attaches];
+_linkedTerminalSyncOn=false;termSessions[0].linked_file.activate=true;
+_termSyncFromFileClick('/repo', 'a.ipynb');
+process.stdout.write(JSON.stringify({whileOff, active, legacyAttaches, finalAttaches: attaches}));
 """)
 
     assert "term-collapsed" in result["whileOff"]["classes"]
@@ -1091,7 +1094,8 @@ process.stdout.write(JSON.stringify({whileOff, active, finalAttaches: attaches})
     assert "term-collapsed" not in result["active"]["classes"]
     assert result["active"]["attaches"] == []
     assert result["active"]["remembered"] == [["demo-key", True]]
-    assert result["finalAttaches"] == [["tmux-linked", "demo"]]
+    assert result["legacyAttaches"] == [["tmux-linked", "demo"]]
+    assert result["finalAttaches"] == [["tmux-linked", "demo"], ["tmux-linked", "demo"]]
 
 
 def test_linked_terminal_sync_only_runs_from_explicit_file_or_terminal_clicks() -> None:
@@ -1121,6 +1125,26 @@ def test_linked_terminal_sync_only_runs_from_explicit_file_or_terminal_clicks() 
     assert "else openWorkspaceDoc(ctx.path, {root: ctx.root});" in source
     assert "const request = ++_termLinkedNavigationSeq;" in source
     assert "if (request !== _termLinkedNavigationSeq) return;" in source
+
+
+def test_explicit_file_asset_opens_without_legacy_sync_and_cancels_stale_navigation():
+    helper = _js_between('  async function _termOpenLinkedFile(session)', '  let _termAttachModalScope')
+    result = _run_node("""
+let _termLinkedNavigationSeq=0,_linkedTerminalSyncOn=false,currentWorkspace={},currentRepo=null;
+let release,hold=false;const opened=[],selected=[];
+const _termSyncLinkedScope=async()=>{if(hold)await new Promise(r=>release=r)};
+const _termLinkedFile=file=>file;
+const openWorkspaceDoc=async(path,options)=>opened.push({path,...options});
+const _termSelectLinkedSidebarRow=file=>selected.push(file.path);
+""" + helper + """
+(async()=>{
+ const session={cwd:'/original',linked_scope:{root:'/original'},linked_file:{root:'/assets',path:'analysis.ipynb',activate:true}};
+ await _termOpenLinkedFile(session);
+ hold=true;const stale=_termOpenLinkedFile(session);_termLinkedNavigationSeq++;release();await stale;
+ console.log(JSON.stringify({opened,selected,cwd:session.cwd}));
+})();
+""")
+    assert result == {'opened':[{'path':'analysis.ipynb','root':'/assets'}], 'selected':['analysis.ipynb'], 'cwd':'/original'}
 
 
 def test_terminal_to_file_prefers_recent_row_then_files_tree() -> None:

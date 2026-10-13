@@ -5,6 +5,19 @@ guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 
 ## 2026-10-13
 
+### Terminal asset links preserve their original context
+
+- Added **Link to asset…** / **Unlink asset** to terminal menus and **Link to
+  active terminal** to asset menus. Asset drops now save a navigation link
+  separately from the terminal's workspace, Objective or task ownership.
+- Asset clicks activate their linked terminal; terminal clicks open the exact
+  asset, subtab or URL sublink. Tabs and active headers adopt the asset's shared
+  icon, including notebooks and GitHub, without changing the launch folder,
+  task visibility, primary role or running session.
+- Added the `terminal-asset` Objective action for CLI/API use. New file links
+  outside Objectives activate in both directions; legacy file sync remains
+  controlled by its existing preference until relinked.
+
 ### Launch automations directly from the New terminal menu
 
 - **+ New → Launch automation…** creates the saved recipe's terminals for the

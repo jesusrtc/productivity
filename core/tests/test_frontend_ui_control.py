@@ -13,6 +13,7 @@ import pytest
 import uvicorn
 
 from lab import objectives
+from core import link_services
 from .test_term_routes import isolated_prefix  # noqa: F401
 from .test_terminal_automations import _save
 
@@ -31,12 +32,18 @@ def test_cli_operates_link_modal_drag_workspace_terminal_label_and_automation(cl
     objectives.mutate(monorepo,'demo',{'type':'asset-star','objective_id':oid,'resource_id':rid,'starred':True})
     data=objectives.mutate(monorepo,'demo',{'type':'task','objective_id':oid,'title':'CLI task'})
     tid=data['objectives'][0]['tasks'][0]['id']
+    data=objectives.mutate(monorepo,'demo',{'type':'resource','objective_id':oid,'kind':'notebook','title':'Linked analysis'})
+    nid=data['objectives'][0]['resources'][-1]['id']
+    objectives.mutate(monorepo,'demo',{'type':'asset-star','objective_id':oid,'resource_id':nid,'starred':True})
     from core.routes import term
     term._upsert_workspace_session(monorepo,'demo',{'name':'ui-shell','kind':'terminal','cwd':str(folder)})
     term._upsert_workspace_session(monorepo,'demo',{'name':'ui-task','kind':'terminal','cwd':str(folder)})
     objectives.mutate(monorepo,'demo',{'type':'terminal','objective_id':oid,'task_id':tid,'session_id':'ui-task'})
     _save(client,'demo',[{'label':'First defined','command':'printf first'}, {'label':'Second defined','command':'printf second'}])
     app_source=(STATIC/'js/lab-app.js').read_text()
+    terminal_visual=app_source[app_source.index('  function _termSessionVisual('):app_source.index('  function _termSessionIsWorking(')]
+    terminal_pill=app_source[app_source.index('  function _termTaskStatusLabel('):app_source.index('  function _termTaskPlaceholderHtml(')]
+    file_icon=app_source[app_source.index('  function fileIconHtml('):app_source.index('  function buildSidebarTree(')]
     automation_launch=app_source[app_source.index('  async function _termLaunchAutomation('):app_source.index('  async function _termPasteTaskContext(')]
     new_automation=next(line for line in (STATIC.parent/'templates/index.html').read_text().splitlines() if 'id="termNewAutomation"' in line)
     patch_links=app_source[app_source.index('  async function _termPatchLinks('):app_source.index('  window.LabTaskTerminalBridge =')]
@@ -57,18 +64,24 @@ let automationGroup={order:[],tabParents:{},tabRoots:[],tabAfter:{},tabMembershi
 const _termGroupScopeKey=()=>_termSessionsKey('demo',null),_termReadGroupState=()=>structuredClone(automationGroup),_termWriteGroupState=state=>{automationGroup=state};
 const _termHomeSection=()=>null,_termInvalidateSessionReads=()=>{},termSetAutoSpawnEnabled=async()=>{},_termRefreshSessionsForWorkspaceId=async()=>{};
 window.LabSettingsBridge={currentScope:()=>({id:'demo',path:FIX.folder,label:'Demo',vault:null})};
+const termSessEsc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const _termSessionDisplay=s=>s.label||s.logical_name,_termSessionRecentMeta=()=>null,_termSessionIsWorking=()=>false,_termSessionSummary=()=>'',_termSessionTooltipPayload=()=> '{}',_termSessionContext=()=>({label:'Requests'}),_termSessionAssociationHtml=()=>'',_termRecentScopeKey=()=> 'demo',termDeadSessions=new Set(),_termSubtabParents=()=>automationGroup.tabParents;
+const assetOpened=[];
 window.explorerToast=message=>{document.querySelector('#notice').textContent=message};
-window.LabExternalLinks={open:()=>Promise.resolve(true)};
+window.LabExternalLinks={open:url=>{assetOpened.push(url);return Promise.resolve(true)}};
 LabObjectives.connect({context:()=>({workspace_id:'demo',path:FIX.folder}),refreshTabs:()=>{},readyContent:()=>Promise.resolve(),prepareCenter:()=>{},
+ activeTerminal:()=>termSessions.find(t=>t.name===termCurrentSession),session:name=>termSessions.find(t=>t.name===name),fileIcon:fileIconHtml,openNotebook:r=>assetOpened.push(r.id),
  sessions:()=>termSessions,activateLinkedTerminal:ids=>{const terminal=termSessions.find(t=>ids.includes(t.session_id||t.name));if(terminal)return _termActivateTab(terminal.name);}});
 LabObjectives.load().then(()=>LabObjectives.selectObjective(FIX.oid));
 '''
     page='<!doctype html><meta charset="utf-8"><style>'+(STATIC/'css/workspace-objectives.css').read_text()+'body{background:#0d1117;color:white;display:flex}#sidebar{width:350px}#content{flex:1}</style><aside id="sidebar"><section data-objectives-sidebar></section></aside><main id="content"></main><section><button id="tasks" onclick="LabObjectives.renderTasks()">Tasks</button><button id="native" onclick="const value=prompt(\'Name\');if(value!==null)document.querySelector(\'#native-value\').textContent=value">Native prompt</button><span id="native-value"></span><span id="terminal-label">Shell</span><span id="view-status"></span><p id="notice"></p></section>'
-    page+='<script>const FIX='+json.dumps({'folder':str(folder),'oid':oid})+';</script>'
-    page+=''.join('<script>'+(STATIC/'js/lib'/name).read_text()+'</script>' for name in ('workspace-objectives.js','terminal-automations.js','ui-control.js'))
+    page+='<script>const FIX='+json.dumps({'folder':str(folder),'oid':oid,'nid':nid})+';</script>'
+    page+='<script>window.LAB_LINK_SERVICES='+json.dumps(link_services.SERVICES)+';</script>'
+    page+=''.join('<script>'+(STATIC/'js/lib'/name).read_text()+'</script>' for name in ('scope-links.js','workspace-objectives.js','terminal-automations.js','ui-control.js'))
+    page+='<button id="asset-picker" onclick="LabObjectives.chooseTerminalAsset(termSessions.find(t=>t.name===termCurrentSession))">Link to asset…</button>'
     page+='<div id="termNewPicker">'+new_automation+'</div>'
     page+='<div id="termPanel"><div id="termSessionSwitcher" class="term-tabs-open"><div id="termSessionList" style="width:180px">Terminal rail</div><div id="termSessionsResizer" role="separator" tabindex="0" aria-label="Resize terminal tabs" style="width:5px;height:30px"></div></div></div>'
-    page+='<script>'+setup+patch_links+navigation+resize+automation_launch+'_termInitSessionResize();'+hooks+'</script>'
+    page+='<script>'+file_icon+setup+patch_links+navigation+resize+automation_launch+terminal_visual+terminal_pill+'_termInitSessionResize();'+hooks+'</script>'
     app=client.app
     @app.get('/_cli-test',include_in_schema=False)
     def fixture_page(): return HTMLResponse(page)
@@ -100,7 +113,7 @@ const fs=require('node:fs'),{execFileSync}=require('node:child_process');
  const ui=(...args)=>cli('ui','--client',view.id,...args);
  const inspect=()=>ui('inspect');
  const control=label=>{const row=inspect().controls.find(c=>c.label===label);assert(row,'control '+label);return row.selector};
- ui('contextmenu','[data-objectives-sidebar] [data-objective-resource="'+process.argv[4]+'"]');
+ ui('contextmenu','[data-objective-bucket=objective] [data-objective-resource="'+process.argv[4]+'"]');
  assert(control('Copy URL')&&control('Open in Chrome'),'URL actions are discoverable through CLI');
  ui('click',control('Edit'));
  assert(inspect().dialogs.some(d=>d.title==='Edit link'),'CLI opens real modal');
@@ -116,7 +129,7 @@ const fs=require('node:fs'),{execFileSync}=require('node:child_process');
  await evaluate(`termXterm.modes.bracketedPasteMode=false`);ui('paste','One\nTwo');assert(await evaluate(`pasted.at(-1)==='One Two'&&sent.length===0`),'unbracketed multiline paste stays unsent');
  ui('paste','Explicit command','--submit');assert(await evaluate(`sent.length===1&&sent[0].data==='\\r'&&requestSubmissions.length===1&&requestSubmissions[0][1]==='demo'`),'only explicit submit sends Enter');
  ui('command','pointer-drag','--json',JSON.stringify({selector:'#termSessionsResizer',x:20,y:0}));assert(await evaluate(`termSessionWidth===200&&localStorage.getItem(_TERM_SESSION_WIDTH_KEY)==='200'`),'CLI resize uses and saves the real terminal rail handler');
- ui('click','#tasks');ui('drag','[data-objectives-sidebar] [data-objective-resource="'+process.argv[4]+'"]','.objective-task-row[data-task-id="'+process.argv[5]+'"]');
+ ui('click','#tasks');ui('drag','[data-objective-bucket=objective] [data-objective-resource="'+process.argv[4]+'"]','.objective-task-row[data-task-id="'+process.argv[5]+'"]');
  for(let i=0;i<100;i++){data=cli('api','call','GET','/api/objectives','--query','workspace_id=demo');if(data.objectives[0].tasks[0].assets?.some(a=>a.resource_id===process.argv[4]))break;await new Promise(r=>setTimeout(r,30));}
  assert(data.objectives[0].tasks[0].assets.some(a=>a.resource_id===process.argv[4]),'CLI drag uses task asset drop handler');
  const task=process.argv[5],objective=data.objectives[0].id;
@@ -144,6 +157,38 @@ const fs=require('node:fs'),{execFileSync}=require('node:child_process');
  const launched=await evaluate(`termSessions.filter(s=>s.logical_name.startsWith('automation-'))`);
  data=cli('api','call','GET','/api/objectives','--query','workspace_id=demo');
  assert(data.terminal_links[launched[0].session_id].task_id===task&&!data.terminal_links[launched[1].session_id].task_id&&!data.terminal_links['ui-task'].task_id,'API persists new primary without removing old terminal');
+ const original=JSON.stringify(data.terminal_links[launched[0].session_id]);
+ const github='https://github.com/example/repo/issues/7';
+ cli('api','call','POST','/api/objectives','--json',JSON.stringify({workspace_id:'demo',action:{type:'link-update',objective_id:objective,resource_id:process.argv[4],title:'Reference',url:github}}));
+ await evaluate(`LabObjectives.load(undefined,true)`);
+ ui('contextmenu','[data-objective-bucket=objective] [data-objective-resource="'+process.argv[4]+'"]');
+ ui('click',control('Link to active terminal'));
+ ui('wait','#notice','--text','Terminal linked.');
+ data=cli('api','call','GET','/api/objectives','--query','workspace_id=demo');
+ const linked=data.terminal_links[launched[0].session_id],{asset,...origin}=linked;
+ assert(JSON.stringify(origin)===original&&asset.resource_id===process.argv[4],'link keeps the automation primary and its task origin');
+ assert(await evaluate(`(()=>{const t=termSessions.find(s=>s.name===termCurrentSession),holder=document.createElement('div');holder.innerHTML=_termSessionPillHtml(t,0);return holder.querySelector('.sess-icon [data-link-service=github]')&&_termSessionVisual(t).icon.includes('github')})()`),'GitHub icon wins in automation pill and active header visual');
+ ui('command','terminal-select','--json',JSON.stringify({name:'ui-shell'}));
+ ui('click','[data-objective-bucket=objective] [data-objective-resource="'+process.argv[4]+'"]');
+ assert(await evaluate(`termCurrentSession===${JSON.stringify(launched[0].name)}&&assetOpened.at(-1)===${JSON.stringify(github)}`),'asset click opens the link and activates its terminal');
+ const count=await evaluate('assetOpened.length');
+ ui('command','terminal-select','--json',JSON.stringify({name:launched[0].name}));
+ assert(await evaluate(`assetOpened.length===${count+1}&&assetOpened.at(-1)===${JSON.stringify(github)}&&LabObjectives.terminalLaunchContext().task.id===${JSON.stringify(task)}`),'reverse navigation opens the exact asset while retaining task context');
+ ui('click','#asset-picker');
+ const notebook=await evaluate('FIX.nid');
+ const option=await evaluate(`Array.from(document.querySelector('[name=asset]').options).find(o=>o.textContent.startsWith('Linked analysis')).value`);
+ ui('fill','[name=asset]',option);
+ ui('click','.objective-dialog [type=submit]');
+ for(let i=0;i<100;i++){if(await evaluate(`!document.querySelector('.objective-dialog')`))break;await new Promise(r=>setTimeout(r,30));}
+ assert(await evaluate(`(()=>{const t=termSessions.find(s=>s.name===termCurrentSession),holder=document.createElement('div');holder.innerHTML=_termSessionPillHtml(t,0);return holder.querySelector('.sess-icon .ft-nb')&&LabObjectives.terminalAsset(t).target.resource_id===FIX.nid})()`),'picker replaces GitHub with the notebook and adopts its icon');
+ ui('command','terminal-select','--json',JSON.stringify({name:'ui-shell'}));
+ ui('click','[data-objective-bucket=objective] [data-objective-resource="'+notebook+'"]');
+ assert(await evaluate(`termCurrentSession===${JSON.stringify(launched[0].name)}&&assetOpened.at(-1)===FIX.nid`),'notebook selects its terminal');
+ ui('contextmenu','[data-objective-bucket=objective] [data-objective-resource="'+notebook+'"]');
+ ui('click',control('Unlink from terminal · First defined'));
+ ui('wait','#notice','--text','Asset unlinked.');
+ data=cli('api','call','GET','/api/objectives','--query','workspace_id=demo');
+ assert(JSON.stringify(data.terminal_links[launched[0].session_id])===original,'unlink restores the original task-only mapping');
  data=cli('api','call','POST','/api/objectives','--json',JSON.stringify({workspace_id:'demo',action:{type:'create',name:'Created through API'}}));
  const added=data.objectives.find(o=>o.name==='Created through API');
  ui('command','objective-select','--json',JSON.stringify({objective:added.id}));

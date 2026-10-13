@@ -519,6 +519,15 @@ select the native Files tree. Its corresponding sidebar scope is selected.
 These mappings do not move the terminal's launch folder, transfer ownership,
 change its Assistant document link, or replace its agent session.
 
+Asset links are separate from workspace/Objective/task ownership. Use a terminal's
+**Link to asset…** picker or an asset's **Link to active terminal** action; these
+also work with fixed main terminals. Asset drops use the same independent link.
+The terminal keeps its primary role, task visibility and launch folder. Clicking
+the asset activates its terminal, and clicking the terminal opens that exact
+asset, including document subtabs and URL sublinks. Its tab and active header
+adopt the asset's icon before task/default icons. **Unlink asset** clears only
+the asset association. Task and whole-Objective drops still assign ownership.
+
 Drop an object **inside the console** to paste its reference without submitting
 input. Local objects use their captured absolute source path, external links
 use their URL, and document subtabs retain `#tab=<id>`. Shell quoting preserves
@@ -588,11 +597,20 @@ files and worktrees are represented there by their exact source references.
 Only UI/runtime preferences live in `.lab/objectives-state.json`: enabled state,
 ordered Objective IDs, the five focused IDs and terminal mappings. This file
 contains no Objective resources, tasks or content. Slot colors are computed.
-Terminal mappings use stable session UUIDs and one
-target: a resource/subtab/sublink, file, folder, or `view: "tasks"`. External link
+Terminal mappings use stable session UUIDs. Their existing task, Objective,
+workflow/main and view fields retain terminal ownership. A separate optional
+`asset` target holds its own `objective_id` and a resource/subtab/sublink, file or
+folder. Apply `{"type":"terminal-asset","session_id":"UUID",
+"objective_id":"ID","resource_id":"ASSET_ID"}` to link one, optionally adding
+`tab_id` or `sub_link_id`. Use `{"type":"terminal-asset","session_id":"UUID",
+"unlink":true}` to remove it. The same action is available through
+`lab objective apply --workspace ID --file /absolute/action.json` or
+`POST /api/objectives`; it preserves the terminal's original ownership.
+External link
 details use optional `tldr`, `metadata` and nested `sublinks` fields. Sublinks
 have stable IDs; terminal mappings use `sub_link_id` to retain the exact target.
-Removing a sublink falls back to its parent resource for associated terminals.
+Legacy terminal mappings retain their parent fallback when a sublink is removed;
+new asset bindings stop navigating when their exact asset no longer exists.
 Existing link fields remain readable. Folder paths are
 validated within the objective's workspace, own directory, or associated
 checkout roots, including after resolving symlinks. The

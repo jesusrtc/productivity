@@ -1505,7 +1505,8 @@ def test_session_metadata_label_is_persisted_and_returned(client, seed_workspace
     assert pjson["sessions"][0]["summary"] == "Checking failing auth tests"
 
 
-def test_session_linked_file_is_durable_and_can_be_removed(client, seed_workspace,
+@pytest.mark.parametrize('activate', [False, True])
+def test_session_linked_file_is_durable_and_can_be_removed(client, seed_workspace, activate,
                                                             isolated_prefix,
                                                             monorepo: Path) -> None:
     seed_workspace("demo")
@@ -1519,6 +1520,7 @@ def test_session_linked_file_is_durable_and_can_be_removed(client, seed_workspac
     linked_file = {
         "root": str(monorepo / "workspaces" / "demo"),
         "path": "notebooks/analysis.ipynb",
+        **({'activate':True} if activate else {}),
     }
 
     linked = client.patch("/api/term/sessions/metadata", json={
