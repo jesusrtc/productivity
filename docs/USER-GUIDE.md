@@ -42,6 +42,13 @@ icons stay at the same height. Filters, other headings and the Links toolbar
 hide without closing those gaps. Hovering reveals their contents without
 moving the icons or changing the sidebar's scroll position.
 
+**vs main** combines the tracked files changed by commits relative to local
+`main` with every file in **Uncommitted** (staged and unstaged edits). It keeps
+both sets even when a local edit restores main's contents, and lists each file
+once. On `main`, it shows the same files as Uncommitted. Each checkout/worktree
+uses its own changes; new files appear after staging. Existing hidden-file and
+extension filters still apply.
+
 Click **Lab agent context** to inspect the context for the selected scope. Drag
 it, or the reader's **Drag context to terminal** button, onto a terminal to paste
 the full context without submitting it. The context keeps the scope captured

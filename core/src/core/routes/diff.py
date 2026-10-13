@@ -383,22 +383,15 @@ def _sidebar_git_recent_files(directory: str, mode: str) -> dict:
     seen: set[str] = set()
 
     def add(result: subprocess.CompletedProcess) -> None:
+        if result.returncode != 0:
+            raise subprocess.CalledProcessError(result.returncode, result.args, stderr=result.stderr)
         for path in _sidebar_git_paths(result):
             if path not in seen:
                 seen.add(path)
                 paths.append(path)
 
     try:
-        if mode == "uncommitted":
-            tracked = _sidebar_git_run(
-                directory, "diff", "--name-only", "-z", "--relative", "HEAD", "--", ".",
-            )
-            if tracked.returncode != 0:  # unborn repository
-                tracked = _sidebar_git_run(
-                    directory, "diff", "--cached", "--name-only", "-z", "--relative", "--", ".",
-                )
-            add(tracked)
-        elif mode == "local-main":
+        if mode == "local-main":
             base_name = "main"
             base_ref = "refs/heads/main"
             exists = _sidebar_git_run(directory, "rev-parse", "--verify", "--quiet", base_ref)
@@ -407,12 +400,16 @@ def _sidebar_git_recent_files(directory: str, mode: str) -> dict:
                     "files": [], "mode": mode, "available": False,
                     "base_ref": base_name,
                 }
-            # Compare the base directly with the current working tree, including
-            # staged and unstaged edits. A separate Uncommitted snapshot can
-            # miss edits made since it was collected, even just seconds ago.
+            # Keep committed differences and local edits as a union. A local
+            # reversion to main must not hide either side of that work.
             add(_sidebar_git_run(directory, "diff", "--name-only", "-z", "--relative",
-                                 base_ref, "--", "."))
-    except (subprocess.TimeoutExpired, OSError) as exc:
+                                 base_ref, "HEAD", "--", "."))
+        # Collect both local layers now, never from another filter's snapshot.
+        # --cached also works before the first commit. Separate diffs preserve
+        # staged changes even when an unstaged edit restores HEAD's contents.
+        for options in (("--cached",), ()):
+            add(_sidebar_git_run(directory, "diff", *options, "--name-only", "-z", "--relative", "--", "."))
+    except (subprocess.SubprocessError, OSError) as exc:
         return {"files": [], "mode": mode, "available": False, "error": str(exc)}
 
     try:
@@ -442,7 +439,7 @@ def api_sidebar_recent_files(repo: str, mode: str, request: Request, cached: boo
         raise HTTPException(status_code=400, detail="repo escapes vault")
     if cached:
         return _sidebar_cached_response(request.app.state.sidebar_cache.read(
-            root, ("recent", str(resolved), mode),
+            root, ("recent-v2", str(resolved), mode),
             lambda: _sidebar_project_recent(resolved, mode), group=str(resolved),
             ttl=max(5, min(max_age, 60)),
             page=_sidebar_recent_page(offset, sort, include_dotfiles, extensions),
@@ -542,10 +539,10 @@ def api_sidebar_directory(path: str, request: Request, directory: str = ".",
         vault, ("directory", str(root), directory, include_dotfiles, target.stat().st_mtime_ns), collect)
     # Warm only this requested project's important controls; no all-vault scan.
     if directory == ".":
-        store.read(vault, ("recent", str(root), "uncommitted"),
+        store.read(vault, ("recent-v2", str(root), "uncommitted"),
                    lambda: _sidebar_project_recent(root, "uncommitted"), wait=0, group=str(root))
         store.read(vault, ("history", str(root)), lambda: _sidebar_project_history(root), wait=0, group=str(root))
-        store.read(vault, ("recent", str(root), "local-main"),
+        store.read(vault, ("recent-v2", str(root), "local-main"),
                    lambda: _sidebar_project_recent(root, "local-main"), wait=0, group=str(root))
     return _sidebar_cached_response(result)
 

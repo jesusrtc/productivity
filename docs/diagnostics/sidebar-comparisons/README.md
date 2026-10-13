@@ -89,20 +89,22 @@ an explicit replacement, and failed tab reads can retry.
 
 ## Three comparison categories
 
-**Uncommitted** compares staged and unstaged tracked changes with `HEAD`.
-**vs main** compares the current checkout's content, including current
-edits, with the local `main` branch. Neither filter includes untracked/ignored
-files. A newly staged file is included.
+Updated October 13, 2026: **Uncommitted** includes both staged and unstaged
+tracked changes. **vs main** is the union of those files and committed
+differences between local `main` and `HEAD`. Neither filter includes
+untracked/ignored files. A newly staged file is included.
 
 | Category | Fixture example | Uncommitted | vs main |
 | --- | --- | --- | --- |
 | In both | `both-staged.txt`, `both-unstaged.txt`, `both-added.txt`, `both-branch-added.txt` | Yes | Yes |
-| Only uncommitted | `uncomm-staged.txt`, `uncomm-unstaged.txt`: branch committed a change, then an uncommitted edit restores main's bytes | Yes | No |
+| Local reversion (in both) | `uncomm-staged.txt`, `uncomm-unstaged.txt`: branch committed a change, then an uncommitted edit restores main's bytes | Yes | Yes |
 | Only vs main | `committed-only.txt`, `committed-added.txt`: committed on this branch and absent from main | No | Yes |
 
-On `main` itself, both filters have the same result. The two exclusive
-categories require a branch that differs from main, so the main fixtures show
-that expected equality rather than inventing impossible examples.
+On `main` itself, both filters have the same result. On another branch,
+Uncommitted is always a subset of vs main. Staged edits undone only in the
+working tree remain in both lists. The screenshots below record the earlier
+October 1 behavior; the API regressions now verify the combined sets in all
+nine checkout/worktree/subfolder variants, with and without cached responses.
 
 | Scope | Uncommitted screenshot | vs main screenshot |
 | --- | --- | --- |

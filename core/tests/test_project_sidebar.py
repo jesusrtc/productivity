@@ -70,11 +70,11 @@ def test_project_directory_is_shallow_and_recent_includes_index_and_worktree(cli
     main = ready(client._inner, '/api/sidebar-recent-files', repo=str(root), mode='local-main', cached=True)
     assert set(main['files']) == {'src/committed.txt', 'src/staged.txt', 'src/unstaged.txt', 'new.txt'}
     assert {row['path'] for row in main['entries']} == set(main['files'])
-    # The total diff omits a branch edit reverted locally to the base.
+    # The combined list keeps a committed edit even when reverted locally to main.
     from core.routes.diff import _sidebar_git_recent_files
     (root / 'src/committed.txt').write_text('base\n')
     total = _sidebar_git_recent_files(str(root), 'local-main')
-    assert set(total['files']) == {'src/staged.txt', 'src/unstaged.txt', 'new.txt'}
+    assert set(total['files']) == {'src/committed.txt', 'src/staged.txt', 'src/unstaged.txt', 'new.txt'}
     nested = ready(client._inner, '/api/sidebar-directory', path=str(root), directory='src')
     assert len(nested['entries']) == 3
     history = ready(client._inner, '/api/workspace-entry/history', path=str(root), file='.',
@@ -127,7 +127,7 @@ def test_local_main_includes_edits_after_the_uncommitted_snapshot(client, monore
     prefix = '' if scope == 'subfolder' else 'src/'
     expected = {prefix + name for name in ('staged.txt', 'unstaged.txt', 'new.txt')}
     if scope != 'main':
-        expected.add(prefix + 'branch.txt')
+        expected.update(prefix + name for name in ('branch.txt', 'reverted.txt'))
     assert set(response['files']) == expected
     assert {row['path'] for row in response['entries']} == expected
     assert response['base_ref'] == 'main'
@@ -141,14 +141,14 @@ def test_local_main_includes_edits_after_the_uncommitted_snapshot(client, monore
     'worktree-other-branch', 'worktree-detached', 'subfolder-feature',
     'subfolder-worktree',
 ])
-def test_recent_git_filters_distinguish_all_three_file_groups(client, monorepo, scope):
+def test_vs_main_contains_every_uncommitted_file_and_committed_difference(client, monorepo, scope):
     source = monorepo / 'comparison-project'
     source.mkdir()
     git(source, 'init', '-b', 'main')
     (source / 'src').mkdir()
     base_files = {
         'both-staged.txt', 'both-unstaged.txt', 'uncomm-staged.txt',
-        'uncomm-unstaged.txt', 'committed-only.txt', 'unchanged.txt',
+        'uncomm-unstaged.txt', 'committed-only.txt', 'unchanged.txt', 'index-reverted.txt',
     }
     for name in base_files:
         (source / 'src' / name).write_text('main\n')
@@ -168,7 +168,7 @@ def test_recent_git_filters_distinguish_all_three_file_groups(client, monorepo, 
     elif not on_main:
         git(source, 'checkout', '-b', branch)
     if not on_main:
-        for name in base_files - {'unchanged.txt'}:
+        for name in base_files - {'unchanged.txt', 'index-reverted.txt'}:
             (root / 'src' / name).write_text('branch commit\n')
         for name in ('committed-added.txt', 'both-branch-added.txt'):
             (root / 'src' / name).write_text('branch addition\n')
@@ -186,6 +186,10 @@ def test_recent_git_filters_distinguish_all_three_file_groups(client, monorepo, 
     (root / 'src/both-unstaged.txt').write_text('unstaged edit\n')
     (root / 'src/both-added.txt').write_text('staged new file\n')
     git(root, 'add', 'src/both-staged.txt', 'src/both-added.txt')
+    # The index differs even though the working tree matches HEAD again.
+    (root / 'src/index-reverted.txt').write_text('staged then undone locally\n')
+    git(root, 'add', 'src/index-reverted.txt')
+    (root / 'src/index-reverted.txt').write_text('main\n')
     for name in ('untracked.txt', 'ignored.txt'):
         (root / 'src' / name).write_text('excluded\n')
     if root != source:
@@ -194,12 +198,12 @@ def test_recent_git_filters_distinguish_all_three_file_groups(client, monorepo, 
 
     selected = root / 'src' if scope.startswith('subfolder-') else root
     prefix = '' if scope.startswith('subfolder-') else 'src/'
-    both = {prefix + name for name in ('both-staged.txt', 'both-unstaged.txt', 'both-added.txt')}
-    uncommitted_only = set()
+    both = {prefix + name for name in ('both-staged.txt', 'both-unstaged.txt', 'both-added.txt', 'index-reverted.txt')}
+    local_reversions = set()
     main_only = set()
     if not on_main:
         both.add(prefix + 'both-branch-added.txt')
-        uncommitted_only = {prefix + name for name in ('uncomm-staged.txt', 'uncomm-unstaged.txt')}
+        local_reversions = {prefix + name for name in ('uncomm-staged.txt', 'uncomm-unstaged.txt')}
         main_only = {prefix + name for name in ('committed-only.txt', 'committed-added.txt')}
 
     for cached in (False, True):
@@ -210,11 +214,11 @@ def test_recent_git_filters_distinguish_all_three_file_groups(client, monorepo, 
         }
         uncommitted = set(responses['uncommitted']['files'])
         local_main = set(responses['local-main']['files'])
-        assert uncommitted & local_main == both
-        assert uncommitted - local_main == uncommitted_only
+        assert uncommitted <= local_main
+        assert uncommitted & local_main == both | local_reversions
         assert local_main - uncommitted == main_only
-        assert uncommitted == both | uncommitted_only
-        assert local_main == both | main_only
+        assert uncommitted == both | local_reversions
+        assert local_main == both | local_reversions | main_only
         assert all(response['available'] for response in responses.values())
         assert responses['local-main']['base_ref'] == 'main'
         if cached:

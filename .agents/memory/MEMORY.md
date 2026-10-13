@@ -1,5 +1,7 @@
 # Memory index
 
+- [vs main includes both change sets](vs-main-includes-both-change-sets.md) — union committed differences from main with every staged/unstaged file, including local reversions; supersedes net comparison.
+
 - [Make primary replaces merging](terminal-make-primary.md) — promote the chosen terminal, preserve each asset and process, transfer the primary role and retain the old primary beneath it.
 
 - [Terminal asset links preserve origin](terminal-asset-links-preserve-origin.md) — separate asset navigation and icons from workspace/Objective/task ownership, with bidirectional selection and independent unlink.

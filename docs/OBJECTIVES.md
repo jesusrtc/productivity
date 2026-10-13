@@ -187,6 +187,11 @@ a task's displayed name with its name and color. With zero or multiple assigned
 worktrees, the task keeps its own name, including in task headers and terminal
 tabs. Its own Markdown, icon, context and assets remain.
 Recently updated, vs main and Uncommitted retain their current settings.
+**vs main** combines committed differences from local `main` with all staged
+and unstaged files from **Uncommitted**, deduplicated within each checkout.
+A local reversion to main still appears; changes in the index and working tree
+cannot cancel a file out of the list. Tracked-file, hidden-file and extension
+filters continue to apply.
 Unavailable comparisons share one compact notice instead of repeating a message
 under every worktree. Available checkout file results remain visible; empty
 scopes are omitted, and an entirely empty list shows one quiet message. Local

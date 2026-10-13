@@ -262,6 +262,10 @@ is required before checking for new errors.
 
 ## September 30: total local-main file comparison
 
+The October 13 behavior supersedes the net comparison below: **vs main** now
+unions committed differences from main with staged and unstaged files. Local
+reversions remain visible. See the current user guide and comparison regressions.
+
 The local-main recent-file filter now collects the complete base-to-working-tree
 diff directly. Reusing a separate Uncommitted snapshot, even one less than five
 seconds old, could exclude new staged or unstaged edits made between the two

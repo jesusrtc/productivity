@@ -5,6 +5,15 @@ guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 
 ## 2026-10-13
 
+### vs main combines committed and uncommitted changes
+
+- **vs main** now shows the union of committed differences from local `main`
+  and staged/unstaged files. Local reversions no longer hide committed changes,
+  and edits that cancel between the index and working tree remain visible.
+- Every Uncommitted file is included in vs main for the same available checkout
+  and filters, without duplicates. Cached snapshots use the new comparison
+  immediately after refresh; worktrees and subfolders remain independently scoped.
+
 ### Make a terminal primary
 
 - Replaced **Merge with parent** with **Make primary**. The selected child

@@ -75,6 +75,9 @@ expiry every five seconds without doing Git work until their snapshot is due.
 Background refresh stops when the document is hidden and resumes on return.
 
 Small diffs check Git tracking/ignore membership only for their candidate paths.
+As of October 13, vs main unions committed differences with staged and unstaged
+files, preserving local reversions. The earlier net-comparison behavior below
+is historical; the bounded workers and snapshot lifetime remain unchanged.
 As of September 30, each local-main refresh compares the complete working tree
 directly with local main. The earlier implementation reused a recent
 Uncommitted snapshot to narrow the comparison; edits made between those two
