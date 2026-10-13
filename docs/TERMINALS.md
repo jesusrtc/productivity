@@ -15,8 +15,8 @@ Lab context supplied at startup. **Terminal** explicitly creates a plain shell.
 - **Current workflow** opens at the active workspace root.
 - **Current task** creates a fresh session of the selected shell or agent type
   in the task's launch folder. A task can have multiple terminals: its first
-  terminal becomes primary, and later explicit **+ New** launches appear beneath
-  the existing primary and inherit its task. The primary keeps running and
+  terminal becomes primary, and later explicit **+ New** launches belong directly
+  to the same task as independent terminals. The primary keeps running and
   remains the terminal activated by task navigation, including when it came
   from an automation. **Make primary** can promote a new terminal later.
 - **Current Objective** opens in the Objective's directory and saves a whole
@@ -24,6 +24,17 @@ Lab context supplied at startup. **Terminal** explicitly creates a plain shell.
 - **Specific worktree** opens a second list containing only that Objective's
   associated worktrees and folders. Choosing one uses its exact checkout and
   saves its folder association.
+
+These choices save the new terminal's own workspace, Objective or task context;
+they do not make it a child of the active terminal. Task membership survives a
+reload without browser hierarchy state. Explicit **New subterminal**, automation
+groups and deliberate nesting keep their separate child-terminal behavior.
+
+For CLI/API task association, the `terminal` Objective action accepts `task_id`
+and `primary: false` to add an independent member while retaining the primary.
+The first member becomes primary automatically. Omitting `primary` or setting it
+to `true` promotes that terminal; all other members retain their task association.
+Use `lab objective apply` or `lab api call POST /api/objectives` for this action.
 
 The chooser applies to shell and agent terminals, including file-created
 terminals and the first automatic launch. Cancel or switching workspace,
@@ -165,6 +176,10 @@ its immediate parent's position. The previous primary and its other children
 move beneath the new primary; ancestors retain their positions. Each terminal
 keeps its own console, asset link, icon, saved label and launch folder. Nothing
 is restarted. Selecting the previous primary's **Make primary** switches back.
+
+For independent members of the same task, **Make primary** only changes which
+terminal task navigation opens. Both remain independent, with their own task
+associations and unchanged terminal hierarchy.
 
 When the parent owns a task or workspace/Objective main role, that ownership
 transfers through the shared Objective API and task clicks activate the new

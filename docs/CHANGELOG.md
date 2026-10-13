@@ -5,13 +5,24 @@ guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 
 ## 2026-10-13
 
+### New terminals have direct context associations
+
+- **+ New → Current task / Objective / workflow** creates an independent
+  terminal associated directly with that context. Task membership is saved
+  independently of browser nesting and survives reloads.
+- Task terminals share one primary for task navigation. **Make primary** on
+  an independent member changes that default without turning other terminals
+  into children or removing their task associations.
+- Explicit subterminals, automation groups and deliberate nesting retain
+  their child-terminal behavior.
+
 ### New terminals can share the current task
 
 - **+ New → Terminal / agent → Current task** creates a new session even when
   the task already has a terminal, preserving the chosen agent and launch folder.
-- Additional terminals appear beneath the task's existing primary and inherit
-  its task. The primary, including one created by an automation, keeps its role
-  and running session. Task navigation continues to open the primary.
+- The primary, including one created by an automation, keeps its role and
+  running session. Task navigation continues to open the primary. The direct
+  context association described above replaces the initial inherited nesting.
 
 ### vs main combines committed and uncommitted changes
 

@@ -974,6 +974,8 @@ def mutate(root, workspace_id, action, expected=None, *, delete_terminals=None, 
         objective = _find(data['objectives'], action.get('objective_id'))
         if operation == 'terminal':
             role = action.get('main')
+            if 'primary' in action and (not isinstance(action['primary'], bool) or not action.get('task_id')):
+                raise ValueError('Choose a task and a boolean primary flag')
             if role is not None and (not isinstance(role, str) or role not in {'workflow', 'objective'}):
                 raise ValueError('Choose a workflow or Objective main terminal')
             targets = ('task_id', 'resource_id', 'tab_id', 'sub_link_id', 'file', 'folder', 'view')
@@ -1384,12 +1386,17 @@ def mutate(root, workspace_id, action, expected=None, *, delete_terminals=None, 
             if view:
                 data['terminal_links'][name]['view'] = view
             if task_id:
-                # A task owns one primary terminal. Replacing that association
-                # leaves the former terminal alive and independently usable.
-                for other, link in data['terminal_links'].items():
-                    if other != name and link.get('objective_id') == objective['id'] and link.get('task_id') == task_id:
-                        link.pop('task_id', None)
-                        link['view'] = 'tasks'
+                # Membership is independent of the browser's terminal tree.
+                # Keep one primary, without detaching the task's other consoles.
+                siblings = [link for other, link in data['terminal_links'].items()
+                            if other != name and link.get('objective_id') == objective['id']
+                            and link.get('task_id') == task_id]
+                primary = action.get('primary', True) or not any(link.get('primary', True) for link in siblings)
+                if primary:
+                    for link in siblings:
+                        link['primary'] = False
+                else:
+                    data['terminal_links'][name]['primary'] = False
                 data['terminal_links'][name]['task_id'] = task_id
             elif not any([resource, linked_file, linked_folder, view]):
                 for other, link in data['terminal_links'].items():

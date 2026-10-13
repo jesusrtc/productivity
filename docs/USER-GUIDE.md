@@ -134,10 +134,13 @@ within the user's request and follow the owning instructions.
 
 One task can have several terminals. Choose **+ New**, select **Terminal** or an
 agent such as **GitHub Copilot CLI**, then **Current task** to create and select
-a fresh session of that type. When the task already has a primary, the new terminal appears
-beneath it and inherits the same task; the existing primary keeps its role and
-continues running. Clicking the task later still opens its primary. Use
-**Make primary** on the new terminal if you want task clicks to open it instead.
+a fresh session of that type. It belongs directly to the task and appears as an
+independent terminal. **Current Objective** and **Current workflow** likewise
+save their chosen context without nesting beneath the active terminal. Task
+membership persists across reloads and does not depend on a terminal parent.
+The existing primary keeps running and task clicks still open it. **Make primary**
+on another independent task terminal changes that default without nesting either
+terminal. Use **New subterminal** when you explicitly want a child terminal.
 
 Choose **+ New → Launch automation…** to start a saved automation in the active
 task without creating a terminal first. The first terminal in the automation's

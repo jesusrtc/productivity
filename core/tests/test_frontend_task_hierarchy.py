@@ -15,7 +15,8 @@ const termSessions=['parent','child','grand','extra','independent','unrelated'].
 const task=(id,children=[])=>({id,children});
 const data={objectives:[{id:'one',tasks:[task('parent',[task('child',[task('grand')])]),task('independent')]}],terminal_links:{
  'uuid-parent':{objective_id:'one',task_id:'parent'},'uuid-child':{objective_id:'one',task_id:'child'},
- 'uuid-grand':{objective_id:'one',task_id:'grand'},'uuid-independent':{objective_id:'one',task_id:'independent'}}};
+ 'uuid-grand':{objective_id:'one',task_id:'grand'},'uuid-independent':{objective_id:'one',task_id:'independent'},
+ 'uuid-extra':{objective_id:'one',task_id:'child',primary:false}}};
 ''' + GROUPS + r'''
 _termWriteGroupState(_termNormalizeGroupState({tabParents:{child:'independent',extra:'child',unrelated:'independent'},tabRoots:['grand'],tabAfter:{child:'independent'},tabDisplayMains:{independent:'child'}}));
 _termSyncTaskHierarchy(data);const initial=_termReadGroupState();
@@ -26,6 +27,7 @@ const restored=_termReadGroupState();
 console.log(JSON.stringify({initial,moved,restored,unchanged:before===JSON.stringify(termSessions)}));
 ''')
     assert result['initial']['tabParents']['child'] == 'independent'
+    assert result['initial']['taskTerminals']['one/child'] == ['child', 'objective-terminal:one:child']
     assert result['moved']['tabParents'] == {'extra':'child', 'unrelated':'independent'}
     assert result['moved']['tabRoots'] == []
     assert result['moved']['tabAfter'] == {} and result['moved']['tabDisplayMains'] == {}
@@ -40,7 +42,7 @@ const parent={id:'parent',children:[]},sibling={id:'sibling',children:[]},source
 const o={id:'one',tasks:[parent,sourceTask,sibling]};
 const tasks=o=>o.tasks.flatMap(t=>[t,...t.children]),taskParent=(task,o)=>tasks(o).find(t=>t.children.includes(task))||null;
 const context=()=>({workspace_id:'demo'}),key=s=>s.workspace_id,active=()=>true;
-const bindings=new Map([['source',{objective:o,task:sourceTask,inherited:false}],['target',{objective:o,task:parent,inherited:false}],['extra',{objective:o,task:parent,inherited:true}]]);
+const bindings=new Map([['source',{objective:o,task:sourceTask,inherited:false,primary:true}],['target',{objective:o,task:parent,inherited:false,primary:true}],['extra',{objective:o,task:parent,inherited:true,primary:false}],['peer',{objective:o,task:parent,inherited:false,primary:false}]]);
 const terminalTask=s=>bindings.get(s?.logical_name),bridge={refreshTerminals(){}},actions=[];
 async function change(action){
  actions.push(action);const currentParent=taskParent(sourceTask,o),old=currentParent?currentParent.children:o.tasks;old.splice(old.indexOf(sourceTask),1);
@@ -53,6 +55,7 @@ async function change(action){
  const moved=await moveForTerminalDrop(source,target,{relation:'child'}),nested=parent.children[0]?.id;
  const promoted=await moveForTerminalDrop(source,null),root=o.tasks.at(-1)?.id;
  const manual=await moveForTerminalDrop(extra,target,{relation:'child'});
+ if(await moveForTerminalDrop({logical_name:'peer'},target,{relation:'child'}))throw Error('Moving a direct secondary terminal must not move its task');
  await moveForTerminalDrop(source,target,{relation:'below',placeBefore:true});
  console.log(JSON.stringify({moved,nested,promoted,root,manual,actions}));
 })().catch(e=>{console.error(e);process.exit(1)});

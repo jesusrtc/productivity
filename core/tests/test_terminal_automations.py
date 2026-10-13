@@ -142,7 +142,8 @@ def test_direct_launch_creates_its_own_task_primary_in_definition_order(client, 
     replacement = client.post('/api/term/automations/launch', json={**body, 'run_id':str(uuid.uuid4())}).json()['sessions']
     links = client.get('/api/objectives?workspace_id=demo').json()['terminal_links']
     assert links[replacement[0]['session_id']]['task_id'] == task['id']
-    assert not links[rows[0]['session_id']].get('task_id')
+    assert links[rows[0]['session_id']]['task_id'] == task['id']
+    assert links[rows[0]['session_id']]['primary'] is False
     assert len(client.get('/api/term/sessions?workspace_id=demo').json()) == 4
 
 

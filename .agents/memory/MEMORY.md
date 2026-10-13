@@ -1,6 +1,6 @@
 # Memory index
 
-- [New Current task creates extra terminals](new-current-task-creates-extra-terminals.md) — explicit New creates the requested agent without reusing or replacing the task primary; multiple consoles inherit that task.
+- [New terminals have direct context](new-current-task-creates-extra-terminals.md) — independent workspace/Objective/task ownership, multiple direct task members and one primary; never auto-nest New beneath the active terminal.
 
 - [vs main includes both change sets](vs-main-includes-both-change-sets.md) — union committed differences from main with every staged/unstaged file, including local reversions; supersedes net comparison.
 

@@ -654,7 +654,10 @@
     bridge.refreshTerminals?.();
     if(activateTerminal&&taskTerminalVisible(task,o)){
       if(taskTerminalsEnabled())void openTaskTerminal(id,o.id,{openTaskView:false}).catch(error=>notify(error.message,true));
-      else if(Object.values(data().terminal_links||{}).some(link=>link.objective_id===o.id&&link.task_id===id))activateLinkedTerminal(link=>link.objective_id===o.id&&link.task_id===id);
+      else {
+        const terminal=findTaskTerminal(bridge.sessions?.()||[],{objective_id:o.id,task_id:id});
+        if(terminal)bridge.activateLinkedTerminal?.([terminalIdentity(terminal)]);
+      }
     }
   }
   function openTaskAssets(id) {
@@ -1090,8 +1093,9 @@
   }
   async function moveForTerminalDrop(source,destination,{relation,placeBefore}={}) {
     if(!active(context()?.path))return false;
-    const binding=terminalTask(source);if(!binding||binding.inherited)return false;
+    const binding=terminalTask(source);if(!binding||!binding.primary)return false;
     const target=destination?terminalTask(destination):null;
+    if(target&&!target.primary&&!target.inherited)return false;
     if(destination&&!target)return false;
     if(target&&target.objective.id!==binding.objective.id)throw new Error('Move a task within its Objective.');
     const o=binding.objective,task=binding.task,scope={...context()};
@@ -1173,16 +1177,25 @@
     while(source&&!seen.has(terminalIdentity(source))){
       seen.add(terminalIdentity(source));if(terminalMain(source))return null;
       const link=terminalLink(source),o=data()?.objectives.find(o=>o.id===link?.objective_id),task=tasks(o).find(task=>task.id===link?.task_id);
-      if(task)return {objective:o,task,inherited:source!==t};
+      if(task)return {objective:o,task,inherited:source!==t,primary:source===t&&link.primary!==false};
       source=bridge?.parentTerminal?.(source);
     }
     return null;
   }
-  function taskForTerminal(t) {const binding=terminalTask(t);return binding?{title:taskDisplayName(binding.task,binding.objective),icon:taskIcon(binding.task,binding.objective),assetIcon:customTaskIcon(binding.task,binding.objective),color:binding.task.terminal_color||null,inherited:binding.inherited,status:taskStatus(binding.task)}:null;}
+  function taskForTerminal(t) {const binding=terminalTask(t);return binding?{title:taskDisplayName(binding.task,binding.objective),icon:taskIcon(binding.task,binding.objective),assetIcon:customTaskIcon(binding.task,binding.objective),color:binding.task.terminal_color||null,inherited:binding.inherited,primary:binding.primary,status:taskStatus(binding.task)}:null;}
+  function findTaskTerminal(sessions,target) {
+    const matches=sessions.filter(t=>{if(target.main==='workflow')return terminalMain(t)?.kind==='workflow';const link=terminalLink(t);return link?.objective_id===target.objective_id&&(target.task_id?link.task_id===target.task_id:terminalMain(t)?.kind==='objective');});
+    return matches.find(t=>terminalLink(t)?.primary!==false)||matches[0];
+  }
+  function taskPrimaryForTerminal(t,sessions) {
+    const link=t&&terminalLink(t);if(!link?.task_id||link.primary!==false)return null;
+    return findTaskTerminal(sessions,{objective_id:link.objective_id,task_id:link.task_id})||t;
+  }
   function canMakeTerminalPrimary(t,parent) {
     if(!active(context()?.path))return true;
     // A subtask's own primary must keep its separate task assignment.
-    return !terminalMain(t)&&!terminalLink(t)?.task_id
+    const link=terminalLink(t),owner=terminalLink(parent);
+    return !terminalMain(t)&&(!link?.task_id||link.primary===false&&link.task_id===owner?.task_id)
       &&terminalObjective(t)?.id===terminalObjective(parent)?.id;
   }
   async function makeTerminalPrimary(t,parent) {
@@ -1239,7 +1252,7 @@
     const parents={...explicit};
     const fixed=new Set(sessions.filter(t=>terminalMain(t)).map(t=>t.logical_name));
     for(const child of Object.keys(parents))if(fixed.has(child))delete parents[child];
-    const find=(o,task)=>sessions.find(t=>terminalObjective(t)?.id===o.id&&terminalLink(t)?.task_id===task.id);
+    const find=(o,task)=>sessions.find(t=>terminalObjective(t)?.id===o.id&&terminalLink(t)?.task_id===task.id&&terminalLink(t)?.primary!==false);
     for(const o of data()?.objectives||[])for(const parent of tasks(o)){
       const terminal=find(o,parent);if(!terminal)continue;
       for(const child of parent.children){const sub=find(o,child);if(!sub||parents[sub.logical_name])continue;
@@ -1281,7 +1294,7 @@
     if(objective()?.id!==o.id)selectObjective(o.id,{activateTerminal:false});
     if(task){if(openTaskView)openTask(task.id);}else selectObjective(o.id,{activateTerminal:false});
     if(task&&!taskTerminalVisible(task,o))return;
-    const existing=(bridge.sessions?.()||[]).find(t=>{const link=terminalLink(t);return link?.objective_id===o.id&&(task?link.task_id===task.id:terminalMain(t)?.kind==='objective');});
+    const existing=findTaskTerminal(bridge.sessions?.()||[],{objective_id:o.id,task_id:task?.id});
     if(existing)return bridge.activateLinkedTerminal?.([terminalIdentity(existing)]);
     const launch=terminalLaunchContext(),scope={...context()},openingKey=JSON.stringify([scope,o.id,id]);
     if(openingTerminals.has(openingKey))return openingTerminals.get(openingKey);
@@ -1676,13 +1689,13 @@
   window.LabObjectives={connect(adapter){bridge=adapter;startRefreshing();},load,active,sidebarHtml,paint,worktrees,tree,associate,terminalHtml,taskForTerminal,openForTerminal,collapse,progress,complete,change,selectObjective,openTask,renderTasks,tabsHtml,showAll,terminalLaunchContext,associateNewTerminal,
     instructionRoot(path){return active(path)?scopeRows().find(row=>row.id==='objective-root')?.path:null;},
     terminalSessions,terminalParents,terminalExpanded,terminalMain,openMainTerminal,openTaskTerminal,terminalTaskNameHtml,terminalWorktreeColor,terminalColor,sidebarMode,recentScopes,moveForTerminalDrop,
-    terminalAsset,chooseTerminalAsset,unlinkTerminalAsset,linkTerminal,canMakeTerminalPrimary,makeTerminalPrimary,
+    terminalAsset,chooseTerminalAsset,unlinkTerminalAsset,linkTerminal,canMakeTerminalPrimary,makeTerminalPrimary,taskPrimaryForTerminal,
     activateFileTerminal(root,path){return active(context()?.path)&&activateAssetTerminal({file:{root,path}});},
     terminalsForFile(root,path){return active(context()?.path)?assetTerminals({file:{root,path}}):[];},
     syncTerminalHierarchy(){if(active(context()?.path))bridge.syncTaskHierarchy?.(data());},
     terminalTaskContext(t){const binding=terminalTask(t);return binding?taskContext(binding.task,binding.objective):null;},
     childTerminalAssociation(t){const o=terminalObjective(t);return !active(context()?.path)?null:o?{context:{...context()},objective_id:o.id,view:'tasks'}:{context:{...context()},view:'workflow'};},
-    findTaskTerminal(sessions,target){return sessions.find(t=>{if(target.main==='workflow')return terminalMain(t)?.kind==='workflow';const link=terminalLink(t);return link?.objective_id===target.objective_id&&(target.task_id?link.task_id===target.task_id:terminalMain(t)?.kind==='objective');});},
+    findTaskTerminal,
     sameTerminalObjective(a,b){return terminalObjective(a)?.id===terminalObjective(b)?.id;},
     openCurrent(){const params=new URLSearchParams(location.search),o=data()?.objectives.find(o=>o.id===params.get('objective'));if(o&&tasks(o).some(t=>t.id===params.get('objective_task'))){state().objective=o.id;const task=tasks(o).find(task=>task.id===params.get('objective_task')),line=Number(params.get('objective_action_line')),source=params.get('objective_action_source');const item=source?{line,source}:task.action_items?.find(item=>item.line===line);openTask(task.id,{actionItem:item});return;}const f=taskFocus();if(f){openTask(f.task);return;}state().view==='objective'&&objective()?selectObjective(objective().id,{activateTerminal:false}):showAll();},
     openOwnedFile(root,path){

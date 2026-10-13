@@ -1,13 +1,19 @@
-# New Current task creates extra terminals
+# New terminals belong directly to their selected context
 
-A task can have multiple terminals, with one primary. Explicit **+ New →
-Terminal / agent → Current task** must create and select a fresh session of
-that requested type, even if the task already has a primary from an automation.
-Do not reuse a task terminal before honoring `startFresh` or the requested agent.
+A task can have multiple independent terminals, with one primary for task
+navigation. Explicit **+ New → Terminal / agent → Current task** creates and
+selects a fresh session of the requested type, with its own persisted task
+association. Current Objective/workflow likewise save their own context.
 
-Additional sessions inherit the existing primary through the browser's terminal
-hierarchy and retain a saved Tasks/Objective association. Do not assign another
-`task_id` primary, which would displace the current one. The chosen launch folder
-stays unchanged. Normal task navigation still activates the primary, and **Make
-primary** lets the user promote another terminal. Browser tests cover repeated
-New launches through the real session API while preserving the original primary.
+The user rejected automatically nesting a new terminal beneath the active or
+primary terminal. Do not derive new task membership from browser parent links.
+The Objective `terminal` action accepts `primary: false` with `task_id` to add a
+member without replacing the primary; its first member becomes primary. Normal
+task navigation prefers the primary. Promoting an independent member changes
+only the primary role, preserves every member's task association and leaves
+terminal nesting unchanged. The chosen launch folder stays fixed.
+
+Explicit **New subterminal**, automation groups and deliberate nesting retain
+their existing child behavior. This supersedes the inherited-nesting approach
+from the initial Current task fix and the one-direct-task-terminal restriction
+in terminal-tree-mirrors-tasks-and-inherits-context.md.

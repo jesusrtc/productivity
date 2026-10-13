@@ -38,11 +38,27 @@ def test_task_has_one_primary_terminal_and_subterminals_keep_independent_links(m
     data = apply(monorepo, oid, 'terminal', session_id='new-primary', task_id=parent['id'])
     links = data['terminal_links']
     assert set(links) == {'global', 'former-primary', 'child-primary', 'extra-child', 'new-primary'}
-    assert [name for name, link in links.items() if link.get('task_id') == parent['id']] == ['new-primary']
-    assert links['former-primary']['view'] == links['extra-child']['view'] == 'tasks'
-    assert 'task_id' not in links['former-primary'] and 'task_id' not in links['extra-child']
+    assert [name for name, link in links.items() if link.get('task_id') == parent['id'] and link.get('primary', True)] == ['new-primary']
+    assert links['former-primary']['task_id'] == parent['id'] and links['former-primary']['primary'] is False
+    assert links['extra-child']['view'] == 'tasks' and 'task_id' not in links['extra-child']
     assert links['child-primary']['task_id'] == child['id']
     assert links['global']['objective_id'] == oid and 'task_id' not in links['global']
+
+
+def test_task_membership_persists_independently_with_one_primary(monorepo, objective_workspace):
+    _, oid = objective_workspace
+    task = apply(monorepo, oid, 'task', title='Several consoles')['objectives'][0]['tasks'][0]
+    for name in ['first', 'copilot', 'shell']:
+        apply(monorepo, oid, 'terminal', session_id=name, task_id=task['id'], primary=False)
+    links = objectives.load(monorepo, 'demo')['terminal_links']
+    assert all(link['task_id'] == task['id'] for link in links.values())
+    assert links['first'].get('primary', True) is True
+    assert links['copilot']['primary'] is links['shell']['primary'] is False
+    apply(monorepo, oid, 'terminal', session_id='copilot', task_id=task['id'])
+    links = objectives.load(monorepo, 'demo')['terminal_links']
+    assert all(link['task_id'] == task['id'] for link in links.values())
+    assert links['copilot'].get('primary', True) is True
+    assert links['first']['primary'] is links['shell']['primary'] is False
 
 
 def test_task_status_persists_and_completion_controls_remain_compatible(monorepo, objective_workspace):

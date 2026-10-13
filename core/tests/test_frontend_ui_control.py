@@ -170,7 +170,7 @@ const fs=require('node:fs'),{execFileSync}=require('node:child_process');
  assert(await evaluate(`(()=>{const rows=termSessions.filter(s=>s.logical_name.startsWith('automation-')),task=LabObjectives.taskForTerminal(rows[0]);return rows.length===2&&rows[0].label==='First defined'&&termCurrentSession===rows[0].name&&!automationGroup.tabParents[rows[0].logical_name]&&automationGroup.tabParents[rows[1].logical_name]===rows[0].logical_name&&task?.title==='CLI task'&&!task.inherited})()`),'CLI launch creates exactly its recipe terminals, activates first and nests second');
  const launched=await evaluate(`termSessions.filter(s=>s.logical_name.startsWith('automation-'))`);
  data=cli('api','call','GET','/api/objectives','--query','workspace_id=demo');
- assert(data.terminal_links[launched[0].session_id].task_id===task&&!data.terminal_links[launched[1].session_id].task_id&&!data.terminal_links['ui-task'].task_id,'API persists new primary without removing old terminal');
+ assert(data.terminal_links[launched[0].session_id].task_id===task&&!data.terminal_links[launched[1].session_id].task_id&&data.terminal_links['ui-task'].task_id===task&&data.terminal_links['ui-task'].primary===false,'API persists new primary without removing old terminal');
  const original=JSON.stringify(data.terminal_links[launched[0].session_id]);
  const github='https://github.com/example/repo/issues/7';
  cli('api','call','POST','/api/objectives','--json',JSON.stringify({workspace_id:'demo',action:{type:'link-update',objective_id:objective,resource_id:process.argv[4],title:'Reference',url:github}}));
@@ -212,10 +212,10 @@ const fs=require('node:fs'),{execFileSync}=require('node:child_process');
  ui('click',control('Make primary'));
  for(let i=0;i<100;i++){if(await evaluate(`automationGroup.tabParents[${JSON.stringify(launched[0].logical_name)}]===${JSON.stringify(launched[1].logical_name)}`))break;await new Promise(r=>setTimeout(r,30));}
  data=cli('api','call','GET','/api/objectives','--query','workspace_id=demo');
- assert(data.terminal_links[launched[1].session_id].task_id===task&&!data.terminal_links[launched[0].session_id].task_id,'new primary owns the task in persisted metadata');
+ assert(data.terminal_links[launched[1].session_id].task_id===task&&data.terminal_links[launched[0].session_id].primary===false,'new primary owns the task in persisted metadata');
  assert(data.terminal_links[launched[0].session_id].asset.resource_id===notebook&&data.terminal_links[launched[1].session_id].asset.resource_id===process.argv[4],'promotion preserves both asset bindings');
  assert(await evaluate(`JSON.stringify(termSessions)===primarySessionsBefore&&!automationGroup.tabParents[${JSON.stringify(launched[1].logical_name)}]&&termCurrentSession===${JSON.stringify(launched[1].name)}`),'promotion changes no session identity, launch folder or command and activates its own console');
- assert(await evaluate(`(()=>{const primary=termSessions.find(s=>s.name===termCurrentSession),old=termSessions.find(s=>s.name===${JSON.stringify(launched[0].name)});return !LabObjectives.taskForTerminal(primary).inherited&&LabObjectives.taskForTerminal(old).inherited&&_termSessionVisual(primary).icon.includes('github')&&_termSessionVisual(old).icon.includes('ft-nb')})()`),'new primary and previous primary keep their separate icons and task context');
+ assert(await evaluate(`(()=>{const primary=termSessions.find(s=>s.name===termCurrentSession),old=termSessions.find(s=>s.name===${JSON.stringify(launched[0].name)});return LabObjectives.taskForTerminal(primary).primary&&LabObjectives.taskForTerminal(old).primary===false&&_termSessionVisual(primary).icon.includes('github')&&_termSessionVisual(old).icon.includes('ft-nb')})()`),'new primary and previous primary keep their separate icons and task context');
  ui('command','terminal-select','--json',JSON.stringify({name:'ui-shell'}));openTask();
  assert(await evaluate(`termCurrentSession===${JSON.stringify(launched[1].name)}`),'task clicks activate the newly chosen primary');
  // Explicit New → Current task must POST a new session every time.
@@ -227,11 +227,27 @@ const fs=require('node:fs'),{execFileSync}=require('node:child_process');
   const extra=await evaluate('termSessions.find(t=>t.name===termCurrentSession)');
   assert(!previousNames.includes(extra.name)&&!extras.some(t=>t.name===extra.name),'each Current task launch creates a distinct terminal');extras.push(extra);
   assert(extra.kind==='terminal','new session retains the requested type');
-  assert(await evaluate(`automationGroup.tabParents[${JSON.stringify(extra.logical_name)}]===${JSON.stringify(launched[1].logical_name)}&&LabObjectives.taskForTerminal(termSessions.find(t=>t.name===${JSON.stringify(extra.name)})).inherited`),'new terminal joins the same task under its original primary');
+  assert(await evaluate(`!LabObjectives.terminalParents(termSessions,automationGroup.tabParents)[${JSON.stringify(extra.logical_name)}]&&!LabObjectives.taskForTerminal(termSessions.find(t=>t.name===${JSON.stringify(extra.name)})).inherited`),'new terminal belongs directly to the task without a terminal parent');
  }
  data=cli('api','call','GET','/api/objectives','--query','workspace_id=demo');
- assert(data.terminal_links[launched[1].session_id].task_id===task&&extras.every(t=>data.terminal_links[t.session_id].view==='tasks'&&!data.terminal_links[t.session_id].task_id),'new terminals preserve the automation primary in the real API');
+ assert(data.terminal_links[launched[1].session_id].task_id===task&&extras.every(t=>data.terminal_links[t.session_id].task_id===task&&data.terminal_links[t.session_id].primary===false),'new terminals preserve the automation primary in the real API');
  openTask();assert(await evaluate(`termCurrentSession===${JSON.stringify(launched[1].name)}`),'opening the task still selects its primary');
+ // Reload ownership, promote an independent member, and keep the terminal tree unchanged.
+ await evaluate('LabObjectives.load(undefined,true);window.peerLayout=JSON.stringify(automationGroup)');
+ ui('command','terminal-select','--json',JSON.stringify({name:extras[0].name}));
+ assert(await evaluate(`LabObjectives.taskForTerminal(termSessions.find(t=>t.name===termCurrentSession)).title==='CLI task'`),'saved direct membership opens the task after reloading ownership');
+ ui('click','#terminal-menu');ui('click',control('Make primary'));
+ for(let i=0;i<100;i++){if(await evaluate(`LabObjectives.taskForTerminal(termSessions.find(t=>t.name===${JSON.stringify(extras[0].name)})).primary`))break;await new Promise(r=>setTimeout(r,30));}
+ assert(await evaluate('JSON.stringify(automationGroup)===peerLayout'),'Make primary for an independent task member does not create children');
+ openTask();assert(await evaluate(`termCurrentSession===${JSON.stringify(extras[0].name)}`),'task navigation follows the independent primary');
+ for(const [choice,view] of [[1,'workflow'],[2,'objective']]){
+  const count=await evaluate('termSessions.length');ui('click','#new-task-terminal');ui('wait','.term-folder-modal');ui('click',`[data-folder-choice="${choice}"]`);
+  for(let i=0;i<100;i++){if(await evaluate(`termSessions.length===${count+1}`))break;await new Promise(r=>setTimeout(r,30));}
+  const extra=await evaluate('termSessions.find(t=>t.name===termCurrentSession)');
+  data=cli('api','call','GET','/api/objectives','--query','workspace_id=demo');
+  assert(data.terminal_links[extra.session_id].view===view&&!data.terminal_links[extra.session_id].task_id,'new terminal has exactly the selected context');
+  assert(await evaluate(`!LabObjectives.terminalParents(termSessions,automationGroup.tabParents)[${JSON.stringify(extra.logical_name)}]`),'workspace and Objective launches remain independent of the active terminal');
+ }
  data=cli('api','call','POST','/api/objectives','--json',JSON.stringify({workspace_id:'demo',action:{type:'create',name:'Created through API'}}));
  const added=data.objectives.find(o=>o.name==='Created through API');
  ui('command','objective-select','--json',JSON.stringify({objective:added.id}));

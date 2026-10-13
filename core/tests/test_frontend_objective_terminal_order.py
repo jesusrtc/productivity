@@ -54,7 +54,7 @@ const names=()=>{
 assert.deepEqual(names(),['whole','tasks-view','parent-second','parent-first','child-one','child-two','next','free','asset','missing-task','other-task','other-free']);
 assert.equal(JSON.stringify(sessions),original,'sorting preserves session identity, launch folders and conversations');
 current=second;names();current=first;
-assert.deepEqual(taskForTerminal(sessions[1]),{title:'Second child',icon:'<icon>',assetIcon:'<icon>',status:'todo',inherited:false});
+assert.deepEqual(taskForTerminal(sessions[1]),{title:'Second child',icon:'<icon>',assetIcon:'<icon>',status:'todo',color:null,inherited:false,primary:true});
 first.tasks[0].children.reverse();
 assert.deepEqual(names().slice(0,7),['whole','tasks-view','parent-second','parent-first','child-two','child-one','next'],'new task ordering is reflected on every render');
 registry.terminal_links['uuid-free']={objective_id:'one',task_id:'child-one'};
@@ -67,6 +67,16 @@ sessions.unshift(session('new-child','/b',{task_id:'new-child'}));
 assert(names().indexOf('new-child')>names().indexOf('parent-first'),'unknown task links stay at the bottom');
 first.tasks[0].children.push({id:'new-child',title:'New subtask',children:[]});
 assert.deepEqual(names().slice(0,8),['whole','tasks-view','next','new-child','parent-first','child-two','free','child-one'],'creating a subtask places its terminal directly below its parent');
+const peer=session('task-peer','/b',{task_id:'child-two',primary:false});sessions.unshift(peer);
+const primary=findTaskTerminal(sessions,{objective_id:'one',task_id:'child-two'});
+assert.equal(primary.name,'child-two','navigation prefers the primary even when a newer member comes first');
+assert.equal(taskForTerminal(peer).inherited,false,'membership does not require a parent bridge');
+assert.equal(taskForTerminal(peer).primary,false);
+const parents=terminalParents(sessions);
+assert.equal(parents[peer.logical_name],undefined,'new members of subtasks are independent too');
+assert.equal(parents[primary.logical_name],'logical-parent-first','the primary still mirrors task hierarchy');
+assert.equal(taskPrimaryForTerminal(peer,sessions),primary);
+assert(canMakeTerminalPrimary(peer,primary),'a direct member can become primary without a terminal parent');
 registry.enabled=false;assert.equal(terminalHtml(sessions,()=>'', ''),null);
 console.log(JSON.stringify({passed:true}));
 '''

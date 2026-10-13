@@ -421,8 +421,8 @@ window.LabObjectives={findTaskTerminal:()=>old,openTaskTerminal:()=>assert.fail(
 const pending=termSpawnSession('claude',{startFresh:options.fresh,agent:'copilot'});await tick();
 assert.equal(posts.length,1);assert.equal(posts[0].kind,'claude');assert.equal(posts[0].agent,'copilot');assert.equal(posts[0].start_fresh,true);
 assert.equal(posts[0].objective_id,'one');assert.equal(posts[0].cwd,'/project');
-assert.equal(links[0].view,'tasks');assert.equal(links[0].task_id,undefined);assert.equal(links[0].rename_to_task,undefined);
-assert.equal(_termReadGroupState('ssd::demo').tabParents.new,'old');
+assert.equal(links[0].task_id,'task');assert.equal(links[0].primary,false);assert.equal(links[0].view,undefined);assert.equal(links[0].rename_to_task,undefined);
+assert.deepEqual(_termReadGroupState('ssd::demo').tabParents,{});
 assert.deepEqual(attachments,[['new','demo']]);
 gets[0].resolve(response([old,created]));await pending;
 assert.equal(JSON.stringify(old),original);assert.deepEqual(alerts,[]);

@@ -13539,7 +13539,7 @@
 
   function _termSyncTaskHierarchy(data) {
     const state=_termReadGroupState(),hierarchy={},terminals={},reset=new Set();
-    const primary=new Map(Object.entries(data.terminal_links||{}).filter(([,link])=>link.task_id)
+    const primary=new Map(Object.entries(data.terminal_links||{}).filter(([,link])=>link.task_id&&link.primary!==false)
       .map(([id,link])=>[link.objective_id+'/'+link.task_id,termSessions.find(s=>s.session_id===id)?.logical_name]));
     for(const objective of data.objectives||[]){
       function visit(rows,path=[]){rows.forEach((task,index)=>{
@@ -13711,12 +13711,21 @@
     const scope = _termGroupScopeKey(), session = _termSessionMeta(sessionName);
     const state = _termReadGroupState(), parents = _termSubtabParents(state);
     const logical = session?.logical_name, parent = parents[logical];
-    const owner = termSessions.find(row => row.logical_name === parent);
+    const taskPrimary = !parent && window.LabObjectives?.taskPrimaryForTerminal?.(session, termSessions);
+    const owner = taskPrimary || termSessions.find(row => row.logical_name === parent);
     if (!owner || _termPrimaryChanges.has(scope)
         || window.LabObjectives?.canMakeTerminalPrimary?.(session, owner) === false) return false;
     _termPrimaryChanges.add(scope);
     try {
       await window.LabObjectives?.makeTerminalPrimary?.(session, owner);
+      // Direct task members stay peers when their primary role changes.
+      if (taskPrimary) {
+        if (scope === _termGroupScopeKey()) {
+          termRenderSessionList();
+          await _termActivateTab(sessionName);
+        }
+        return true;
+      }
       // Update the captured workspace even if navigation changed during the save.
       const next = _termReadGroupState(scope), grandparent = parents[parent];
       for (const [child, ancestor] of Object.entries(parents)) {
@@ -14151,7 +14160,8 @@
     const restoreMain = [...mains].some(([root, child]) => [root, child].includes(logical));
     const mergeParent = [...mains].find(([, child]) => child === logical)?.[0];
     const parentSession = termSessions.find(row => row.logical_name === mergeParent);
-    const primaryParent = termSessions.find(row => row.logical_name === _termSubtabParents(state)[logical]);
+    const primaryParent = window.LabObjectives?.taskPrimaryForTerminal?.(session, termSessions)
+      || termSessions.find(row => row.logical_name === _termSubtabParents(state)[logical]);
     const canMakePrimary = primaryParent && window.LabObjectives?.canMakeTerminalPrimary?.(session, primaryParent) !== false;
     const mainChoice = (canMakePrimary ? '<button role="menuitem" class="term-group-menu-row" data-action="make-primary">Make primary</button>' : '')
       + (restoreMain ? '<button role="menuitem" class="term-group-menu-row" data-action="unmerge-parent">Show separate terminals</button>' : '')
@@ -14929,7 +14939,7 @@
     const objectiveTask = window.LabObjectives?.taskForTerminal(identity);
     const assetIcon=window.LabObjectives?.terminalAsset?.(identity)?.icon;
     const taskIconClass = assetIcon || !main && objectiveTask?.assetIcon ? ' sess-task-icon' : '';
-    const taskOwn=objectiveTask&&!objectiveTask.inherited;
+    const taskOwn=objectiveTask&&!objectiveTask.inherited&&objectiveTask.primary!==false;
     const taskColorAttrs=objectiveTask?.color?` data-task-terminal-color style="color:${termSessEsc(objectiveTask.color)}"`:'';
     const child=!main&&(identity.terminal_child||objectiveTask?.inherited);
     const childAttrs=child?' data-terminal-child':'';
@@ -16588,7 +16598,7 @@
       && homeSection === _termHomeSection();
     const choice = launchChoice || await _termChooseNewScope(linkedScope || _termSelectedScope(), current);
     if (!current() || choice === null) return null;
-    let association = choice.association, taskParent = null;
+    let association = choice.association, freshTask = false;
     if(choice.association&&!choice.association.folder&&!choice.association.view) {
       const existing=window.LabObjectives?.findTaskTerminal?.(termSessions,choice.association);
       if(existing){
@@ -16598,12 +16608,12 @@
           else await window.LabObjectives.openTaskTerminal(choice.association.task_id||null,choice.association.objective_id);
           return existing;
         }
-        // A task has one primary and may have many independent consoles.
-        // New launches inherit that primary's task without replacing it.
-        taskParent=existing;
-        const {task_id,rename_to_task,...target}=choice.association;
-        association={...target,view:'tasks'};
+        freshTask=true;
       }
+    }
+    if (association?.task_id && (startFresh || freshTask)) {
+      association={...association,primary:false};
+      if (freshTask) delete association.rename_to_task;
     }
     const scope = choice.scope;
     if(choice.association?.main==='objective')window.LabObjectives?.selectObjective?.(choice.association.objective_id,{activateTerminal:false});
@@ -16620,7 +16630,7 @@
           agent,  // null → server resolves workspace override / global default
           objective_id: choice.association?.objective_id || null,
           name,
-          start_fresh: startFresh || !!taskParent,
+          start_fresh: startFresh || freshTask,
           linked_scope: scope,
           cwd: scope?.root || null,
           // No explicit `auto`: the vault's per-agent autopilot
@@ -16637,18 +16647,6 @@
       if (association) {
         try { await window.LabObjectives.associateNewTerminal(created, association); }
         catch (error) { alert('Terminal created, but its Objective association could not be saved: ' + error.message); }
-      }
-      if (taskParent) {
-        const key=_termSessionsKey(workspaceId,vaultId),state=_termReadGroupState(key);
-        const logical=created.logical_name,parent=taskParent.logical_name,token='s:'+logical,parentToken='s:'+parent;
-        state.tabParents[logical]=parent;
-        delete state.tabAfter[logical];
-        state.tabRoots=state.tabRoots.filter(id=>id!==logical);
-        state.order=state.order.filter(row=>row!==token);
-        if(!state.order.includes(parentToken))state.order.push(parentToken);
-        state.order.splice(state.order.indexOf(parentToken)+1,0,token);
-        if(state.tabMembership[parent])state.tabMembership[logical]=state.tabMembership[parent];
-        _termWriteGroupState(state,key);
       }
       if (startFresh) window.labFeatureUsage?.(kind === 'claude' ? 'Create agent terminal' : 'Create terminal');
       if (homeSection) _termSaveHomeAssociation(created.logical_name, homeSection);

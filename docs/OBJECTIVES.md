@@ -291,10 +291,12 @@ and creates or reuses the primary when selecting an eligible task. Explicit
 **+ New → Current task** remains available in either mode and always creates a
 fresh terminal of the requested type, even if the task already has a terminal.
 Changing the setting preserves existing sessions. A task can have multiple
-terminals with one primary: additional launches nest beneath the existing
-primary and inherit its task without replacing that assignment. Clicking the
+terminals with one primary: additional launches save their own task association
+and appear as independent terminals, without a terminal parent. Clicking the
 task still activates its primary; **Make primary** changes which one that is.
-An ordinary terminal can be reassigned to a different task, including across Objectives.
+Promoting an independent member preserves the other terminals' task membership
+and does not change their hierarchy. An ordinary terminal can be reassigned to
+a different task, including across Objectives.
 Refreshing or restoring task details does not spawn another terminal.
 
 Task titles are hyperlinks to their required details document/subtab. Clicking

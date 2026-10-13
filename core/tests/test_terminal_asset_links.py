@@ -87,6 +87,10 @@ def test_primary_transfer_preserves_both_terminal_assets_and_launch_metadata(cli
         action(type='terminal-asset', session_id=session_id, objective_id=oid, resource_id=rid)
     links = action(type='terminal', session_id=second, **target)['terminal_links']
     assert all(links[second].get(k) == value for k, value in target.items())
-    assert not links[first].get('main') and not links[first].get('task_id')
+    assert not links[first].get('main')
+    if role == 'task':
+        assert links[first]['task_id'] == tid and links[first]['primary'] is False
+    else:
+        assert not links[first].get('task_id')
     assert links[first]['asset'] == links[second]['asset'] == {'objective_id':oid, 'resource_id':rid}
     assert term._get_workspace_sessions(monorepo, 'demo') == before
