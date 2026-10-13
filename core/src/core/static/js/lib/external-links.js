@@ -90,6 +90,31 @@
     }
   }
 
+  async function openInChrome(value) {
+    const url = webUrl(value);
+    if (!url) return false;
+    if (!window.LAB_EXTERNAL_BROWSER) {
+      // Remote sessions must never launch an application on the server.
+      const chrome = navigator.userAgentData?.brands?.some(item => item.brand === 'Google Chrome')
+        ?? (/Chrome\//.test(navigator.userAgent) && navigator.vendor === 'Google Inc.' && !/Edg\/|OPR\//.test(navigator.userAgent));
+      if (chrome) return open(url.href, {clientOnly:true});
+      showFallback(url.href, 'Open Lab in Chrome to open this link there from a remote session.');
+      return false;
+    }
+    try {
+      const response = await fetch('/api/ui/open-external', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({url:url.href, browser:'chrome'}),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.ok === false) throw new Error(data.detail || 'Could not open Google Chrome.');
+      return true;
+    } catch (error) {
+      showFallback(url.href, error.message || 'Could not open Google Chrome.');
+      return false;
+    }
+  }
+
   function onLink(event) {
     if (event.defaultPrevented || (event.type === 'click' ? event.button !== 0 : event.button !== 1)) return;
     const link = event.target.closest?.('a[href], area[href]');
@@ -134,6 +159,6 @@
     doc.querySelectorAll('iframe').forEach(bindFrame);
   }
 
-  window.LabExternalLinks = {open};
+  window.LabExternalLinks = {open, openInChrome};
   bindDocument(document);
 })();

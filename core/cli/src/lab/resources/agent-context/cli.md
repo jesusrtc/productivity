@@ -79,6 +79,16 @@ and the exact task-name requirement. Browser/OS file pickers and permission
 prompts are outside the DOM; use the underlying API or local file commands for
 their data operations. Browser popup and clipboard permissions still apply.
 
+URL asset menus expose **Copy URL** (`[data-copy-asset-url]`) and **Open in
+Chrome** (`[data-open-asset-chrome]`), including sublinks and the Task assets
+dialog. Open the asset's context menu and use `inspect`/`click` on the selected
+view. Copy success appears as `URL copied.`; clipboard permissions belong to
+that browser. Explicit Chrome opening is also available through
+`lab api call POST /api/ui/open-external --json
+'{"url":"https://example.com/path?query=value#section","browser":"chrome"}'`
+for a local owner session. Remote clients use their own Chrome tab or receive
+instructions to open Lab in Chrome, without launching the server's browser.
+
 `lab ui command ACTION --json '{...}'` also supports:
 
 | Action | Parameters |

@@ -46,6 +46,8 @@ def test_objective_inline_editor_serializes_sibling_saves_and_retains_conflicts(
     scripts = '\n'.join('<script>'+(STATIC/path).read_text()+'</script>' for path in [
         'vendor/marked@12.0.1/marked.min.js','vendor/dompurify@3.4.15/purify.min.js',
         'js/lib/markdown-content.js','vendor/lab-markdown-editor/markdown-editor.min.js','js/lib/task-context.js','js/lib/workspace-objectives.js'])
+    app_source = (STATIC/'js/lab-app.js').read_text()
+    scripts += '<script>' + app_source[app_source.index('  async function _copyToClipboard('):app_source.index('  // Flatten the rendered outputs')] + '</script>'
     setup = r'''
 window.assert=(ok,message)=>{if(!ok)throw Error(message)};
 window.contentErrors=[];
@@ -69,7 +71,9 @@ window.resource=data=>data.objectives[0].resources[0];
 const pasted=[],termXterm={paste:text=>pasted.push(text),focus(){},modes:{bracketedPasteMode:true}},termWS={readyState:1};
 const _termDragState=null,workspaceTabsDragId=null;
 const notices=[],opened=[],activated=[];let scopeRoot=FIX.folder;
-window.LabExternalLinks={open:(url,options)=>{opened.push({url,options});return Promise.resolve(true)}};
+window.LabExternalLinks={open:(url,options)=>{opened.push({url,options});return Promise.resolve(true)},openInChrome:url=>{opened.push({url,chrome:true});return Promise.resolve(true)}};
+window.copiedUrls=[];
+Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text=>copiedUrls.push(text)}});
 window.explorerToast=(message,error)=>{if(error)throw Error(message);notices.push(message)};
 document.getElementById('termBody').addEventListener('dragover',event=>event.preventDefault());
 document.getElementById('termBody').addEventListener('drop',_termHandleDrop);
@@ -225,6 +229,14 @@ const fs=require('node:fs');
  const linkSelector='[data-objectives-sidebar] [data-objective-resource="'+linkId+'"]';
  async function closeEdit(){if(await evaluate(`!!document.querySelector('.objective-link-edit-dialog[open]')`))await click('[data-close-link-edit]');}
  async function editLink(selector){if(!selector.startsWith('.objective-link-edit-dialog'))await closeEdit();await click(selector,0,'right');await evaluate(`assert(document.querySelector('.objective-asset-context-menu [data-edit-link-details]').textContent==='Edit','secondary click offers Edit')`);await click('.objective-asset-context-menu [data-edit-link-details]');await evaluate(`assert(document.querySelector('.objective-link-edit-dialog[open]'),'Edit opens a modal')`);}
+ async function urlActions(selector,url){
+   const snapshot=await evaluate(`read().then(value=>JSON.stringify(value))`);
+   await click(selector,0,'right');await click('[data-copy-asset-url]');
+   await evaluate(`until(()=>copiedUrls.at(-1)===${JSON.stringify(url)});assert(notices.at(-1)==='URL copied.'&&!document.querySelector('.objective-asset-context-menu'),'copy confirms and closes menu')`);
+   await click(selector,0,'right');await click('[data-open-asset-chrome]');
+   await evaluate(`(async()=>{assert(opened.at(-1).chrome&&opened.at(-1).url===${JSON.stringify(url)},'Chrome receives exact asset URL');assert(JSON.stringify(await read())===${JSON.stringify(snapshot)},'URL actions leave asset metadata and associations intact')})()`);
+ }
+ await urlActions(linkSelector,'https://example.com/a?one=1&two=2#section');
  await click(linkSelector);
  await evaluate(`assert(document.querySelector('.objective-overview'),'single link click preserves center');assert(opened.at(-1).url==='https://example.com/a?one=1&two=2#section'&&opened.at(-1).options.clientOnly,'single click opens actual URL in clicking browser')`);
  await click(linkSelector,4);
@@ -263,6 +275,10 @@ const fs=require('node:fs');
  await click('.objective-dialog:not(.objective-link-edit-dialog) [type=submit]');
  const subId=await evaluate(`(async()=>{await until(async()=>!!(await read()).objectives[0].resources.find(r=>r.id==='${linkId}').sublinks?.length);return (await read()).objectives[0].resources.find(r=>r.id==='${linkId}').sublinks[0].id})()`);
  await evaluate(`until(()=>document.querySelector('.objective-link-edit-dialog [data-objective-sublink="${subId}"]'))`);
+ await urlActions('.objective-link-edit-dialog [data-objective-sublink="'+subId+'"]','https://example.com/updated?tab=overview');
+ await evaluate(`window.savedExecCommand=document.execCommand;Object.defineProperty(window,'isSecureContext',{configurable:true,value:false});document.execCommand=command=>{const field=document.activeElement;assert(command==='copy'&&field.tagName==='TEXTAREA'&&field.closest('.objective-link-edit-dialog'),'legacy copy stays inside the active modal');copiedUrls.push(field.value);return true}`);
+ await urlActions('.objective-link-edit-dialog [data-objective-sublink="'+subId+'"]','https://example.com/updated?tab=overview');
+ await evaluate(`document.execCommand=savedExecCommand;delete window.isSecureContext`);
  await editLink('.objective-link-edit-dialog [data-objective-sublink="'+subId+'"]');
  await evaluate(`assert(document.querySelector('[data-link-details-title]').textContent==='Overview tab'&&document.querySelector('#content .objective-working h2').textContent==='Tasks','sublink context menu works within the modal and retains task view')`);
  await click('[data-open-parent-link]');
@@ -325,6 +341,7 @@ const fs=require('node:fs');
  await click('.objective-task-row [data-task-assets]');
  await evaluate(`assert(!document.querySelector('[data-pick-task-icon]'),'asset list cannot override task icons on click')`);
  const taskLinkSelector=await evaluate(`(async()=>{const o=(await read()).objectives[0],r=o.resources.find(r=>r.url==='https://example.com/task-evidence'),a=o.tasks[0].assets.find(a=>a.resource_id===r.id);return '.objective-dialog [data-open-task-asset="'+a.id+'"]'})()`);
+ await urlActions(taskLinkSelector,'https://example.com/task-evidence');
  await click(taskLinkSelector);
  await evaluate(`assert(opened.at(-1).url==='https://example.com/task-evidence'&&opened.at(-1).options.popup===true&&document.querySelector('.objective-dialog[open]'),'task asset opens a window and retains its asset list')`);
  await click(taskLinkSelector,4);

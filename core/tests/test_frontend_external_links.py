@@ -155,6 +155,27 @@ const click = (link, options = {}) => {
   await LabExternalLinks.open('https://example.com/remote-reuse', {clientOnly:true, reuseTab:true});
   assert(tabs.length === afterPopoutCount+1 && tabs.at(-1)[0] === 'https://example.com/remote-reuse', 'remote workspace links open on their own client');
 
+  // Explicit Chrome opening selects Chrome regardless of the default browser.
+  window.LAB_EXTERNAL_BROWSER = true;
+  window.fetch = async (url, options) => { nativeCalls.push({url, body:JSON.parse(options.body)}); return {ok:true,json:async()=>({ok:true})}; };
+  const beforeChromeTabs = tabs.length;
+  assert(await LabExternalLinks.openInChrome('https://example.com/chrome?one=1&two=2#part'), 'Chrome launch succeeds');
+  assert(nativeCalls.at(-1).body.browser === 'chrome' && nativeCalls.at(-1).body.url === 'https://example.com/chrome?one=1&two=2#part' && tabs.length === beforeChromeTabs, 'explicit Chrome launch preserves URL without a popup');
+  assert(!await LabExternalLinks.openInChrome('javascript:alert(1)'), 'Chrome rejects unsafe URLs');
+  window.fetch = async () => ({ok:false,json:async()=>({detail:'Could not open Google Chrome'})});
+  assert(!await LabExternalLinks.openInChrome('https://example.com/unavailable'), 'Chrome failure is reported');
+  const chromeFallback = document.querySelector('dialog[open]');
+  assert(chromeFallback.querySelector('p').textContent.includes('Chrome') && tabs.length === beforeChromeTabs, 'Chrome failure offers a manual fallback');
+  chromeFallback.close(); await tick();
+  window.LAB_EXTERNAL_BROWSER = false;
+  window.fetch = async () => {throw Error('Remote Chrome must not open the server desktop')};
+  Object.defineProperty(navigator, 'userAgentData', {configurable:true,value:{brands:[{brand:'Google Chrome'}]}});
+  assert(await LabExternalLinks.openInChrome('https://example.com/client-chrome') && tabs.at(-1)[0] === 'https://example.com/client-chrome', 'remote Chrome uses its own tab');
+  Object.defineProperty(navigator, 'userAgentData', {configurable:true,value:{brands:[{brand:'Microsoft Edge'}]}});
+  assert(!await LabExternalLinks.openInChrome('https://example.com/remote-other'), 'other remote browsers cannot claim Chrome opening');
+  document.querySelector('dialog[open]').close(); await tick();
+  delete navigator.userAgentData;
+
   // Every Markdown surface uses immediate client windows, with modified tabs.
   const beforeMarkdownCalls = nativeCalls.length;
   for (const className of ['markdown-body','nb-markdown','nb-history-markdown','md-content','assistant-markdown','lab-live-markdown-block']) {

@@ -1344,7 +1344,13 @@
     assetContextMenu.style.top=Math.max(8,Math.min(event.clientY||box.bottom,window.innerHeight-assetContextMenu.offsetHeight-8))+'px';assetContextMenu.querySelector('button:not(:disabled)')?.focus();return true;
   }
   function linkDetailsMenu(asset) {
-    return assetInfo(asset)?.resource?.kind==='link'?`<button type="button" role="menuitem" data-edit-link-details="${esc(JSON.stringify(assetTarget(asset)))}">Edit</button>`:'';
+    const info=assetInfo(asset);if(info?.resource?.kind!=='link')return '';
+    const url=esc(info.reference);
+    return `<button type="button" role="menuitem" data-edit-link-details="${esc(JSON.stringify(assetTarget(asset)))}">Edit</button><button type="button" role="menuitem" data-copy-asset-url="${url}">Copy URL</button><button type="button" role="menuitem" data-open-asset-chrome="${url}">Open in Chrome</button>`;
+  }
+  async function copyAssetUrl(url) {
+    const copied=await window._copyToClipboard(url);
+    notify(copied?'URL copied.':'Could not copy the URL.',!copied);
   }
   function showAssetContextMenu(event) {
     if(!active(context()?.path)||!event.target.closest?.('[data-objectives-sidebar],.objective-working,.objective-dialog'))return false;
@@ -1378,6 +1384,8 @@
     if(node.closest('.objective-asset-context-menu'))closeAssetContextMenu();
     if(node.hasAttribute('data-close-link-edit')){closeLinkEdit();return;}
     if(node.hasAttribute('data-edit-link-details')){const asset=JSON.parse(node.dataset.editLinkDetails);openLinkEdit(asset.resource_id,asset.sub_link_id||null);return;}
+    if(node.hasAttribute('data-copy-asset-url')){void copyAssetUrl(node.dataset.copyAssetUrl);return;}
+    if(node.hasAttribute('data-open-asset-chrome')){void window.LabExternalLinks?.openInChrome(node.dataset.openAssetChrome);return;}
     if(node.hasAttribute('data-asset-group-toggle')){openAssetGroup(node.closest('[data-asset-group]'),true);return;}
     if(node.hasAttribute('data-asset-group-menu')){showAssetContextMenu(e);return;}
     if(node.hasAttribute('data-group-asset')){groupAsset(JSON.parse(node.dataset.groupAsset));return;}

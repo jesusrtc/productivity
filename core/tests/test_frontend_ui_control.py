@@ -91,6 +91,7 @@ const fs=require('node:fs'),{execFileSync}=require('node:child_process');
  const inspect=()=>ui('inspect');
  const control=label=>{const row=inspect().controls.find(c=>c.label===label);assert(row,'control '+label);return row.selector};
  ui('contextmenu','[data-objectives-sidebar] [data-objective-resource="'+process.argv[4]+'"]');
+ assert(control('Copy URL')&&control('Open in Chrome'),'URL actions are discoverable through CLI');
  ui('click',control('Edit'));
  assert(inspect().dialogs.some(d=>d.title==='Edit link'),'CLI opens real modal');
  ui('fill','[data-objective-link-field=url]','https://example.com/cli-edited');

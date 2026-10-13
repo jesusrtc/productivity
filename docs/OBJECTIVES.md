@@ -225,12 +225,21 @@ away; a conflicting edit retains your draft. **Open** visits the URL in the
 same kind of pop-out. These controls apply to shared and scoped links, as well as
 links attached to tasks.
 
+The same context menu offers **Copy URL** and **Open in Chrome** for URL
+assets and their individual sublinks, including the Task assets dialog.
+Copy puts the selected item's full saved URL on the clipboard and confirms
+the result. Open in Chrome launches Google Chrome explicitly from a local
+owner session. Remote sessions open their own Chrome tab; another remote
+browser shows instructions and a manual browser link. Query parameters and
+fragments are preserved, and neither action edits the asset or its assignments.
+Agents can select both actions with `lab ui contextmenu`, `inspect` and `click`.
+
 Every click opens a new pop-out immediately, including repeated clicks on the
 same URL. Windows use almost all of Lab's width, leave its workspace tabs visible,
 and cascade by 36 pixels vertically with a small horizontal offset so previous
 title bars and close buttons remain visible. The cascade repeats every three
 windows: the fourth starts at the first position again. Use each window's own
-controls to activate, move or close it. Opening uses the clicking device's browser
+controls to activate, move or close it. Normal link opening uses the clicking device's browser
 with no resource registry, confirmation, macOS helper or automatic window raising.
 
 Use **+ Sublink** in a link's details to add destinations beneath it, such as

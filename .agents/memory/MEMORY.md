@@ -1,5 +1,7 @@
 # Memory index
 
+- [URL assets copy and open in Chrome](url-assets-copy-and-open-chrome.md) — exact saved parent/sublink URLs, clipboard feedback, explicit Chrome and CLI menu access.
+
 - [Server pop-outs use the clicking client and saved URL](server-popouts-use-client-and-saved-url.md) — synchronous browser opening, cold sidebar config reads, scoped URL fallback.
 - [Collapsed task navigation keeps icons](collapsed-task-navigation-keeps-icons.md) — the left Objective task rail retains custom/default icons and native navigation when customization buttons fold.
 

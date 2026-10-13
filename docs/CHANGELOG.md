@@ -3,6 +3,19 @@
 User-facing changes to Lab are recorded here alongside updates to the user
 guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 
+## 2026-10-13
+
+### Copy asset URLs and open them in Chrome
+
+- Added **Copy URL** and **Open in Chrome** to URL asset context menus,
+  including sublinks and the Task assets dialog. Both preserve the selected
+  destination's query parameters and section fragments.
+- Copy reports success or failure. Explicit Chrome opening selects Google
+  Chrome in local owner sessions; remote sessions use their own Chrome tab
+  or explain how to open the link there. Asset metadata stays unchanged.
+- Both menu actions are discoverable through `lab ui`. The shared browser
+  endpoint also accepts `browser: "chrome"` through `lab api`.
+
 ## 2026-10-12
 
 ### Server Pop out and restored tabs

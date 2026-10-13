@@ -201,6 +201,14 @@ action. Save preserves the asset's identity and task/terminal associations;
 close/Escape retains drafts. Normal link clicks open pop-out windows;
 Command/Ctrl-click opens browser tabs.
 
+URL assets also offer **Copy URL** and **Open in Chrome** in that menu,
+including sublinks and the Task assets dialog. Copy keeps the full saved URL,
+including query parameters and section fragments, and confirms when copied.
+Open in Chrome explicitly launches Google Chrome for a local owner session.
+In remote sessions, it opens a tab if you are already using Chrome; otherwise
+it explains how to open the link there. These actions leave asset details and
+assignments unchanged and are available through `lab ui` menu controls.
+
 `lab ui paste TEXT --terminal NAME` pastes through the selected terminal;
 `--file PATH` accepts longer text, and `--submit` explicitly sends Enter.
 Native prompt answers use `click --prompt VALUE` or `--confirm yes|no` for that

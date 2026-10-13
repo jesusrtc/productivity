@@ -34,12 +34,13 @@ def test_external_link_uses_system_browser_and_preserves_url(client, monkeypatch
 
 
 @pytest.mark.parametrize("url", ["javascript:alert(1)", "file:///tmp/test", "data:text/html,hi", "--help", "/relative"])
-def test_external_link_rejects_non_web_targets(client, monkeypatch, url):
+@pytest.mark.parametrize("target_browser", ["default", "chrome"])
+def test_external_link_rejects_non_web_targets(client, monkeypatch, url, target_browser):
     def unexpected(*args, **kwargs):
         pytest.fail("Invalid URLs must never launch an application")
     monkeypatch.setattr(ui.subprocess, "run", unexpected)
     with _browser_client(client) as browser:
-        response = browser.post("/api/ui/open-external", json={"url": url}, headers={"Origin": "http://localhost"})
+        response = browser.post("/api/ui/open-external", json={"url": url, "browser": target_browser}, headers={"Origin": "http://localhost"})
     assert response.status_code == 422
 
 
@@ -50,12 +51,13 @@ def test_external_link_rejects_non_web_targets(client, monkeypatch, url):
     ("127.0.0.1", "http://localhost", "http://localhost:9999"),
     ("127.0.0.1", "http://localhost", ""),
 ])
-def test_external_link_requires_local_same_origin_session(client, monkeypatch, host, base_url, origin):
+@pytest.mark.parametrize("target_browser", ["default", "chrome"])
+def test_external_link_requires_local_same_origin_session(client, monkeypatch, host, base_url, origin, target_browser):
     def unexpected(*args, **kwargs):
         pytest.fail("Nonlocal or cross-origin requests must not launch a browser")
     monkeypatch.setattr(ui.subprocess, "run", unexpected)
     with _browser_client(client, host, base_url) as browser:
-        response = browser.post("/api/ui/open-external", json={"url": "https://example.com"}, headers={"Origin": origin})
+        response = browser.post("/api/ui/open-external", json={"url": "https://example.com", "browser": target_browser}, headers={"Origin": origin})
     assert response.status_code == 403
 
 
@@ -88,6 +90,39 @@ def test_external_link_requires_login_and_admin(client, monkeypatch):
     assert client.post("/api/ui/open-external", **payload).status_code == 401
     client.post("/api/auth/login", json={"username": "reader", "password": "reader"})
     assert client.post("/api/ui/open-external", **payload).status_code == 403
+
+
+@pytest.mark.parametrize('platform,command', [
+    ('darwin', ['/usr/bin/open', '-a', 'Google Chrome']),
+    ('linux', ['/browser/google-chrome']),
+    ('win32', ['/browser/chrome']),
+])
+def test_explicit_chrome_bypasses_default_browser_reuse(client, monkeypatch, platform, command):
+    from core import browser_tabs
+    calls = []
+    url = 'https://example.com/a?one=1&two=2#section'
+    monkeypatch.setattr(ui.sys, 'platform', platform)
+    monkeypatch.setattr(ui.shutil, 'which', lambda name: '/browser/' + name)
+    monkeypatch.setattr(ui.subprocess, 'run', lambda argv, **kwargs: calls.append((argv, kwargs)))
+    monkeypatch.setattr(ui.subprocess, 'Popen', lambda argv, **kwargs: calls.append((argv, kwargs)))
+    monkeypatch.setattr(browser_tabs, 'focus_existing', lambda url: pytest.fail('Must not reuse another browser'))
+    with _browser_client(client) as browser:
+        response = browser.post('/api/ui/open-external', json={'url': url, 'browser': 'chrome', 'reuse_existing': True}, headers={'Origin': 'http://localhost'})
+    assert response.status_code == 200
+    assert calls[0][0] == command + [url]
+    assert not calls[0][1].get('shell')
+    if platform != 'darwin':
+        assert calls[0][1]['start_new_session'] is True
+
+
+def test_missing_chrome_reports_failure_without_opening_default_browser(client, monkeypatch):
+    monkeypatch.setattr(ui.sys, 'platform', 'linux')
+    monkeypatch.setattr(ui.shutil, 'which', lambda name: None)
+    monkeypatch.setattr(ui.subprocess, 'run', lambda *a, **kw: pytest.fail('Chrome unavailable'))
+    with _browser_client(client) as browser:
+        response = browser.post('/api/ui/open-external', json={'url': 'https://example.com', 'browser': 'chrome'}, headers={'Origin': 'http://localhost'})
+    assert response.status_code == 503
+    assert 'Chrome' in response.json()['detail']
 
 
 @pytest.mark.parametrize('matched', [True, False])

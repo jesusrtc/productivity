@@ -12,9 +12,11 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, HttpUrl
@@ -39,10 +41,28 @@ def can_open_external(request: Request) -> bool:
 class ExternalLink(BaseModel):
     url: HttpUrl
     reuse_existing: bool = False
+    browser: Literal['default', 'chrome'] = 'default'
 
 
 def can_reuse_browser_tabs(request: Request) -> bool:
     return sys.platform == 'darwin' and can_open_external(request)
+
+
+def _chrome_command(url: str) -> list[str]:
+    if sys.platform == 'darwin':
+        return ['/usr/bin/open', '-a', 'Google Chrome', url]
+    names = ('chrome',) if sys.platform == 'win32' else ('google-chrome', 'google-chrome-stable')
+    executable = next((path for name in names if (path := shutil.which(name))), None)
+    if not executable and sys.platform == 'win32':
+        for variable in ('LOCALAPPDATA', 'PROGRAMFILES', 'PROGRAMFILES(X86)'):
+            root = os.environ.get(variable)
+            candidate = Path(root) / 'Google/Chrome/Application/chrome.exe' if root else None
+            if candidate and candidate.is_file():
+                executable = str(candidate)
+                break
+    if not executable:
+        raise HTTPException(status_code=503, detail='Google Chrome is not installed or could not be found')
+    return [executable, url]
 
 
 @router.post("/api/ui/open-external")
@@ -53,7 +73,7 @@ def open_external(body: ExternalLink, request: Request) -> dict:
     if request.headers.get("origin") != str(request.base_url).rstrip("/"):
         raise HTTPException(status_code=403, detail="Browser opening requires the Lab origin")
     url = str(body.url)
-    if body.reuse_existing and sys.platform == 'darwin':
+    if body.browser == 'default' and body.reuse_existing and sys.platform == 'darwin':
         from core import browser_tabs
         try:
             if browser_tabs.focus_existing(url):
@@ -63,7 +83,15 @@ def open_external(body: ExternalLink, request: Request) -> dict:
             # Never launch a duplicate after an uncertain automation outcome.
             return {"ok": False, "reused": False, "requires_browser_click": True, "detail": str(exc)}
     try:
-        if sys.platform == "win32":
+        if body.browser == 'chrome':
+            command = _chrome_command(url)
+            streams = dict(stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if sys.platform == 'darwin':
+                subprocess.run(command, check=True, timeout=5, **streams)
+            else:
+                # Chrome can remain attached when creating its first window.
+                subprocess.Popen(command, start_new_session=True, **streams)
+        elif sys.platform == "win32":
             os.startfile(url)
         else:
             command = "/usr/bin/open" if sys.platform == "darwin" else "xdg-open"
@@ -73,9 +101,9 @@ def open_external(body: ExternalLink, request: Request) -> dict:
                 stderr=subprocess.DEVNULL,
             )
     except subprocess.TimeoutExpired as exc:
-        raise HTTPException(status_code=503, detail="Could not open the default browser") from exc
+        raise HTTPException(status_code=503, detail="Could not open Google Chrome" if body.browser == 'chrome' else "Could not open the default browser") from exc
     except (OSError, subprocess.SubprocessError, ValueError) as exc:
-        raise HTTPException(status_code=503, detail="Could not open the default browser") from exc
+        raise HTTPException(status_code=503, detail="Could not open Google Chrome" if body.browser == 'chrome' else "Could not open the default browser") from exc
     return {"ok": True, "reused": False} if body.reuse_existing else {"ok": True}
 
 

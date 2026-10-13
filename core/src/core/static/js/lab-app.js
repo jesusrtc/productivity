@@ -6391,10 +6391,10 @@
         const ta = document.createElement('textarea');
         ta.value = text;
         ta.style.position = 'fixed'; ta.style.opacity = '0';
-        document.body.appendChild(ta);
+        ([...document.querySelectorAll('dialog[open]')].at(-1) || document.body).appendChild(ta);
         ta.select();
         try { ok = document.execCommand('copy'); }
-        finally { document.body.removeChild(ta); }
+        finally { ta.remove(); }
       }
     } catch (_) { ok = false; }
     if (!btn) return ok;
