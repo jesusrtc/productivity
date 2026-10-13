@@ -5,6 +5,14 @@ guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 
 ## 2026-10-13
 
+### Task icons stay in place when the first column expands
+
+- Hovering over the first column reveals task titles and controls without
+  moving or resizing task/subtask icons or recurring markers.
+- Objective headings, worktrees and pinned assets retain their vertical space
+  while folded. The same chosen icon stays on the left; expanded custom-icon
+  rows show their task status on the right. Subtask titles retain indentation.
+
 ### Copy asset URLs and open them in Chrome
 
 - Added **Copy URL** and **Open in Chrome** to URL asset context menus,

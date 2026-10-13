@@ -324,7 +324,7 @@ scopes and original ownership remain unchanged. Duplicate drops keep one
 association. The middle task-list asset button opens its attachments and can
 detach optional assets; its mandatory details remain associated.
 
-The left edge of each task row shows **⬜** for Undo with a red frame, **🚧** for
+Task status badges show **⬜** for Undo with a red frame, **🚧** for
 In progress, **✅** for Completed, **⏸** for Paused and **🚫** for Won’t do.
 Secondary-click anywhere on the row to choose one of these five statuses. The menu
 also opens with Shift+F10 and closes with Escape. Completed, Undo, Paused
@@ -334,7 +334,7 @@ manifest and reflected in the task header and active tab. Recurring tasks carry
 **🔄** in the sidebar and repeat badges. Terminal tabs show their icons instead
 of task-status dots: 💻 for ordinary task terminals and ⏺ for children unless
 a custom icon is selected. Status stays available in hover and accessible labels.
-The right edge holds the icon used by its active tab and linked terminals.
+In the task dashboard, the right edge holds the icon used by its active tab and linked terminals.
 Without a chosen asset, the right edge shows no icon. Its empty drop area
 appears on hover or keyboard focus so an asset can still be dragged there.
 Click the left status badge or right icon area to open **Task icon and terminal
@@ -343,9 +343,13 @@ service icons such as Jira, GitHub and Grafana. GitHub can be chosen even withou
 a GitHub asset. Suggested emojis follow, with a field for a custom emoji.
 When the left sidebar folds into its icon rail, each task shows the chosen
 custom icon or its default task status emoji. The compact icon opens the task;
-expanding restores the status badge, title and customization controls. Worktree
-title bullets stay folded so they cannot leave a task row looking like a dot
-without its icon.
+expanding reveals titles and customization controls beside the same icon.
+Task and subtask icons retain identical positions and sizes in both states;
+recurring markers also stay in place. Headings, worktrees and pinned assets
+above Tasks retain their height while folded. Subtask titles are indented,
+with icons aligned in a fixed column. When a custom icon is chosen, the sidebar
+shows it on the left and reveals the status badge on the right. Both controls
+open the icon picker. Worktree title bullets stay hidden while folded.
 **Terminal text color…** opens the existing worktree palette. Preview the choices
 and click **Save**, or cancel to retain the saved settings. **Default icon** and
 **Default color** restore the defaults. Secondary-click retains the status menu.

@@ -1,5 +1,7 @@
 # Memory index
 
+- [Task rail icons stay in place](task-rail-icons-stay-in-place.md) — fixed task/subtask icon geometry and recurring markers, preserving the height of preceding Objective sections.
+
 - [URL assets copy and open in Chrome](url-assets-copy-and-open-chrome.md) — exact saved parent/sublink URLs, clipboard feedback, explicit Chrome and CLI menu access.
 
 - [Server pop-outs use the clicking client and saved URL](server-popouts-use-client-and-saved-url.md) — synchronous browser opening, cold sidebar config reads, scoped URL fallback.

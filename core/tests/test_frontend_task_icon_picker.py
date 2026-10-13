@@ -39,7 +39,29 @@ child.automation={reason:'Stopped'};
  assert(sidebar.querySelector('.objective-sidebar-task-status').textContent==='🚧','WIP uses construction badge');
  assert(sidebar.querySelector('.objective-task-recurring').textContent==='🔄','recurring task identifier');
  document.body.classList.add('sidebar-drawer-enabled');
- assert(sidebar.querySelector('.objective-sidebar-task-compact-icon').getClientRects().length>0&&sidebar.querySelector('.objective-sidebar-task-compact-icon').textContent==='🚧','collapsed task navigation shows its default emoji with clickable status buttons hidden');
+ assert(sidebar.querySelector('.objective-sidebar-task-compact-icon').getClientRects().length>0&&sidebar.querySelector('.objective-sidebar-task-compact-icon').textContent==='🚧','collapsed task navigation retains its default emoji');
+ // Real Objective markup: headings, pinned assets, expanded worktrees and nested tasks.
+ const taskRail=document.getElementById('sidebar');taskRail.style.height='240px';taskRail.style.bottom='auto';
+ owner.shared_assets=[{resource_id:'grafana-one'},{resource_id:'grafana-two'}];
+ task.children=[{id:'nested',title:'A long nested task name that must not reflow the rail',document_id:'details',tab_id:'nested',status:'in_progress',done:false,icon:{emoji:'💡'},children:[{id:'deep',title:'Grandchild',document_id:'details',tab_id:'deep',status:'todo',done:false,children:[],assets:[]}],assets:[]}];
+ await LabObjectives.load(undefined,true);
+ const geometry=()=>[...sidebar.querySelectorAll('.objective-sidebar-task-compact-icon,.objective-task-recurring')].map(n=>{const r=n.getBoundingClientRect();return [r.x,r.y,r.width,r.height]});
+ for(const width of [220,380])for(const treesOpen of [false,true]){
+  document.documentElement.style.setProperty('--sidebar-width',width+'px');
+  if(sidebar.querySelector('[data-fold-worktrees]').getAttribute('aria-expanded')!==String(treesOpen))sidebar.querySelector('[data-fold-worktrees]').click();
+  for(const scroll of [0,40]){
+   document.body.classList.remove('sidebar-drawer-open');document.getElementById('sidebar').scrollTop=scroll;
+   assert(taskRail.scrollTop===scroll,'fixture really exercises the requested sidebar scroll');
+   const folded=geometry();
+   document.body.classList.add('sidebar-drawer-open');
+   assert(sidebar.querySelector('[data-objective-tasks-drop]').getBoundingClientRect().width>=sidebar.querySelector('.objective-sidebar-task').getBoundingClientRect().width,'Tasks header retains its full-row drop area');
+   assert(JSON.stringify(folded)===JSON.stringify(geometry()),'task and subtask icon geometry stays fixed with pinned assets, worktrees, width '+width+' and scroll '+scroll+': '+JSON.stringify({folded,expanded:geometry()}));
+   document.body.classList.remove('sidebar-drawer-open');
+   assert(JSON.stringify(folded)===JSON.stringify(geometry()),'folding restores identical task icon geometry');
+  }
+ }
+ if(sidebar.querySelector('[data-fold-worktrees]').getAttribute('aria-expanded')==='true')sidebar.querySelector('[data-fold-worktrees]').click();
+ task.children=[];owner.shared_assets=[];await LabObjectives.load(undefined,true);taskRail.style.height='';taskRail.style.bottom='';taskRail.scrollTop=0;
  document.body.classList.add('sidebar-drawer-open');
  const open=()=>sidebar.querySelector('.objective-sidebar-task-status').click();
  const picker=()=>document.querySelector('.objective-task-icon-picker');
@@ -59,14 +81,15 @@ child.automation={reason:'Stopped'};
  assert(requests.length===1&&requests[0].vault==='fixture'&&requests[0].action.icon.service==='github'&&requests[0].action.terminal_color==='#ff7b72','one scoped customization save');
  assert(task.assets.length===1&&!owner.resources.some(r=>r.url?.includes('github')),'icon selection never attaches or creates an asset');
  await LabObjectives.load(undefined,true);
- assert(sidebar.querySelector('button:last-child [data-link-service=github]'),'saved sidebar icon');
+ assert(sidebar.querySelector('.objective-sidebar-task-status [data-link-service=github]'),'saved sidebar icon');
  document.body.classList.remove('sidebar-drawer-open');
  const navIcon=sidebar.querySelector('.objective-sidebar-task-compact-icon'),navRow=navIcon.closest('.objective-sidebar-task'),navBox=navIcon.getBoundingClientRect(),rowBox=navRow.getBoundingClientRect();
- assert(navIcon.querySelector('[data-link-service=github]')?.getClientRects().length>0&&getComputedStyle(navIcon).color==='rgb(255, 123, 114)'&&Math.abs(navBox.x+navBox.width/2-rowBox.x-rowBox.width/2)<1,'collapsed left navigation shows the chosen colored GitHub icon centered');
+ assert(navIcon.querySelector('[data-link-service=github]')?.getClientRects().length>0&&getComputedStyle(navIcon).color==='rgb(255, 123, 114)'&&Math.abs(navBox.x+navBox.width/2-31)<1,'collapsed left navigation shows the chosen colored GitHub icon centered');
  assert(document.elementFromPoint(navBox.x+navBox.width/2,navBox.y+navBox.height/2)?.closest('[data-open-task]')===navRow.querySelector('[data-open-task]'),'visible compact task icon retains native task navigation');
  assert(getComputedStyle(navRow.querySelector('.objective-task-worktree-name i')).display==='none','worktree title bullet does not replace or crowd the compact task icon');
  document.body.classList.add('sidebar-drawer-open');
- assert(!navIcon.getClientRects().length&&navRow.querySelector('.objective-sidebar-task-status').getClientRects().length>0&&navRow.querySelector('button:last-child').getClientRects().length>0,'expansion restores task status, title and custom icon controls');
+ assert(navIcon.getClientRects().length>0&&navRow.querySelector('button:last-child').textContent==='🚧','expansion retains the same custom icon and reveals its task status');
+ assert(JSON.stringify(navBox.toJSON())===JSON.stringify(navIcon.getBoundingClientRect().toJSON()),'custom icon does not move or resize when the task rail expands');
  const panel=document.getElementById('termPanel'),switcher=document.getElementById('termSessionSwitcher'),list=document.getElementById('termSessionList');
  const merged={...child,display_main:{parent:'primary',identity:primary,color:'#58a6ff'}};
  list.innerHTML=[_termSessionPillHtml(primary,0),_termSessionPillHtml(child,1),_termSessionPillHtml(merged,2),_termTaskPlaceholderHtml({objective_placeholder:true,objective_id:'one',task_id:'task',label:'Review'})].join('');

@@ -97,7 +97,7 @@ body.sidebar-drawer-enabled:not(.sidebar-drawer-open) [data-project-sidebar][dat
 .objective-sidebar-task-list { display:grid; grid-auto-rows:32px; align-content:start; min-height:calc(var(--objective-task-rows) * 32px); padding:0 12px; }
 .objective-sidebar-task { display:flex; gap:5px; align-items:center; min-width:0; border:1px solid transparent; border-radius:4px; font-size:12px; }
 .objective-sidebar-task.child { margin-left:calc(17px * var(--objective-task-depth,1)); }
-.objective-sidebar-task-compact-icon { display:none; }
+.objective-sidebar-task-compact-icon { display:flex; align-items:center; justify-content:center; width:20px; height:20px; flex-shrink:0; font-size:18px; line-height:1; }
 .objective-sidebar-task.active { border-color:var(--accent); background:color-mix(in srgb,var(--accent) 12%,var(--bg-secondary)); }
 .objective-sidebar-task > button { display:flex; align-items:center; justify-content:center; flex-shrink:0; width:22px; border:0; background:none; padding:3px; cursor:pointer; color:var(--accent); }
 .objective-sidebar-task > button:empty { opacity:0; }
@@ -107,6 +107,22 @@ body.sidebar-drawer-enabled:not(.sidebar-drawer-open) [data-project-sidebar][dat
 .objective-sidebar-task-title.done { color:var(--text-dim); }
 .objective-sidebar-task-status { flex-shrink:0; font-size:14px; width:18px; text-align:center; }
 .objective-sidebar-task > .objective-sidebar-task-status { padding:0; color:var(--text-primary); }
+/* Keep the Objective's full layout mounted behind the compact rail. Hiding
+   labels must not change the height of headers or assets above its tasks. */
+body.sidebar-drawer-enabled .sidebar [data-objectives-sidebar] { width:calc(var(--sidebar-drawer-width) - 1px); }
+body.sidebar-drawer-enabled .sidebar [data-objectives-sidebar] .objective-sidebar-task-list { padding-left:6px; padding-right:6px; }
+body.sidebar-drawer-enabled .sidebar [data-objectives-sidebar] .objective-tasks-drop { margin-left:6px; margin-right:6px; }
+body.sidebar-drawer-enabled .sidebar [data-objectives-sidebar] .objective-sidebar-task { position:relative; }
+body.sidebar-drawer-enabled .sidebar [data-objectives-sidebar] .objective-sidebar-task.child { margin-left:0; }
+body.sidebar-drawer-enabled .sidebar [data-objectives-sidebar] .objective-sidebar-task.child .objective-sidebar-task-title { padding-left:calc(17px * var(--objective-task-depth,1)); }
+body.sidebar-drawer-enabled .sidebar [data-objectives-sidebar] .objective-sidebar-task > .objective-sidebar-task-status { width:48px; height:30px; }
+body.sidebar-drawer-enabled .sidebar [data-objectives-sidebar] .objective-sidebar-task .objective-task-recurring { position:absolute; left:36px; top:18px; font-size:9px; line-height:1; pointer-events:none; }
+body.sidebar-drawer-enabled:not(.sidebar-drawer-open) .sidebar [data-objectives-sidebar] :is(.sidebar-title, .sidebar-title *, .objective-sidebar-heading > [data-select-objective] > span:last-child, [data-objective-settings], .objective-asset-tools, .objective-progress, .objective-bucket-empty, .objective-tree-toggle, .objective-pin, .objective-sublinks-marker, .objective-resource > span:last-child, .objective-subtab > span:last-child, .sidebar-file-scope-button > span, .sidebar-scope-tag, .objective-sidebar-task-count, .objective-sidebar-task > button:last-child, [data-asset-group-toggle] > span:nth-child(2), .objective-asset-group-caret, .objective-asset-group-header small) { visibility:hidden; }
+body.sidebar-drawer-enabled:not(.sidebar-drawer-open) .sidebar [data-objectives-sidebar] .sidebar-title { position:relative; }
+body.sidebar-drawer-enabled:not(.sidebar-drawer-open) .sidebar [data-objectives-sidebar] .sidebar-title::after { content:''; visibility:visible; position:absolute; top:50%; left:0; width:38px; border-top:1px solid var(--border); }
+body.sidebar-drawer-enabled:not(.sidebar-drawer-open) .sidebar [data-objectives-sidebar] .objective-sidebar-task > .objective-sidebar-task-status { pointer-events:none; }
+body.sidebar-drawer-enabled:not(.sidebar-drawer-open) .sidebar [data-objectives-sidebar] .objective-sidebar-task-title { position:absolute; inset:0; padding:0; font-size:0; }
+body.sidebar-drawer-enabled:not(.sidebar-drawer-open) .sidebar [data-objectives-sidebar] .objective-sidebar-task-title .objective-task-worktree-name i { display:none; }
 .objective-task-recurring { flex-shrink:0; font-size:12px; }
 .objective-task-status-icon { display:inline-grid; place-items:center; width:18px; min-height:18px; flex-shrink:0; border-radius:3px; }
 .objective-task-status-icon[data-task-status=todo] { background:color-mix(in srgb,var(--red,#ff7b72) 18%,transparent); box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--red,#ff7b72) 65%,transparent); }

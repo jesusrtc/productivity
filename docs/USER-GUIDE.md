@@ -230,7 +230,12 @@ its work.
 The Objective Tasks sidebar shows unfinished task and subtask navigation.
 When the left sidebar is collapsed, each task still shows its selected custom
 icon or its task status emoji. Click that compact icon to open the task; hover
-expansion restores the title, status badge and icon picker controls.
+expansion reveals the title and controls beside the same icon. Task and subtask
+icons keep their position and size in both states, including recurring markers.
+The headings and pinned assets above Tasks retain their height, so hovering
+does not shift the task list. Subtask indentation applies to titles; their
+icons stay in the fixed icon column. Custom icons remain on the left, with the
+task status shown on the right when expanded.
 WIP tasks use **🚧** and recurring tasks carry **🔄**. Click the task's status
 badge or its icon area to open **Task icon and terminal color**. The picker
 starts with distinct asset icons and built-in service icons, including GitHub
