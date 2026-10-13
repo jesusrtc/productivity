@@ -1,5 +1,7 @@
 # Memory index
 
+- [Compact sidebar preserves section spacing](compact-sidebar-preserves-section-spacing.md) — preserve full gaps for hidden files/recent lists and fixed META positions throughout the first column.
+
 - [Task rail icons stay in place](task-rail-icons-stay-in-place.md) — fixed task/subtask icon geometry and recurring markers, preserving the height of preceding Objective sections.
 
 - [URL assets copy and open in Chrome](url-assets-copy-and-open-chrome.md) — exact saved parent/sublink URLs, clipboard feedback, explicit Chrome and CLI menu access.

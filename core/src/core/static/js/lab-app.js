@@ -7165,7 +7165,7 @@
   function _agentContextMetaHtml(baseRoot, fileRoot, baseLabel = 'Workspace instructions', instructionGroups = null) {
     const groups = instructionGroups || [{root: baseRoot, label: baseLabel}];
     if (!instructionGroups && fileRoot !== baseRoot) groups.push({root: fileRoot, label: 'Selected folder instructions'});
-    return `<div class="sidebar-title" title="Instruction files on disk. Browsing another folder leaves a running agent's startup context unchanged.">Meta</div>
+    return `<div class="sidebar-title sidebar-meta-title" title="Instruction files on disk. Browsing another folder leaves a running agent's startup context unchanged.">Meta</div>
       ${_agentContextRowHtml(_agentContextSource(baseRoot, fileRoot))}`
       + '<div data-lab-documentation><div class="sidebar-agent-instructions-note">Loading Lab documentation…</div></div>'
       + groups.map(group => `<div class="sidebar-agent-instructions">
@@ -13249,7 +13249,7 @@
       try { pct = parseFloat(localStorage.getItem('labSidebarPct')); } catch {}
     }
     if (Number.isFinite(pct) && pct > 0) {
-      document.documentElement.style.setProperty('--sidebar-width', pct + '%');
+      document.documentElement.style.setProperty('--sidebar-width', pct + 'vw');
     } else {
       // No width saved for this view (nor a legacy global): clear any
       // inline value left over from the previous view so this one falls
@@ -13261,11 +13261,10 @@
   }
 
   // Percentage-based resize of the two vertical dividers between the
-  // three columns [sidebar | main (doc + comments) | terminal]. Both
-  // --sidebar-width and --term-width are stored as CSS percentages so
-  // the layout fills 100% of the viewport by default and each column
-  // scales proportionally on window resize. Pixel mins enforced during
-  // drag protect readability.
+  // three columns [sidebar | main (doc + comments) | terminal]. Sidebar
+  // width uses viewport units so its inner drawer stays the same width
+  // when clipped to the rail. Terminal width remains a percentage. Both
+  // scale with the viewport; pixel minimums protect readability during drag.
   (function initColumnResize() {
     const SIDEBAR_KEY = 'labSidebarPct';
     const MIN_SIDEBAR_PX = 150;
@@ -13274,11 +13273,11 @@
     const root = document.documentElement;
     const vw = () => window.innerWidth || 1;
     const pxToPct = (px) => (px / vw()) * 100;
-    const setSidebarPct = (pct) => root.style.setProperty('--sidebar-width', pct + '%');
+    const setSidebarPct = (pct) => root.style.setProperty('--sidebar-width', pct + 'vw');
     const setTermPct = (pct) => root.style.setProperty('--term-width', pct + '%');
     const readPct = (varName, fallback) => {
       const raw = getComputedStyle(root).getPropertyValue(varName).trim();
-      if (raw.endsWith('%')) return parseFloat(raw);
+      if (raw.endsWith('%') || raw.endsWith('vw')) return parseFloat(raw);
       if (raw.endsWith('px')) return pxToPct(parseFloat(raw));
       return fallback;
     };

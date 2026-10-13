@@ -64,9 +64,9 @@ console.log(JSON.stringify({snapshots,alphaSaved:stored[alphaKey],betaSaved:stor
     snapshots = result['snapshots']
     expected = {
         'initial': 36, 'alpha': 45, 'betaInitial': 36, 'alphaRestored': 45,
-        'alphaFiles': '17%', 'sameNameOtherVault': 36, 'proxy': 45,
+        'alphaFiles': '17vw', 'sameNameOtherVault': 36, 'proxy': 45,
         'self': 32, 'assistant': 32, 'vault': 32, 'cerebro': 32,
-        'betaRestored': 30, 'betaFiles': '22%', 'afterInterruptedDrag': 30,
+        'betaRestored': 30, 'betaFiles': '22vw', 'afterInterruptedDrag': 30,
         'dragClassCleared': True, 'deniedWrite': 34, 'noLegacy': 40,
         'inlineCleared': True, 'invalidStored': 40, 'reload': 45,
     }

@@ -346,10 +346,13 @@ custom icon or its default task status emoji. The compact icon opens the task;
 expanding reveals titles and customization controls beside the same icon.
 Task and subtask icons retain identical positions and sizes in both states;
 recurring markers also stay in place. Headings, worktrees and pinned assets
-above Tasks retain their height while folded. Subtask titles are indented,
-with icons aligned in a fixed column. When a custom icon is chosen, the sidebar
-shows it on the left and reveals the status badge on the right. Both controls
-open the icon picker. Worktree title bullets stay hidden while folded.
+above Tasks retain their height while folded. This also applies to the rest
+of the first column: Files and Recently updated keep their full blank space
+behind a single section icon, and META shortcuts keep their vertical positions.
+Subtask titles are indented, with icons aligned in a fixed column. When a custom
+icon is chosen, the sidebar shows it on the left and reveals the status badge
+on the right. Both controls open the icon picker. Worktree title bullets stay
+hidden while folded.
 **Terminal text color…** opens the existing worktree palette. Preview the choices
 and click **Save**, or cancel to retain the saved settings. **Default icon** and
 **Default color** restore the defaults. Secondary-click retains the status menu.

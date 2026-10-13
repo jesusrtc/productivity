@@ -35,6 +35,13 @@ shortcuts expose their absolute paths in their tooltips; the context reader
 lists absolute paths in its text. Switching Objectives updates the Objective
 instruction shortcuts while retaining the owning vault and workspace.
 
+The compact first column preserves the expanded layout's vertical spacing.
+**Files** and **Recently updated** each show one section icon; their hidden
+rows leave the same blank space, even for long trees. **META** and its document
+icons stay at the same height. Filters, other headings and the Links toolbar
+hide without closing those gaps. Hovering reveals their contents without
+moving the icons or changing the sidebar's scroll position.
+
 Click **Lab agent context** to inspect the context for the selected scope. Drag
 it, or the reader's **Drag context to terminal** button, onto a terminal to paste
 the full context without submitting it. The context keeps the scope captured

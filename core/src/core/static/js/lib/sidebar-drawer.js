@@ -18,9 +18,9 @@
   const pinned = () => body.classList.contains('sidebar-drawer-pinned');
   function setOpen(open) {
     if (isOpen() !== open) {
-      adapter?.beforeWidthChange();
+      // Only the outer clip changes; keep the full-width tree and its
+      // prepared layout intact so folding also preserves scroll position.
       body.classList.toggle('sidebar-drawer-open', open);
-      requestAnimationFrame(() => adapter?.afterWidthChange());
     }
     toggle.setAttribute('aria-expanded', String(open));
     toggle.title = open ? 'Show compact sidebar' : 'Show full sidebar';

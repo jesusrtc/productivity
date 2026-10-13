@@ -5,6 +5,16 @@ guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 
 ## 2026-10-13
 
+### The entire compact sidebar preserves section spacing
+
+- Home, Vault and workspace sidebars now keep the full height of hidden Files,
+  Recently updated, filters and headings. Long lists leave deliberate blank
+  gaps, keeping META and its document icons aligned when hovering.
+- Section shortcuts occupy their original header positions. META stays
+  readable; other labels and the Links toolbar hide without changing layout.
+- The inner content keeps its expanded width and prepared tree layout, so
+  responsive wrapping and scroll offsets stay stable when folding.
+
 ### Task icons stay in place when the first column expands
 
 - Hovering over the first column reveals task titles and controls without
