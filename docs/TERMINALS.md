@@ -43,6 +43,19 @@ The launch folder stays fixed, and restoring an existing terminal keeps its
 original folder without asking again. Workspaces without Objectives retain
 the workspace-root and pinned-folder chooser.
 
+## Objective sections
+
+Only the active Objective's terminal section unfolds. Other Objective headers
+remain available as navigation: click one to select it, show its terminals and
+fold the previous section. This also applies while **Show all terminals** is
+enabled; that setting reveals task statuses without expanding other Objectives.
+Folding preserves running sessions and their saved child-terminal layouts.
+
+The Objective main is labeled **Main**. Generated terminal labels and folder
+badges omit repeated Objective names because the section header supplies that
+context. Custom terminal names and distinct worktree names stay visible, and
+folder tooltips keep their full paths.
+
 ## Terminal automations
 
 Configure saved command groups in **Settings → workspace → Terminal automations**.

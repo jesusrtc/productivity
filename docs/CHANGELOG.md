@@ -5,6 +5,15 @@ guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 
 ## 2026-10-13
 
+### Terminal headers switch one Objective at a time
+
+- Only the active Objective's terminals unfold, including in **Show all
+  terminals** mode. Other Objective headers remain clickable: selecting one
+  switches the Objective and folds the previous section.
+- Objective main rows now read **Main**. Generated terminal labels and folder
+  badges omit repeated Objective names, while custom names, distinct worktree
+  labels and full folder tooltips are preserved.
+
 ### New terminals have direct context associations
 
 - **+ New → Current task / Objective / workflow** creates an independent

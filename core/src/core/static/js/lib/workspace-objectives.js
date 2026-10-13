@@ -1170,7 +1170,7 @@
       const primary=candidates.find(([,other])=>other.main==='objective')||candidates[0];
       if(primary?.[0]!==terminalIdentity(t))return null;
     }
-    return {kind:'objective',objective_id:o.id,label:'Main · '+o.name,icon:'🎯'};
+    return {kind:'objective',objective_id:o.id,label:'Main',icon:'🎯'};
   }
   function terminalTask(t) {
     const seen=new Set();let source=t;
@@ -1230,7 +1230,7 @@
         if(task&&!taskTerminalsEnabled())return;
         const logical='objective-terminal:'+id+':'+(task?.id||'global');
         result.push({name:logical,logical_name:logical,objective_placeholder:true,objective_id:id,task_id:task?.id||null,...(task?{}:{main:'objective'}),
-          label:task?taskDisplayName(task,o):'Main · '+o.name,cwd:o.path||context().path+'/objectives/'+id});
+          label:task?taskDisplayName(task,o):'Main',cwd:o.path||context().path+'/objectives/'+id});
       };
       add();tasks(o).forEach(task=>add(task));owned.filter(t=>!seen.has(t)).forEach(t=>{result.push(t);seen.add(t);});
     }
@@ -1338,9 +1338,9 @@
         const contents=items.map(row=>pill(row.t,position++)).join('');
         return contents?`<div class="objective-terminal-worktree" role="group" aria-label="${esc(worktree?.label||(path===context().path?'Objective folder':path.split('/').filter(Boolean).slice(-2).join('/')))}">${contents}</div>`:'';
       }).join('');
-      const expanded=showAll||id===current;
+      const expanded=id===current;
       const all=showAll||state().terminalAll?.[id]===true;
-      const filterLabel=showAll?'All terminals are shown. Use the terminal menu to restore In progress task terminals.':all?'Show In progress task terminals in this Objective':'Show all terminals in this Objective';
+      const filterLabel=showAll?'All task statuses are shown in the active Objective. Use the terminal menu to restore In progress task terminals.':all?'Show In progress task terminals in this Objective':'Show all terminals in this Objective';
       const filter=id===current?`<button type="button" class="objective-terminal-filter" data-objective-terminals-all="${esc(id)}" aria-pressed="${all}" aria-label="${filterLabel}" title="${filterLabel}"${showAll?' disabled':''}><span aria-hidden="true">☰</span><span class="objective-terminal-filter-label">${showAll?'All shown':all?'Show WIP':'Show all'}</span></button>`:'';
       return `<section class="objective-terminal-group" data-objective-active="${id===current}" style="--objective-color:${esc(o.color)}"><div class="objective-terminal-header"><button type="button" class="objective-terminal-heading" data-select-objective="${esc(id)}" aria-expanded="${expanded}" title="${esc(o.name)}"><span aria-hidden="true">${expanded?'▾':'▸'}</span> ${esc(o.name)}</button>${filter}</div>${mainHtml}<div class="objective-terminal-rows"${expanded?'':' hidden'}>${terminals}</div></section>`;
     }).join('')+newButton;
@@ -1688,7 +1688,7 @@
   },true);
   window.LabObjectives={connect(adapter){bridge=adapter;startRefreshing();},load,active,sidebarHtml,paint,worktrees,tree,associate,terminalHtml,taskForTerminal,openForTerminal,collapse,progress,complete,change,selectObjective,openTask,renderTasks,tabsHtml,showAll,terminalLaunchContext,associateNewTerminal,
     instructionRoot(path){return active(path)?scopeRows().find(row=>row.id==='objective-root')?.path:null;},
-    terminalSessions,terminalParents,terminalExpanded,terminalMain,openMainTerminal,openTaskTerminal,terminalTaskNameHtml,terminalWorktreeColor,terminalColor,sidebarMode,recentScopes,moveForTerminalDrop,
+    terminalSessions,terminalParents,terminalExpanded,terminalMain,terminalObjective,openMainTerminal,openTaskTerminal,terminalTaskNameHtml,terminalWorktreeColor,terminalColor,sidebarMode,recentScopes,moveForTerminalDrop,
     terminalAsset,chooseTerminalAsset,unlinkTerminalAsset,linkTerminal,canMakeTerminalPrimary,makeTerminalPrimary,taskPrimaryForTerminal,
     activateFileTerminal(root,path){return active(context()?.path)&&activateAssetTerminal({file:{root,path}});},
     terminalsForFile(root,path){return active(context()?.path)?assetTerminals({file:{root,path}}):[];},

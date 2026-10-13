@@ -213,6 +213,14 @@ sessions keep running. Use **Show all** on an Objective or **Show all terminals*
 in the terminal menu to inspect them explicitly; **Show WIP** restores the
 In progress filter. Workflow and current Objective main terminals remain available.
 
+Objective headers in the terminal rail also switch Objectives. Clicking a header
+selects that Objective, unfolds its terminals and folds every other Objective's
+terminals. Other headers remain available, including when **Show all terminals**
+is enabled; that option changes the status filter, not which Objective is open.
+The Objective main row is labeled **Main**. Generated terminal names and folder
+badges omit a repeated Objective name already shown in the section header;
+custom terminal names and distinct worktree names remain visible.
+
 ## Change metadata through Lab
 
 Discover the relevant CLI with `lab --help` and each command's `--help`. Use

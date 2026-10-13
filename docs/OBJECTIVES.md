@@ -446,7 +446,10 @@ choices with simulated terminals. See [TERMINALS.md](TERMINALS.md#new-terminal-l
 
 The terminal selector always shows one fixed **🏠 workspace (workflow) main** at the top.
 The fixed **🎯 Objective main** appears immediately after the active Objective's
-divider; inactive Objective mains stay hidden, including in Show all mode.
+divider and is labeled **Main**; inactive Objective mains stay hidden, including
+in Show all mode. Generated terminal labels and folder badges omit the Objective
+name already supplied by the section header. Saved custom names and distinct
+worktree names remain visible.
 These identifiers appear in compact and expanded lists, including dormant launch
 rows. Other terminals keep the compact 💻 fallback or their task's custom icon.
 Clicking a main row creates its session if needed and reuses it thereafter.
@@ -469,10 +472,12 @@ of that Objective's terminals and task recommendations, without expanding other
 Objectives or changing the selected task. Toggle **Show WIP** to restore only In
 progress task terminals. This choice is saved separately per Objective
 in the browser. The compact rail uses a **☰** button with the same action.
-**Show all terminals** in the **+ New** terminal menu reveals every session and Objective,
-including parked Objectives with saved sessions. Toggle it again to return to
-one expanded Objective and its saved task filter. The same choice is available
-in Terminal settings.
+**Show all terminals** in the **+ New** terminal menu reveals all statuses in the
+active Objective and adds headers for parked Objectives with saved sessions.
+Only the active Objective's terminals unfold in every filter mode. Clicking
+another terminal Objective header selects that Objective, opens its terminals
+and folds the previous group. Toggle Show all again to restore the saved task
+filter. The same choice is available in Terminal settings.
 
 Task terminals show a left icon beside their title. A task with exactly one
 assigned worktree uses that worktree's colored marker and name, including on

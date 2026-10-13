@@ -14381,8 +14381,11 @@
     if (scope) {
       const project = String(scope.label || '').split(' · ')[0].trim();
       const folder = String(scope.project_root || scope.root || '').replace(/\/+$/, '').split('/').pop();
-      if (project && project !== 'Root') return project;
-      if (folder) return folder;
+      // The Objective heading already identifies this generated scope label.
+      if (project !== window.LabObjectives?.terminalObjective?.(s)?.name) {
+        if (project && project !== 'Root') return project;
+        if (folder) return folder;
+      }
     }
     const requestCount = Array.isArray(s.agent_session_requests)
       ? s.agent_session_requests.filter(Boolean).length
@@ -14889,11 +14892,12 @@
     const alias = direct ? (config.folderScopes.find(row => row.path === direct.projectPath)?.label
       || direct.projectPath?.split('/').pop() || savedAlias) : folder?.label || (savedAlias && savedAlias !== 'Root' ? savedAlias : 'main');
     const worktree = direct?.branch || String(scope?.worktree || '').replace(/\/+$/, '').split('/').pop();
-    const label = worktree ? (alias === 'main' ? worktree : `${alias}/${worktree}`) : alias;
+    const repeatedObjective = alias === window.LabObjectives?.terminalObjective?.(session)?.name;
+    const label = worktree ? (alias === 'main' || repeatedObjective ? worktree : `${alias}/${worktree}`) : repeatedObjective ? 'main' : alias;
     const checkout = worktree ? 'worktree' : 'main';
     const color = scope ? _termScopeColor(scope) : '#8b949e';
     const title = `${alias} · ${worktree ? `Git worktree ${worktree}` : 'Main folder'}${scope?.root ? `: ${scope.root}` : ''}`;
-    return `<span class="term-home-association term-folder-association" data-checkout="${checkout}" style="--term-association-color:${color}" title="${termSessEsc(title)}"><span>${termSessEsc(label)}</span>${!worktree && alias !== 'main' ? `<small>${checkout}</small>` : ''}</span>`;
+    return `<span class="term-home-association term-folder-association" data-checkout="${checkout}" style="--term-association-color:${color}" title="${termSessEsc(title)}"><span>${termSessEsc(label)}</span>${!worktree && label !== 'main' ? `<small>${checkout}</small>` : ''}</span>`;
   }
 
   function _termTaskStatusLabel(status) {

@@ -836,6 +836,26 @@ process.stdout.write(JSON.stringify({
     }
 
 
+def test_objective_heading_replaces_repeated_names_in_terminal_labels():
+    helpers = (_js_between('  function _termSessionDisplay(s)', '  function _termSessionRequests(')
+               + _js_between('  function _termSessionAssociationHtml(', '  function _termTaskStatusLabel('))
+    result = _run_node(r'''
+window.LabObjectives={terminalObjective:()=>({name:'Self reports'})};
+const _termActiveWorkspaceId=()=> 'demo',_sidebarFileConfigScope='demo',_sidebarFileConfig={folderScopes:[]};
+const _loadSidebarFileConfig=()=>_sidebarFileConfig,_termScopeColor=()=> '#123abc',termSessEsc=String;
+''' + helpers + r'''
+const session={logical_name:'copilot-2',linked_scope:{label:'Self reports',root:'/project/objectives/reports'}};
+const main=_termSessionAssociationHtml(session);
+const branch=_termSessionAssociationHtml({...session,linked_scope:{...session.linked_scope,worktree:'/trees/feature'}});
+const project=_termSessionAssociationHtml({...session,linked_scope:{label:'Backend',root:'/repo/backend'}});
+const visible=html=>html.replace(/<[^>]*>/g,'');
+console.log(JSON.stringify({name:_termSessionDisplay(session),manual:_termSessionDisplay({...session,label:'Investigate'}),
+ main:visible(main),branch:visible(branch),project:visible(project),keepsPath:main.includes('/project/objectives/reports')}));
+''')
+    assert result == {'name':'copilot-2', 'manual':'Investigate', 'main':'main',
+                      'branch':'feature', 'project':'Backendmain', 'keepsPath':True}
+
+
 def test_terminal_hover_shows_only_latest_request_even_with_an_objective() -> None:
     title_helpers = _js_between(
         "function _termSessionDisplay(s)",

@@ -412,7 +412,13 @@ const fs=require('node:fs');
  assert(await evaluate(`termWipOnly&&!document.querySelector('.sess[data-name=a],.sess[data-name="new-Not started"]')&&document.querySelector('.sess[data-name="new-Needs terminal"]')&&document.querySelector('[data-objective-terminals-all=one]').getAttribute('aria-pressed')==='false'&&created.length===4`),'Objective toggle restores only In progress task terminals');
 
  await click('#termShowAllBtn');
- assert(await evaluate(`!termWipOnly&&localStorage.getItem(_TERM_WIP_ONLY_KEY)==='false'&&document.querySelectorAll('.objective-terminal-rows:not([hidden])').length===3&&document.querySelector('.sess[data-name=a]').getClientRects().length>0&&document.querySelector('.sess[data-name=other]').getClientRects().length>0&&document.getElementById('termShowAllBtn').getAttribute('aria-pressed')==='true'&&document.querySelectorAll('[data-terminal-main]').length===2&&document.querySelector('[data-objective-terminals-all=one]').disabled`),'global Show all reveals every Objective and completed task terminal while inactive Objective mains remain hidden');
+ assert(await evaluate(`!termWipOnly&&localStorage.getItem(_TERM_WIP_ONLY_KEY)==='false'&&document.querySelectorAll('.objective-terminal-rows:not([hidden])').length===1&&document.querySelector('.sess[data-name=a]').getClientRects().length>0&&!document.querySelector('.sess[data-name=other]').getClientRects().length&&document.getElementById('termShowAllBtn').getAttribute('aria-pressed')==='true'&&document.querySelectorAll('[data-terminal-main]').length===2&&document.querySelector('[data-objective-terminals-all=one]').disabled`),'global Show all reveals every status only in the active Objective');
+ await click('.objective-terminal-heading[data-select-objective=two]');
+ assert(await evaluate(`LabObjectives.terminalLaunchContext().id==='two'&&document.querySelectorAll('.objective-terminal-heading').length===3&&document.querySelectorAll('.objective-terminal-rows:not([hidden])').length===1&&document.querySelector('.sess[data-name=other]').getClientRects().length>0&&!document.querySelector('.sess[data-name=a]').getClientRects().length&&!document.querySelector('.objective-terminal-heading[data-select-objective=one]').matches('[aria-expanded=true]')&&document.querySelector('[data-terminal-main=objective] .sess-label').textContent==='Main'`),'terminal header switches Objective and folds the previous terminals even in global Show all');
+ await evaluate('LabObjectives.load(undefined,true);termRenderSessionList()');
+ assert(await evaluate(`document.querySelectorAll('.objective-terminal-rows:not([hidden])').length===1&&!document.querySelector('.sess[data-name=a]').getClientRects().length`),'background refresh preserves one expanded Objective');
+ await click('.objective-terminal-heading[data-select-objective=one]');
+ assert(await evaluate(`LabObjectives.terminalLaunchContext().id==='one'&&document.querySelectorAll('.objective-terminal-rows:not([hidden])').length===1&&!document.querySelector('.sess[data-name=other]').getClientRects().length&&document.querySelector('[data-terminal-main=objective] .sess-label').textContent==='Main'`),'returning opens only the selected Objective with a concise main label');
  await click('#termShowAllBtn');
  assert(await evaluate(`termWipOnly&&document.querySelectorAll('.objective-terminal-rows:not([hidden])').length===1&&!document.querySelector('.sess[data-name=a]')&&document.querySelectorAll('[data-terminal-main]').length===2`),'toggle restores one expanded Objective and only the workspace and active Objective mains');
  await evaluate(`const main=document.querySelector('[data-terminal-main=workflow]');main.click();main.click()`);await sleep(100);
@@ -649,7 +655,9 @@ const parents=terminalParents(all,{main:'done',done:'main'});
     assert 'data-select-objective="two"' in result['html'] and 'data-name="objective-terminal:two:global"' not in result['html']
     assert result['html'].count('data-objective-terminals-all=') == 1
     assert 'Show all terminals in this Objective' in result['html']
-    assert ' hidden' not in result['allHtml'] and 'data-name="done"' in result['allHtml']
+    assert result['allHtml'].count('class="objective-terminal-rows">') == 1
+    assert result['allHtml'].count('class="objective-terminal-rows" hidden>') == 2
+    assert 'data-name="done"' in result['allHtml']
     assert 'data-name="two-main"' not in result['allHtml']
     assert 'data-select-objective="parked"' in result['allHtml'] and 'data-name="parked"' in result['allHtml']
     assert len(result['created']) == 1
