@@ -43,6 +43,12 @@ before switching tabs. While saving or starting/stopping a server, the tabs are
 disabled. Failed config reads leave editing and saving disabled until a reload
 succeeds.
 
+The embedded toolbar’s **Pop out** also opens on the clicking client, keeping
+its browser profile and Lab session for proxied apps. It does not invoke the
+server machine’s default browser. Restored tabs fetch the saved configuration
+when Files has not loaded yet; they do not substitute the upstream root for a
+configured entry path. Failed reads do not open an unconfigured URL.
+
 The Servers modal reads this file on opening or selecting a workspace. **Create servers.json**
 writes a valid empty template (`{"servers": []}`) for an agent to fill. Use
 **Reload file** if the agent edits it while the modal is already open.

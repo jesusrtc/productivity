@@ -3,6 +3,15 @@
 User-facing changes to Lab are recorded here alongside updates to the user
 guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 
+## 2026-10-12
+
+### Server Pop out and restored tabs
+
+- Pop out opens in the clicking browser, preserving its profile and session
+  instead of launching the server machine’s default browser.
+- Restored server tabs load their saved mode and entry path when the Files
+  sidebar cache is empty, avoiding incorrect upstream directory listings.
+
 ## 2026-10-09
 
 ### Task icons in the collapsed left sidebar

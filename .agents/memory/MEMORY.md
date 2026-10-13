@@ -1,5 +1,6 @@
 # Memory index
 
+- [Server pop-outs use the clicking client and saved URL](server-popouts-use-client-and-saved-url.md) — synchronous browser opening, cold sidebar config reads, scoped URL fallback.
 - [Collapsed task navigation keeps icons](collapsed-task-navigation-keeps-icons.md) — the left Objective task rail retains custom/default icons and native navigation when customization buttons fold.
 
 - [Terminal renewal only with visible titles](terminal-renewal-only-with-visible-titles.md) — hide ↻ while titles are folded and keep task icons visible in the compact rail.

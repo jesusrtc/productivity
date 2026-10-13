@@ -311,6 +311,10 @@ Configure workspace server tabs and proxies in `servers.json`, with `make`
 commands for their lifecycle. Do not add proxy declarations to `workspace.json`.
 Read `lab context servers` for the supported format.
 
+In an embedded server view, **Pop out** opens the configured app in the same
+browser you are using for Lab. Restored tabs load their saved server settings
+even before the Files sidebar is ready, preserving the configured entry path.
+
 In a framework source checkout, resolve the running Lab URL with
 `scripts/lab-url.sh`. Its configured port may differ between installations and
 from the default. The active vault records the running port at

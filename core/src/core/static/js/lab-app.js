@@ -9092,10 +9092,33 @@
       _sidebarApplyForView();
       return;
     }
-    const p = _proxyFromCachedSidebar(name);
+    const workspace = currentWorkspace;
+    let p = _proxyFromCachedSidebar(name);
     const proxyPath = '__proxy__/' + name;
     _workspaceDocPath = proxyPath;
     _workspaceDocEditing = false;
+    // Restored tabs can open before Files has populated its sidebar cache.
+    // Load the saved entry before choosing its mode/path, never guess '/'.
+    if (!p) {
+      const query = new URLSearchParams({workspace_id: workspace.name});
+      const vault = _workspaceVaultId(workspace);
+      if (vault) query.set('vault', vault);
+      const stillActive = () => currentWorkspace?.path === workspace.path
+        && _workspaceDocPath === proxyPath;
+      try {
+        const response = await fetch('/api/server-config?' + query);
+        if (!response.ok) throw new Error('Could not load server configuration');
+        const config = await response.json();
+        if (!stillActive()) return;
+        p = config.servers?.find(entry => entry.name === name);
+        if (!p) throw new Error('Server is not configured: ' + name);
+      } catch (error) {
+        if (!stillActive()) return;
+        const content = document.getElementById('content');
+        if (content) content.innerHTML = `<div class="no-repo"><p>${esc(error.message)}</p></div>`;
+        return;
+      }
+    }
     setLastWorkspaceDoc(currentWorkspace.path, proxyPath);
     // Server views default to a collapsed files sidebar so the embedded
     // app gets the full left + center width (per-view remembered state —
@@ -9124,7 +9147,7 @@
     const label = (p && p.label) || name;
     const safeName = name.replace(/'/g, "\\'");
     content.innerHTML = `
-      <div id="proxyWrap" data-proxy="${esc(name)}" data-workspace-path="${escAttr(currentWorkspace.path)}" style="display:flex;flex-direction:column;height:calc(100vh - 130px);min-height:480px">
+      <div id="proxyWrap" data-proxy="${esc(name)}" data-workspace-path="${escAttr(currentWorkspace.path)}" data-proxy-url="${escAttr(url)}" style="display:flex;flex-direction:column;height:calc(100vh - 130px);min-height:480px">
         <div class="proxy-toolbar" style="display:flex;align-items:center;gap:8px;padding:6px 12px;background:var(--bg-secondary);border-bottom:1px solid var(--border);flex-shrink:0">
           <span style="font-size:12px;color:var(--text-dim);font-family:ui-monospace,monospace">${esc(label)}</span>
           <span style="font-size:11px;color:var(--text-dim);font-family:ui-monospace,monospace">→ ${esc(host)}:${esc(String(port))}</span>
@@ -9150,13 +9173,16 @@
   }
 
   function openWorkspaceProxyTab(name) {
+    if (!currentWorkspace?.is_workspace) return;
     const p = _proxyFromCachedSidebar(name);
-    // Pop out via the same-origin /api/proxy mount so the new tab stays
-    // on the lab origin (shared cookies, reachable wherever the lab is
-    // reachable). Falls back to the direct upstream URL only if we
-    // can't build a proxy mount (no current workspace id).
-    const url = _proxyInitialUrl(p, name) || _proxyDirectUrl(p);
-    if (url) void LabExternalLinks.open(url);
+    const wrap = document.getElementById('proxyWrap');
+    const ownsView = wrap?.dataset.proxy === name
+      && wrap.dataset.workspacePath === currentWorkspace.path;
+    const url = (p && _proxyInitialUrl(p, name))
+      || (ownsView && wrap.dataset.proxyUrl);
+    // Open synchronously on the clicking client, preserving its browser
+    // profile/session instead of dispatching to the server's default browser.
+    if (url) void LabExternalLinks.open(url, {clientOnly: true});
   }
 
   function _workspaceProxyAppName(name) {
