@@ -132,6 +132,13 @@ provider-owned. See `lab context` for the context of the current terminal.
 Opening a terminal does not itself authorize an agent to modify content. Work
 within the user's request and follow the owning instructions.
 
+One task can have several terminals. Choose **+ New**, select **Terminal** or an
+agent such as **GitHub Copilot CLI**, then **Current task** to create and select
+a fresh session of that type. When the task already has a primary, the new terminal appears
+beneath it and inherits the same task; the existing primary keeps its role and
+continues running. Clicking the task later still opens its primary. Use
+**Make primary** on the new terminal if you want task clicks to open it instead.
+
 Choose **+ New → Launch automation…** to start a saved automation in the active
 task without creating a terminal first. The first terminal in the automation's
 definition becomes the task's primary and opens immediately; the remaining

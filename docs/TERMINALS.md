@@ -13,6 +13,12 @@ their fixed mains. Default main/task launches use the configured agent, with
 Lab context supplied at startup. **Terminal** explicitly creates a plain shell.
 
 - **Current workflow** opens at the active workspace root.
+- **Current task** creates a fresh session of the selected shell or agent type
+  in the task's launch folder. A task can have multiple terminals: its first
+  terminal becomes primary, and later explicit **+ New** launches appear beneath
+  the existing primary and inherit its task. The primary keeps running and
+  remains the terminal activated by task navigation, including when it came
+  from an automation. **Make primary** can promote a new terminal later.
 - **Current Objective** opens in the Objective's directory and saves a whole
   Objective association in that Objective's terminal tabs.
 - **Specific worktree** opens a second list containing only that Objective's

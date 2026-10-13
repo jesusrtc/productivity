@@ -5,6 +5,14 @@ guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 
 ## 2026-10-13
 
+### New terminals can share the current task
+
+- **+ New → Terminal / agent → Current task** creates a new session even when
+  the task already has a terminal, preserving the chosen agent and launch folder.
+- Additional terminals appear beneath the task's existing primary and inherit
+  its task. The primary, including one created by an automation, keeps its role
+  and running session. Task navigation continues to open the primary.
+
 ### vs main combines committed and uncommitted changes
 
 - **vs main** now shows the union of committed differences from local `main`

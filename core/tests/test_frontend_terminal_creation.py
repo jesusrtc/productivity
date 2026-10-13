@@ -36,6 +36,9 @@ const _termActiveWorkspaceId = () => active.workspace;
 const _termVaultId = () => active.vault;
 const _termHomeSection = () => active.home;
 const _termSessionsKey = (workspace, vault) => vault + '::' + workspace;
+const groups=new Map();
+const _termReadGroupState=key=>structuredClone(groups.get(key)||{order:[],tabParents:{},tabAfter:{},tabRoots:[],tabMembership:{}});
+const _termWriteGroupState=(state,key)=>groups.set(key,structuredClone(state));
 const _vaultQuery = vault => '&vault=' + encodeURIComponent(vault);
 const _termSelectedScope = () => ({root: '/project', project_root: '/project'});
 let chooseScope = async scope => scope;
@@ -402,6 +405,39 @@ assert.equal(selected,options.target==='selected'?'new':'old');
 assert.ok(termSessions.some(s=>s.name==='new'),'background-created terminal remains available');
 assert.deepEqual(alerts,[]);
 ''', target=target)
+
+
+@pytest.mark.parametrize('existing_kind,existing_agent,fresh', [
+    ('terminal', None, True), ('claude', 'codex', True),
+    ('claude', 'copilot', True), ('terminal', None, False), ('claude', 'codex', False),
+])
+def test_current_task_creates_requested_agent_without_replacing_existing_primary(existing_kind, existing_agent, fresh):
+    run(r'''
+old.kind=options.existing_kind;old.agent=options.existing_agent;
+const original=JSON.stringify(old),links=[];
+launchAssociation={context:{workspace_id:'demo',vault:'ssd',path:'/workspace'},objective_id:'one',task_id:'task',rename_to_task:true};
+window.LabObjectives={findTaskTerminal:()=>old,openTaskTerminal:()=>assert.fail('New must create a terminal'),
+ associateNewTerminal:async(s,a)=>links.push(a),terminalLaunchContext:()=>({id:'one',task:{id:'task'}})};
+const pending=termSpawnSession('claude',{startFresh:options.fresh,agent:'copilot'});await tick();
+assert.equal(posts.length,1);assert.equal(posts[0].kind,'claude');assert.equal(posts[0].agent,'copilot');assert.equal(posts[0].start_fresh,true);
+assert.equal(posts[0].objective_id,'one');assert.equal(posts[0].cwd,'/project');
+assert.equal(links[0].view,'tasks');assert.equal(links[0].task_id,undefined);assert.equal(links[0].rename_to_task,undefined);
+assert.equal(_termReadGroupState('ssd::demo').tabParents.new,'old');
+assert.deepEqual(attachments,[['new','demo']]);
+gets[0].resolve(response([old,created]));await pending;
+assert.equal(JSON.stringify(old),original);assert.deepEqual(alerts,[]);
+''', existing_kind=existing_kind, existing_agent=existing_agent, fresh=fresh)
+
+
+def test_nonfresh_task_open_reuses_matching_agent_without_new_post():
+    run(r'''
+old.kind='claude';old.agent='copilot';let opened=0;
+launchAssociation={objective_id:'one',task_id:'task'};
+window.LabObjectives={findTaskTerminal:()=>old,openTaskTerminal:async()=>opened++};
+const result=await termSpawnSession('claude',{agent:'copilot'});
+assert.equal(result,old);assert.equal(opened,1);assert.equal(posts.length,0);
+assert.deepEqual(alerts,[]);
+''')
 
 
 @pytest.mark.parametrize('role', ['workflow', 'objective'])

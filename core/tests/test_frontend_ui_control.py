@@ -44,6 +44,7 @@ def test_cli_operates_link_modal_drag_workspace_terminal_label_and_automation(cl
     terminal_visual=app_source[app_source.index('  function _termSessionVisual('):app_source.index('  function _termSessionIsWorking(')]
     terminal_pill=app_source[app_source.index('  function _termTaskStatusLabel('):app_source.index('  function _termTaskPlaceholderHtml(')]
     file_icon=app_source[app_source.index('  function fileIconHtml('):app_source.index('  function buildSidebarTree(')]
+    terminal_create=app_source[app_source.index('  function termCreateNew('):app_source.index('  async function termKillCurrent(')]
     automation_launch=app_source[app_source.index('  async function _termLaunchAutomation('):app_source.index('  async function _termPasteTaskContext(')]
     primary_action=app_source[app_source.index('  const _termPrimaryChanges ='):app_source.index('  function _termSubtabRenderer(')]
     tab_menu=app_source[app_source.index('  function termOpenTabMenu('):app_source.index('  function termOpenSelectedTabsMenu(')]
@@ -72,6 +73,10 @@ const _termSessionMeta=name=>termSessions.find(s=>s.name===name),_termSessionLog
 const _termSelectTab=()=>{},_termTabSelection=()=>[],_termDisplayMains=()=>new Map();
 const termCloseGroupMenu=()=>document.querySelector('#terminal-menu-items').replaceChildren();
 const _termShowGroupMenu=(anchor,html,callback)=>{const host=document.querySelector('#terminal-menu-items');host.innerHTML=html;host.querySelectorAll('[data-action]').forEach(button=>button.onclick=()=>callback(button.dataset.action));};
+const _sidebarFileConfigScope='fixture',_sidebarFileConfig={},_workspaceDisplayName=()=> 'Demo';
+const _termSelectedScope=()=>({root:FIX.folder}),_termClearDead=()=>{},termSetStatus=()=>{};
+const termAttach=name=>_termActivateTab(name),termRefreshSessions=async()=>{},termRefreshSessionsByWorkspaceId=async()=>{};
+const CEREBRO_WORKSPACE_ID='__cerebro__',SELF_WORKSPACE_ID='__self__',ASSISTANT_WORKSPACE_ID='__assistant__';
 const assetOpened=[];
 window.explorerToast=message=>{document.querySelector('#notice').textContent=message};
 window.LabExternalLinks={open:url=>{assetOpened.push(url);return Promise.resolve(true)}};
@@ -81,15 +86,16 @@ LabObjectives.connect({context:()=>({workspace_id:'demo',path:FIX.folder}),refre
  sessions:()=>termSessions,activateLinkedTerminal:ids=>{const terminal=termSessions.find(t=>ids.includes(t.session_id||t.name));if(terminal)return _termActivateTab(terminal.name);}});
 LabObjectives.load().then(()=>LabObjectives.selectObjective(FIX.oid));
 '''
-    page='<!doctype html><meta charset="utf-8"><style>'+(STATIC/'css/workspace-objectives.css').read_text()+'body{background:#0d1117;color:white;display:flex}#sidebar{width:350px}#content{flex:1}</style><aside id="sidebar"><section data-objectives-sidebar></section></aside><main id="content"></main><section><button id="tasks" onclick="LabObjectives.renderTasks()">Tasks</button><button id="native" onclick="const value=prompt(\'Name\');if(value!==null)document.querySelector(\'#native-value\').textContent=value">Native prompt</button><span id="native-value"></span><span id="terminal-label">Shell</span><span id="view-status"></span><p id="notice"></p></section>'
+    page='<!doctype html><meta charset="utf-8"><style>'+(STATIC/'css/workspace-objectives.css').read_text()+'body{background:#0d1117;color:white;display:flex}#sidebar{width:350px}#content{flex:1}</style><body class="workspace-active"><aside id="sidebar"><section data-objectives-sidebar></section></aside><main id="content"></main><section><button id="tasks" onclick="LabObjectives.renderTasks()">Tasks</button><button id="native" onclick="const value=prompt(\'Name\');if(value!==null)document.querySelector(\'#native-value\').textContent=value">Native prompt</button><span id="native-value"></span><span id="terminal-label">Shell</span><span id="view-status"></span><p id="notice"></p></section>'
     page+='<script>const FIX='+json.dumps({'folder':str(folder),'oid':oid,'nid':nid})+';</script>'
     page+='<script>window.LAB_LINK_SERVICES='+json.dumps(link_services.SERVICES)+';</script>'
-    page+=''.join('<script>'+(STATIC/'js/lib'/name).read_text()+'</script>' for name in ('scope-links.js','workspace-objectives.js','terminal-automations.js','ui-control.js'))
+    page+=''.join('<script>'+(STATIC/'js/lib'/name).read_text()+'</script>' for name in ('scope-links.js','workspace-objectives.js','terminal-folder.js','terminal-automations.js','ui-control.js'))
+    page+='<button id="new-task-terminal" onclick="termCreateNew(\'terminal\')">New terminal</button>'
     page+='<button id="terminal-menu" onclick="termOpenTabMenu(termCurrentSession,this)">Terminal menu</button><div id="terminal-menu-items"></div>'
     page+='<button id="asset-picker" onclick="LabObjectives.chooseTerminalAsset(termSessions.find(t=>t.name===termCurrentSession))">Link to asset…</button>'
     page+='<div id="termNewPicker">'+new_automation+'</div>'
     page+='<div id="termPanel"><div id="termSessionSwitcher" class="term-tabs-open"><div id="termSessionList" style="width:180px">Terminal rail</div><div id="termSessionsResizer" role="separator" tabindex="0" aria-label="Resize terminal tabs" style="width:5px;height:30px"></div></div></div>'
-    page+='<script>'+file_icon+setup+patch_links+navigation+resize+automation_launch+primary_action+tab_menu+terminal_visual+terminal_pill+'_termInitSessionResize();'+hooks+'</script>'
+    page+='<script>'+file_icon+setup+patch_links+navigation+resize+automation_launch+terminal_create+primary_action+tab_menu+terminal_visual+terminal_pill+'_termInitSessionResize();'+hooks+'</script>'
     app=client.app
     @app.get('/_cli-test',include_in_schema=False)
     def fixture_page(): return HTMLResponse(page)
@@ -212,6 +218,20 @@ const fs=require('node:fs'),{execFileSync}=require('node:child_process');
  assert(await evaluate(`(()=>{const primary=termSessions.find(s=>s.name===termCurrentSession),old=termSessions.find(s=>s.name===${JSON.stringify(launched[0].name)});return !LabObjectives.taskForTerminal(primary).inherited&&LabObjectives.taskForTerminal(old).inherited&&_termSessionVisual(primary).icon.includes('github')&&_termSessionVisual(old).icon.includes('ft-nb')})()`),'new primary and previous primary keep their separate icons and task context');
  ui('command','terminal-select','--json',JSON.stringify({name:'ui-shell'}));openTask();
  assert(await evaluate(`termCurrentSession===${JSON.stringify(launched[1].name)}`),'task clicks activate the newly chosen primary');
+ // Explicit New → Current task must POST a new session every time.
+ const previousNames=await evaluate('termSessions.map(t=>t.name)'),extras=[];
+ for(let index=0;index<2;index++){
+  ui('click','#new-task-terminal');ui('wait','.term-folder-modal');
+  ui('click','[data-folder-choice="0"]');
+  for(let i=0;i<100;i++){if(await evaluate(`termSessions.length===${previousNames.length+index+1}`))break;await new Promise(r=>setTimeout(r,30));}
+  const extra=await evaluate('termSessions.find(t=>t.name===termCurrentSession)');
+  assert(!previousNames.includes(extra.name)&&!extras.some(t=>t.name===extra.name),'each Current task launch creates a distinct terminal');extras.push(extra);
+  assert(extra.kind==='terminal','new session retains the requested type');
+  assert(await evaluate(`automationGroup.tabParents[${JSON.stringify(extra.logical_name)}]===${JSON.stringify(launched[1].logical_name)}&&LabObjectives.taskForTerminal(termSessions.find(t=>t.name===${JSON.stringify(extra.name)})).inherited`),'new terminal joins the same task under its original primary');
+ }
+ data=cli('api','call','GET','/api/objectives','--query','workspace_id=demo');
+ assert(data.terminal_links[launched[1].session_id].task_id===task&&extras.every(t=>data.terminal_links[t.session_id].view==='tasks'&&!data.terminal_links[t.session_id].task_id),'new terminals preserve the automation primary in the real API');
+ openTask();assert(await evaluate(`termCurrentSession===${JSON.stringify(launched[1].name)}`),'opening the task still selects its primary');
  data=cli('api','call','POST','/api/objectives','--json',JSON.stringify({workspace_id:'demo',action:{type:'create',name:'Created through API'}}));
  const added=data.objectives.find(o=>o.name==='Created through API');
  ui('command','objective-select','--json',JSON.stringify({objective:added.id}));

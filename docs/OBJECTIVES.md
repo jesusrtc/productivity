@@ -288,11 +288,13 @@ workspace across browsers. With it off, task clicks open details and activate
 an existing linked terminal if its task passes the terminal status filter,
 without creating a new one. With it on, Lab shows recommended task terminals
 and creates or reuses the primary when selecting an eligible task. Explicit
-**+ New → Current task** remains available in either mode.
-Changing the setting preserves existing sessions. A task owns one primary
-terminal. Extra subterminals can inherit the
-parent task's context without claiming another task assignment. An ordinary
-terminal can be reassigned to a different task, including across Objectives.
+**+ New → Current task** remains available in either mode and always creates a
+fresh terminal of the requested type, even if the task already has a terminal.
+Changing the setting preserves existing sessions. A task can have multiple
+terminals with one primary: additional launches nest beneath the existing
+primary and inherit its task without replacing that assignment. Clicking the
+task still activates its primary; **Make primary** changes which one that is.
+An ordinary terminal can be reassigned to a different task, including across Objectives.
 Refreshing or restoring task details does not spawn another terminal.
 
 Task titles are hyperlinks to their required details document/subtab. Clicking

@@ -1,5 +1,7 @@
 # Memory index
 
+- [New Current task creates extra terminals](new-current-task-creates-extra-terminals.md) — explicit New creates the requested agent without reusing or replacing the task primary; multiple consoles inherit that task.
+
 - [vs main includes both change sets](vs-main-includes-both-change-sets.md) — union committed differences from main with every staged/unstaged file, including local reversions; supersedes net comparison.
 
 - [Make primary replaces merging](terminal-make-primary.md) — promote the chosen terminal, preserve each asset and process, transfer the primary role and retain the old primary beneath it.

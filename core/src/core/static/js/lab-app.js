@@ -16588,12 +16588,21 @@
       && homeSection === _termHomeSection();
     const choice = launchChoice || await _termChooseNewScope(linkedScope || _termSelectedScope(), current);
     if (!current() || choice === null) return null;
+    let association = choice.association, taskParent = null;
     if(choice.association&&!choice.association.folder&&!choice.association.view) {
       const existing=window.LabObjectives?.findTaskTerminal?.(termSessions,choice.association);
       if(existing){
-        if(choice.association.main)await window.LabObjectives.openMainTerminal(choice.association.main,choice.association.objective_id);
-        else await window.LabObjectives.openTaskTerminal(choice.association.task_id||null,choice.association.objective_id);
-        return existing;
+        const sameProvider=existing.kind===kind&&(kind!=='claude'||!agent||agent===(existing.agent||'claude'));
+        if(!choice.association.task_id||!startFresh&&sameProvider){
+          if(choice.association.main)await window.LabObjectives.openMainTerminal(choice.association.main,choice.association.objective_id);
+          else await window.LabObjectives.openTaskTerminal(choice.association.task_id||null,choice.association.objective_id);
+          return existing;
+        }
+        // A task has one primary and may have many independent consoles.
+        // New launches inherit that primary's task without replacing it.
+        taskParent=existing;
+        const {task_id,rename_to_task,...target}=choice.association;
+        association={...target,view:'tasks'};
       }
     }
     const scope = choice.scope;
@@ -16611,7 +16620,7 @@
           agent,  // null → server resolves workspace override / global default
           objective_id: choice.association?.objective_id || null,
           name,
-          start_fresh: startFresh,
+          start_fresh: startFresh || !!taskParent,
           linked_scope: scope,
           cwd: scope?.root || null,
           // No explicit `auto`: the vault's per-agent autopilot
@@ -16625,9 +16634,21 @@
         return;
       }
       const created = await r.json();
-      if (choice.association) {
-        try { await window.LabObjectives.associateNewTerminal(created, choice.association); }
+      if (association) {
+        try { await window.LabObjectives.associateNewTerminal(created, association); }
         catch (error) { alert('Terminal created, but its Objective association could not be saved: ' + error.message); }
+      }
+      if (taskParent) {
+        const key=_termSessionsKey(workspaceId,vaultId),state=_termReadGroupState(key);
+        const logical=created.logical_name,parent=taskParent.logical_name,token='s:'+logical,parentToken='s:'+parent;
+        state.tabParents[logical]=parent;
+        delete state.tabAfter[logical];
+        state.tabRoots=state.tabRoots.filter(id=>id!==logical);
+        state.order=state.order.filter(row=>row!==token);
+        if(!state.order.includes(parentToken))state.order.push(parentToken);
+        state.order.splice(state.order.indexOf(parentToken)+1,0,token);
+        if(state.tabMembership[parent])state.tabMembership[logical]=state.tabMembership[parent];
+        _termWriteGroupState(state,key);
       }
       if (startFresh) window.labFeatureUsage?.(kind === 'claude' ? 'Create agent terminal' : 'Create terminal');
       if (homeSection) _termSaveHomeAssociation(created.logical_name, homeSection);
