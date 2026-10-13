@@ -1,5 +1,7 @@
 # Memory index
 
+- [Make primary replaces merging](terminal-make-primary.md) — promote the chosen terminal, preserve each asset and process, transfer the primary role and retain the old primary beneath it.
+
 - [Terminal asset links preserve origin](terminal-asset-links-preserve-origin.md) — separate asset navigation and icons from workspace/Objective/task ownership, with bidirectional selection and independent unlink.
 
 - [Automations launch their own primary](automations-launch-their-own-primary.md) — + New starts the defined terminals directly; the first owns the active task and the rest nest beneath it, including API/CLI launches.

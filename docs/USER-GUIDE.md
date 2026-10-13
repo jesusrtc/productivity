@@ -144,6 +144,16 @@ Omit `parent` and supply the workspace, automation ID, catalog revision, a fresh
 run UUID, and the active `objective_id` / `task_id`; the server assigns the first
 terminal as primary. Set `preview: true` to check the recipe without starting it.
 
+To change a terminal group's primary, secondary-click a child terminal →
+**Make primary**. It takes its immediate parent's position, with the previous
+primary and its other children beneath it. If the parent owns the task or a
+workspace/Objective main role, that role transfers to the selected terminal;
+task clicks then open the new primary. Both terminals keep their own asset
+links, icons, saved names, launch folders and running sessions. A terminal that
+already owns a separate task cannot replace another task's primary. To switch
+back, choose **Make primary** on the previous terminal. Agents can use the same
+context menu through `lab ui contextmenu` and `lab ui click`.
+
 The default workspace main terminal uses **🏠**, and the default Objective main
 uses **🎯**, in both compact and expanded terminal lists, including before their
 sessions start. Task terminals use **💻** and child terminals use **⏺** by

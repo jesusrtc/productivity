@@ -45,6 +45,8 @@ def test_cli_operates_link_modal_drag_workspace_terminal_label_and_automation(cl
     terminal_pill=app_source[app_source.index('  function _termTaskStatusLabel('):app_source.index('  function _termTaskPlaceholderHtml(')]
     file_icon=app_source[app_source.index('  function fileIconHtml('):app_source.index('  function buildSidebarTree(')]
     automation_launch=app_source[app_source.index('  async function _termLaunchAutomation('):app_source.index('  async function _termPasteTaskContext(')]
+    primary_action=app_source[app_source.index('  const _termPrimaryChanges ='):app_source.index('  function _termSubtabRenderer(')]
+    tab_menu=app_source[app_source.index('  function termOpenTabMenu('):app_source.index('  function termOpenSelectedTabsMenu(')]
     new_automation=next(line for line in (STATIC.parent/'templates/index.html').read_text().splitlines() if 'id="termNewAutomation"' in line)
     patch_links=app_source[app_source.index('  async function _termPatchLinks('):app_source.index('  window.LabTaskTerminalBridge =')]
     navigation=app_source[app_source.index('  function goToWorkspace('):app_source.index('  // Navigate to a workspace by its id')]
@@ -60,17 +62,22 @@ let termCurrentSession='ui-shell-live';const termCurrentWorkspaceId='demo',reque
 const _termLinkContext=()=>({workspaceId:'demo',vaultId:null}),_termActiveWorkspaceId=()=> 'demo',_termVaultId=()=>null;
 const _termSessionsCache=new Map(),_termSessionsKey=(w,v)=>w+'::'+v,termRenderSessionList=()=>document.querySelector('#terminal-label').textContent=termSessions[0].label||'Shell',_termRenderActiveSessionHeader=()=>{};
 let termSessionWidth=180,termSessionOrientation='vertical';const _TERM_SESSION_WIDTH_KEY='cli-test-width',_termSessionWidthBounds=()=>({min:160,max:220}),_termApplySessionView=()=>{document.querySelector('#termSessionList').style.width=termSessionWidth+'px'};
-let automationGroup={order:[],tabParents:{},tabRoots:[],tabAfter:{},tabMembership:{}};
+let automationGroup={order:[],tabParents:{},tabRoots:[],tabAfter:{},tabMembership:{},tabGroups:[],tabDisplayMains:{}};
 const _termGroupScopeKey=()=>_termSessionsKey('demo',null),_termReadGroupState=()=>structuredClone(automationGroup),_termWriteGroupState=state=>{automationGroup=state};
 const _termHomeSection=()=>null,_termInvalidateSessionReads=()=>{},termSetAutoSpawnEnabled=async()=>{},_termRefreshSessionsForWorkspaceId=async()=>{};
 window.LabSettingsBridge={currentScope:()=>({id:'demo',path:FIX.folder,label:'Demo',vault:null})};
 const termSessEsc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const _termSessionDisplay=s=>s.label||s.logical_name,_termSessionRecentMeta=()=>null,_termSessionIsWorking=()=>false,_termSessionSummary=()=>'',_termSessionTooltipPayload=()=> '{}',_termSessionContext=()=>({label:'Requests'}),_termSessionAssociationHtml=()=>'',_termRecentScopeKey=()=> 'demo',termDeadSessions=new Set(),_termSubtabParents=()=>automationGroup.tabParents;
+const _termSessionMeta=name=>termSessions.find(s=>s.name===name),_termSessionLogical=name=>_termSessionMeta(name)?.logical_name;
+const _termSelectTab=()=>{},_termTabSelection=()=>[],_termDisplayMains=()=>new Map();
+const termCloseGroupMenu=()=>document.querySelector('#terminal-menu-items').replaceChildren();
+const _termShowGroupMenu=(anchor,html,callback)=>{const host=document.querySelector('#terminal-menu-items');host.innerHTML=html;host.querySelectorAll('[data-action]').forEach(button=>button.onclick=()=>callback(button.dataset.action));};
 const assetOpened=[];
 window.explorerToast=message=>{document.querySelector('#notice').textContent=message};
 window.LabExternalLinks={open:url=>{assetOpened.push(url);return Promise.resolve(true)}};
 LabObjectives.connect({context:()=>({workspace_id:'demo',path:FIX.folder}),refreshTabs:()=>{},readyContent:()=>Promise.resolve(),prepareCenter:()=>{},
  activeTerminal:()=>termSessions.find(t=>t.name===termCurrentSession),session:name=>termSessions.find(t=>t.name===name),fileIcon:fileIconHtml,openNotebook:r=>assetOpened.push(r.id),
+ parentTerminal:t=>termSessions.find(p=>p.logical_name===automationGroup.tabParents[t.logical_name]),
  sessions:()=>termSessions,activateLinkedTerminal:ids=>{const terminal=termSessions.find(t=>ids.includes(t.session_id||t.name));if(terminal)return _termActivateTab(terminal.name);}});
 LabObjectives.load().then(()=>LabObjectives.selectObjective(FIX.oid));
 '''
@@ -78,10 +85,11 @@ LabObjectives.load().then(()=>LabObjectives.selectObjective(FIX.oid));
     page+='<script>const FIX='+json.dumps({'folder':str(folder),'oid':oid,'nid':nid})+';</script>'
     page+='<script>window.LAB_LINK_SERVICES='+json.dumps(link_services.SERVICES)+';</script>'
     page+=''.join('<script>'+(STATIC/'js/lib'/name).read_text()+'</script>' for name in ('scope-links.js','workspace-objectives.js','terminal-automations.js','ui-control.js'))
+    page+='<button id="terminal-menu" onclick="termOpenTabMenu(termCurrentSession,this)">Terminal menu</button><div id="terminal-menu-items"></div>'
     page+='<button id="asset-picker" onclick="LabObjectives.chooseTerminalAsset(termSessions.find(t=>t.name===termCurrentSession))">Link to asset…</button>'
     page+='<div id="termNewPicker">'+new_automation+'</div>'
     page+='<div id="termPanel"><div id="termSessionSwitcher" class="term-tabs-open"><div id="termSessionList" style="width:180px">Terminal rail</div><div id="termSessionsResizer" role="separator" tabindex="0" aria-label="Resize terminal tabs" style="width:5px;height:30px"></div></div></div>'
-    page+='<script>'+file_icon+setup+patch_links+navigation+resize+automation_launch+terminal_visual+terminal_pill+'_termInitSessionResize();'+hooks+'</script>'
+    page+='<script>'+file_icon+setup+patch_links+navigation+resize+automation_launch+primary_action+tab_menu+terminal_visual+terminal_pill+'_termInitSessionResize();'+hooks+'</script>'
     app=client.app
     @app.get('/_cli-test',include_in_schema=False)
     def fixture_page(): return HTMLResponse(page)
@@ -189,6 +197,21 @@ const fs=require('node:fs'),{execFileSync}=require('node:child_process');
  ui('wait','#notice','--text','Asset unlinked.');
  data=cli('api','call','GET','/api/objectives','--query','workspace_id=demo');
  assert(JSON.stringify(data.terminal_links[launched[0].session_id])===original,'unlink restores the original task-only mapping');
+ // Make primary uses the real menu and API, retaining each terminal's own asset.
+ for(const [row,resource] of [[launched[0],notebook],[launched[1],process.argv[4]]])cli('api','call','POST','/api/objectives','--json',JSON.stringify({workspace_id:'demo',action:{type:'terminal-asset',session_id:row.session_id,objective_id:objective,resource_id:resource}}));
+ await evaluate(`LabObjectives.load(undefined,true);window.primarySessionsBefore=JSON.stringify(termSessions)`);
+ ui('command','terminal-select','--json',JSON.stringify({name:launched[1].name}));
+ ui('click','#terminal-menu');
+ assert(await evaluate(`document.querySelector('[data-action=make-primary]')&&!document.querySelector('[data-action=merge-parent]')`),'real terminal menu offers Make primary');
+ ui('click',control('Make primary'));
+ for(let i=0;i<100;i++){if(await evaluate(`automationGroup.tabParents[${JSON.stringify(launched[0].logical_name)}]===${JSON.stringify(launched[1].logical_name)}`))break;await new Promise(r=>setTimeout(r,30));}
+ data=cli('api','call','GET','/api/objectives','--query','workspace_id=demo');
+ assert(data.terminal_links[launched[1].session_id].task_id===task&&!data.terminal_links[launched[0].session_id].task_id,'new primary owns the task in persisted metadata');
+ assert(data.terminal_links[launched[0].session_id].asset.resource_id===notebook&&data.terminal_links[launched[1].session_id].asset.resource_id===process.argv[4],'promotion preserves both asset bindings');
+ assert(await evaluate(`JSON.stringify(termSessions)===primarySessionsBefore&&!automationGroup.tabParents[${JSON.stringify(launched[1].logical_name)}]&&termCurrentSession===${JSON.stringify(launched[1].name)}`),'promotion changes no session identity, launch folder or command and activates its own console');
+ assert(await evaluate(`(()=>{const primary=termSessions.find(s=>s.name===termCurrentSession),old=termSessions.find(s=>s.name===${JSON.stringify(launched[0].name)});return !LabObjectives.taskForTerminal(primary).inherited&&LabObjectives.taskForTerminal(old).inherited&&_termSessionVisual(primary).icon.includes('github')&&_termSessionVisual(old).icon.includes('ft-nb')})()`),'new primary and previous primary keep their separate icons and task context');
+ ui('command','terminal-select','--json',JSON.stringify({name:'ui-shell'}));openTask();
+ assert(await evaluate(`termCurrentSession===${JSON.stringify(launched[1].name)}`),'task clicks activate the newly chosen primary');
  data=cli('api','call','POST','/api/objectives','--json',JSON.stringify({workspace_id:'demo',action:{type:'create',name:'Created through API'}}));
  const added=data.objectives.find(o=>o.name==='Created through API');
  ui('command','objective-select','--json',JSON.stringify({objective:added.id}));

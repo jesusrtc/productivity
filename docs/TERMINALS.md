@@ -154,16 +154,23 @@ Its collapsed Files and Recently updated sections each show one icon for the
 whole list. Expanding restores every file and filter; clicking the main working
 area or terminal console returns it to the compact rail.
 
-Secondary-click a child terminal and choose **Merge with parent** to combine
-their displayed rows at the immediate parent's existing depth. The tab keeps the
-parent's name, icon and color while opening the chosen child's console. Ancestor
-rows above that parent keep their positions, and actual relationships and task
-context remain unchanged. **Renew connections** on the merged tab reruns the
-parent's child automations together. **Open parent terminal** keeps the parent's
-original console accessible. Choose **Unmerge from parent** to restore the separate
-rows. This preference is saved in the current browser for each workspace and
-vault; it does not change fixed workspace or Objective main roles. Earlier
-**Set as main** display choices use this merged presentation too.
+Secondary-click a child terminal and choose **Make primary** to promote it to
+its immediate parent's position. The previous primary and its other children
+move beneath the new primary; ancestors retain their positions. Each terminal
+keeps its own console, asset link, icon, saved label and launch folder. Nothing
+is restarted. Selecting the previous primary's **Make primary** switches back.
+
+When the parent owns a task or workspace/Objective main role, that ownership
+transfers through the shared Objective API and task clicks activate the new
+primary. A terminal already assigned as a separate task's primary cannot take
+another primary role through this menu. Browser tab hierarchy and ordering
+remain saved per workspace and vault. The menu is also available through
+`lab ui contextmenu` and `lab ui click`.
+
+Earlier merged tabs remain readable. **Make primary** separates them and
+promotes their selected child, or **Show separate terminals** only restores the
+original rows. Until separated, **Open parent terminal** retains access to the
+original console and **Renew connections** keeps its explicit batch behavior.
 
 ## Request history
 

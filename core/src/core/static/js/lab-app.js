@@ -13706,6 +13706,48 @@
     return true;
   }
 
+  const _termPrimaryChanges = new Set();
+  async function _termMakePrimary(sessionName) {
+    const scope = _termGroupScopeKey(), session = _termSessionMeta(sessionName);
+    const state = _termReadGroupState(), parents = _termSubtabParents(state);
+    const logical = session?.logical_name, parent = parents[logical];
+    const owner = termSessions.find(row => row.logical_name === parent);
+    if (!owner || _termPrimaryChanges.has(scope)
+        || window.LabObjectives?.canMakeTerminalPrimary?.(session, owner) === false) return false;
+    _termPrimaryChanges.add(scope);
+    try {
+      await window.LabObjectives?.makeTerminalPrimary?.(session, owner);
+      // Update the captured workspace even if navigation changed during the save.
+      const next = _termReadGroupState(scope), grandparent = parents[parent];
+      for (const [child, ancestor] of Object.entries(parents)) {
+        if (ancestor === parent && child !== logical) next.tabParents[child] = logical;
+      }
+      delete next.tabParents[logical];
+      if (grandparent) next.tabParents[logical] = grandparent;
+      next.tabParents[parent] = logical;
+      next.tabRoots = next.tabRoots.filter(id => id !== parent && id !== logical);
+      if (!grandparent) next.tabRoots.push(logical);
+      const swap = id => id === parent ? logical : id === logical ? parent : id;
+      next.order = next.order.map(token => token.startsWith('s:') ? 's:' + swap(token.slice(2)) : token);
+      delete next.tabAfter[logical]; delete next.tabAfter[parent];
+      for (const [child, anchor] of Object.entries(next.tabAfter)) {
+        if (anchor === parent) next.tabAfter[child] = logical;
+      }
+      const group = next.tabMembership[parent];
+      if (group) next.tabMembership[logical] = group;
+      else delete next.tabMembership[logical];
+      for (const [mergedParent, child] of Object.entries(next.tabDisplayMains || {})) {
+        if ([parent, logical].includes(mergedParent) || [parent, logical].includes(child)) delete next.tabDisplayMains[mergedParent];
+      }
+      _termWriteGroupState(next, scope);
+      if (scope === _termGroupScopeKey()) {
+        termRenderSessionList();
+        await _termActivateTab(sessionName);
+      }
+      return true;
+    } finally { _termPrimaryChanges.delete(scope); }
+  }
+
   function _termSubtabRenderer(state, sessions, pill) {
     const parents = _termSubtabParents(state, sessions);
     const mains = _termDisplayMains(state, sessions, parents);
@@ -14109,13 +14151,18 @@
     const restoreMain = [...mains].some(([root, child]) => [root, child].includes(logical));
     const mergeParent = [...mains].find(([, child]) => child === logical)?.[0];
     const parentSession = termSessions.find(row => row.logical_name === mergeParent);
-    const mainAction = restoreMain ? 'unmerge-parent' : _termSubtabParents(state)[logical] ? 'merge-parent' : '';
-    const mainChoice = (mainAction ? `<button role="menuitem" class="term-group-menu-row" data-action="${mainAction}">${restoreMain?'Unmerge from parent':'Merge with parent'}</button>` : '')
+    const primaryParent = termSessions.find(row => row.logical_name === _termSubtabParents(state)[logical]);
+    const canMakePrimary = primaryParent && window.LabObjectives?.canMakeTerminalPrimary?.(session, primaryParent) !== false;
+    const mainChoice = (canMakePrimary ? '<button role="menuitem" class="term-group-menu-row" data-action="make-primary">Make primary</button>' : '')
+      + (restoreMain ? '<button role="menuitem" class="term-group-menu-row" data-action="unmerge-parent">Show separate terminals</button>' : '')
       + (parentSession ? '<button role="menuitem" class="term-group-menu-row" data-action="open-parent">Open parent terminal</button>' : '');
     const chooseMain = action => {
       if (action === 'open-parent') { if (menuScope === _termGroupScopeKey() && parentSession) void _termActivateTab(parentSession.name); return true; }
-      if (!['merge-parent','unmerge-parent'].includes(action)) return false;
-      if (menuScope === _termGroupScopeKey() && _termSetDisplayMain(sessionName, action === 'unmerge-parent') && action === 'merge-parent') void _termActivateTab(sessionName);
+      if (!['make-primary','unmerge-parent'].includes(action)) return false;
+      if (menuScope === _termGroupScopeKey()) {
+        if (action === 'make-primary') void _termMakePrimary(sessionName).catch(error => explorerToast(error.message, true));
+        else _termSetDisplayMain(sessionName, true);
+      }
       return true;
     };
     const assetSession=parentSession||session;

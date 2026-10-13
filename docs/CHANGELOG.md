@@ -5,6 +5,17 @@ guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 
 ## 2026-10-13
 
+### Make a terminal primary
+
+- Replaced **Merge with parent** with **Make primary**. The selected child
+  takes its immediate parent's position; the previous primary and siblings
+  remain available beneath it, with separate consoles and asset icons.
+- Task or workspace/Objective main ownership follows the new primary. Launch
+  folders, saved labels, asset links and running sessions remain intact.
+- Existing merged tabs can be promoted with the same action or restored with
+  **Show separate terminals**. Promotion and its reverse use the same menu
+  through `lab ui`.
+
 ### Terminal asset links preserve their original context
 
 - Added **Link to asset…** / **Unlink asset** to terminal menus and **Link to

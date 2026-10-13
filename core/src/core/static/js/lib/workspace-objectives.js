@@ -1179,6 +1179,21 @@
     return null;
   }
   function taskForTerminal(t) {const binding=terminalTask(t);return binding?{title:taskDisplayName(binding.task,binding.objective),icon:taskIcon(binding.task,binding.objective),assetIcon:customTaskIcon(binding.task,binding.objective),color:binding.task.terminal_color||null,inherited:binding.inherited,status:taskStatus(binding.task)}:null;}
+  function canMakeTerminalPrimary(t,parent) {
+    if(!active(context()?.path))return true;
+    // A subtask's own primary must keep its separate task assignment.
+    return !terminalMain(t)&&!terminalLink(t)?.task_id
+      &&terminalObjective(t)?.id===terminalObjective(parent)?.id;
+  }
+  async function makeTerminalPrimary(t,parent) {
+    if(!canMakeTerminalPrimary(t,parent))throw new Error('This terminal already owns a different primary role.');
+    if(!active(context()?.path))return;
+    const link=terminalLink(parent),main=terminalMain(parent);
+    if(!link?.task_id&&!main)return;
+    const target=main?.kind==='workflow'?{main:'workflow'}:
+      {objective_id:link.objective_id,...(main?{main:'objective'}:{task_id:link.task_id})};
+    await change({type:'terminal',session_id:terminalIdentity(t),source:t.document_source,...target},{expected:data().revision});
+  }
   function terminalTaskNameHtml(t) {const binding=terminalTask(t);return binding?taskNameHtml(binding.task,binding.objective):null;}
   function terminalWorktreeColor(t) {const binding=terminalTask(t),assigned=binding?taskWorktrees(binding.task,binding.objective):[];return assigned.length===1?assigned[0].color:null;}
   function terminalColor(t) {return terminalWorktreeColor(t);}
@@ -1661,7 +1676,7 @@
   window.LabObjectives={connect(adapter){bridge=adapter;startRefreshing();},load,active,sidebarHtml,paint,worktrees,tree,associate,terminalHtml,taskForTerminal,openForTerminal,collapse,progress,complete,change,selectObjective,openTask,renderTasks,tabsHtml,showAll,terminalLaunchContext,associateNewTerminal,
     instructionRoot(path){return active(path)?scopeRows().find(row=>row.id==='objective-root')?.path:null;},
     terminalSessions,terminalParents,terminalExpanded,terminalMain,openMainTerminal,openTaskTerminal,terminalTaskNameHtml,terminalWorktreeColor,terminalColor,sidebarMode,recentScopes,moveForTerminalDrop,
-    terminalAsset,chooseTerminalAsset,unlinkTerminalAsset,linkTerminal,
+    terminalAsset,chooseTerminalAsset,unlinkTerminalAsset,linkTerminal,canMakeTerminalPrimary,makeTerminalPrimary,
     activateFileTerminal(root,path){return active(context()?.path)&&activateAssetTerminal({file:{root,path}});},
     terminalsForFile(root,path){return active(context()?.path)?assetTerminals({file:{root,path}}):[];},
     syncTerminalHierarchy(){if(active(context()?.path))bridge.syncTaskHierarchy?.(data());},

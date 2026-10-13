@@ -62,3 +62,31 @@ def test_asset_api_rejects_unowned_session(client, seed_workspace):
     response = client.post('/api/objectives', json={'workspace_id':'demo', 'action':{
         'type':'terminal-asset', 'session_id':'foreign', 'unlink':True}})
     assert response.status_code == 400
+
+
+@pytest.mark.parametrize('role', ['task', 'objective', 'workflow'])
+def test_primary_transfer_preserves_both_terminal_assets_and_launch_metadata(client, monorepo, seed_workspace, role):
+    folder = seed_workspace()
+
+    def action(**fields):
+        response = client.post('/api/objectives', json={'workspace_id':'demo', 'action':fields})
+        assert response.status_code == 200, response.text
+        return response.json()
+
+    oid = action(type='create', name='Owner')['objectives'][0]['id']
+    tid = action(type='task', objective_id=oid, title='Task')['objectives'][0]['tasks'][0]['id']
+    rid = action(type='resource', objective_id=oid, kind='notebook', title='Analysis')['objectives'][0]['resources'][0]['id']
+    for name in ('first', 'second'):
+        term._upsert_workspace_session(monorepo, 'demo', {'name':name, 'kind':'terminal', 'cwd':str(folder), 'label':name})
+    before = term._get_workspace_sessions(monorepo, 'demo')
+    first, second = [s['session_id'] for s in before]
+    target = {'main':'workflow'} if role == 'workflow' else {'objective_id':oid, **(
+        {'task_id':tid} if role == 'task' else {'main':'objective'})}
+    action(type='terminal', session_id=first, **target)
+    for session_id in (first, second):
+        action(type='terminal-asset', session_id=session_id, objective_id=oid, resource_id=rid)
+    links = action(type='terminal', session_id=second, **target)['terminal_links']
+    assert all(links[second].get(k) == value for k, value in target.items())
+    assert not links[first].get('main') and not links[first].get('task_id')
+    assert links[first]['asset'] == links[second]['asset'] == {'objective_id':oid, 'resource_id':rid}
+    assert term._get_workspace_sessions(monorepo, 'demo') == before
