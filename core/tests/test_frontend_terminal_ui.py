@@ -173,7 +173,7 @@ def test_terminal_sessions_support_orientation_and_responsive_labels() -> None:
     assert 'class="agent"' in source
     assert 'class="sess-label' in source
     assert 'class="k"' not in source
-    assert "main||taskOwn ? '' : _termSessionAssociationHtml(s)" in source
+    assert "main||taskOwn ? '' : _termSessionAssociationHtml(s,{showName:worktreeOnly})" in source
     assert "(e.clientY - rect.top) < rect.height / 2" in source
     assert "(e.clientX - rect.left) < rect.width / 2" in source
     assert 'aria-selected="${active ? \'true\' : \'false\'}"' in source
@@ -852,8 +852,8 @@ const visible=html=>html.replace(/<[^>]*>/g,'');
 console.log(JSON.stringify({name:_termSessionDisplay(session),manual:_termSessionDisplay({...session,label:'Investigate'}),
  main:visible(main),branch:visible(branch),project:visible(project),keepsPath:main.includes('/project/objectives/reports')}));
 ''')
-    assert result == {'name':'copilot-2', 'manual':'Investigate', 'main':'main',
-                      'branch':'feature', 'project':'Backendmain', 'keepsPath':True}
+    assert result == {'name':'copilot-2', 'manual':'Investigate', 'main':'',
+                      'branch':'', 'project':'', 'keepsPath':True}
 
 
 def test_terminal_hover_shows_only_latest_request_even_with_an_objective() -> None:

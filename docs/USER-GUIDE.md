@@ -217,9 +217,10 @@ Objective headers in the terminal rail also switch Objectives. Clicking a header
 selects that Objective, unfolds its terminals and folds every other Objective's
 terminals. Other headers remain available, including when **Show all terminals**
 is enabled; that option changes the status filter, not which Objective is open.
-The Objective main row is labeled **Main**. Generated terminal names and folder
-badges omit a repeated Objective name already shown in the section header;
-custom terminal names and distinct worktree names remain visible.
+The Objective main row is labeled **Main**. Named terminal tabs show the saved
+name alone, such as **ASTA CLI**, without extra workspace, folder or **main**
+labels. Their colored location markers retain the folder details in hover
+tooltips. An unnamed worktree terminal can use its worktree as its fallback name.
 
 ## Change metadata through Lab
 

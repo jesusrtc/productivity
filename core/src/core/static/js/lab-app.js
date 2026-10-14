@@ -14881,7 +14881,7 @@
     ))}px`;
   }
 
-  function _termSessionAssociationHtml(session) {
+  function _termSessionAssociationHtml(session, {showName = false} = {}) {
     const scope = session.linked_scope;
     if (_termActiveWorkspaceId() === '__self__' && !scope?.worktree) return _termHomeAssociationHtml(session);
     const config = scope ? (scope.config_scope === _sidebarFileConfigScope
@@ -14897,7 +14897,7 @@
     const checkout = worktree ? 'worktree' : 'main';
     const color = scope ? _termScopeColor(scope) : '#8b949e';
     const title = `${alias} · ${worktree ? `Git worktree ${worktree}` : 'Main folder'}${scope?.root ? `: ${scope.root}` : ''}`;
-    return `<span class="term-home-association term-folder-association" data-checkout="${checkout}" style="--term-association-color:${color}" title="${termSessEsc(title)}"><span>${termSessEsc(label)}</span>${!worktree && label !== 'main' ? `<small>${checkout}</small>` : ''}</span>`;
+    return `<span class="term-home-association term-folder-association" data-checkout="${checkout}" style="--term-association-color:${color}" title="${termSessEsc(title)}">${showName?`<span>${termSessEsc(label)}</span>`:''}</span>`;
   }
 
   function _termTaskStatusLabel(status) {
@@ -14973,8 +14973,8 @@
     const tooltip = _termSessionTooltipPayload(s, [statusTitle, completion?.label, recentTitle].filter(Boolean).join(' · '));
     if (s.display_main) {
       const icon=assetIcon || main?.icon || objectiveTask?.assetIcon || (child||objectiveTask?fallbackIcon:visual.icon);
-      const worktreeName=!main&&!objectiveTask&&identity.linked_scope?.worktree&&!identity.linked_file?.path;
-      const nameHtml=taskOwn?(window.LabObjectives?.terminalTaskNameHtml?.(identity)||termSessEsc(display)):worktreeName?_termSessionAssociationHtml(identity):termSessEsc(display);
+      const worktreeName=!main&&!objectiveTask&&!identity.label&&identity.linked_scope?.worktree&&!identity.linked_file?.path;
+      const nameHtml=taskOwn?(window.LabObjectives?.terminalTaskNameHtml?.(identity)||termSessEsc(display)):worktreeName?_termSessionAssociationHtml(identity,{showName:true}):termSessEsc(display);
       return `<span class="sess ${visual.kind} term-display-main${main?' term-main-terminal':''}${active}${dead}" style="--term-display-main-color:${termSessEsc(s.display_main.color)}" role="tab" aria-label="${termSessEsc(ariaLabel+' · Merged with '+_termSessionDisplay(s)+' · Parent '+s.display_main.parent)}" aria-selected="${active ? 'true' : 'false'}" tabindex="${active ? '0' : '-1'}" draggable="false"${main?` data-terminal-main="${main.kind}"`:''}${childAttrs} data-name="${termSessEsc(s.name)}" data-logical="${termSessEsc(logical)}" data-display-main-parent="${termSessEsc(s.display_main.parent)}" data-tooltip="${termSessEsc(tooltip)}"><span class="sess-icon${taskIconClass}" aria-hidden="true"${iconColorAttrs}>${icon}</span><span class="term-display-main-dot" aria-hidden="true"></span><span class="sess-label custom"${taskColorAttrs}>${nameHtml}</span>${activityHtml}${_termAutomationRelaunchHtml(s)}</span>`;
     }
     if (automation) {
@@ -14982,10 +14982,10 @@
     }
     const linked = String(s.linked_file && s.linked_file.path || '').trim();
     const scope = s.linked_scope;
-    const worktreeOnly = !main && !objectiveTask && scope?.worktree && !linked;
+    const worktreeOnly = !main && !objectiveTask && !s.label && scope?.worktree && !linked;
     const icon = assetIcon || main?.icon || objectiveTask?.assetIcon || (child||objectiveTask?fallbackIcon:visual.icon);
     const nameHtml = taskOwn ? (window.LabObjectives?.terminalTaskNameHtml?.(s)||termSessEsc(display)) : termSessEsc(display);
-    const associationHtml = main||taskOwn ? '' : _termSessionAssociationHtml(s);
+    const associationHtml = main||taskOwn ? '' : _termSessionAssociationHtml(s,{showName:worktreeOnly});
     const scopeAttrs = scope ? ` style="--term-scope-color:${termSessEsc(_termScopeColor(scope))}" data-linked-scope="${termSessEsc(scope.root)}"` : '';
     return `<span${scopeAttrs} class="sess ${visual.kind}${main?' term-main-terminal':''}${objectiveTask?' objective-task-terminal':''}${active}${recent}${dead}" role="tab" aria-label="${termSessEsc(ariaLabel)}" aria-selected="${active ? 'true' : 'false'}" tabindex="${active ? '0' : '-1'}" ${main?`draggable="false" data-terminal-main="${main.kind}" title="${termSessEsc(main.kind+' main terminal · Fixed')}"`:`draggable="true" data-order-token="${termSessEsc(`s:${logical}`)}"`}${objectiveTask?` title="${termSessEsc(_termTaskStatusLabel(objectiveTask.status))}"`:''}${childAttrs} data-name="${termSessEsc(s.name)}" data-logical="${termSessEsc(logical)}" data-tooltip="${termSessEsc(tooltip)}">
       ${icon?`<span class="sess-icon${taskIconClass}" aria-hidden="true"${iconColorAttrs}${objectiveTask ? ' title="'+termSessEsc(objectiveTask.title)+'"' : ''}>${icon}</span>`:''}

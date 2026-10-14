@@ -1,5 +1,7 @@
 # Memory index
 
+- [Terminal tabs show only saved names](terminal-tabs-show-only-saved-names.md) — no workspace/folder/main text beside custom names such as ASTA CLI; retain location markers and tooltip details.
+
 - [Terminal Objective headers own the context](terminal-objective-headers-own-context.md) — always unfold only the active Objective, switch via headers, and omit duplicate Objective names from terminal rows.
 
 - [New terminals have direct context](new-current-task-creates-extra-terminals.md) — independent workspace/Objective/task ownership, multiple direct task members and one primary; never auto-nest New beneath the active terminal.

@@ -447,9 +447,10 @@ choices with simulated terminals. See [TERMINALS.md](TERMINALS.md#new-terminal-l
 The terminal selector always shows one fixed **🏠 workspace (workflow) main** at the top.
 The fixed **🎯 Objective main** appears immediately after the active Objective's
 divider and is labeled **Main**; inactive Objective mains stay hidden, including
-in Show all mode. Generated terminal labels and folder badges omit the Objective
-name already supplied by the section header. Saved custom names and distinct
-worktree names remain visible.
+in Show all mode. Named terminal rows show only their saved name, without extra
+workspace, Objective, folder or **main** labels. Location markers keep their
+color and full folder tooltip. Unnamed worktree terminals can use their worktree
+as the fallback name.
 These identifiers appear in compact and expanded lists, including dormant launch
 rows. Other terminals keep the compact 💻 fallback or their task's custom icon.
 Clicking a main row creates its session if needed and reuses it thereafter.

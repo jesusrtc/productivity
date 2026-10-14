@@ -5,6 +5,14 @@ guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 
 ## 2026-10-13
 
+### Named terminal tabs show only their saved names
+
+- Removed workspace, folder and **main** text beside named terminal tabs.
+  **ASTA CLI** now appears on its own; colored location markers retain their
+  folder details in hover tooltips.
+- Named worktree terminals and legacy merged tabs retain their saved names
+  instead of substituting a worktree label.
+
 ### Terminal headers switch one Objective at a time
 
 - Only the active Objective's terminals unfold, including in **Show all

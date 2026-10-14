@@ -63,7 +63,8 @@ def test_merged_tab_uses_parent_name_icon_color_and_child_session_identity():
 const _TERM_GROUP_COLORS=['#58a6ff'],_TERM_GROUPS_KEY='groups',termSessEsc=String;
 const stored={},localStorage={getItem:key=>stored[key],setItem:(key,value)=>stored[key]=value};
 const automation='automation-'+('a'.repeat(32))+'-1';
-const parent={name:'parent',logical_name:'parent',label:'Parent connection',session_id:'parent-id'};
+const parent={name:'parent',logical_name:'parent',label:'Parent connection',session_id:'parent-id',linked_scope:{root:'/trees/feature',worktree:'/trees/feature'}};
+const _termScopeColor=()=> '#58a6ff';
 const child={name:'child-session',logical_name:automation,label:'Child process',session_id:'child-id'};
 const termSessions=[parent,child],termCurrentSession=child.name,termCurrentWorkspaceId='demo';
 const _termActiveWorkspaceId=()=> 'demo',_termVaultId=()=> 'one',_termSessionsKey=(w,v)=>v+'::'+w;
@@ -82,7 +83,7 @@ console.log(JSON.stringify({html,unchanged:JSON.stringify(termSessions)===before
     assert result['unchanged']
     assert 'data-name="child-session"' in html and 'data-name="parent"' not in html
     assert 'aria-selected="true"' in html
-    assert 'class="sess-icon" aria-hidden="true">🧠</span>' in html
+    assert 'class="sess-icon" aria-hidden="true" style="color:#58a6ff">🧠</span>' in html
     assert 'class="sess-label custom">Parent connection</span>' in html
     assert '--term-display-main-color:#58a6ff' in html
     assert 'Merged with Child process' in html

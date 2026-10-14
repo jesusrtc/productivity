@@ -51,10 +51,11 @@ fold the previous section. This also applies while **Show all terminals** is
 enabled; that setting reveals task statuses without expanding other Objectives.
 Folding preserves running sessions and their saved child-terminal layouts.
 
-The Objective main is labeled **Main**. Generated terminal labels and folder
-badges omit repeated Objective names because the section header supplies that
-context. Custom terminal names and distinct worktree names stay visible, and
-folder tooltips keep their full paths.
+The Objective main is labeled **Main**. Named terminal tabs display the saved
+name alone, without workspace, folder or **main** text beside it. This also
+applies to named worktree terminals and legacy merged tabs. Colored location
+markers retain full folder details in their tooltips. Unnamed worktree terminals
+can still use the worktree as their fallback name.
 
 ## Terminal automations
 
