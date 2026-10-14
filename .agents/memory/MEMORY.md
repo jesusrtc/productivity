@@ -826,3 +826,5 @@
 - [Task deletion requires two confirmations](task-deletion-requires-two-confirmations.md) — exact-name review, whole-branch cleanup, shared/source protection and staged-content recovery.
 - [Lab context captures source paths](lab-agent-context-captures-source-paths.md) — template instruction references for owning scopes relative to the captured Objective/worktree source; keep reader and drag scope stable.
 - [Markdown and asset links use windows](markdown-and-asset-links-use-windows.md) — normal clicks open client pop-outs; Cmd/Ctrl clicks open tabs, with link details on the asset context menu.
+
+- [Terminal status is agent-reported](terminal-status-is-agent-reported.md) — explicit yellow working, red attention and green finished; only green clears on click, with no output-based estimation or pop-ups.

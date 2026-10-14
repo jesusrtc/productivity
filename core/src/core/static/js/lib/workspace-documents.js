@@ -214,28 +214,30 @@
     document.querySelectorAll('.workspace-tab[data-kind="workspace"]').forEach(tab => {
       const scope = scopeKey({workspace_id:tab.dataset.workspaceId, vault:tab.dataset.vault});
       const sessions = attention[scope] || [];
-      const working = sessions.some(session => completion.isWorking(session));
-      const ready = !working && sessions.some(session => completion.meta(scope, session));
+      const needsAttention = sessions.some(session => completion.status(session)?.state === 'attention');
+      const working = !needsAttention && sessions.some(session => completion.isWorking(session));
+      const ready = !needsAttention && !working && sessions.some(session => completion.meta(scope, session));
       let dot = tab.querySelector('.workspace-attention-dot');
-      if (!working && !ready) { dot?.remove(); return; }
+      if (!needsAttention && !working && !ready) { dot?.remove(); return; }
       if (!dot) {
         dot = document.createElement('span'); dot.className = 'workspace-attention-dot';
         tab.querySelector('.x')?.before(dot);
       }
       dot.classList.toggle('workspace-attention-working', working);
-      const label = working ? 'Terminal working' : 'Terminal work ready to review · Click to mark as reviewed';
-      dot.setAttribute('role', working ? 'img' : 'button');
+      dot.classList.toggle('workspace-attention-needed', needsAttention);
+      const label = needsAttention ? 'Terminal needs your attention' : working ? 'Terminal working' : 'Terminal work ready to review · Click to mark as reviewed';
+      dot.setAttribute('role', ready ? 'button' : 'img');
       dot.setAttribute('aria-label', label); dot.title = label;
-      if (working) dot.removeAttribute('tabindex');
+      if (!ready) dot.removeAttribute('tabindex');
       else dot.tabIndex = 0;
-      dot.onclick = working ? null : event => {
+      dot.onclick = !ready ? null : event => {
         event.preventDefault(); event.stopPropagation();
         for (const session of sessions) completion.acknowledge(scope, session);
       };
-      dot.onkeydown = working ? null : event => {
+      dot.onkeydown = !ready ? null : event => {
         if (event.key === 'Enter' || event.key === ' ') dot.onclick(event);
       };
-      dot.ondblclick = working ? null : event => { event.preventDefault(); event.stopPropagation(); };
+      dot.ondblclick = !ready ? null : event => { event.preventDefault(); event.stopPropagation(); };
     });
   }
   async function poll(force = false) {

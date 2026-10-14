@@ -5,7 +5,7 @@ from pathlib import Path
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
-from core import agent_activity, terminal_task_links, workspace_documents as links
+from core import terminal_task_links, workspace_documents as links
 
 router = APIRouter(prefix='/api/workspace-documents')
 
@@ -52,8 +52,6 @@ def attention(request: Request):
     """One bounded batch for inactive tabs, without capture-pane summaries."""
     from core.routes import term
     rows = term.list_sessions(request)
-    term._enrich_agent_session_names(rows)
-    agent_activity.enrich(rows)
     active = term.auth.request_root(request)
     result = {}
     linked = {}
@@ -83,6 +81,6 @@ def attention(request: Request):
                         sessions.append(row)
                         names.add(row['name'])
     # No requests, messages, or transcripts are needed by tab indicators.
-    fields = ('name', 'session_id', 'created_at', 'agent', 'agent_session_id', 'agent_activity')
+    fields = ('name', 'session_id', 'created', 'created_at', 'tmux_socket', 'tmux_id', 'terminal_status')
     return {scope: [{key: row[key] for key in fields if key in row} for row in sessions]
             for scope, sessions in result.items()}

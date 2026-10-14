@@ -71,11 +71,10 @@ import yaml
 
 from lab import paths as lab_paths
 from lab import settings as lab_settings
-from lab import tmux_sockets
+from lab import tmux_sockets, terminal_status
 
 from core import auth, copilot_identity, fsguard, terminal_automations, terminal_automation_lifecycle
 from core import vault_config
-from core import terminal_output_activity
 
 
 router = APIRouter()
@@ -1815,6 +1814,7 @@ def _tmux_list(
                         + ("|#{session_activity}|#{session_last_attached}|#{@lab_last_access}|#{session_id}" if activity else "")
                         + "|#{pane_id}|#{pane_dead}|#{window_panes}|#{window_activity}"
                         + "|#{pane_width}|#{pane_height}"
+                        + "|#{@lab_status}|#{session_id}"
                     ),
                 ),
                 capture_output=True,
@@ -1842,7 +1842,6 @@ def _tmux_list(
             return None
 
         lab_count = 0
-        output_candidates = []
         for line in proc.stdout.splitlines():
             if not line.strip():
                 continue
@@ -1872,17 +1871,12 @@ def _tmux_list(
                 } if activity else {}),
             }
             rows.append(row)
-            # Cleanup/import discovery does not consume UI activity. Raw
-            # tmux I/O is only a hint; titles, SSH control traffic and redraws
-            # must not start work unless the captured contents changed.
+            # Status is explicitly reported by the agent. Read it in this
+            # existing batch; silence, output and provider events never set it.
             offset = 13 if activity else 9
-            if (not activity and prefixes != [""] and len(parts) > offset + 2
-                    and all(value.isdigit() for value in parts[offset:offset + 3])
-                    and int(parts[offset]) > 0):
-                output_candidates.append((row, int(parts[offset]),
-                                          (int(parts[offset + 1]), int(parts[offset + 2]))))
-        if output_candidates:
-            terminal_output_activity.enrich(socket_name, output_candidates, env=_tmux_child_env())
+            row['terminal_status'] = terminal_status.decode(parts[offset + 3]) if len(parts) > offset + 3 else None
+            if len(parts) > offset + 4:
+                row['tmux_id'] = parts[offset + 4]
         lab_rows_by_socket[socket_name] = lab_count
 
     empty_draining = {

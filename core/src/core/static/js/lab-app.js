@@ -14653,17 +14653,16 @@
   }
 
   function _termSessionIsWorking(s) {
-    return window.LabTerminalCompletion?.isWorking(s)
-      ?? ['working', 'waiting'].includes(s.agent_activity?.state);
+    return window.LabTerminalCompletion?.isWorking(s) ?? false;
   }
 
   function _termSessionTooltipPayload(s) {
     const identity = _termSessionIdentity(s);
-    const completion = window.LabTerminalCompletion?.meta(_termRecentScopeKey(), s);
+    const completion = window.LabTerminalCompletion?.status?.(s);
     const working = _termSessionIsWorking(s);
     return JSON.stringify({items: _termPreviewRequests(_termSessionRequests(s)),
       ...(working ? {working: true} : {}),
-      ...(completion ? {completion: completion.label} : {}),
+      ...(completion ? {completion: completion.label, status: completion.state} : {}),
       ...(identity.length ? {identity} : {})});
   }
 
@@ -14844,6 +14843,8 @@
     const identityHtml = _termSessionIdentityHtml(Array.isArray(payload.identity) ? payload.identity : []);
     const completion = typeof payload.completion === 'string' ? payload.completion : '';
     const working = payload.working === true;
+    const statusClass = payload.status === 'attention' ? 'term-attention-summary'
+      : payload.status === 'working' ? 'term-working-summary' : 'term-completion-summary';
     const anchorRect = anchor.getBoundingClientRect();
     const panel = anchor.closest?.('.term-panel');
     const boundary = panel ? panel.getBoundingClientRect().left : anchorRect.left;
@@ -14862,8 +14863,8 @@
       tooltip._termInteractive = true;
     }
     tooltip.innerHTML = `
-      ${working ? '<div class="term-working-summary">Working</div>' : ''}
-      ${completion ? `<div class="term-completion-summary">${termSessEsc(completion)}</div>` : ''}
+      ${working && !completion ? '<div class="term-working-summary">Working</div>' : ''}
+      ${completion ? `<div class="${statusClass}">${termSessEsc(completion)}</div>` : ''}
       ${identityHtml ? `<div class="term-context-identity">${identityHtml}</div>` : ''}
       ${latest.length ? `<div class="term-session-tooltip-context">
         <div class="term-session-tooltip-label">${latest.length > 1 ? 'Latest requests' : 'Latest request'}</div>
@@ -14960,8 +14961,12 @@
     const recent = recentMeta ? ' recent' : '';
     const completion = window.LabTerminalCompletion?.meta(_termRecentScopeKey(), s);
     const working = _termSessionIsWorking(s);
+    const reported = window.LabTerminalCompletion?.status?.(s);
     const ready = completion;
-    const activityHtml = ready ? '<span class="sess-activity sess-completion" role="button" tabindex="0" aria-label="Mark completed terminal work as reviewed" title="Click to mark completed work as reviewed"></span>' : '';
+    const attention = reported?.state === 'attention';
+    const activityHtml = ready ? '<span class="sess-activity sess-completion" role="button" tabindex="0" aria-label="Mark completed terminal work as reviewed" title="Click to mark completed work as reviewed"></span>'
+      : attention ? '<span class="sess-activity sess-attention" aria-hidden="true"></span>'
+      : working ? '<span class="sess-activity sess-working" aria-hidden="true"></span>' : '';
     const logical = s.logical_name || '';
     const dead = termDeadSessions.has(s.name) ? ' dead' : '';
     const statusTitle = dead ? 'Session unreachable — click to retry' : '';
@@ -14969,7 +14974,7 @@
     const context = _termSessionContext(s);
     const summary = _termSessionSummary(s);
     const ariaSummary = summary.length > 160 ? `${summary.slice(0, 157).trim()}...` : summary;
-    const ariaLabel = `${display} · ${main ? main.kind+' main terminal · Fixed' : visual.badge}${s.automation?' · '+s.automation.reason:''}${objectiveTask ? (objectiveTask.inherited?' · Parent task context: ':' · Task: ')+objectiveTask.title+' · '+_termTaskStatusLabel(objectiveTask.status) : ''}${working ? ' · Working' : ''}${ready ? ` · ${completion.label}` : ''}${ariaSummary ? ` · ${context.label}: ${ariaSummary}` : ''}`;
+    const ariaLabel = `${display} · ${main ? main.kind+' main terminal · Fixed' : visual.badge}${s.automation?' · '+s.automation.reason:''}${objectiveTask ? (objectiveTask.inherited?' · Parent task context: ':' · Task: ')+objectiveTask.title+' · '+_termTaskStatusLabel(objectiveTask.status) : ''}${reported ? ` · ${reported.label}` : ''}${ready ? ' · Not yet viewed' : ''}${ariaSummary ? ` · ${context.label}: ${ariaSummary}` : ''}`;
     const tooltip = _termSessionTooltipPayload(s, [statusTitle, completion?.label, recentTitle].filter(Boolean).join(' · '));
     if (s.display_main) {
       const icon=assetIcon || main?.icon || objectiveTask?.assetIcon || (child||objectiveTask?fallbackIcon:visual.icon);

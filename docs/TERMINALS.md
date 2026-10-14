@@ -95,8 +95,11 @@ An exited command prints its exit code and leaves an interactive shell with the
 logs retained. Automation tabs show their saved names with a left icon and
 default to ⏺ for child terminals. The rail honors custom task icons, including
 inherited icons. Ordinary task terminals use 💻. Small worktree markers stay
-in the corner, while task-status and yellow activity dots are omitted. Hover
-reveals names without moving or resizing icons and controls. An active
+in the corner. Agent-reported status uses steady yellow for working, pulsing red
+for attention and blinking green for finished; task-status dots remain omitted.
+Only green clears on a tab click. Hover shows the report and reveals names
+without moving or resizing icons and controls. See
+[terminal status](terminal-completion.md) for commands and lifecycle rules. An active
 child stays visible along with its direct siblings and parent/grandparent path.
 Other automation children appear after holding the pointer over their parent
 for one second. Moving away cancels the reveal. Keyboard disclosure is immediate,

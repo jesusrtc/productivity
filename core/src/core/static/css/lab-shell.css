@@ -2047,6 +2047,9 @@
   .term-sessions .sess .sess-link { position: absolute; top: 2px; right: 3px; color: var(--accent); font-size: 8px; line-height: 1; opacity: .9; }
   .term-sessions .sess .sess-activity { position: absolute; top: calc(50% - 3px); right: 3px; width: 6px; height: 6px; border-radius: 50%; pointer-events: none; }
   .term-sessions .sess .sess-completion { background: var(--green); animation: term-completion-blink 1.6s step-end infinite; box-shadow: 0 0 5px var(--green); pointer-events: auto; cursor: pointer; }
+  .term-sessions .sess .sess-working { background: var(--yellow); }
+  .term-sessions .sess .sess-attention { background: var(--red); animation: term-attention-pulse 1.6s ease-in-out infinite; box-shadow: 0 0 5px var(--red); }
+  @keyframes term-attention-pulse { 0%, 100% { opacity: 1; box-shadow: 0 0 6px var(--red); } 50% { opacity: .35; box-shadow: 0 0 1px var(--red); } }
   .term-sessions .sess .sess-completion:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .term-sessions .sess .sess-label { display: none; }
   .term-divider-section { display: flex; flex-direction: column; gap: 3px; min-width: 0; width: 100%; }
@@ -2118,9 +2121,10 @@
   .term-session-tooltip > .term-context-identity { margin-bottom: 8px; padding-bottom: 7px; border-bottom: 1px solid #414852; }
   .term-sessions .sess.recent:not(.active)::after { content: ""; position: absolute; top: 3px; bottom: 3px; left: 0; width: 3px; border-radius: 2px; background: var(--term-recent-color, var(--green)); pointer-events: none; }
   @keyframes term-completion-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
-  @media (prefers-reduced-motion: reduce) { .term-sessions .sess .sess-completion { animation: none; } }
+  @media (prefers-reduced-motion: reduce) { .term-sessions .sess :is(.sess-completion, .sess-attention) { animation: none; } }
   .term-completion-summary { color: var(--green); margin-bottom: 6px; }
   .term-working-summary { color: var(--yellow); margin-bottom: 6px; }
+  .term-attention-summary { color: var(--red); margin-bottom: 6px; }
 
   .term-sessions .sess.active { color: var(--text-primary); background: #388bfd26; border-color: #388bfd; }
   /* Dead session: server told us the tmux session is gone, or the

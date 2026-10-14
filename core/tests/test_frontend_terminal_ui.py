@@ -887,7 +887,7 @@ process.stdout.write(JSON.stringify({requests, objective}));
     assert result["objective"] == {"items": ["Old request", "Newest request"]}
 
 
-def test_terminal_working_fallback_includes_waiting_and_unreachable() -> None:
+def test_terminal_without_reporting_module_does_not_guess_working() -> None:
     helpers = _js_between(
         "function _termSessionDisplay(s)",
         "function _termTaskPlaceholderHtml(",
@@ -902,7 +902,7 @@ const termSessEsc = value => String(value);
 const rows = [];
 for (const agent of ['codex', 'claude', 'copilot']) {
   const session = {name:agent, agent, kind:'claude'};
-  // Without the persistence module, retain explicit working and waiting states.
+  // Without reporting state, provider events cannot create an indicator.
   for (const state of ['working', 'completed', 'working', 'waiting', 'error', 'interrupted', 'unknown', undefined]) {
     session.agent_activity = state ? {state} : undefined;
     const html = _termSessionPillHtml(session, 0);
@@ -914,13 +914,14 @@ for (const agent of ['codex', 'claude', 'copilot']) {
   session.agent_activity = {state:'working'};
   termDeadSessions.add(agent);
   rows.push({state:'unreachable', dot:_termSessionPillHtml(session, 0).includes('class="sess-activity sess-working"'),
-    tooltip:JSON.parse(_termSessionTooltipPayload(session)).working === true, label:true});
+    tooltip:JSON.parse(_termSessionTooltipPayload(session)).working === true,
+    label:_termSessionPillHtml(session,0).includes(' · Working')});
 }
 console.log(JSON.stringify({rows}));
 """)
     for row in result['rows']:
         assert not row['dot']
-        assert row['label'] == row['tooltip'] == (row['state'] in {'working', 'waiting', 'unreachable'})
+        assert not row['label'] and not row['tooltip']
 
 
 def test_vault_view_opens_shared_home_terminal_scope() -> None:

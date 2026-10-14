@@ -3,6 +3,22 @@
 User-facing changes to Lab are recorded here alongside updates to the user
 guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 
+## 2026-10-14
+
+### Agents explicitly report terminal status
+
+- Added `lab notifications working|attention|finished [message]` to set the
+  calling Lab tmux terminal's indicator, with aliases `wip`, `input` and `review`.
+  The launch context and `lab context` instruct agents when to report each state.
+- Terminal tabs show steady yellow for working, pulsing red for attention and
+  blinking green for finished, with status details on hover. Only green clears
+  on a tab/green-dot click; yellow and red require a new agent report. These
+  indicators send no desktop notifications, pop-ups, sounds or messages.
+- Removed silence/output-based completion estimation from indicators and stopped
+  capturing pane output for that purpose. Existing provider events no longer
+  drive the dots. Reports follow the exact tmux session/socket and survive Lab
+  backend restarts; shared workspace indicators prioritize attention.
+
 ## 2026-10-13
 
 ### Named terminal tabs show only their saved names

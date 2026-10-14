@@ -260,13 +260,12 @@ def test_attention_includes_inactive_and_shared_workspaces_without_summaries(cli
     name = session()
     link_terminal(client, note)
     link_document(client, root, note)
-    def enrich(rows):
-        for row in rows:
-            row['agent_activity'] = {'state':'completed','completed_at':1234,'completion_id':'done'}
-    monkeypatch.setattr(agent_activity, 'enrich', enrich)
+    live[0]['terminal_status'] = {'version':1,'state':'attention','message':'Please review','revision':1,'id':'event'}
+    monkeypatch.setattr(agent_activity, 'enrich', lambda rows: pytest.fail('indicators must not scan transcripts'))
     data = client.get('/api/workspace-documents/attention').json()
     assert data['client::demo'][0]['name'] == name
-    assert data['__assistant__::__assistant__'][0]['agent_activity']['state'] == 'completed'
+    assert data['__assistant__::__assistant__'][0]['terminal_status'] == live[0]['terminal_status']
+    assert data['client::demo'][0]['terminal_status'] == live[0]['terminal_status']
     assert 'cwd' not in data['client::demo'][0]
 
 
@@ -301,7 +300,7 @@ def test_native_copilot_activity_reaches_terminal_and_shared_workspace_apis(
     attention = client.get('/api/workspace-documents/attention').json()
     for scope in ('client::demo', 'client::other', '__assistant__::__assistant__'):
         assert attention[scope][0]['name'] == name
-        assert attention[scope][0]['agent_activity'] == row['agent_activity']
+        assert 'agent_activity' not in attention[scope][0], 'provider state must not drive indicators'
 
 
 @pytest.mark.parametrize('agent', ['codex', 'claude', 'copilot'])

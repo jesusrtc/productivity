@@ -26,6 +26,9 @@ def test_context_reads_packaged_topics_without_workspace(tmp_path, monkeypatch):
         assert len(result.output) > 100
     overview = agent_context.read_context()
     assert 'take precedence' in overview and 'lab context user-guide' in overview
+    assert 'lab notifications working' in overview
+    assert 'lab notifications attention' in overview
+    assert 'lab notifications finished' in overview
     assert '<details>' in agent_context.read_context('user-guide')
     assert 'lab context notebooks' in agent_context.read_context('user-guide')
     for doc in agent_context.documentation():

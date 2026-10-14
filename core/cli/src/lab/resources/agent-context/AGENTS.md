@@ -25,3 +25,25 @@ Use `lab --help` to discover commands. Use `lab` for managed metadata; never
 hand-edit workspace.json, tasks.json or .index.json. Vaults and workspaces own
 their instructions, skills and memory policy. Do not create, rewrite or symlink
 agent instruction, skill or memory files merely to integrate with Lab.
+
+## Report terminal status
+
+Inside a Lab tmux terminal, explicitly report your state with these commands:
+
+- `lab notifications working "Short description"` when starting or resuming work.
+- `lab notifications attention "What you need from the user"` before yielding
+  for input, approval, or review that requires the user's attention.
+- `lab notifications finished "What was completed"` immediately before the final
+  response once the requested work is finished.
+
+These only set the terminal's dot and hover text: steady yellow for working,
+pulsing red for attention, blinking green for finished. They send no pop-ups or
+external messages. Report transitions, not every tool call. The command resolves
+its own tmux session; never guess another terminal's name. If TMUX/TMUX_PANE are
+absent, skip reporting rather than targeting another session. If reporting fails,
+continue the user's work and mention the failure when relevant.
+
+Only finished clears on an explicit tab or green-dot click. Working and attention
+remain until you explicitly report a different state; resuming after input must
+report working. Silence, output, interruptions and provider events never imply
+finished. A status report does not change task status or check off requirements.

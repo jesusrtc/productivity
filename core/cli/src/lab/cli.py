@@ -21,6 +21,7 @@ _COMMANDS = {
     'app': ('app', 'app_group'),
     'task': ('task', 'task_group'),
     'terminal': ('terminal', 'terminal_group'),
+    'notifications': ('notifications', 'notifications_cmd'),
     'pr': ('pr', 'pr_group'),
     'artifact': ('artifact', 'artifact_group'),
     'link': ('link', 'link_group'),

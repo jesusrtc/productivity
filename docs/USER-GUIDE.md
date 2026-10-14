@@ -200,9 +200,11 @@ Hovering over the vertical terminal rail reveals titles beside the existing
 icons. Icon sizes, row heights, colored markers and green review controls
 stay in place. Renewal (**↻**) appears beside the title only when terminal titles
 are visible. It hides again when the rail collapses; task emojis and custom icons
-remain visible. Terminal tabs omit task-status dots and yellow activity dots;
-status remains in hover and accessible labels. Green results still wait for
-an explicit tab or green-dot click to be reviewed.
+remain visible. Agent-reported terminal status uses a steady yellow dot for
+working, a pulsing red dot for attention, and a blinking green dot for finished.
+Hover shows the status and the agent's short message. Only green clears on an
+explicit tab or green-dot click; yellow and red change only when the agent
+reports a different state. Task-status dots remain omitted.
 
 Objective task terminal tabs appear by default only while the task is **In
 progress**. Paused, Not started, Completed and Won’t do tasks stay hidden even
@@ -221,6 +223,46 @@ The Objective main row is labeled **Main**. Named terminal tabs show the saved
 name alone, such as **ASTA CLI**, without extra workspace, folder or **main**
 labels. Their colored location markers retain the folder details in hover
 tooltips. An unnamed worktree terminal can use its worktree as its fallback name.
+
+## Report terminal status explicitly
+
+Agents set the existing terminal indicator from inside their Lab tmux terminal:
+
+```bash
+lab notifications working "Implementing the changes"
+lab notifications attention "Preview ready; please review the layout"
+lab notifications finished "Changes complete; checks passed"
+```
+
+`wip` is an alias for `working`; `input` and `review` are aliases for `attention`.
+The optional message appears on hover and is limited to 500 characters. These
+commands produce no desktop notifications, pop-ups, sounds or external messages.
+They discover the calling pane's session on its own tmux socket, including a
+socket that is draining after rotation. Outside a Lab tmux terminal the command
+fails clearly without guessing a destination.
+
+The agent must report working when starting or resuming, attention before
+handing control back for needed input/approval/review, and finished immediately
+before its final response when the requested work is complete. This instruction
+is included in the launch context and `lab context`. Existing sessions need to
+read the updated context, or receive it via **Drag context to terminal**.
+
+Status is the latest explicit report. Quiet output, elapsed time, terminal
+redraws and provider transcript events never change it. An unreported terminal
+has no status dot. Clicking a yellow or red tab opens it without clearing its
+state. Clicking a green tab, including the selected tab, resets its indicator;
+keyboard activation and direct green-dot review do the same. A new report
+replaces the old state. Merely viewing, hovering or restoring a tab never
+acknowledges green. Reduced-motion mode uses steady colored dots.
+
+Reports live with the tmux session and survive browser and Lab backend restarts;
+a newly created session starts without a report. Acknowledgements persist in
+browser storage and are shared across that browser's Lab windows and document
+views. Separate browser profiles acknowledge independently. Workspace tabs
+aggregate attention before working before finished; a workspace green click
+reviews its finished terminals and cannot clear working or attention.
+Status does not complete tasks or checklist requirements. If an agent cannot
+report, Lab retains its last reported state rather than inventing a finish.
 
 ## Change metadata through Lab
 
