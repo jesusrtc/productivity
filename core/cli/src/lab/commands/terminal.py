@@ -8,7 +8,7 @@ import uuid
 
 import click
 
-from lab import tmux_sockets
+from lab import tmux_sockets, terminal_context, terminal_status
 
 
 def _run(socket_name: str, *args: str) -> subprocess.CompletedProcess[str]:
@@ -58,7 +58,23 @@ def _retire_empty_draining(
 
 @click.group("terminal")
 def terminal_group() -> None:
-    """Manage Lab's rolling tmux transport."""
+    """Manage terminal LLM control and Lab's rolling tmux transport."""
+
+
+@terminal_group.command('llm')
+@click.option('--off', is_flag=True, help='Return this terminal to ordinary shell input behavior.')
+def llm(off: bool) -> None:
+    """Mark the calling Lab terminal as LLM-controlled, including manual launches.
+
+    Idempotent; does not change its working/attention/finished report.
+    """
+    try:
+        terminal = terminal_context.current()
+        if off or terminal.option(terminal_status.LLM_OPTION) not in ('1', 'claude', 'codex', 'copilot'):
+            terminal.set_option(terminal_status.LLM_OPTION, '0' if off else '1')
+    except terminal_context.TerminalContextError as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.echo(f'{terminal.name}: ' + ('ordinary terminal' if off else 'LLM-controlled'))
 
 
 @terminal_group.command("status")

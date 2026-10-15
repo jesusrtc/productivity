@@ -14511,12 +14511,15 @@
   }
   window.termOpenRequestHistory = termOpenRequestHistory;
 
+  window.termInputStatus = (name, data) => window.LabTerminalCompletion?.input?.(_termSessionMeta(name), data);
+
   function _termRequestSubmitted(name, workspaceId, data) {
+    const session = _termSessionMeta(name);
+    window.LabTerminalCompletion?.input?.(session, data);
     const commands = _termRequestCommandInput(name, data);
     // Enter signals a possible submission. Read the accepted provider message
     // rather than reconstructing text from editable input or pasted newlines.
     if (!data.endsWith('\r') || data.includes('\x1b[200~')) return;
-    const session = _termSessionMeta(name);
     if (!['claude','codex','copilot'].includes(session?.agent)) return;
     const context = {name, workspace_id:workspaceId};
     const vault = _termVaultId();
@@ -14662,6 +14665,7 @@
     const reviewed = window.LabTerminalCompletion?.details?.(s);
     const working = _termSessionIsWorking(s);
     return JSON.stringify({items: _termPreviewRequests(_termSessionRequests(s)),
+      ...(window.LabTerminalCompletion?.isLLM?.(s) ? {llm_controlled:true} : {}),
       ...(working ? {working: true} : {}),
       ...(completion ? {completion: completion.label, status: completion.state} : {}),
       ...(reviewed?.reviewed ? {completion:'Finished · Reviewed by click' + (reviewed.report.message ? ' · '+reviewed.report.message : '')} : {}),
@@ -14854,7 +14858,7 @@
     const availableWidth = boundary - gap * 2;
     // Never flip above/below or into the terminal. A full-width terminal may
     // leave no usable space on the left; its selected header still has history.
-    if ((!latest.length && !identityHtml && !completion && !working) || availableWidth < 120) {
+    if ((!latest.length && !identityHtml && !completion && !working && !payload.llm_controlled) || availableWidth < 120) {
       _termHideSessionTooltip();
       return;
     }
@@ -14865,6 +14869,7 @@
       tooltip._termInteractive = true;
     }
     tooltip.innerHTML = `
+      ${payload.llm_controlled ? '<div class="term-context-identity">LLM-controlled</div>' : ''}
       ${working && !completion ? '<div class="term-working-summary">Working</div>' : ''}
       ${completion ? `<div class="${statusClass}">${termSessEsc(completion)}</div>` : ''}
       ${identityHtml ? `<div class="term-context-identity">${identityHtml}</div>` : ''}

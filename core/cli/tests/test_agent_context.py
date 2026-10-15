@@ -305,7 +305,7 @@ def test_launch_records_the_context_actually_supplied_and_rolls_back_failed_exec
     monkeypatch.setenv('PATH', str(binaries))
     monkeypatch.setenv('TMUX', '/tmp/owned,socket,123,0')
     monkeypatch.setenv('TMUX_PANE', '%42')
-    marker = ['old']
+    marker = {agent_context.CONTEXT_VERSION_OPTION:'old', '@lab_llm':'0'}
     def tmux(socket, *args):
         assert socket == '/tmp/owned,socket'
         if args[0] == 'display-message':
@@ -313,14 +313,15 @@ def test_launch_records_the_context_actually_supplied_and_rolls_back_failed_exec
             return '$7\tneurona-owned'
         assert args[args.index('-t')+1] == '$7'
         if args[0] == 'set-option':
-            marker[0] = args[-1]
-        return marker[0]
+            marker[args[-2]] = args[-1]
+        return marker.get(args[-1], '')
     monkeypatch.setattr(terminal_context, 'tmux', tmux)
     def execute(binary, argv, env):
         guide = (json.loads(argv[2].split('=', 1)[1]) if agent == 'codex'
                  else argv[2] if agent == 'claude' else env['LAB_AGENT_CONTEXT'])
-        assert f'Lab context version: {marker[0]}.' in guide
-        assert marker[0] == env['LAB_AGENT_CONTEXT_VERSION']
+        assert f'Lab context version: {marker[agent_context.CONTEXT_VERSION_OPTION]}.' in guide
+        assert marker[agent_context.CONTEXT_VERSION_OPTION] == env['LAB_AGENT_CONTEXT_VERSION']
+        assert marker['@lab_llm'] == agent
         assert 'You are in Lab terminal `neurona-owned`, pane `%42`' in guide
         assert 'run `lab context update` before other tools' in guide
     monkeypatch.setattr(os, 'execvpe', execute)
@@ -332,10 +333,12 @@ def test_launch_records_the_context_actually_supplied_and_rolls_back_failed_exec
         monkeypatch.setattr(os, 'execvpe', lambda *args: None)
         result = CliRunner().invoke(main, ['agents', 'run', agent, '--', '--resume', 'old',
                                           '--system-prompt-snapshot', 'on'])
-        assert result.exit_code == 0 and marker[0] == ''
-    marker[0] = 'previous'
+        assert result.exit_code == 0 and marker[agent_context.CONTEXT_VERSION_OPTION] == ''
+    marker[agent_context.CONTEXT_VERSION_OPTION] = 'previous'
+    marker['@lab_llm'] = '0'
     def fail(*args):
         raise OSError('cannot execute provider')
     monkeypatch.setattr(os, 'execvpe', fail)
     result = CliRunner().invoke(main, ['agents', 'run', agent])
-    assert result.exit_code != 0 and marker[0] == 'previous'
+    assert result.exit_code != 0 and marker[agent_context.CONTEXT_VERSION_OPTION] == 'previous'
+    assert marker['@lab_llm'] == '0'

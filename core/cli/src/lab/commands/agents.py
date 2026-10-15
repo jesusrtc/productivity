@@ -5,7 +5,7 @@ from pathlib import Path
 
 import click
 
-from lab import agent_context, agentsync, paths, terminal_context
+from lab import agent_context, agentsync, paths, terminal_context, terminal_status
 from lab.commands.context import context_cmd
 
 
@@ -40,7 +40,7 @@ def run(vault: Path | None, workspace_id: str | None, objective_id: str | None,
         env['LAB_CONTEXT_OBJECTIVE'] = objective_id
     try:
         argv, env = agent_context.prepare_launch(agent, list(args), env=env)
-        terminal, previous = None, ''
+        terminal, previous, previous_llm = None, '', ''
         try:
             # An explicitly retained Claude snapshot may still contain old
             # context. Leave its first update pending instead of claiming it
@@ -48,8 +48,10 @@ def run(vault: Path | None, workspace_id: str | None, objective_id: str | None,
             snapshot = agent == 'claude' and any(arg.startswith('--system-prompt-snapshot') for arg in args)
             terminal = terminal_context.current(env)
             previous = terminal.option(agent_context.CONTEXT_VERSION_OPTION)
+            previous_llm = terminal.option(terminal_status.LLM_OPTION)
             terminal.set_option(agent_context.CONTEXT_VERSION_OPTION,
                                 '' if snapshot else env['LAB_AGENT_CONTEXT_VERSION'])
+            terminal.set_option(terminal_status.LLM_OPTION, agent)
         except terminal_context.TerminalContextError:
             # Non-tmux launches remain supported. A failed marker is retried by
             # the agent's first context update rather than blocking the launch.
@@ -60,6 +62,7 @@ def run(vault: Path | None, workspace_id: str | None, objective_id: str | None,
             if terminal:
                 try:
                     terminal.set_option(agent_context.CONTEXT_VERSION_OPTION, previous)
+                    terminal.set_option(terminal_status.LLM_OPTION, previous_llm)
                 except terminal_context.TerminalContextError:
                     pass
             raise

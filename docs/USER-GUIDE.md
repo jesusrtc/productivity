@@ -222,8 +222,9 @@ are visible. It hides again when the rail collapses; task emojis and custom icon
 remain visible. Agent-reported terminal status uses a steady yellow dot for
 working, a pulsing red dot for attention, and a blinking green dot for finished.
 Hover shows the status and the agent's short message. Only green clears on an
-explicit tab or green-dot click; yellow and red change only when the agent
-reports a different state. Task-status dots remain omitted.
+explicit tab or green-dot click. Submitting an LLM message immediately shows
+yellow; the next agent report supplies the actual work status. Task-status dots
+remain omitted.
 
 Objective task terminal tabs appear by default only while the task is **In
 progress**. Paused, Not started, Completed and Won’t do tasks stay hidden even
@@ -247,6 +248,22 @@ tabs. Existing name/icon colors and folder details in hover tooltips remain.
 An unnamed worktree terminal can use its worktree as its fallback name.
 
 ## Report terminal status explicitly
+
+Lab agent launches mark their terminal **LLM-controlled** automatically. Agents
+started manually can run `lab terminal llm` in their own terminal; Lab also
+detects local Codex, Claude and Copilot processes during normal terminal refresh.
+The marker appears in hover details, without adding another dot or name badge.
+It persists for that tmux session. Run `lab terminal llm --off` after returning
+the terminal to ordinary shell use; launching through Lab opts in again.
+
+Submitting a message to an LLM-controlled terminal immediately turns its dot
+yellow. A response while red shows **Working - responded {response}**; other
+messages show **Working - submitted {message}**. The next agent report replaces
+this temporary message with its actual status. Draft typing and pasted multiline
+text do not start work until Enter submits it. Complex input editing uses a
+generic message when Lab cannot reconstruct the text. Ordinary shells keep their
+existing behavior. The immediate feedback persists and syncs between windows
+in the same browser profile; it does not write a fake agent report to tmux.
 
 Agents set the existing terminal indicator from inside their Lab tmux terminal:
 
@@ -272,9 +289,10 @@ the actual Lab terminal and pane when available. Execute the reporting commands;
 describing a status in prose does not set the dot. Existing sessions need to
 run `lab context update`, or receive it via **Drag context to terminal**.
 
-Status is the latest explicit report. Quiet output, elapsed time, terminal
-redraws and provider transcript events never change it. An unreported terminal
-has no status dot. Clicking a yellow or red tab opens it without clearing its
+Status follows the latest explicit report, with immediate yellow feedback for
+submitted LLM input. Quiet output, elapsed time, terminal redraws and provider
+transcript events never change it. A terminal without a report or submitted LLM
+input has no status dot. Clicking a yellow or red tab opens it without clearing its
 state. Clicking a green tab, including the selected tab, resets its indicator;
 keyboard activation and direct green-dot review do the same. A new report
 replaces the old state. Merely viewing, hovering or restoring a tab never

@@ -93,7 +93,11 @@
     const fit = new FitAddon.FitAddon(); terminal.loadAddon(fit); terminal.open(screen); fit.fit();
     const socket = state.socket = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws/term/${encodeURIComponent(result.name)}?cols=${terminal.cols}&rows=${terminal.rows}`);
     const send = message => { if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message)); };
-    state.input = terminal.onData(data => { used(state); send({type:'input',data}); });
+    state.input = terminal.onData(data => {
+      if (socket.readyState !== WebSocket.OPEN) return;
+      used(state); send({type:'input',data});
+      window.termInputStatus?.(result.name, data);
+    });
     // Keep native text selection while forwarding wheel gestures to tmux.
     // Otherwise mouse tracking consumes click/drag selection in the agent TUI.
     let wheel = 0;

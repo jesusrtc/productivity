@@ -94,10 +94,14 @@ combine them in one command, for example `npm run build && npm run dev`.
 An exited command prints its exit code and leaves an interactive shell with the
 logs retained. Automation tabs show their saved names with a left icon and
 default to ⏺ for child terminals. The rail honors custom task icons, including
-inherited icons. Ordinary task terminals use 💻. Small worktree markers stay
-in the corner. Agent-reported status uses steady yellow for working, pulsing red
+inherited icons. Ordinary task terminals use 💻. A single centered status dot
+sits between icon and name; location dots and Home/main badges are omitted.
+Agent-reported status uses steady yellow for working, pulsing red
 for attention and blinking green for finished; task-status dots remain omitted.
-Only green clears on a tab click. Hover shows the report and reveals names
+Only green clears on a tab click. LLM-controlled terminals also turn yellow
+immediately on submitted input; the next agent report supplies the real WIP text.
+`lab terminal llm` marks manual agent sessions; `--off` restores shell behavior.
+Hover shows LLM control, the report and reveals names
 without moving or resizing icons and controls. See
 [terminal status](terminal-completion.md) for commands and lifecycle rules. An active
 child stays visible along with its direct siblings and parent/grandparent path.

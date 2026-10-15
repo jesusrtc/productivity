@@ -1814,7 +1814,7 @@ def _tmux_list(
                         + ("|#{session_activity}|#{session_last_attached}|#{@lab_last_access}|#{session_id}" if activity else "")
                         + "|#{pane_id}|#{pane_dead}|#{window_panes}|#{window_activity}"
                         + "|#{pane_width}|#{pane_height}"
-                        + "|#{@lab_status}|#{session_id}"
+                        + "|#{@lab_status}|#{session_id}|#{@lab_llm}"
                     ),
                 ),
                 capture_output=True,
@@ -1877,6 +1877,10 @@ def _tmux_list(
             row['terminal_status'] = terminal_status.decode(parts[offset + 3]) if len(parts) > offset + 3 else None
             if len(parts) > offset + 4:
                 row['tmux_id'] = parts[offset + 4]
+            marker = parts[offset + 5] if len(parts) > offset + 5 else ''
+            row['llm_controlled'] = marker != '0' if marker in ('0', '1', *lab_settings.VALID_AGENTS) else None
+            if marker in lab_settings.VALID_AGENTS:
+                row['llm_provider'] = marker
         lab_rows_by_socket[socket_name] = lab_count
 
     empty_draining = {
@@ -2242,6 +2246,10 @@ def _session_rows_for_root(
     for name, info in live.items():
         fsguard.checkpoint()
         row = {**info, **meta.get(name, {}), "name": name}
+        if row.get('llm_provider'):
+            row['agent'] = row['llm_provider']
+        if row.get('llm_controlled') is None and row.get('agent') in lab_settings.VALID_AGENTS:
+            row['llm_controlled'] = True
         socket_name = str(
             row.get("tmux_socket") or tmux_sockets.DEFAULT_SOCKET
         )
@@ -2268,8 +2276,9 @@ def _session_rows_for_root(
 
 
 def _enrich_session_details(rows: list[dict]) -> None:
-    from core import agent_activity, terminal_requests
+    from core import agent_activity, terminal_requests, terminal_llm
 
+    terminal_llm.enrich(rows)
     _enrich_agent_session_names(rows)
     agent_activity.enrich(rows)
     for row in rows:
@@ -3598,6 +3607,7 @@ def create_session(body: NewSession, request: Request) -> dict:
     return {
         "name": tmux_name,
         **meta[tmux_name],
+        "llm_controlled": agent in lab_settings.VALID_AGENTS,
         "attach_command": _attach_command(tmux_name, socket_name),
     }
 

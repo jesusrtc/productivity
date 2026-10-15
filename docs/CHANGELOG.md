@@ -5,6 +5,17 @@ guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 
 ## 2026-10-15
 
+### Immediate feedback for messages to LLM terminals
+
+- Agent launches mark their terminal LLM-controlled. Added `lab terminal llm`
+  and `--off` for manual control; normal refresh also detects local Codex,
+  Claude and Copilot processes in the terminal's own process tree.
+- Submitted LLM messages immediately show yellow. Replies to red show
+  **Working - responded {response}** until the next agent report replaces the
+  temporary text. Drafts, multiline paste and ordinary shell input do not trigger it.
+- Hover and terminal diagnostics expose LLM control and pending submissions,
+  while retaining the single centered status dot and explicit green-click review.
+
 ### Terminal tabs keep only their status dot
 
 - Removed Home/folder badges, extra **main** prefixes and location/automation

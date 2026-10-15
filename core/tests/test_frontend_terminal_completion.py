@@ -1,4 +1,4 @@
-"""Agent reports alone drive status; only an explicit green click acknowledges."""
+"""Agent reports and submitted input drive status; green requires a review click."""
 import pytest
 from .test_frontend_terminal_ui import _run_node, ROOT
 
@@ -175,5 +175,64 @@ const diagnose=''' + action + r''';
  assert(row.in_sync&&row.report.state==='finished'&&row.reviewed_at&&row.reason==='reviewed-by-click'&&!row.indicator,'review reason retained with authoritative report');
  console.log(JSON.stringify({passed:true}));
 })();
+''')
+    assert result['passed']
+
+
+def test_llm_submission_is_immediate_survives_stale_refresh_and_yields_to_agent():
+    result = _run_node(CLOCK + MODULE + r'''
+const C=window.LabTerminalCompletion,s={...session('attention'),llm_controlled:true};
+C.input(s,'yes, ship it');
+assert(C.status(s).state==='attention','drafts do not resume work');
+C.input(s,'\r');
+assert(C.status(s).label==='Working - responded yes, ship it','response is immediate yellow');
+assert(C.details(s).reason==='user-submission'&&C.details(s).report.state==='attention','keep authoritative report inspectable');
+assert(!C.acknowledge('workspace',s),'yellow cannot be reviewed');
+assert(C.status({...s,terminal_status:null}).state==='working','missing/stale polls cannot restore red');
+''' + MODULE + r'''
+const D=window.LabTerminalCompletion;
+assert(D.status(s).label==='Working - responded yes, ship it','pending survives reload');
+s.terminal_status=report('working',2,'Deploying the change');
+assert(D.status(s).label==='Working · Deploying the change'&&!D.details(s).pending,'agent supplies actual work');
+s.terminal_status=report('finished',3);
+assert(D.status(s).state==='finished','agent can finish normally');
+D.input(s,'another job\r');
+assert(D.status(s).label==='Working - submitted another job','new work replaces green immediately');
+assert(!D.acknowledge('workspace',s,'event-3'),'old green click cannot clear pending submission');
+assert(D.status({...s,llm_controlled:false}).state==='finished','opting out removes temporary feedback');
+assert(D.status(s).state==='finished','re-enabling does not replay old submissions');
+s.terminal_status=report('attention',4,'Choose a branch');
+assert(D.status(s).state==='attention','next report replaces pending even if it needs more input');
+console.log(JSON.stringify({passed:true}));
+''')
+    assert result['passed']
+
+
+def test_llm_input_paste_edits_protocol_shells_and_control_markers():
+    result = _run_node(CLOCK + MODULE + r'''
+const C=window.LabTerminalCompletion;
+const shell={name:'shell',created:1};C.input(shell,'echo hi\r');
+assert(!C.status(shell),'ordinary shell submission has no effect');
+const off={...shell,agent:'codex',llm_controlled:false};C.input(off,'test\r');
+assert(!C.status(off),'explicit off overrides launch identity');
+const s={name:'agent',created:1,agent:'codex'};
+C.input(s,'\x1b[I\x1b[<64;10;10M\x1b[12;9R\x1b[?1;2c\r');
+assert(!C.status(s),'focus/mouse/terminal replies and empty enter do not start work');
+C.input(s,'\x1b[20');C.input(s,'0~first\r\nsecond');C.input(s,'\x1b[201~');
+assert(!C.status(s),'multiline paste is a draft');
+C.input(s,'\r');
+assert(C.status(s).label==='Working - submitted first second','enter after paste submits');
+s.terminal_status=report('attention',1);
+C.input(s,'yex\x7fs\x1b[D!\x1b[C\r');
+assert(C.status(s).label==='Working - responded ye!s','preview follows backspace and caret');
+s.terminal_status=report('attention',2);
+C.input(s,'\x1b[A\r');
+assert(C.status(s).label==='Working - responded','history uses generic text instead of guessing');
+s.terminal_status=report('attention',3);
+C.input(s,'/clear\r');assert(C.status(s).state==='attention','local clear is not agent work');
+C.input(s,'draft\x03');C.input(s,'\r');
+assert(C.status(s).label==='Working - responded','enter accepts an attention prompt without inventing text');
+assert(!C.status({...s,tmux_id:'$new',terminal_status:null}),'another incarnation cannot inherit pending input');
+console.log(JSON.stringify({passed:true}));
 ''')
     assert result['passed']

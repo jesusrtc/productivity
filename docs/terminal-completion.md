@@ -1,8 +1,9 @@
 # Agent-reported terminal status
 
-Terminal indicators show only the agent's latest explicit report. Lab does not
+Terminal indicators show the agent's latest explicit report, with immediate
+yellow feedback when the user submits a message to an LLM terminal. Lab does not
 infer working or finished from output, silence, a quiet deadline or provider
-transcripts. Terminals without a report have no dot.
+transcripts. Terminals without a report or submitted LLM message have no dot.
 
 | Command | Indicator | Clears on click? |
 | --- | --- | --- |
@@ -34,10 +35,38 @@ instructions once with `lab context update` or the context reader's drag-to-term
 older loaded instructions cannot trigger a check they do not yet describe.
 Outside a Lab tmux terminal, skip reporting; never choose another session by guess.
 
-Working and attention remain until replaced by an agent report. Silence, output,
+Working and attention remain until replaced by an agent report or submitted LLM
+input (yellow). Silence, output,
 clicks, focus changes, lost connections and interrupted turns do not clear them.
 A report describes the agent's state, not a test-quality judgment, and never
 changes task status or completes checklist items.
+
+## LLM control and submitted input
+
+`lab agents run` marks the exact calling tmux session with `@lab_llm` before
+executing the provider, restoring the previous value if execution fails. Agents
+started manually should run `lab terminal llm`; the server also recognizes local
+Codex, Claude and Copilot processes under that pane's process tree during normal
+refresh. It checks executable/script identity, never prompt text. A detected
+provider is retained with the session marker; no workspace metadata is rewritten.
+Existing Lab agent tabs are treated as controlled. Explicit `lab terminal llm
+--off` overrides detection and old launch identity until re-enabled. The marker
+lasts for the tmux session and is exposed in hover/diagnostics, without another dot.
+
+Only input actually sent through an open terminal connection is observed. Enter
+submits; bracketed paste, typing, mouse reports, terminal replies and focus alone
+do not. An LLM submission immediately shows **Working - submitted {message}**;
+when answering red it shows **Working - responded {response}**. Simple editing
+is tracked for the bounded hover preview. Unknown edits/history use generic text
+instead of guessing. Local `/clear` and `/new` commands do not start work.
+
+This temporary state is stored separately from the raw agent report and shared
+across windows in the same browser profile. Stale/missing report polls cannot
+restore red or green; the next newer agent report replaces the temporary state.
+Separate browser profiles only share the tmux report. Unsent drafts stay in memory.
+`lab ui terminal-status` exposes `llm_controlled`, `pending` and the
+`user-submission` reason alongside the authoritative report. Submitting input
+does not acknowledge a finished report, and stale green clicks cannot clear yellow.
 
 ## Review and shared views
 

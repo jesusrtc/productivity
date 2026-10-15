@@ -23,3 +23,7 @@ Workspace indicators prioritize attention, then working, then finished.
 This supersedes the status inference in terminal-activity-verifies-content.md
 and terminal-output-quiet-period-and-review.md; explicit green-click review is
 retained. Native tests must use isolated disposable tmux sessions and browsers.
+
+The October 15 explicit-input exception is documented in
+[LLM submissions show working immediately](llm-submissions-show-working-immediately.md):
+submitting an LLM message immediately shows yellow until the next agent report.

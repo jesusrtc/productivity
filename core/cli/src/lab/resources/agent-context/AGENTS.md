@@ -48,6 +48,12 @@ agent instruction, skill or memory files merely to integrate with Lab.
 
 ## Report terminal status
 
+At the start of an agent session inside a Lab tmux terminal, run
+`lab terminal llm` to mark it LLM-controlled, including when started manually
+from a shell. This command is idempotent; Lab launches already set the marker.
+It does not report working or finished. `lab terminal llm --off` restores
+ordinary shell behavior when the terminal is no longer used for an agent.
+
 Inside a Lab tmux terminal, explicitly report your state with these commands:
 
 - `lab notifications working "Short description"` when starting or resuming work.
@@ -66,7 +72,9 @@ Outside a Lab tmux terminal, skip reporting. If a sandbox blocks the tmux socket
 use the tool's normal approval mechanism for the same command. If reporting still
 fails, continue the user's work and mention the failure when relevant.
 
-Only finished clears on an explicit tab or green-dot click. Working and attention
-remain until you explicitly report a different state; resuming after input must
-report working. Silence, output, interruptions and provider events never imply
+Only finished clears on an explicit tab or green-dot click. Submitting a message
+in an LLM-controlled terminal immediately shows yellow; a response to red shows
+`Working - responded {response}` until your next report. Still report working
+with the actual task when resuming. Other working/attention transitions require
+an explicit report. Silence, output, interruptions and provider events never imply
 finished. A status report does not change task status or check off requirements.
