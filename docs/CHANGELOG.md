@@ -5,6 +5,18 @@ guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 
 ## 2026-10-15
 
+### Asset links automatically dock in the central work area
+
+- Ordinary external asset clicks now try to align their real Chrome window
+  over Lab's central column, with Detach, Back to Lab and Close popup controls.
+  Sidebar and terminal sizing updates the reserved area; documents retain drafts.
+- Permission errors, unavailable helpers and slow setup preserve the requested
+  site as a regular pop-out and show a closable alert with a Settings shortcut.
+  Blocked pop-ups offer a direct retry; stale attempts cannot replace a newer dock.
+- Added **Settings → Global → Window docking** with an immediate per-browser
+  automatic docking switch and explicit native permission/setup checks. Modified
+  clicks still open tabs. This supersedes the earlier demo-only default.
+
 ### Immediate feedback for messages to LLM terminals
 
 - Agent launches mark their terminal LLM-controlled. Added `lab terminal llm`

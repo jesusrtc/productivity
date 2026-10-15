@@ -59,18 +59,17 @@
   function label(link) { return link.label || link.title || serviceFor(link)?.name || typeName(link) || link.url || 'Document'; }
   function linkTitle(link) {
     if (link.unavailable) return link.error;
-    const destination = link.kind === 'external' ? 'Opens in a pop-out over Lab · ' : '';
+    const destination = link.kind === 'external' ? 'Opens docked over Lab when available · ' : '';
     return destination + (serviceFor(link)?.name || typeName(link) || 'Link') + ' · ' + (link.title || link.url || label(link));
   }
-  // Navigation callers retain this hook; independent pop-outs stay open when
-  // the user switches Lab documents, workspaces or terminals.
-  function closeExternal() {}
+  // Release alignment on navigation; the independent website stays open.
+  function closeExternal() { window.LabWindowDock?.detach(); }
   function openExternal(link, path, {isCurrent = () => true} = {}) {
     if (!isCurrent()) return false;
     let url;
     try { url = new URL(link.url); } catch { return false; }
     if (!['http:', 'https:'].includes(url.protocol)) return false;
-    return window.LabExternalLinks.open(url.href, {clientOnly:true, popup:true});
+    return window.LabExternalLinks.open(url.href, {clientOnly:true, popup:true, dock:true});
   }
   function tabs(tree, depth = 0) {
     return (tree?.children || []).flatMap(row => [{id:row.id, title:'· '.repeat(depth) + row.title, name:row.title, depth}, ...tabs(row, depth + 1)]);

@@ -385,8 +385,9 @@ lab ui --client VIEW_ID key Escape
 Secondary-click an asset link and choose **Edit** to edit it in a modal over
 the current task/document. Sublinks and the Task assets dialog have the same
 action. Save preserves the asset's identity and task/terminal associations;
-close/Escape retains drafts. Normal link clicks open pop-out windows;
-Command/Ctrl-click opens browser tabs.
+close/Escape retains drafts. Normal asset link clicks try to dock a real
+Chrome window over the central work area; if unavailable, they open a regular
+pop-out with a dismissible setup message. Command/Ctrl-click opens browser tabs.
 
 URL assets also offer **Copy URL** and **Open in Chrome** in that menu,
 including sublinks and the Task assets dialog. Copy keeps the full saved URL,
@@ -405,36 +406,49 @@ may have run, so inspect before repeating it. API/CLI credentials stay local
 and owner-readable. See `lab context cli` for the full command/action map and
 browser-native permission limitations.
 
-## Try a real browser window docked over Lab (Mac prototype)
+## Dock asset windows in the central work area (Mac experiment)
 
-In a local macOS source checkout, open **Home → Objectives demo → Try docked
-window (Mac)**. This opt-in experiment reserves a panel and aligns one real
-Chrome popup over it. Normal task/resource links keep their existing pop-outs.
+Click an external asset link in an Objective, task or folder, including a
+sublink or its editor's **Open** button. Lab automatically tries to align a
+real Chrome popup over the central working area. The sidebar and terminal
+remain accessible, and the underlying document and unsaved drafts stay mounted.
+The website is a top-level page in your Chrome profile, with no iframe, opener
+or referrer. Command/Ctrl-click still opens a normal browser tab.
 
-Choose **Enable window control**, then enable **Lab Window Dock** in macOS
-**Privacy & Security → Accessibility**. Return to Lab, choose **Check
-permission**, enter a URL and click **Dock**. The helper is compiled locally
-with Xcode Command Line Tools; no extension, proxy, browser profile changes or
-login item is installed. Sites load as top-level pages using the clicking
-Chrome profile, with no opener or referrer passed to the external page.
+Open **Settings → Global → Window docking** (or use the setup alert's
+**Window docking settings** button). **Automatically dock asset links** is on
+by default; switching it off immediately restores ordinary pop-outs in this
+browser. Docking requires local administrator access to Lab on macOS, Google
+Chrome, Xcode Command Line Tools and permission for **Lab Window Dock** under
+macOS **System Settings → Privacy & Security → Accessibility**. Choose
+**Enable window control**, enable that helper in macOS, then **Check
+permission**. Allow pop-ups for Lab in Chrome. These setup actions are explicit;
+clicking an asset does not request OS permission automatically.
 
-Try moving/resizing Lab and switching applications. **Detach** stops following
-and keeps the popup open; **Close popup** asks Chrome to close that popup.
-**Exit trial** detaches and removes the panel. Leaving the demo, refreshing Lab
-or losing its heartbeat releases the popup (within twelve seconds after the
-last heartbeat). The helper coordinates minimization and raises only when the
-owning Lab window becomes focused, never deliberately activating another app.
-Chrome's frame remains visible; stacking, focus, Spaces and movement smoothness
-are experimental, not equivalent to a native child window. This trial supports
-one popup per Lab view and is not enabled for remote clients.
+Missing permission, unavailable helpers, errors, small central areas and
+setup delays leave the site open as a regular pop-out. A closable alert explains
+the problem and links to settings. A blocked pop-up instead offers **Open site**
+and asks you to allow pop-ups. The initial docking attempt falls back after
+eight seconds; late helper responses cannot replace the current dock. If the
+connection later fails, Lab releases alignment and shows the same kind of alert.
 
-Agents can inspect/click `[data-window-dock-launch]`, `[data-dock-permission]`,
-`[data-dock-check]`, `[data-dock-start]`, `[data-dock-detach]` and
-`[data-dock-close]` with `lab ui --client VIEW_ID`. The native command endpoint
-is discoverable with `lab api describe POST /api/ui/window-dock`; it requires
-the local owner and Lab origin, and only controls explicitly marked windows.
-See [Window docking prototype](WINDOW-DOCK.md) for implementation, validation
-and removal details.
+**Detach** or **Back to Lab** restores the central area and keeps the website
+open independently. **Close popup** closes only the registered window. Opening
+another asset or navigating away releases the previous dock without closing its
+site. The reserved area follows sidebar and terminal sizing. Settings dialogs
+and inactive Lab tabs temporarily hide the docked popup; the helper restores it
+when appropriate. A lost browser heartbeat releases alignment within twelve
+seconds. Chrome's frame remains visible, and native stacking, focus, Spaces and
+movement smoothness remain experimental. Remote clients use ordinary pop-outs.
+
+The manual **Home → Objectives demo → Try docked window (Mac)** trial remains
+available. Agents can use `lab ui --client VIEW_ID` to click asset links, open
+Settings, toggle `[data-dock-auto]`, or use `[data-dock-permission]`,
+`[data-dock-check]`, `[data-dock-detach]`, `[data-dock-close]` and
+`[data-dock-alert-dismiss]`. The native endpoint is discoverable with
+`lab api describe POST /api/ui/window-dock`; it requires the exact Lab origin
+and a local administrator. See [Window docking](WINDOW-DOCK.md) for validation
+and separate rollback instructions for automatic docking and the original trial.
 
 ## Tasks, subtasks and action items
 

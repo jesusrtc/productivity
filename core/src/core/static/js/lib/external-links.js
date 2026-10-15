@@ -44,11 +44,13 @@
     return `popup,width=${width},height=${height},left=${left},top=${top},noopener,noreferrer`;
   }
 
-  async function open(value, {clientOnly = false, reuseTab = false, popup = false} = {}) {
+  async function open(value, {clientOnly = false, reuseTab = false, popup = false, dock = false} = {}) {
     const url = webUrl(value);
     if (!url) return false;
     if (popup) {
-      window.open(url.href, '_blank', popupFeatures());
+      const features = popupFeatures();
+      if (dock && window.LabWindowDock?.openAsset(url.href, features)) return true;
+      window.open(url.href, '_blank', features);
       // noopener returns no handle even when opening succeeds.
       return true;
     }

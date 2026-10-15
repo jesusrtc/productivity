@@ -764,7 +764,7 @@
   function openLinkUrl(url,event=null) {
     if(!validLinkUrl(url)){notify('Use a full http or https URL.',true);return;}
     const browserTab=event&&(event.metaKey||event.ctrlKey||event.shiftKey||event.button===1);
-    void window.LabExternalLinks?.open(url,{clientOnly:true,popup:!browserTab});
+    void window.LabExternalLinks?.open(url,{clientOnly:true,popup:!browserTab,dock:true});
   }
   function linkPropertiesHtml(d) {
     return d.properties.map((p,i)=>`<div class="objective-link-property" data-link-property="${i}"><input aria-label="Property ${i+1} name" data-link-property-name maxlength="80" placeholder="Property" value="${esc(p.name)}"><textarea aria-label="Property ${i+1} value" data-link-property-value rows="1" placeholder="Value">${esc(p.value)}</textarea><button type="button" data-remove-link-property="${i}" aria-label="Remove property ${i+1}">×</button></div>`).join('')||'<p class="objective-purpose">No properties yet.</p>';

@@ -100,7 +100,7 @@ window.prepare=async()=>{
  const draft=document.querySelector('.assistant-note-editor textarea');
  draft.value='Keep unsaved document draft';draft.dispatchEvent(new Event('input',{bubbles:true}));
  window.originalDraft=draft;window.originalGuard=AssistantView.navigationGuard();window.originalCalls=calls.length;
- assert(links.querySelector('[data-scope-link="1"]').title.startsWith('Opens in a pop-out over Lab'),'destination hint');
+ assert(links.querySelector('[data-scope-link="1"]').title.startsWith('Opens docked over Lab when available'),'destination hint');
 };
 window.verify=()=>{
  assert(originalGuard(),'pop-out preserves pending document navigation');

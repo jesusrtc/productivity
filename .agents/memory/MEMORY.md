@@ -1,5 +1,7 @@
 # Memory index
 
+- [Asset links automatically dock with fallback](asset-links-auto-dock-with-fallback.md) — central-area native windows on asset clicks, ordinary pop-outs on failure, closable setup alerts and a per-browser setting; supersedes demo-only defaults.
+
 - [Window docking trial is opt-in](window-dock-trial-is-opt-in.md) — real Chrome popup alignment in the demo, explicit native permission and one independently revertible commit; normal links remain unchanged.
 
 - [Terminal tabs show only saved names](terminal-tabs-show-only-saved-names.md) — no workspace/folder/main text beside custom names such as ASTA CLI; retain location markers and tooltip details.

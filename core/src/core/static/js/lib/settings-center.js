@@ -5,7 +5,7 @@
   const labels = {claude:'Claude Code',codex:'Codex',copilot:'Copilot',terminal:'Terminal',attach:'Attach tmux session'};
   const globalScope = {key:'global',label:'Global',kind:'global'};
   const sections = scope => scope.kind === 'global'
-    ? [['general','General'],['projects','Projects and worktrees'],['links','Links and icons'],['appearance','Appearance'],['terminals','Terminal appearance'],['documents','Document terminals']]
+    ? [['general','General'],['projects','Projects and worktrees'],['links','Links and icons'],['docking','Window docking'],['appearance','Appearance'],['terminals','Terminal appearance'],['documents','Document terminals']]
     : [['general','Agent'],['terminals','Terminal sessions'],['automations','Terminal automations'],['files','File sidebar']];
   const esc = value => String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   let state = null;
@@ -66,6 +66,7 @@
     s.dialog.querySelector('[data-scope-caption]').textContent=scope.kind==='global'?'Defaults for the entire Lab':scope.path||'';
     const panel=s.dialog.querySelector('[data-panel]'); panel.innerHTML='<p class="settings-hint">Loading…</p>';
     try {
+      if (section==='docking') { window.LabWindowDock?.renderSettings(panel); return; }
       if (!s.config) await s.ready;
       if (s!==state||token!==s.version) return;
       if (section==='general') await general(panel,scope,s,token);
@@ -357,6 +358,8 @@
     dialog.addEventListener('click',event=>{if(event.target===dialog)close();});
     dialog.querySelector('[data-search]').oninput=nav;
     s.ready=Promise.all([api('/api/settings/global',undefined,s.abort.signal),api('/api/agents/available',undefined,s.abort.signal)]).then(([config,available])=>{s.config=config;s.available=available;});
+    // Docking setup is local and can render before unrelated settings APIs resolve.
+    void s.ready.catch(() => {});
     void select(s.scope,s.section,true);
     try {
       const catalog=await api('/api/vaults/workspaces',undefined,s.abort.signal);
