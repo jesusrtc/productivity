@@ -195,3 +195,68 @@ const termUpdateTabGroup=()=>{groupCollapsed=false;termRenderSessionList();};
     assert 'id="termNotifications"' not in panel
     html = '<!doctype html><meta charset="utf-8"><style>:root{--red:#f85149;--green:#3fb950;--yellow:#d29922;--bg-secondary:#161b22;--text-primary:#c9d1d9;--border:#30363d;--term-width:400px;}</style><style>'+css+'</style><body><div class="workspace-tab" data-kind="workspace" data-workspace-id="demo" data-vault="owner"><button class="x">×</button></div><div class="workspace-tab" data-kind="productivity"></div><div class="workspace-tab" data-kind="assistant"></div><div class="term-panel"'+panel+'<div id="termNotifications" class="term-notifications"></div><script>'+setup+NAV_SETUP+MODULE+NOTIFICATIONS+DOCUMENTS+NAVIGATION+checks+'</script>'
     _check_project_html(tmp_path, html, focused=True, screenshot=True)
+
+
+def test_notification_selects_owning_task_and_keeps_assets_accessible_in_chrome(tmp_path):
+    objectives = (ROOT / 'core/src/core/static/js/lib/workspace-objectives.js').read_text()
+    setup = r'''
+const assert=(ok,message)=>{if(!ok)throw Error(message)};
+const until=async fn=>{for(let i=0;i<100;i++){if(fn())return;await new Promise(r=>setTimeout(r,5));}throw Error('Timed out '+fn)};
+const report=(state,id)=>({version:1,state,id,revision:1,updated_at:Date.now()/1000,message:'Review this result'});
+const target={name:'secondary',logical_name:'secondary',session_id:'secondary',created:1,tmux_id:'$1',tmux_socket:'owned',workspace_id:'demo',vault:'owner',terminal_status:report('attention','red')};
+const primary={...target,name:'primary',logical_name:'primary',session_id:'primary',tmux_id:'$2',terminal_status:null};
+const child={...target,name:'child',logical_name:'child',session_id:'child',tmux_id:'$3',terminal_status:report('finished','green')};
+const task=(id,title)=>({id,title,children:[],status:'in_progress',done:false,document_id:'details',tab_id:id,assets:[{id:'review',resource_id:'review'}]});
+const nested=task('nested','Owning subtask'),parent=task('parent','Parent task');parent.children=[nested];
+const objective=(id,tasks)=>({id,name:id,path:'/workspace/'+id,purpose:'',color:'#58a6ff',tasks,resources:[{id:'details',kind:'document',title:'Task details',path:id+'/details.md',content:{tabs:[parent,nested].map(t=>({id:t.id,title:t.title,body:'Task specification'}))}},{id:'review',kind:'document',title:id+' review asset',path:id+'/review.md',content:{body:'Review material'}}],worktrees:[],shared_assets:[],archived_assets:[],trashed_assets:[]});
+const fixture={enabled:true,revision:'one',focused:['other','owning'],objectives:[objective('other',[task('nested','Wrong task')]),objective('owning',[parent])],terminal_links:{
+ primary:{objective_id:'owning',task_id:'nested'},
+ secondary:{objective_id:'owning',task_id:'nested',primary:false,asset:{objective_id:'owning',folder:{root:'/workspace/owning',path:'.'}}}
+}};
+window.fetch=async()=>({ok:true,json:async()=>structuredClone(fixture)});
+window.marked={};window.DOMPurify={};
+window.LabMarkdownEditor={create:(node,options)=>{node.textContent=options.body;return {value:options.body,destroy(){},focus(){}}}};
+const errors=[],activated=[],created=[];let fileRoot='/workspace';
+window.addEventListener('error',e=>errors.push(e.message));window.addEventListener('unhandledrejection',e=>errors.push(String(e.reason)));
+'''
+    checks = r'''
+(async()=>{try{
+ const O=LabObjectives,N=LabTerminalNotifications,C=LabTerminalCompletion;
+ O.connect({context:()=>({...scope,path:'/workspace'}),scopeRoot:()=>fileRoot,selectWorktree:row=>{fileRoot=row.path},
+  refreshTabs:()=>document.getElementById('tabs').innerHTML=O.tabsHtml('/workspace'),prepareCenter:()=>{},
+  sessions:()=>termSessions,parentTerminal:s=>s.name==='child'?primary:null,
+  activateLinkedTerminal:ids=>activated.push(ids),createTaskTerminal:()=>created.push(true)});
+ refresh=async()=>{termSessions=[primary,target,child];};await refresh();
+ await O.load();O.selectObjective('owning',{activateTerminal:false});O.openTask('nested');
+ O.openForTerminal(target);
+ assert(!O.terminalLaunchContext().task,'ordinary linked-folder navigation enters worktree browsing');
+ N.configure({open:_termOpenNotification,label:row=>row.session.logical_name,error:message=>errors.push(message)});
+ N.update({'owner::demo':[target,child]});
+ const open=async s=>{const button=[...document.querySelectorAll('.term-notification')].find(node=>node.dataset.key===C.key(s));assert(button,'notification exists');button.click();await until(()=>termCurrentSession===s.name&&!document.querySelector('.term-notification:disabled'));};
+ const checkTask=()=>{
+  const context=O.terminalLaunchContext();
+  assert(context.id==='owning'&&context.task?.id==='nested','owning Objective and exact nested task are selected');
+  assert(document.querySelector('#tabs [data-current-objective]')?.textContent.includes('Owning subtask'),'task is selected in the top navigation');
+  assert(document.querySelector('[data-objective-bucket="task"]')?.textContent.includes('owning review asset'),'owning task assets stay available');
+  assert(!activated.length&&!created.length,'notification never switches to the primary or creates a terminal');
+ };
+ await open(target);checkTask();
+ assert(termCurrentSession==='secondary'&&C.status(target).state==='attention','red selects exact non-primary terminal without clearing attention');
+ const asset=document.querySelector('[data-objective-bucket="task"] [data-objective-resource="review"]');
+ assert(asset,'task review asset is clickable');asset.click();
+ assert(document.getElementById('content').textContent.includes('Review material'),'task asset can actually be opened');
+ checkTask();
+ fixture.terminal_links.secondary.asset={objective_id:'other',resource_id:'review'};fixture.revision='cross-objective asset';
+ await O.load(undefined,true);O.selectObjective('other',{activateTerminal:false});
+ await open(target);checkTask();
+ assert(document.getElementById('content').textContent.includes('Task specification'),'notification prioritizes owning task over an unrelated linked asset');
+ O.selectObjective('other',{activateTerminal:false});await open(child);checkTask();
+ assert(termCurrentSession==='child'&&!C.status(child),'green child inherits owning task while keeping its exact terminal and reviewing green');
+ await O.load(undefined,true);checkTask();
+ assert(!errors.length,errors.join('\n'));
+ document.body.dataset.result='pass';
+}catch(error){document.body.dataset.result='fail';document.body.append(String(error.stack||error));}})();
+'''
+    css = (ROOT / 'core/src/core/static/css/lab-shell.css').read_text() + (ROOT / 'core/src/core/static/css/workspace-objectives.css').read_text()
+    html = '<!doctype html><meta charset="utf-8"><style>'+css+'</style><body><div id="tabs" class="repo-tabs"></div><aside id="sidebar"><section data-objectives-sidebar></section></aside><main id="content"></main><div id="termNotifications" class="term-notifications"></div><script>'+setup+NAV_SETUP+objectives+MODULE+NOTIFICATIONS+NAVIGATION+checks+'</script>'
+    _check_project_html(tmp_path, html, focused=True)

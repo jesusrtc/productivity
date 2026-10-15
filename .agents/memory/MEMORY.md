@@ -847,4 +847,4 @@
 
 - [Combined context and changelog differences](combined-context-and-changelog-deltas.md) — one META context, per-terminal snapshots/diffs and acknowledgement only after successful output/storage.
 
-- [Floating terminal messages follow status](terminal-header-action-messages.md) — top-right toast cards, persistent red/green messages, exact cross-vault navigation and a destination-tab pulse.
+- [Floating terminal messages follow status](terminal-header-action-messages.md) — top-right toast cards, persistent red/green messages, exact cross-vault/task navigation with accessible task assets and a destination-tab pulse.

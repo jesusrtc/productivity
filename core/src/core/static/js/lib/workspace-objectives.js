@@ -1350,16 +1350,20 @@
       return `<section class="objective-terminal-group" data-objective-active="${id===current}" style="--objective-color:${esc(o.color)}"><div class="objective-terminal-header"><button type="button" class="objective-terminal-heading" data-select-objective="${esc(id)}" aria-expanded="${expanded}" title="${esc(o.name)}"><span aria-hidden="true">${expanded?'▾':'▸'}</span> ${esc(o.name)}</button>${filter}</div>${mainHtml}<div class="objective-terminal-rows"${expanded?'':' hidden'}>${terminals}</div></section>`;
     }).join('')+newButton;
   }
-  function openForTerminal(t) {
+  function openForTerminal(t,{preferTask=false}={}) {
+    const binding=terminalTask(t);
+    // Notification navigation owns task focus. Following a linked worktree
+    // instead would enter folder browsing and hide the task's asset list.
+    if(preferTask&&binding){
+      state().objective=binding.objective.id;openTask(binding.task.id);paint();return true;
+    }
     const asset=terminalLink(t)?.asset&&terminalAsset(t);
     if(asset){
-      const binding=terminalTask(t);
       if(binding&&binding.objective.id===asset.objective.id){state().objective=binding.objective.id;openTask(binding.task.id);}
       else if(state().objective!==asset.objective.id){state().objective=asset.objective.id;state().focus=null;}
       openAsset(asset.target,null,{activateTerminal:false});return true;
     }
     if(terminalMain(t)?.kind==='workflow')return true;
-    const binding=terminalTask(t);
     if(binding?.inherited){state().objective=binding.objective.id;openTask(binding.task.id);paint();return true;}
     const link=terminalLink(t),o=terminalObjective(t);if(!o||!link)return false;
     state().objective=o.id;state().view='objective';

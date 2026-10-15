@@ -108,6 +108,13 @@ red/yellow/green precedence.
 Cards overlay the interface without resizing the console, including when the
 terminal panel is closed. They are in-app elements, not desktop notifications.
 
+Notification navigation selects the terminal's owning task/subtask and opens its
+details before attaching the exact session. This includes inherited children and
+secondary terminals; it never substitutes the task's primary terminal. Task focus
+takes precedence over a linked asset for this action, since following a worktree
+folder would clear task selection and hide its assets. Ordinary tab navigation
+still follows asset links.
+
 ## Transport and persistence
 
 The CLI requires `TMUX` and `TMUX_PANE`. It connects to that exact socket, resolves

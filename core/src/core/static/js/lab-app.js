@@ -15811,7 +15811,7 @@
     if (document.body.classList.contains('term-collapsed')) termToggleCollapse();
     else _termRememberVisibility(_termVisibilityKey(), true);
     termStartPeriodicRefresh();
-    const linked = window.LabObjectives?.openForTerminal(session);
+    const linked = window.LabObjectives?.openForTerminal(session, {preferTask:true});
     await _termActivateTab(session.name, {openDocument:!linked});
     return sameScope() && termCurrentSession === session.name ? session : null;
   }

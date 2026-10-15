@@ -23,3 +23,11 @@ retain original ownership, and guard clicks by socket/session incarnation plus
 report ID. Home, Assistant and workspace dots prioritize red, yellow, then green.
 Failed or stale navigation must not review a report. UI commands expose the same
 message list and exact navigation; no agent instruction changes are needed.
+
+Notification clicks must also select the owning task/subtask and open its details,
+so Task assets remain accessible. Prefer the task binding (including inherited
+children and additional task terminals) over the terminal's separate asset link.
+Following a linked worktree folder enters browsing mode and clears task focus.
+Keep the exact notifying terminal selected; do not activate the task primary.
+Test this with the real Objective module and an actual task-asset click, not
+only a mocked openForTerminal call. Ordinary terminal clicks keep asset navigation.

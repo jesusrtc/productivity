@@ -403,6 +403,13 @@ status changes; clicking one opens its owning workspace, Objective and exact
 terminal without dismissing the request. Submitting a response turns the
 terminal yellow and removes the red message immediately.
 
+Clicking either color also selects the terminal's owning task or subtask and
+opens its details, keeping **Task assets** accessible. This includes additional
+terminals in the same task and children that inherit a parent's task. The exact
+notifying terminal stays selected. Notification navigation prioritizes task
+context over a linked folder or asset; ordinary terminal-tab clicks still follow
+their asset links.
+
 Green **Finished** messages stay until reviewed by click or replaced by a newer
 terminal status; they do not expire, including across page reloads.
 Clicking one opens that terminal and reviews the displayed finish, clearing its

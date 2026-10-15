@@ -5,6 +5,14 @@ guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 
 ## 2026-10-15
 
+### Notification clicks retain the owning task and its assets
+
+- Red and green notification clicks now select the terminal's owning task or
+  subtask and open its details, including inherited child and secondary terminals.
+- A linked folder or asset no longer replaces task context on notification
+  navigation. Task assets remain accessible, and the exact notifying terminal
+  stays selected without switching to the task's primary terminal.
+
 ### Keep finished notifications until review and highlight their destination
 
 - Green finished cards no longer expire after five minutes. They stay until

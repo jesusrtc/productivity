@@ -104,6 +104,10 @@ Clicking a message opens the owning workspace, Objective and exact terminal,
 scrolls its tab into view and pulses it three times (a steady highlight with
 reduced motion). Collapsed groups and the selected Objective's task filter open
 when needed to reveal that tab. Only a green click reviews and clears status.
+Notification clicks also select the owning task/subtask and its details so task
+assets stay accessible, including for secondary and inherited child terminals.
+This task context takes priority over the terminal's asset link for notification
+navigation; ordinary terminal-tab clicks retain their asset-link behavior.
 Green messages have no timer and persist across reloads.
 Messages are deduplicated across shared views, and red takes precedence in
 workspace, Home and Assistant indicators.
