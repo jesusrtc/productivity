@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel, HttpUrl, Field, model_validator
 
 from core import auth
 
@@ -46,6 +46,39 @@ class ExternalLink(BaseModel):
 
 def can_reuse_browser_tabs(request: Request) -> bool:
     return sys.platform == 'darwin' and can_open_external(request)
+
+
+class WindowDockCommand(BaseModel):
+    owner: str = Field(pattern=r'^[0-9a-f]{32}$')
+    operation: Literal['status', 'permission', 'attach', 'update', 'detach', 'close']
+    slot: tuple[float, float, float, float] | None = None
+    visible: bool = True
+
+    @model_validator(mode='after')
+    def validate_slot(self):
+        if self.operation in {'attach', 'update'}:
+            if self.slot is None:
+                raise ValueError('A viewport rectangle is required')
+            x, y, width, height = self.slot
+            if (not all(0 <= n <= 1 for n in self.slot) or width <= 0 or height <= 0
+                    or x + width > 1.001 or y + height > 1.001):
+                raise ValueError('The dock rectangle must fit inside the Lab viewport')
+        return self
+
+
+@router.post('/api/ui/window-dock')
+def window_dock_command(body: WindowDockCommand, request: Request) -> dict:
+    """Opt-in local macOS trial; ordinary resource links never call this endpoint."""
+    auth.require_admin(request)
+    if not can_reuse_browser_tabs(request):
+        raise HTTPException(status_code=403, detail='Window docking requires Lab on this Mac using localhost')
+    if request.headers.get('origin') != str(request.base_url).rstrip('/'):
+        raise HTTPException(status_code=403, detail='Window docking requires the Lab origin')
+    from core import window_dock
+    payload = {'slot': body.slot, 'visible': body.visible}
+    if body.operation == 'attach':
+        payload.update(parentMarker='Lab dock parent ' + body.owner, childMarker='Lab dock popup ' + body.owner)
+    return window_dock.manage(body.owner, body.operation, **payload)
 
 
 def _chrome_command(url: str) -> list[str]:

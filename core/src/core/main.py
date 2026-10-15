@@ -692,6 +692,8 @@ def create_app() -> FastAPI:
         _STATIC_DIR / "js" / "lib" / "workspace-objectives.js",
         _STATIC_DIR / "css" / "workspace-objectives.css",
         _STATIC_DIR / "js" / "views" / "objectives-demo.js",
+        _STATIC_DIR / "js" / "lib" / "window-dock.js",
+        _STATIC_DIR / "css" / "window-dock.css",
         _STATIC_DIR / "css" / "objectives-demo.css",
         _STATIC_DIR / "demos" / "objectives" / "index.html",
         _STATIC_DIR / "demos" / "objectives" / "objectives.js",

@@ -30,6 +30,17 @@
     frame.setAttribute('sandbox', 'allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox');
     frame.src = '/static/demos/objectives/index.html' + (version ? '?v=' + encodeURIComponent(version) : '');
     host.replaceChildren(frame);
+    if (window.LAB_NATIVE_BROWSER_REUSE && window.LabWindowDock) {
+      const trial = document.createElement('div');
+      trial.className = 'lab-dock-launch';
+      const button = document.createElement('button');
+      button.type = 'button'; button.dataset.windowDockLaunch = 'true';
+      button.textContent = 'Try docked window (Mac)';
+      button.onclick = () => window.LabWindowDock.open(frame);
+      const hint = document.createElement('small');
+      hint.textContent = 'Optional experiment · one real Chrome popup aligned with Lab';
+      trial.append(button, hint); host.prepend(trial);
+    }
   }
 
   window.LabObjectivesDemo = {open};

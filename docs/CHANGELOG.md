@@ -16,6 +16,17 @@ guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 - Hover and terminal diagnostics expose LLM control and pending submissions,
   while retaining the single centered status dot and explicit green-click review.
 
+### Opt-in macOS window docking trial
+
+- Added **Try docked window (Mac)** to the Objectives demo. It reserves a panel
+  and uses a locally compiled Accessibility helper to align one real Chrome
+  popup with Lab, with explicit Dock, Detach, Close popup and Exit trial controls.
+- The helper follows geometry, coordinates minimization and attempts scoped
+  focus restoration. It releases the popup after the view stops heartbeating.
+  Native focus/stacking remains experimental; Accessibility permission is required.
+- Ordinary links remain unchanged. The local-owner-only command endpoint is
+  available through `lab api`, and the controls through `lab ui`.
+
 ### Terminal tabs keep only their status dot
 
 - Removed Home/folder badges, extra **main** prefixes and location/automation

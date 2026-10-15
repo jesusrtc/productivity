@@ -1,5 +1,7 @@
 # Memory index
 
+- [Window docking trial is opt-in](window-dock-trial-is-opt-in.md) — real Chrome popup alignment in the demo, explicit native permission and one independently revertible commit; normal links remain unchanged.
+
 - [Terminal tabs show only saved names](terminal-tabs-show-only-saved-names.md) — no workspace/folder/main text beside custom names such as ASTA CLI; retain location markers and tooltip details.
 
 - [Terminal Objective headers own the context](terminal-objective-headers-own-context.md) — always unfold only the active Objective, switch via headers, and omit duplicate Objective names from terminal rows.

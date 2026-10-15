@@ -405,6 +405,37 @@ may have run, so inspect before repeating it. API/CLI credentials stay local
 and owner-readable. See `lab context cli` for the full command/action map and
 browser-native permission limitations.
 
+## Try a real browser window docked over Lab (Mac prototype)
+
+In a local macOS source checkout, open **Home → Objectives demo → Try docked
+window (Mac)**. This opt-in experiment reserves a panel and aligns one real
+Chrome popup over it. Normal task/resource links keep their existing pop-outs.
+
+Choose **Enable window control**, then enable **Lab Window Dock** in macOS
+**Privacy & Security → Accessibility**. Return to Lab, choose **Check
+permission**, enter a URL and click **Dock**. The helper is compiled locally
+with Xcode Command Line Tools; no extension, proxy, browser profile changes or
+login item is installed. Sites load as top-level pages using the clicking
+Chrome profile, with no opener or referrer passed to the external page.
+
+Try moving/resizing Lab and switching applications. **Detach** stops following
+and keeps the popup open; **Close popup** asks Chrome to close that popup.
+**Exit trial** detaches and removes the panel. Leaving the demo, refreshing Lab
+or losing its heartbeat releases the popup (within twelve seconds after the
+last heartbeat). The helper coordinates minimization and raises only when the
+owning Lab window becomes focused, never deliberately activating another app.
+Chrome's frame remains visible; stacking, focus, Spaces and movement smoothness
+are experimental, not equivalent to a native child window. This trial supports
+one popup per Lab view and is not enabled for remote clients.
+
+Agents can inspect/click `[data-window-dock-launch]`, `[data-dock-permission]`,
+`[data-dock-check]`, `[data-dock-start]`, `[data-dock-detach]` and
+`[data-dock-close]` with `lab ui --client VIEW_ID`. The native command endpoint
+is discoverable with `lab api describe POST /api/ui/window-dock`; it requires
+the local owner and Lab origin, and only controls explicitly marked windows.
+See [Window docking prototype](WINDOW-DOCK.md) for implementation, validation
+and removal details.
+
 ## Tasks, subtasks and action items
 
 Task Markdown checklists represent required work. Checked and pending counts
