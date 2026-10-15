@@ -211,9 +211,13 @@
   function paintAttention() {
     const completion = window.LabTerminalCompletion;
     if (!completion) return;
-    document.querySelectorAll('.workspace-tab[data-kind="workspace"]').forEach(tab => {
+    window.LabTerminalNotifications?.update(attention);
+    document.querySelectorAll('.workspace-tab[data-kind]').forEach(tab => {
       const scope = scopeKey({workspace_id:tab.dataset.workspaceId, vault:tab.dataset.vault});
-      const sessions = attention[scope] || [];
+      const kind = tab.dataset.kind;
+      const sessions = kind === 'productivity' ? Object.entries(attention)
+        .filter(([key]) => key.endsWith('::__self__')).flatMap(([, rows]) => rows)
+        : kind === 'assistant' ? attention['__assistant__::__assistant__'] || [] : attention[scope] || [];
       const needsAttention = sessions.some(session => completion.status(session)?.state === 'attention');
       const working = !needsAttention && sessions.some(session => completion.isWorking(session));
       const ready = !needsAttention && !working && sessions.some(session => completion.meta(scope, session));
@@ -221,7 +225,8 @@
       if (!needsAttention && !working && !ready) { dot?.remove(); return; }
       if (!dot) {
         dot = document.createElement('span'); dot.className = 'workspace-attention-dot';
-        tab.querySelector('.x')?.before(dot);
+        const close = tab.querySelector('.x');
+        if (close) close.before(dot); else tab.append(dot);
       }
       dot.classList.toggle('workspace-attention-working', working);
       dot.classList.toggle('workspace-attention-needed', needsAttention);

@@ -846,3 +846,5 @@
 - [Explicit Lab managed instruction refresh](explicit-managed-agent-instructions.md) — current owning scopes, top managed section, preserved user bytes; replaces automatic creation seeding.
 
 - [Combined context and changelog differences](combined-context-and-changelog-deltas.md) — one META context, per-terminal snapshots/diffs and acknowledgement only after successful output/storage.
+
+- [Terminal header messages follow status](terminal-header-action-messages.md) — persistent red requests, five-minute green messages, exact cross-vault navigation and shared click review.

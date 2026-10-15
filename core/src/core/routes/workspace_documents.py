@@ -53,6 +53,17 @@ def attention(request: Request):
     from core.routes import term
     rows = term.list_sessions(request)
     active = term.auth.request_root(request)
+    user = term.auth.require_user(request)
+    vaults = term._known_vaults(active)
+    # Home can retain sessions registered in the framework checkout, which is
+    # not necessarily a registered vault (especially after switching vaults).
+    framework = term.lab_paths.find_framework_root().resolve()
+    if term.auth.is_admin(user) and not any(Path(v['path']).resolve() == framework for v in vaults):
+        home = term.fsguard.guarded(framework, term._sessions_for_root, framework,
+            term.SELF_WORKSPACE_ID, include_agent_details=False,
+            operation_key=('terminal-sessions', term.SELF_WORKSPACE_ID))
+        known = {row['name'] for row in rows}
+        rows.extend({**row, 'vault':'framework'} for row in home if row['name'] not in known)
     result = {}
     linked = {}
     for row in rows:
@@ -61,8 +72,7 @@ def attention(request: Request):
         identity = terminal_task_links.identity(row.get('linked_task'))
         if identity:
             linked.setdefault(identity[:2], []).append(row)
-    user = term.auth.require_user(request)
-    for vault in term._known_vaults(active):
+    for vault in vaults:
         if not term.auth.can_access_vault(user, str(vault['id'])):
             continue
         root = Path(vault['path'])
@@ -80,7 +90,10 @@ def attention(request: Request):
                     if row['name'] not in names:
                         sessions.append(row)
                         names.add(row['name'])
-    # No requests, messages, or transcripts are needed by tab indicators.
-    fields = ('name', 'session_id', 'created', 'created_at', 'tmux_socket', 'tmux_id', 'terminal_status')
+    # Keep the original owner on borrowed rows so a header message opens the
+    # exact terminal, even across vaults. No transcript/capture reads are needed.
+    fields = ('name', 'session_id', 'created', 'created_at', 'tmux_socket', 'tmux_id',
+              'terminal_status', 'workspace_id', 'vault', 'logical_name', 'label',
+              'llm_controlled')
     return {scope: [{key: row[key] for key in fields if key in row} for row in sessions]
             for scope, sessions in result.items()}

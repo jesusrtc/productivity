@@ -123,6 +123,8 @@ instructions to open Lab in Chrome, without launching the server's browser.
 | `terminal-select` | `name` |
 | `terminal-rename` | `name`, `label` |
 | `terminal-status` | optional `name`; read server/browser reports, rendered dot and click-review reason without selecting or clearing |
+| `terminal-notifications` | list the selected browser's current header messages across workspaces/vaults |
+| `terminal-notification-open` | exact tmux `name` and `report_id` from the list; open owning workspace/Objective/terminal, reviewing only a displayed finish |
 | `terminal-input` | `text`, optional `name`, explicit `submit: true` to send Enter |
 | `inspect` | optional `offset`, `limit` |
 | `click`, `contextmenu`, `hover` | `selector`, optional `modifiers`, `dialogs` |

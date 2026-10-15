@@ -153,5 +153,5 @@
   window.addEventListener('focus', refresh);
   document.addEventListener('visibilitychange', refresh);
   reload();
-  window.LabTerminalCompletion = {meta, status, isWorking, acknowledge, details, input, isLLM};
+  window.LabTerminalCompletion = {meta, status, isWorking, acknowledge, details, input, isLLM, key};
 })();

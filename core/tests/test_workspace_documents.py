@@ -19,6 +19,7 @@ def linked_workspace(monorepo, owned_tasks, seed_workspace, monkeypatch):
     monkeypatch.delenv('LAB_TMUX_PREFIX', raising=False)
     vaults = [{'id':'client','path':monorepo},{'id':'__assistant__','path':root}]
     monkeypatch.setattr(term, '_known_vaults', lambda _:vaults)
+    monkeypatch.setattr(term.lab_paths, 'find_framework_root', lambda:monorepo)
     monkeypatch.setattr(term, '_vault_root_for', lambda active, vault:root if vault == '__assistant__' else monorepo)
     monkeypatch.setattr(term, '_vault_id_for_root', lambda active, path:'__assistant__' if path == root else 'client')
     live = []
@@ -266,7 +267,34 @@ def test_attention_includes_inactive_and_shared_workspaces_without_summaries(cli
     assert data['client::demo'][0]['name'] == name
     assert data['__assistant__::__assistant__'][0]['terminal_status'] == live[0]['terminal_status']
     assert data['client::demo'][0]['terminal_status'] == live[0]['terminal_status']
+    assert data['client::demo'][0]['workspace_id'] == '__assistant__'
+    assert data['client::demo'][0]['vault'] == '__assistant__'
+    assert data['client::demo'][0]['logical_name'] == 'claude'
     assert 'cwd' not in data['client::demo'][0]
+
+
+def test_attention_includes_framework_home_outside_registered_vaults(client, linked_workspace, tmp_path, monkeypatch):
+    from core.routes import term
+    _, _, live, session = linked_workspace
+    framework = tmp_path / 'framework'
+    framework.mkdir()
+    monkeypatch.setattr(term.lab_paths, 'find_framework_root', lambda:framework)
+    original = session(where=framework, workspace='__self__', logical='home-agent')
+    # Legacy names cannot be rediscovered from Home's shared saved UUIDs in a
+    # different vault; only their original runtime registry owns them.
+    name = term._legacy_current_tmux_name_for('__self__', 'home-agent', framework)
+    metadata = term._load_meta(framework)
+    metadata[name] = metadata.pop(original)
+    term._save_meta(framework, metadata)
+    live[0]['name'] = name
+    live[0]['terminal_status'] = {'version':1, 'state':'attention', 'message':'Choose next step', 'revision':1, 'id':'home-report'}
+    monkeypatch.setattr(term, '_enrich_session_details', lambda rows:pytest.fail('header must not read transcripts'))
+    result = client.get('/api/workspace-documents/attention').json()
+    row, = result['framework::__self__']
+    assert row['name'] == name and row['workspace_id'] == '__self__'
+    assert row['terminal_status']['id'] == 'home-report'
+    monkeypatch.setattr(term.auth, 'is_admin', lambda user:False)
+    assert 'framework::__self__' not in client.get('/api/workspace-documents/attention').json()
 
 
 @pytest.mark.parametrize('recording,boundary,expected', [

@@ -153,7 +153,7 @@ console.log(JSON.stringify({passed:true}));
 
 def test_diagnostics_distinguish_stale_browser_missing_dot_and_review_without_mutation():
     app = (ROOT / 'core/src/core/static/js/lab-app.js').read_text()
-    action = app.split("      'terminal-status':", 1)[1].split("      'workspace-open':", 1)[0].rstrip().removesuffix(',')
+    action = app.split("      'terminal-status':", 1)[1].split("      'terminal-notifications':", 1)[0].rstrip().removesuffix(',')
     result = _run_node(CLOCK + MODULE + r'''
 const s=session('finished'),termSessions=[s];s.logical_name='codex';
 const _termActiveWorkspaceId=()=> 'demo',_termVaultId=()=> 'owned',_vaultQuery=v=>'&vault='+v;

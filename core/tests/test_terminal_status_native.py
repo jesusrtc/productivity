@@ -16,9 +16,10 @@ from .test_term_creation_native import native_creation_tmux, native_creation_cli
 
 
 def test_native_agent_reports_follow_exact_pane_and_survive_backend_reads(
-        native_creation_tmux, native_creation_client, seed_workspace, monkeypatch):
+        native_creation_tmux, native_creation_client, seed_workspace, monorepo, monkeypatch):
     run, socket, _ = native_creation_tmux
     seed_workspace('demo')
+    monkeypatch.setattr(term.lab_paths, 'find_framework_root', lambda:monorepo)
     client = native_creation_client
     response = client.post('/api/term/sessions', json={'workspace_id':'demo','kind':'terminal'})
     assert response.status_code == 200, response.text
@@ -51,6 +52,11 @@ def test_native_agent_reports_follow_exact_pane_and_survive_backend_reads(
         assert row['terminal_status']['message'] == message
         assert row['tmux_socket'] == socket and row['tmux_id'].startswith('$')
         assert 'output_activity' not in row
+        messages = client.get('/api/workspace-documents/attention').json()
+        reported = next(item for rows in messages.values() for item in rows if item['name'] == name)
+        assert reported['workspace_id'] == 'demo' and reported['logical_name']
+        assert reported['terminal_status'] == row['terminal_status']
+        assert reported['tmux_id'] == row['tmux_id']
         again = client.get('/api/term/sessions',params={'workspace_id':'demo'}).json()[0]
         assert again['terminal_status'] == row['terminal_status'], 'ordinary reads do not change a report'
         assert run('show-options','-qv','-t','lab-owned-unrelated','@lab_status').stdout == ''

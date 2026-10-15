@@ -12,7 +12,8 @@ from core import auth
 router = APIRouter()
 ACTIONS = frozenset({'inspect', 'click', 'contextmenu', 'hover', 'fill', 'key',
                      'drag', 'pointer-drag', 'scroll', 'wait', 'workspace-open', 'document-open',
-                     'objective-select', 'task-open', 'terminal-select', 'terminal-rename', 'terminal-input', 'terminal-status'})
+                     'objective-select', 'task-open', 'terminal-select', 'terminal-rename', 'terminal-input', 'terminal-status',
+                     'terminal-notifications', 'terminal-notification-open'})
 
 
 class Views:

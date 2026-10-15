@@ -395,6 +395,25 @@ reviews its finished terminals and cannot clear working or attention.
 Status does not complete tasks or checklist requirements. If an agent cannot
 report, Lab retains its last reported state rather than inventing a finish.
 
+The terminal header also lists messages from terminals across workspaces and
+vaults. Red **Needs input** messages come first and remain until the terminal's
+status changes; clicking one opens its owning workspace, Objective and exact
+terminal without dismissing the request. Submitting a response turns the
+terminal yellow and removes the red message immediately.
+
+Green **Finished** messages remain for five minutes from the agent's report.
+Clicking one opens that terminal and reviews the displayed finish, clearing its
+message and green indicators together. Expiry only hides the header message;
+the terminal and workspace keep their status until reviewed or updated. Reloads
+do not restart the five-minute period. Shared document terminals appear once in
+the header. Home, Assistant and workspace dots prioritize red, then yellow,
+then green. No desktop notifications or pop-ups are sent.
+
+Agents can inspect the same messages with
+`lab ui --client VIEW_ID command terminal-notifications`, then open one using
+`lab ui --client VIEW_ID command terminal-notification-open --json '{"name":"TMUX_SESSION","report_id":"REPORT_ID"}'`.
+Use the exact session and report returned by the first command.
+
 ## Change metadata through Lab
 
 Discover the relevant CLI with `lab --help` and each command's `--help`. Use

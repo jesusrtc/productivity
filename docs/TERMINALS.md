@@ -98,6 +98,12 @@ inherited icons. Ordinary task terminals use 💻. A single centered status dot
 sits between icon and name; location dots and Home/main badges are omitted.
 Agent-reported status uses steady yellow for working, pulsing red
 for attention and blinking green for finished; task-status dots remain omitted.
+The terminal header lists red input requests until status changes and green
+finished messages for five minutes from their report. Clicking a message opens
+the owning workspace, Objective and exact terminal. Only a green click reviews
+and clears status; expiry hides the message without changing the tab indicator.
+Messages are deduplicated across shared views, and red takes precedence in
+workspace, Home and Assistant indicators.
 Only green clears on a tab click. LLM-controlled terminals also turn yellow
 immediately on submitted input; the next agent report supplies the real WIP text.
 `lab context llm` loads instructions and marks manual agent sessions;

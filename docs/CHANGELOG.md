@@ -5,6 +5,18 @@ guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 
 ## 2026-10-15
 
+### Terminal messages link to work needing attention
+
+- The terminal header lists red input requests and green finished reports across
+  workspaces/vaults. Click to open the exact owning workspace, Objective and
+  terminal; shared terminals produce one message.
+- Red requests remain until status changes. Green messages disappear after five
+  minutes from the report or when reviewed by click. Expiry does not clear the
+  terminal's status, and stale clicks cannot review a newer report.
+- Workspace, Home and Assistant indicators prioritize red over yellow over
+  green. Submitted LLM replies immediately remove the attention message.
+- Added `terminal-notifications` and `terminal-notification-open` UI commands.
+
 ### One META context document and per-terminal changelog differences
 
 - Combined agent instructions and the complete user guide into one **Lab

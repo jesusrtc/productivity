@@ -24,6 +24,7 @@ window.ensureLiveMarkdownEditor = (function () {
 <script src="/static/js/lib/ui-control.js?v={{ ASSET_V }}" defer></script>
 <script src="/static/js/lib/document-terminal.js?v={{ ASSET_V }}" defer></script>
 <script src="/static/js/lib/terminal-completion.js?v={{ ASSET_V }}" defer></script>
+<script src="/static/js/lib/terminal-notifications.js?v={{ ASSET_V }}" defer></script>
 <script src="/static/js/lib/terminal-folder.js?v={{ ASSET_V }}" defer></script>
 <link rel="stylesheet" href="/static/css/terminal-folder.css?v={{ ASSET_V }}">
 <script src="/static/js/lib/workspace-documents.js?v={{ ASSET_V }}" defer></script>
@@ -310,6 +311,7 @@ window.ensureLiveMarkdownEditor = (function () {
     <button id="termCopyAttachBtn" onclick="termCopyAttachCmd()" title="Copy read-only tmux attach command">&#x1F4CB;</button>
     <button id="termSettingsBtn" onclick="termOpenSettings()" title="Terminal settings" aria-label="Terminal settings">&#x2699;</button>
   </div>
+  <div id="termNotifications" class="term-notifications" role="region" aria-label="Terminal messages" hidden></div>
   <div class="term-stage">
     <!-- Icons and status stay visible; hover or keyboard focus reveals labels. -->
     <div class="term-session-switcher" id="termSessionSwitcher">

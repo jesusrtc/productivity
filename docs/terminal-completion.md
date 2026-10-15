@@ -90,6 +90,16 @@ views of the same terminal. Acknowledgements persist in browser storage and sync
 across windows in that browser; separate browser profiles review independently.
 Recency lines, task state, icons, worktree colors and terminal recovery stay separate.
 
+The terminal header lists one message per terminal across workspaces and vaults,
+with red input requests first. Red messages remain until status changes, including
+immediate yellow after a submitted reply. Clicking red navigates to the exact
+owning workspace, Objective and terminal without clearing it. Green messages
+expire five minutes after the report timestamp; expiry only hides the message.
+Clicking green opens the terminal and acknowledges only that displayed report,
+clearing its green dot and message across shared views. A failed navigation or
+an outdated click cannot consume a newer report. Reloading does not extend the
+expiry. Workspace, Home and Assistant dots retain red/yellow/green precedence.
+
 ## Transport and persistence
 
 The CLI requires `TMUX` and `TMUX_PANE`. It connects to that exact socket, resolves

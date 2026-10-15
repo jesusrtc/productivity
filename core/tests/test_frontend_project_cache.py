@@ -204,7 +204,7 @@ try {
     _check_project_html(tmp_path, '<div id="sidebar"></div><div id="other"></div><script>' + prelude + source + checks + '</script>')
 
 
-def _check_project_html(tmp_path, html):
+def _check_project_html(tmp_path, html, *, focused=False, screenshot=False):
     chrome = os.environ.get('CHROME_BIN') or shutil.which('chromium') or '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
     if not Path(chrome).is_file() or not shutil.which('node'):
         pytest.skip('Chrome and Node are required')
@@ -221,8 +221,14 @@ def _check_project_html(tmp_path, html):
         while not (profile / 'DevToolsActivePort').exists():
             assert browser.poll() is None and time.monotonic() < deadline, 'Chrome did not start'
             time.sleep(.05)
-        result = subprocess.run(['node', str(root / 'scripts/chrome-dump-auth.mjs'), str(profile),
-                                 page.as_uri(), str(rendered)], env={**os.environ, 'LAB_UI_AUTH_COOKIE':''},
+        driver = root / 'scripts/chrome-dump-auth.mjs'
+        if focused:
+            source = driver.read_text().replace("await send('Page.enable');",
+                "await send('Page.enable');\nawait send('Emulation.setFocusEmulationEnabled', {enabled:true});")
+            driver = tmp_path / 'focused-browser.mjs'
+            driver.write_text(source)
+        result = subprocess.run(['node', str(driver), str(profile), page.as_uri(), str(rendered),
+                                 *([str(tmp_path / 'screenshot.png')] if screenshot else [])], env={**os.environ, 'LAB_UI_AUTH_COOKIE':''},
                                 capture_output=True, text=True, timeout=25)
         assert result.returncode == 0, result.stderr
         assert 'data-result="pass"' in rendered.read_text(), rendered.read_text()[-2000:]

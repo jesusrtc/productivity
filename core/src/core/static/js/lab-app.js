@@ -15722,6 +15722,65 @@
     await _termActivateTab(session.name, options);
     return true;
   }};
+  let _termNotificationNavigation = 0;
+  async function _termOpenNotification(item) {
+    const request = ++_termNotificationNavigation, owner = item.owner;
+    const activation = _termTabActivationSeq;
+    const home = owner.workspace_id === '__self__';
+    const sameScope = () => _termActiveWorkspaceId() === owner.workspace_id
+      && (home || (_termVaultId() || 'framework') === owner.vault);
+    let url = location.href;
+    const current = () => request === _termNotificationNavigation && location.href === url
+      && activation === _termTabActivationSeq;
+    if (!sameScope()) {
+      let navigation;
+      if (home) navigation = goToProductivity();
+      else if (owner.workspace_id === '__assistant__') navigation = goToAssistant();
+      else {
+        const matches = rows => rows.filter(row => row.name === owner.workspace_id && _workspaceVaultId(row) === owner.vault);
+        let candidates = matches(workspacesList || []);
+        if (candidates.length !== 1) {
+          const rows = await fetchRepos();
+          if (!current()) return null;
+          workspacesList = rows; candidates = matches(rows);
+        }
+        if (candidates.length !== 1) throw Error('The terminal’s workspace is no longer available.');
+        navigation = goToWorkspace(candidates[0].path);
+      }
+      url = location.href;
+      await navigation;
+    }
+    if (!current() || !sameScope()) return null;
+    const refreshed = await _termRefreshSessionsForWorkspaceId(owner.workspace_id);
+    if (!current() || !sameScope()) return null;
+    if (!refreshed) throw Error('Could not refresh this terminal. Please try again.');
+    const session = termSessions.find(row => window.LabTerminalCompletion.key(row) === item.key);
+    if (!session) throw Error('This terminal is no longer running.');
+    if (session.logical_name) _termRememberLast(owner.workspace_id, session.logical_name);
+    if (!home && owner.workspace_id !== '__assistant__') {
+      await window.LabObjectives?.load();
+      if (!current() || !sameScope()) return null;
+      const objective = window.LabObjectives?.terminalObjective(session);
+      if (objective) window.LabObjectives.selectObjective(objective.id, {activateTerminal:false});
+    }
+    document.body.classList.add('term-open');
+    if (document.body.classList.contains('term-collapsed')) termToggleCollapse();
+    else _termRememberVisibility(_termVisibilityKey(), true);
+    termStartPeriodicRefresh();
+    const linked = window.LabObjectives?.openForTerminal(session);
+    await _termActivateTab(session.name, {openDocument:!linked});
+    return sameScope() && termCurrentSession === session.name ? session : null;
+  }
+  window.LabTerminalNotifications?.configure({
+    open:_termOpenNotification,
+    error:message => explorerToast(message, true),
+    label:({session, owner}) => {
+      const workspace = workspaceTabsAll.find(row => row.name === owner.workspace_id && _workspaceVaultId(row) === owner.vault);
+      const location = owner.workspace_id === '__self__' ? 'Home' : owner.workspace_id === '__assistant__' ? 'Assistant'
+        : [(_vaultById(owner.vault)?.name || owner.vault), workspace ? _workspaceDisplayName(workspace) : owner.workspace_id].filter(Boolean).join(' / ');
+      return location + ' / ' + (session.label || session.logical_name || session.name);
+    },
+  });
   window.LabWorkspaceDocuments?.configure({
     recentMinutes: () => _sidebarFileConfig.recentMinutes,
     fileScope:() => {
@@ -21878,6 +21937,12 @@
         const latest=await response.json();
         for(const row of sessions){const server=latest.find(s=>s.name===row.name);row.server_present=!!server;row.server_report=server?.terminal_status||null;row.in_sync=row.browser_report?.id===row.server_report?.id;}
         return {workspace,vault,sessions};
+      },
+      'terminal-notifications':async()=>{await window.LabWorkspaceDocuments.poll(true);return window.LabTerminalNotifications.items();},
+      'terminal-notification-open':async p=>{
+        const rows=window.LabTerminalNotifications.items().filter(row=>row.session.name===p.name||row.key===p.key);
+        if(rows.length!==1)throw Error('Choose an exact terminal message from terminal-notifications.');
+        return {opened:await window.LabTerminalNotifications.open(rows[0].key,p.report_id||rows[0].report_id)};
       },
       'workspace-open':async p=>{workspacesList=await fetchRepos();const rows=workspacesList.filter(w=>(w.name===p.workspace||w.path===p.workspace)&&(!p.vault||_workspaceVaultId(w)===p.vault));if(rows.length!==1)throw Error(rows.length?'Workspace ID is ambiguous. Include its vault.':'Workspace not found.');const row=rows[0];await goToWorkspace(row.path);return{workspace:row.name,path:row.path};},
       'document-open':async p=>{if(!currentWorkspace)throw Error('Open a workspace first.');await openWorkspaceDoc(p.path,p.root?{root:p.root}:{});return{path:p.path};},
