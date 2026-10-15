@@ -62,6 +62,7 @@ lab ui clients
 lab ui --client VIEW_ID inspect
 lab workspace open demo --vault my-vault --client VIEW_ID
 lab ui --client VIEW_ID rename-tab TERMINAL_NAME 'Review'
+lab ui --client VIEW_ID terminal-status TERMINAL_NAME
 ```
 
 With exactly one connected admin view, `--client` can be omitted. With multiple
@@ -121,6 +122,7 @@ instructions to open Lab in Chrome, without launching the server's browser.
 | `task-open` | `task`, optional `objective` |
 | `terminal-select` | `name` |
 | `terminal-rename` | `name`, `label` |
+| `terminal-status` | optional `name`; read server/browser reports, rendered dot and click-review reason without selecting or clearing |
 | `terminal-input` | `text`, optional `name`, explicit `submit: true` to send Enter |
 | `inspect` | optional `offset`, `limit` |
 | `click`, `contextmenu`, `hover` | `selector`, optional `modifiers`, `dialogs` |

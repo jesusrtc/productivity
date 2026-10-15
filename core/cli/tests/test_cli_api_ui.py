@@ -9,6 +9,16 @@ from lab import paths
 from lab.cli import main
 
 
+def test_terminal_diagnostics_explain_when_browser_needs_reload(monkeypatch):
+    import click
+    from lab.commands import ui
+    def outdated(*args, **kwargs):
+        raise click.ClickException('Lab API 422: Unknown UI action.')
+    monkeypatch.setattr(ui, 'invoke', outdated)
+    result=CliRunner().invoke(main,['ui','terminal-status'])
+    assert result.exit_code==1 and 'Reload this Lab browser view' in result.output
+
+
 def test_cli_uses_same_api_and_supports_ui_and_workspace_actions(monkeypatch,tmp_path):
     calls=[]
     class Handler(BaseHTTPRequestHandler):
@@ -38,6 +48,9 @@ def test_cli_uses_same_api_and_supports_ui_and_workspace_actions(monkeypatch,tmp
         result=runner.invoke(main,['ui','--client','view-1','rename-tab','terminal-1','Review'])
         assert result.exit_code==0,result.output
         assert calls[-1][3]['action']=='terminal-rename' and calls[-1][3]['client_id']=='view-1'
+        result=runner.invoke(main,['ui','--client','view-1','terminal-status','terminal-1'])
+        assert result.exit_code==0,result.output
+        assert calls[-1][3]['action']=='terminal-status' and calls[-1][3]['params']=={'name':'terminal-1'}
         result=runner.invoke(main,['workspace','open','demo','--vault','owning-vault','--client','view-2'])
         assert result.exit_code==0,result.output
         assert calls[-1][3]['params']=={'workspace':'demo','vault':'owning-vault'}

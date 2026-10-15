@@ -257,6 +257,7 @@ window.LabTaskTerminalBridge={patch:async(session,patch,context)=>{
  const savedSessions=termSessions;termSessions=[source];
  const pill=document.createElement('span');pill.className='sess';pill.dataset.name=source.name;
  pill.innerHTML='<span class="sess-label">Terminal</span><span class="sess-activity sess-completion" role="button" tabindex="0"></span>';
+ pill.querySelector('.sess-completion').dataset.reportId=source.terminal_status.id;
  const rail=document.createElement('div');rail.className='term-sessions';rail.append(pill);document.body.append(rail);wireCompletionDot(pill);
  assert(getComputedStyle(pill.querySelector('.sess-completion')).pointerEvents==='auto','the green dot receives pointer clicks');
  let terminalActivations=0;pill.addEventListener('click',()=>terminalActivations++);
@@ -267,6 +268,9 @@ window.LabTaskTerminalBridge={patch:async(session,patch,context)=>{
  assert(!LabTerminalCompletion.status(source),'clicking finished resets the tab status');
  source.terminal_status=report('finished',900);
  assert(LabTerminalCompletion.meta('client::demo',source),'next terminal response starts unread');
+ pill.querySelector('.sess-completion').click();
+ assert(LabTerminalCompletion.meta('client::demo',source),'stale displayed dot cannot clear a later finish');
+ pill.querySelector('.sess-completion').dataset.reportId=source.terminal_status.id;
  pill.querySelector('.sess-completion').dispatchEvent(new KeyboardEvent('keydown',{key:' ',bubbles:true,cancelable:true}));
  assert(!LabTerminalCompletion.meta('client::demo',source),'keyboard activation clears only the completed response');
  rail.remove();termSessions=savedSessions;

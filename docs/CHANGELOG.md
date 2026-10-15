@@ -5,6 +5,16 @@ guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 
 ## 2026-10-15
 
+### Inspect terminal reports and click acknowledgements
+
+- Added `lab ui terminal-status [NAME]` to compare server reports, browser state,
+  rendered dots and saved click acknowledgements without clearing an indicator.
+- Finished reports retain **Reviewed by click** in hover details after their
+  green dot clears. Tab and dot clicks target the displayed report ID so a
+  delayed repaint cannot clear a newer finish.
+- Clarified the upper-right status dot, separate lower-right location marker,
+  and the existing eight-second terminal refresh cadence.
+
 ### Refresh agent context per terminal
 
 - Added `lab context version`, which prints a numeric content ID, and

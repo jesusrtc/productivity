@@ -830,3 +830,5 @@
 - [Terminal status is agent-reported](terminal-status-is-agent-reported.md) — explicit yellow working, red attention and green finished; only green clears on click, with no output-based estimation or pop-ups.
 
 - [Agent context refreshes per terminal](agent-context-refreshes-per-terminal.md) — per-session numeric versions, silent unchanged updates, every-turn checks and explicit short-task reporting.
+
+- [Terminal status diagnostics include browser review](terminal-status-diagnostics.md) — trace server/browser/rendered state and click acknowledgement; status and location dots are separate.

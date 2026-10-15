@@ -14659,10 +14659,12 @@
   function _termSessionTooltipPayload(s) {
     const identity = _termSessionIdentity(s);
     const completion = window.LabTerminalCompletion?.status?.(s);
+    const reviewed = window.LabTerminalCompletion?.details?.(s);
     const working = _termSessionIsWorking(s);
     return JSON.stringify({items: _termPreviewRequests(_termSessionRequests(s)),
       ...(working ? {working: true} : {}),
       ...(completion ? {completion: completion.label, status: completion.state} : {}),
+      ...(reviewed?.reviewed ? {completion:'Finished · Reviewed by click' + (reviewed.report.message ? ' · '+reviewed.report.message : '')} : {}),
       ...(identity.length ? {identity} : {})});
   }
 
@@ -14964,7 +14966,7 @@
     const reported = window.LabTerminalCompletion?.status?.(s);
     const ready = completion;
     const attention = reported?.state === 'attention';
-    const activityHtml = ready ? '<span class="sess-activity sess-completion" role="button" tabindex="0" aria-label="Mark completed terminal work as reviewed" title="Click to mark completed work as reviewed"></span>'
+    const activityHtml = ready ? `<span class="sess-activity sess-completion" data-report-id="${termSessEsc(window.LabTerminalCompletion.details?.(s)?.report?.id || '')}" role="button" tabindex="0" aria-label="Mark completed terminal work as reviewed" title="Click to mark completed work as reviewed"></span>`
       : attention ? '<span class="sess-activity sess-attention" aria-hidden="true"></span>'
       : working ? '<span class="sess-activity sess-working" aria-hidden="true"></span>' : '';
     const logical = s.logical_name || '';
@@ -15147,7 +15149,7 @@
         const acknowledge = event => {
           event.preventDefault(); event.stopPropagation();
           const session = termSessions.find(row => row.name === node.getAttribute('data-name'));
-          if (session) window.LabTerminalCompletion?.acknowledge(_termRecentScopeKey(), session);
+          if (session) window.LabTerminalCompletion?.acknowledge(_termRecentScopeKey(), session, completionDot.dataset.reportId || null);
         };
         completionDot.addEventListener('click', acknowledge);
         completionDot.addEventListener('keydown', event => {
@@ -15192,7 +15194,7 @@
         }
         _termSelectTab(null);
         const session = termSessions.find(row => row.name === name);
-        if (session) window.LabTerminalCompletion?.acknowledge(_termRecentScopeKey(), session);
+        if (session && completionDot) window.LabTerminalCompletion?.acknowledge(_termRecentScopeKey(), session, completionDot.dataset.reportId || null);
         if(session?.automation_missing){explorerToast('Terminal session ended. Use Relaunch to run its automation again.');return;}
         const objectiveLink = session && window.LabObjectives?.openForTerminal(session);
         void _termActivateTab(name, {openDocument:!objectiveLink});
@@ -21827,6 +21829,27 @@
       path:currentWorkspace?.path||'',document:_workspaceDocPath||null,
       terminals:(termSessions||[]).map(s=>({name:s.name,logical_name:s.logical_name,label:s.label,state:s.state}))}),
     actions:{
+      'terminal-status':async p=>{
+        const workspace=_termActiveWorkspaceId(),vault=_termVaultId();
+        const rows=(termSessions||[]).filter(s=>!p.name||s.name===p.name||s.logical_name===p.name);
+        if(p.name&&!rows.length)throw Error('Terminal not found in this view.');
+        // Snapshot the rendered state before reading the server; diagnostics
+        // must neither repaint a stale view nor acknowledge a green report.
+        const sessions=rows.map(s=>{
+          const node=[...document.querySelectorAll('#termSessionList .sess')].find(n=>n.dataset.name===s.name);
+          const dot=node?.querySelector('.sess-activity'),style=dot&&getComputedStyle(dot);
+          const state=dot?.classList.contains('sess-working')?'working':dot?.classList.contains('sess-attention')?'attention':dot?.classList.contains('sess-completion')?'finished':null;
+          return {name:s.name,logical_name:s.logical_name,browser_report:s.terminal_status||null,
+            ...window.LabTerminalCompletion.details(s),
+            rendered:{tab_present:!!node,state,visible:!!dot&&!!dot.getClientRects().length&&style.visibility!=='hidden',
+              color:style?.backgroundColor||null,animation:style?.animationName||null}};
+        });
+        const response=await fetch('/api/term/sessions?workspace_id='+encodeURIComponent(workspace)+_vaultQuery(vault),{cache:'no-store'});
+        if(!response.ok)throw Error('Could not read current server terminal reports.');
+        const latest=await response.json();
+        for(const row of sessions){const server=latest.find(s=>s.name===row.name);row.server_present=!!server;row.server_report=server?.terminal_status||null;row.in_sync=row.browser_report?.id===row.server_report?.id;}
+        return {workspace,vault,sessions};
+      },
       'workspace-open':async p=>{workspacesList=await fetchRepos();const rows=workspacesList.filter(w=>(w.name===p.workspace||w.path===p.workspace)&&(!p.vault||_workspaceVaultId(w)===p.vault));if(rows.length!==1)throw Error(rows.length?'Workspace ID is ambiguous. Include its vault.':'Workspace not found.');const row=rows[0];await goToWorkspace(row.path);return{workspace:row.name,path:row.path};},
       'document-open':async p=>{if(!currentWorkspace)throw Error('Open a workspace first.');await openWorkspaceDoc(p.path,p.root?{root:p.root}:{});return{path:p.path};},
       'objective-select':async p=>{const data=await window.LabObjectives.load(undefined,true);if(!data?.objectives.some(o=>o.id===p.objective))throw Error('Objective not found.');window.LabObjectives.selectObjective(p.objective);return{objective:p.objective};},

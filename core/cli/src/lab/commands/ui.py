@@ -52,6 +52,24 @@ def command(options, action, json_body, body_file):
     output(invoke(action,params,**options))
 
 
+@ui_group.command('terminal-status')
+@click.argument('name', required=False)
+@click.pass_obj
+def terminal_status(options, name):
+    """Compare server reports, browser indicators and click acknowledgements.
+
+    NAME is a terminal's tmux or logical name; omit it for all terminals in
+    the selected view. This reads status without selecting or reviewing tabs.
+    """
+    try:
+        result = invoke('terminal-status', {'name':name}, **options)
+    except click.ClickException as exc:
+        if 'Unknown UI action' in str(exc):
+            raise click.ClickException('Reload this Lab browser view to load terminal-status, then use lab ui clients to select it again.') from exc
+        raise
+    output(result)
+
+
 def _pointer_command(action):
     @ui_group.command(action)
     @click.argument('selector')

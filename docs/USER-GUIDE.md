@@ -277,6 +277,27 @@ keyboard activation and direct green-dot review do the same. A new report
 replaces the old state. Merely viewing, hovering or restoring a tab never
 acknowledges green. Reduced-motion mode uses steady colored dots.
 
+In the compact terminal rail, the status dot is at the upper-right. The separate
+lower-right Home/folder/worktree marker keeps its location color (often gray).
+After a green report is reviewed, hover still shows **Finished · Reviewed by
+click** and its message. A click can only review the finished report displayed
+on that tab; it cannot consume a newer report that arrives before the repaint.
+
+To trace a missing indicator without selecting or reviewing a terminal:
+
+```bash
+lab ui clients
+lab ui --client VIEW_ID terminal-status codex-6
+```
+
+Use a logical or tmux session name, or omit the name for all terminals in the
+selected view. The result compares the current server report with the browser's
+report (`in_sync`), the rendered dot, and the saved click acknowledgement
+(`reviewed`, `reviewed_at`, `reason`). Reports reach the visible terminal rail
+through its existing eight-second refresh; short working states can finish
+between refreshes. These commands diagnose actual reports without estimating
+agent completion. Refresh older browser pages once to load this diagnostic.
+
 Reports live with the tmux session and survive browser and Lab backend restarts;
 a newly created session starts without a report. Acknowledgements persist in
 browser storage and are shared across that browser's Lab windows and document

@@ -44,11 +44,14 @@ assert(C.meta('workspace',s),'selection/focus/time do not clear');
 focused=false;assert(!C.acknowledge('workspace',s),'background view cannot review');
 focused=true;assert(C.acknowledge('workspace',s),'click acknowledges');
 assert(!C.status(s)&&!C.meta('document',s),'tab status resets everywhere');
+assert(C.details(s).reviewed&&C.details(s).reason==='reviewed-by-click'&&C.details(s).reviewed_at,'review stays inspectable after the dot clears');
 ''' + MODULE + r'''
 C=window.LabTerminalCompletion;
 assert(!C.status(s),'review survives reload');
+assert(C.details(s).reviewed,'diagnostic review survives reload');
 s.terminal_status=report('finished',2);
 assert(C.meta('workspace',s),'later finish is a new green event');
+assert(!C.details(s).reviewed&&!C.details(s).reviewed_at,'later report clears old review metadata');
 assert(C.acknowledge('workspace',s)&&!C.status(s),'later click clears it');
 console.log(JSON.stringify({passed:true}));
 ''')
@@ -69,6 +72,8 @@ assert(C.isWorking(s)&&!C.meta('workspace',s),'agent can resume');
 assert(!C.acknowledge('workspace',s),'working click cannot pre-acknowledge');
 s.terminal_status=report('finished',4);
 assert(C.meta('workspace',s),'finish after working click remains unread');
+assert(!C.acknowledge('workspace',s,'event-1'),'click on an older rendered dot cannot clear the current report');
+assert(!C.acknowledge('workspace',s,null),'click on a tab without a rendered green cannot clear the current report');
 assert(!C.acknowledge('workspace',old),'stale old finish cannot acknowledge new finish');
 console.log(JSON.stringify({passed:true}));
 ''')
@@ -140,6 +145,35 @@ assert(!C.acknowledge('workspace',s),'red stays on tab click');
 s.terminal_status=report('finished',3);html=_termSessionPillHtml(s,0);
 assert(html.includes('sess-completion')&&!html.includes('sess-attention'),'green replaces red');
 assert(C.acknowledge('workspace',s)&&!_termSessionPillHtml(s,0).includes('sess-activity'),'green click clears status');
+assert(JSON.parse(_termSessionTooltipPayload(s)).completion.includes('Reviewed by click'),'cleared green remains explained on hover');
 console.log(JSON.stringify({passed:true}));
+''')
+    assert result['passed']
+
+
+def test_diagnostics_distinguish_stale_browser_missing_dot_and_review_without_mutation():
+    app = (ROOT / 'core/src/core/static/js/lab-app.js').read_text()
+    action = app.split("      'terminal-status':", 1)[1].split("      'workspace-open':", 1)[0].rstrip().removesuffix(',')
+    result = _run_node(CLOCK + MODULE + r'''
+const s=session('finished'),termSessions=[s];s.logical_name='codex';
+const _termActiveWorkspaceId=()=> 'demo',_termVaultId=()=> 'owned',_vaultQuery=v=>'&vault='+v;
+let server={...s,terminal_status:report('working',2)},dot=null;
+document.querySelectorAll=()=>[{dataset:{name:s.name},querySelector:()=>dot}];
+const getComputedStyle=()=>({visibility:'visible',backgroundColor:'green',animationName:'term-completion-blink'});
+const fetch=async url=>{assert(url.includes('workspace_id=demo&vault=owned'),'diagnostics use captured scope');return {ok:true,json:async()=>[server]};};
+const diagnose=''' + action + r''';
+(async()=>{
+ let result=await diagnose({name:'codex'}),row=result.sessions[0];
+ assert(row.server_report.state==='working'&&row.browser_report.state==='finished'&&!row.in_sync,'stale browser is explicit');
+ assert(row.indicator==='finished'&&!row.rendered.state&&!row.reviewed,'missing rendered dot is distinct from review');
+ assert(window.LabTerminalCompletion.meta('demo',s),'diagnosing does not review');
+ dot={classList:{contains:c=>c==='sess-completion'},getClientRects:()=>[{}]};
+ server=s;row=(await diagnose({})).sessions[0];
+ assert(row.in_sync&&row.rendered.visible&&row.rendered.state==='finished','current rendered finish is reported');
+ assert(window.LabTerminalCompletion.acknowledge('demo',s),'explicit click reviews');
+ dot=null;row=(await diagnose({})).sessions[0];
+ assert(row.in_sync&&row.report.state==='finished'&&row.reviewed_at&&row.reason==='reviewed-by-click'&&!row.indicator,'review reason retained with authoritative report');
+ console.log(JSON.stringify({passed:true}));
+})();
 ''')
     assert result['passed']

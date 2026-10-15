@@ -33,9 +33,16 @@
     }
     return reports[id];
   }
-  function status(session) {
+  function details(session) {
     const entry = record(session), report = entry?.report;
-    if (!report || report.state === 'finished' && entry.seen === report.id) return null;
+    const reviewed = !!report && report.state === 'finished' && entry.seen === report.id;
+    return {report:report || null, indicator:report && !reviewed ? report.state : null,
+      reviewed, reviewed_at:reviewed ? entry.seen_at || null : null,
+      reason:!report ? 'no-report' : reviewed ? 'reviewed-by-click' : 'agent-report'};
+  }
+  function status(session) {
+    const {report, indicator} = details(session);
+    if (!indicator) return null;
     const label = {working:'Working', attention:'Needs your attention', finished:'Finished'}[report.state];
     return {state:report.state, label:label + (report.message ? ' · ' + report.message : '')};
   }
@@ -44,14 +51,15 @@
     return current?.state === 'finished' ? {label:current.label + ' · Not yet viewed'} : null;
   }
   function isWorking(session) { return status(session)?.state === 'working'; }
-  function acknowledge(scope, session) {
+  function acknowledge(scope, session, displayedReportId = session.terminal_status?.id) {
     if (document.hidden || !document.hasFocus()) return false;
     reload(); // A stale click must see newer reports from other windows.
     const entry = record(session);
     // A stale green click must never clear a newer working/attention report.
     if (entry?.report?.state !== 'finished' || entry.seen === entry.report.id) return false;
     if (session.terminal_status?.id !== entry.report.id) return false;
-    reports[key(session)] = {...entry, seen:entry.report.id};
+    if (displayedReportId !== entry.report.id) return false;
+    reports[key(session)] = {...entry, seen:entry.report.id, seen_at:Date.now() / 1000};
     save();
     window.dispatchEvent?.(new Event('lab-terminal-completion-change'));
     refresh();
@@ -68,5 +76,5 @@
   window.addEventListener('focus', refresh);
   document.addEventListener('visibilitychange', refresh);
   reload();
-  window.LabTerminalCompletion = {meta, status, isWorking, acknowledge};
+  window.LabTerminalCompletion = {meta, status, isWorking, acknowledge, details};
 })();
