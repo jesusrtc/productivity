@@ -6,9 +6,17 @@ overlay the interface without reserving console space and stay visible with
 the terminal panel closed. This replaces the initial inline header design. Red attention requests stay until the terminal status changes, including
 immediate yellow after submitted LLM input. Clicking red opens its owning vault,
 workspace, Objective and exact terminal without dismissing it. Green finished
-messages expire five minutes after the report timestamp, or disappear with the
-shared green acknowledgement on click. Expiry must not clear terminal/workspace
-status, and reloads must not reset the expiry. No desktop notifications or separate popup windows.
+messages stay until reviewed by click or replaced by a newer terminal status,
+including across reloads. The user explicitly removed the earlier five-minute
+expiry. Clicking green uses the shared acknowledgement to clear the message
+and indicators together. No desktop notifications or separate popup windows.
+
+Clicking either card must make its destination obvious: reveal and scroll the
+exact tab into view, then pulse its background and outline three times. The
+selected blue outline alone was insufficient. Expand a collapsed group or show
+all terminals in the selected Objective when needed. Reduced motion uses a
+brief steady highlight. Apply the cue after acknowledgement rerenders and keep
+its original deadline through subsequent rail rerenders; repeated clicks restart it.
 
 Use the existing batched report feed, deduplicate borrowed document terminals,
 retain original ownership, and guard clicks by socket/session incarnation plus

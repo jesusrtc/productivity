@@ -2135,6 +2135,14 @@
   .term-attention-summary { color: var(--red); margin-bottom: 6px; }
 
   .term-sessions .sess.active { color: var(--text-primary); background: #388bfd26; border-color: #388bfd; }
+  .term-sessions .sess.term-notification-target { animation: term-notification-arrival .8s ease-in-out 3; animation-delay: var(--term-notification-delay, 0ms); }
+  @keyframes term-notification-arrival {
+    0%, 100% { background: #388bfd26; box-shadow: inset 0 0 0 0 #c8e5ff00; transform: translateX(0); }
+    40% { background: #388bfd80; border-color: #c8e5ff; box-shadow: inset 0 0 0 2px #c8e5ff, 0 0 12px #58a6ff99; transform: translateX(2px); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .term-sessions .sess.term-notification-target { animation: none; background: #388bfd80; border-color: #c8e5ff; box-shadow: inset 0 0 0 2px #c8e5ff; }
+  }
   /* Dead session: server told us the tmux session is gone, or the
      reconnect loop gave up. Grayed-out + strikethrough so it's clearly
      distinct from a transient disconnect (which keeps the normal look +

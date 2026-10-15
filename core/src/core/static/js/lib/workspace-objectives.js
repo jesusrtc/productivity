@@ -1248,6 +1248,11 @@
       return terminalParentMain(t,selectedObjective);
     });
   }
+  function revealTerminal(t) {
+    const o=terminalObjective(t),s=state();
+    if(!o||o.id!==objective()?.id||s.terminalAll?.[o.id])return;
+    s.terminalAll||={};s.terminalAll[o.id]=true;persistView();bridge.refreshTerminals?.();
+  }
   function terminalParents(sessions,explicit={}) {
     const parents={...explicit};
     const fixed=new Set(sessions.filter(t=>terminalMain(t)).map(t=>t.logical_name));
@@ -1688,7 +1693,7 @@
   },true);
   window.LabObjectives={connect(adapter){bridge=adapter;startRefreshing();},load,active,sidebarHtml,paint,worktrees,tree,associate,terminalHtml,taskForTerminal,openForTerminal,collapse,progress,complete,change,selectObjective,openTask,renderTasks,tabsHtml,showAll,terminalLaunchContext,associateNewTerminal,
     instructionRoot(path){return active(path)?scopeRows().find(row=>row.id==='objective-root')?.path:null;},
-    terminalSessions,terminalParents,terminalExpanded,terminalMain,terminalObjective,openMainTerminal,openTaskTerminal,terminalTaskNameHtml,terminalWorktreeColor,terminalColor,sidebarMode,recentScopes,moveForTerminalDrop,
+    terminalSessions,revealTerminal,terminalParents,terminalExpanded,terminalMain,terminalObjective,openMainTerminal,openTaskTerminal,terminalTaskNameHtml,terminalWorktreeColor,terminalColor,sidebarMode,recentScopes,moveForTerminalDrop,
     terminalAsset,chooseTerminalAsset,unlinkTerminalAsset,linkTerminal,canMakeTerminalPrimary,makeTerminalPrimary,taskPrimaryForTerminal,
     activateFileTerminal(root,path){return active(context()?.path)&&activateAssetTerminal({file:{root,path}});},
     terminalsForFile(root,path){return active(context()?.path)?assetTerminals({file:{root,path}}):[];},

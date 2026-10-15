@@ -99,9 +99,12 @@ sits between icon and name; location dots and Home/main badges are omitted.
 Agent-reported status uses steady yellow for working, pulsing red
 for attention and blinking green for finished; task-status dots remain omitted.
 Floating cards at the top right show red input requests until status changes
-and green finished messages for five minutes from their report. Clicking a message opens
-the owning workspace, Objective and exact terminal. Only a green click reviews
-and clears status; expiry hides the message without changing the tab indicator.
+and green finished messages until reviewed by click or replaced by a newer status.
+Clicking a message opens the owning workspace, Objective and exact terminal,
+scrolls its tab into view and pulses it three times (a steady highlight with
+reduced motion). Collapsed groups and the selected Objective's task filter open
+when needed to reveal that tab. Only a green click reviews and clears status.
+Green messages have no timer and persist across reloads.
 Messages are deduplicated across shared views, and red takes precedence in
 workspace, Home and Assistant indicators.
 The cards overlay the interface and remain visible with the terminal panel closed.

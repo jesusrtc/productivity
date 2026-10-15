@@ -1,4 +1,4 @@
-"""Floating report cards: exact ownership, expiry and click review."""
+"""Floating report cards: persistence, exact navigation and destination cues."""
 from .test_frontend_terminal_ui import ROOT, _run_node, _js_between
 from .test_frontend_terminal_completion import CLOCK, MODULE
 from .test_frontend_project_cache import _check_project_html
@@ -11,12 +11,11 @@ NAVIGATION = _js_between('  let _termNotificationNavigation =', '  window.LabTer
 def test_notification_lifetime_shared_reports_and_stale_clicks():
     result = _run_node(CLOCK + r'''
 document.getElementById=()=>null;
-let now=1000000, timer;
+let now=1000000;
 Date.now=()=>now;
-const setTimeout=(fn,ms)=>{timer={fn,ms};return 1;},clearTimeout=()=>{};
 ''' + MODULE + NOTIFICATIONS + r'''
 (async()=>{
-const C=window.LabTerminalCompletion,N=window.LabTerminalNotifications;
+let C=window.LabTerminalCompletion,N=window.LabTerminalNotifications;
 const s={...session('attention'),workspace_id:'demo',vault:'owner',llm_controlled:true};
 s.terminal_status.updated_at=now/1000;
 N.configure({open:async item=>s});
@@ -29,13 +28,18 @@ assert(await N.open(item.key,item.report_id),'red opens its terminal');
 assert(N.items().length===1&&C.status(s).state==='attention','opening red never clears it');
 C.input(s,'yes\r');assert(!N.items().length,'responding immediately replaces attention with yellow');
 s.terminal_status={...report('finished',2),updated_at:now/1000};N.update(snapshot);
-assert(timer.ms===300000,'expiry is scheduled even with no polls');
-now+=299999;assert(N.items().length===1,'visible until five minutes');
-now++;timer.fn();assert(!N.items().length&&C.status(s).state==='finished','expiry hides message only, green remains');
-N.update(snapshot);assert(!N.items().length,'polling does not restart expiry');
+now+=7*24*60*60*1000;N.render();
+assert(N.items().length===1&&C.status(s).state==='finished','green stays after a week without clicks');
+N.update(snapshot);assert(N.items().length===1,'polling preserves unreviewed completion');
+''' + MODULE + NOTIFICATIONS + r'''
+C=window.LabTerminalCompletion;N=window.LabTerminalNotifications;
+let highlights=0;
+N.configure({open:async()=>s,highlight:()=>{highlights++;assert(!C.status(s),'highlight runs after review and its tab rerender');}});
+N.update(snapshot);assert(N.items().length===1,'reloading retains old unreviewed green');
 s.terminal_status={...report('finished',3),updated_at:now/1000};N.update(snapshot);item=N.items()[0];
 assert(await N.open(item.key,item.report_id),'green opens');
 assert(!N.items().length&&!C.status(s),'green click reviews exact report across views');
+assert(highlights===1,'successful opening highlights the destination');
 s.terminal_status={...report('finished',4),updated_at:now/1000};N.update(snapshot);item=N.items()[0];
 let release;N.configure({open:()=>new Promise(resolve=>release=resolve)});
 const click=N.open(item.key,item.report_id);
@@ -56,6 +60,7 @@ const _termRememberLast=()=>{};
 const navLocation={href:'https://lab/start'};
 let workspacesList=[{name:'demo',vault:'wrong',path:'/wrong/demo'}, {name:'demo',vault:'owner',path:'/owner/demo'}];
 const _termActiveWorkspaceId=()=>scope.workspace_id,_termVaultId=()=>scope.vault;
+const _termRecentScopeKey=()=>scope.vault+'::'+scope.workspace_id;
 const _workspaceVaultId=row=>row.vault;
 const calls=[];
 const fetchRepos=async()=>workspacesList;
@@ -66,7 +71,7 @@ let refresh=async()=>{termSessions=[target];};
 const _termRefreshSessionsForWorkspaceId=async()=>{await refresh();return true;};
 const _termRememberVisibility=()=>{},_termVisibilityKey=()=>'',termStartPeriodicRefresh=()=>{};
 const termToggleCollapse=()=>document.body.classList.remove('term-collapsed');
-const _termActivateTab=async(name,options)=>{calls.push(['activate',name,options]);termCurrentSession=name;};
+const _termActivateTab=async(name,options)=>{calls.push(['activate',name,options]);termCurrentSession=name;if(typeof termRenderSessionList==='function')termRenderSessionList();};
 window.LabObjectives={load:async()=>{},terminalObjective:()=>({id:'exact-objective'}),
  selectObjective:(id,options)=>calls.push(['objective',id,options]),openForTerminal:()=>true};
 '''
@@ -114,11 +119,18 @@ const assistant={...target,name:'assistant-terminal',tmux_id:'$4',workspace_id:'
 let snapshot={'owner::demo':[target,finished],'borrower::demo':[target], 'owner::__self__':[home],'__assistant__::__assistant__':[assistant]};
 const explorerToast=message=>{throw Error(message)};
 window.fetch=async()=>({ok:true,json:async()=>structuredClone(snapshot)});
+let groupCollapsed=true;
+function termRenderSessionList(){
+ const rail=document.getElementById('termSessionList');
+ rail.innerHTML='<div style="height:1200px;flex:none"></div><div class="term-tab-group"><button data-tab-group="fixture" aria-expanded="'+!groupCollapsed+'">Group</button><div class="term-tab-group-tabs" '+(groupCollapsed?'hidden':'')+'>'+termSessions.map(s=>'<span class="sess '+(s.name===termCurrentSession?'active':'')+'" data-name="'+s.name+'"><span class="sess-icon">💻</span><span class="sess-label">'+s.logical_name+'</span></span>').join('')+'</div></div>';
+ _termPaintNotificationHighlight();
+}
+const termUpdateTabGroup=()=>{groupCollapsed=false;termRenderSessionList();};
 '''
     checks = r'''
 (async()=>{try{
  const N=LabTerminalNotifications,C=LabTerminalCompletion,W=LabWorkspaceDocuments;
- N.configure({open:_termOpenNotification,label:row=>(row.owner.workspace_id==='__self__'?'Home':row.owner.workspace_id==='__assistant__'?'Assistant':'Client / Demo')+' / '+row.session.logical_name,error:explorerToast});
+ N.configure({open:_termOpenNotification,highlight:_termHighlightNotification,label:row=>(row.owner.workspace_id==='__self__'?'Home':row.owner.workspace_id==='__assistant__'?'Assistant':'Client / Demo')+' / '+row.session.logical_name,error:explorerToast});
  await W.poll(true);
  const host=document.getElementById('termNotifications');
  assert(!host.closest('.term-panel')&&getComputedStyle(host).position==='fixed','cards float independently of terminal panel');
@@ -137,6 +149,14 @@ window.fetch=async()=>({ok:true,json:async()=>structuredClone(snapshot)});
  red.click();await until(()=>termCurrentSession===target.name&&!host.querySelector('button:disabled'));
  assert(scope.vault==='owner'&&calls.some(row=>row[0]==='objective'&&row[1]==='exact-objective'),'cross-vault click opens Objective and exact terminal');
  assert(host.children.length===4&&C.status(target).state==='attention','red stays after click');
+ let tab=document.querySelector('.term-notification-target'),rail=document.getElementById('termSessionList');
+ assert(tab?.dataset.name===target.name&&!groupCollapsed,'red opens its group and highlights the exact tab');
+ assert(tab.getAnimations().some(a=>a.animationName==='term-notification-arrival'),'destination has an actual running pulse animation');
+ assert(rail.scrollTop>0&&tab.getBoundingClientRect().top>=rail.getBoundingClientRect().top&&tab.getBoundingClientRect().bottom<=rail.getBoundingClientRect().bottom,'offscreen destination scrolls into the rail');
+ await new Promise(resolve=>setTimeout(resolve,120));
+ const beforePulse=_termNotificationHighlight.started;
+ host.firstElementChild.click();await until(()=>_termNotificationHighlight.started>beforePulse);
+ assert(document.querySelectorAll('.term-notification-target').length===1,'repeat red click restarts one destination cue');
  C.input(target,'main\r');
  assert(![...host.children].some(row=>row.dataset.key===C.key(target)),'responding removes message instantly');
  assert(document.querySelector('[data-kind=workspace] .workspace-attention-working'),'workspace immediately becomes yellow');
@@ -144,10 +164,15 @@ window.fetch=async()=>({ok:true,json:async()=>structuredClone(snapshot)});
  refresh=async()=>{termSessions=[target,finished];};
  host.querySelector('.finished').click();await until(()=>termCurrentSession===finished.name&&!C.status(finished));
  assert(!host.querySelector('.finished'),'green message and terminal status clear together');
+ tab=document.querySelector('.term-notification-target');
+ assert(tab?.dataset.name===finished.name&&tab.getAnimations().length,'green tab pulses after the acknowledgement rebuild');
+ const started=_termNotificationHighlight.started;
+ await new Promise(resolve=>setTimeout(resolve,80));termRenderSessionList();
+ assert(!tab.isConnected&&document.querySelector('.term-notification-target')?.dataset.name===finished.name&&_termNotificationHighlight.started===started,'poll rebuild keeps the cue without restarting its duration');
  finished.terminal_status=report('finished',4,'Another completion');W.updateSessions('owner::demo',[target,finished]);
  assert(host.querySelector('.finished'),'new completion has a new message');
- now+=300000;N.render();
- assert(!host.querySelector('.finished')&&C.status(finished).state==='finished','five minute expiry leaves terminal green');
+ now+=7*24*60*60*1000;N.render();
+ assert(host.querySelector('.finished')&&C.status(finished).state==='finished','green card and status remain after a week');
  const existing=host.firstElementChild;N.render();assert(host.firstElementChild===existing,'unchanged refresh preserves focus and DOM');
  for(const width of [340,400]){host.style.width=width+'px';assert(host.scrollWidth<=width+2,'cards fit narrow and wide layouts');}
  assert(getComputedStyle(host).overflowY==='auto'&&host.clientHeight<=480,'long stacks scroll without consuming the console');
@@ -157,6 +182,9 @@ window.fetch=async()=>({ok:true,json:async()=>structuredClone(snapshot)});
  assert(!document.elementFromPoint(firstBox.x+20,(firstBox.bottom+secondBox.top)/2).closest('.term-notifications'),'gaps pass clicks to the interface underneath');
  finished.terminal_status=report('finished',5,'Checks passed — ready to review');W.updateSessions('owner::demo',[target,finished]);
  assert(getComputedStyle(host.querySelector('.finished')).backgroundColor==='rgb(28, 104, 72)','finished has a green card background');
+ await new Promise(resolve=>setTimeout(resolve,2450));
+ assert(!document.querySelector('.term-notification-target')&&!_termNotificationHighlight,'only the brief cue ends automatically');
+ assert(host.querySelector('.finished'),'the green notification stays after its tab cue ends');
  document.body.classList.remove('term-open');
  document.body.dataset.result='pass';
 }catch(error){document.body.dataset.result='fail';document.body.append(String(error.stack||error));}})();

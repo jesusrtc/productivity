@@ -15244,6 +15244,7 @@
     });
     _termWireSubtabs(el, hoveredSubtabs);
     termWireSessionDnD(el);
+    _termPaintNotificationHighlight();
   }
 
   // One move plan is used by the preview and by the committed drop.
@@ -15723,6 +15724,49 @@
     return true;
   }};
   let _termNotificationNavigation = 0;
+  let _termNotificationHighlight = null;
+  function _termClearNotificationHighlight() {
+    const highlight = _termNotificationHighlight;
+    if (!highlight) return;
+    clearTimeout(highlight.timer);
+    highlight.node?.classList.remove('term-notification-target');
+    _termNotificationHighlight = null;
+  }
+  function _termNotificationTab(session) {
+    const tabs = document.querySelectorAll('#termSessionList .sess');
+    return [...tabs].find(node => node.dataset.name === session.name)
+      || (session.logical_name && [...tabs].find(node => node.dataset.displayMainParent === session.logical_name));
+  }
+  function _termPaintNotificationHighlight() {
+    const highlight = _termNotificationHighlight;
+    if (!highlight) return;
+    if (highlight.scope !== _termRecentScopeKey() || highlight.session.name !== termCurrentSession
+        || !termSessions.some(row => window.LabTerminalCompletion.key(row) === highlight.key)) {
+      _termClearNotificationHighlight(); return;
+    }
+    const node = _termNotificationTab(highlight.session);
+    if (!node || node === highlight.node) return;
+    highlight.node?.classList.remove('term-notification-target');
+    highlight.node = node;
+    // Continue the same brief pulse if a report refresh replaces the tab.
+    node.style.setProperty('--term-notification-delay', `${highlight.started - performance.now()}ms`);
+    node.classList.add('term-notification-target');
+    node.scrollIntoView({block:'nearest', inline:'nearest', behavior:'instant'});
+  }
+  function _termHighlightNotification(session) {
+    _termClearNotificationHighlight();
+    if (termCurrentSession !== session.name) return;
+    if (!_termNotificationTab(session)) window.LabObjectives?.revealTerminal?.(session);
+    const groupId = _termNotificationTab(session)?.closest('.term-tab-group')
+      ?.querySelector('[data-tab-group][aria-expanded="false"]')?.dataset.tabGroup;
+    if (groupId) termUpdateTabGroup(groupId, 'toggle');
+    // Repeated clicks on a persistent red card restart the visual cue.
+    void _termNotificationTab(session)?.offsetWidth;
+    _termNotificationHighlight = {session, key:window.LabTerminalCompletion.key(session),
+      scope:_termRecentScopeKey(), started:performance.now(), node:null,
+      timer:setTimeout(_termClearNotificationHighlight, 2400)};
+    _termPaintNotificationHighlight();
+  }
   async function _termOpenNotification(item) {
     const request = ++_termNotificationNavigation, owner = item.owner;
     const activation = _termTabActivationSeq;
@@ -15773,6 +15817,7 @@
   }
   window.LabTerminalNotifications?.configure({
     open:_termOpenNotification,
+    highlight:_termHighlightNotification,
     error:message => explorerToast(message, true),
     label:({session, owner}) => {
       const workspace = workspaceTabsAll.find(row => row.name === owner.workspace_id && _workspaceVaultId(row) === owner.vault);

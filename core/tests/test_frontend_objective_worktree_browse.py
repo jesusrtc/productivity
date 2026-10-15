@@ -63,16 +63,21 @@ const taskStatus=t=>t.status,taskIcon=()=>'',customTaskIcon=()=>'';
 const view={terminalAll:{}},state=()=>view;
 let selected=null;const focusedTask=()=>o.tasks.find(t=>t.id===selected),objective=()=>o;
 const parents={extra:'working',grandchild:'extra'},bridge={parentTerminal:t=>sessions.find(s=>s.name===parents[t.name])};
+let saves=0,repaints=0;const persistView=()=>saves++;bridge.refreshTerminals=()=>repaints++;
 ''' + helpers + r'''
 const original=JSON.stringify(sessions),filtered=terminalSessions(sessions),all=terminalSessions(sessions,{wipOnly:false});
 view.terminalAll.one=true;const objectiveAll=terminalSessions(sessions);view.terminalAll.one=false;
 selected='todo';const withTodo=terminalSessions(sessions);selected='done';const withDone=terminalSessions(sessions);selected='paused';const withPaused=terminalSessions(sessions);selected='wont_do';const withWontDo=terminalSessions(sessions);selected=null;
+revealTerminal(sessions.find(s=>s.name==='done'));const revealed=terminalSessions(sessions);revealTerminal(sessions.find(s=>s.name==='done'));
+view.terminalAll.one=false;
 links.working.task_id='done';const after=terminalSessions(sessions);
-console.log(JSON.stringify({withPaused:withPaused.map(s=>s.task_id||s.name),withWontDo:withWontDo.map(s=>s.task_id||s.name),objectiveAll:objectiveAll.map(s=>s.task_id||s.name),withTodo:withTodo.map(s=>s.task_id||s.name),withDone:withDone.map(s=>s.task_id||s.name),filtered:filtered.map(s=>s.task_id||s.name),all:all.map(s=>s.task_id||s.name),after:after.map(s=>s.task_id||s.name),unchanged:original===JSON.stringify(sessions)}));
+console.log(JSON.stringify({saves,repaints,revealed:revealed.map(s=>s.task_id||s.name),withPaused:withPaused.map(s=>s.task_id||s.name),withWontDo:withWontDo.map(s=>s.task_id||s.name),objectiveAll:objectiveAll.map(s=>s.task_id||s.name),withTodo:withTodo.map(s=>s.task_id||s.name),withDone:withDone.map(s=>s.task_id||s.name),filtered:filtered.map(s=>s.task_id||s.name),all:all.map(s=>s.task_id||s.name),after:after.map(s=>s.task_id||s.name),unchanged:original===JSON.stringify(sessions)}));
 ''')
     assert result['filtered'] == ['workflow-terminal:work:main', 'global', 'working', 'recommended', 'extra', 'grandchild']
     assert set(result['all']) == {'workflow-terminal:work:main','global','working','todo','done','paused','wont_do','recommended','extra','grandchild','unassigned'}
     assert result['objectiveAll'] == result['all']
+    assert result['revealed'] == result['all']
+    assert result['saves'] == result['repaints'] == 1
     assert result['withTodo'] == result['filtered']
     assert result['withDone'] == result['withPaused'] == result['withWontDo'] == result['filtered']
     assert result['after'] == ['workflow-terminal:work:main', 'global', 'working', 'recommended']  # WIP primary is now recommended.

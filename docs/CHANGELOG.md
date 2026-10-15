@@ -5,6 +5,14 @@ guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 
 ## 2026-10-15
 
+### Keep finished notifications until review and highlight their destination
+
+- Green finished cards no longer expire after five minutes. They stay until
+  reviewed by click or replaced by a newer terminal status, including on reload.
+- Clicking a red or green card scrolls its destination terminal tab into view
+  and pulses it three times. Hidden groups and the selected Objective's task
+  filter open when needed; reduced-motion settings use a steady highlight.
+
 ### Floating terminal notification cards
 
 - Terminal attention and finish messages now float in a top-right stack of red

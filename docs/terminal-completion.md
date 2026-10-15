@@ -94,11 +94,17 @@ Floating cards at the top right show one message per terminal across workspaces
 and vaults, with red input requests first. Red messages remain until status changes, including
 immediate yellow after a submitted reply. Clicking red navigates to the exact
 owning workspace, Objective and terminal without clearing it. Green messages
-expire five minutes after the report timestamp; expiry only hides the message.
+remain until reviewed by click or replaced by a newer terminal status, with no
+expiry timer. Reloading preserves unreviewed messages.
 Clicking green opens the terminal and acknowledges only that displayed report,
 clearing its green dot and message across shared views. A failed navigation or
-an outdated click cannot consume a newer report. Reloading does not extend the
-expiry. Workspace, Home and Assistant dots retain red/yellow/green precedence.
+an outdated click cannot consume a newer report. Clicking either color reveals
+and scrolls to its destination tab, then pulses the background and outline three
+times. The pulse survives tab rerenders without extending its 2.4-second duration;
+another click restarts it. Reduced motion uses a steady highlight instead.
+Collapsed groups and the selected Objective's task filter open only when needed
+to show the destination. Workspace, Home and Assistant dots retain
+red/yellow/green precedence.
 Cards overlay the interface without resizing the console, including when the
 terminal panel is closed. They are in-app elements, not desktop notifications.
 

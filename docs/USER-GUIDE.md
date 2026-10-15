@@ -403,11 +403,14 @@ status changes; clicking one opens its owning workspace, Objective and exact
 terminal without dismissing the request. Submitting a response turns the
 terminal yellow and removes the red message immediately.
 
-Green **Finished** messages remain for five minutes from the agent's report.
+Green **Finished** messages stay until reviewed by click or replaced by a newer
+terminal status; they do not expire, including across page reloads.
 Clicking one opens that terminal and reviews the displayed finish, clearing its
-message and green indicators together. Expiry only hides the floating card;
-the terminal and workspace keep their status until reviewed or updated. Reloads
-do not restart the five-minute period. Shared document terminals appear once in
+message and green indicators together. Clicking either color scrolls the
+destination tab into view and pulses its background and outline three times.
+Lab expands its tab group or shows the selected Objective's full terminal list
+when needed to reveal it. Reduced-motion settings use a brief steady highlight.
+Shared document terminals appear once in
 the stack. Home, Assistant and workspace dots prioritize red, then yellow,
 then green. No desktop notifications or separate popup windows are sent.
 

@@ -16,6 +16,7 @@ from .test_frontend_terminal_ui import _js_between, _run_node, LAB_APP, LAB_SHEL
 GROUPS = _js_between('  function _termGroupScopeKey()', '  function _termSessionDisplay(s)')
 MOVES = _js_between('  function _termPlanItemMove(', '  function termReorderSessions(')
 RENDER = _js_between('  function _termTaskPlaceholderHtml(', '  // One move plan')
+RENDER += _js_between('  let _termNotificationHighlight =', '  async function _termOpenNotification(')
 PILL = _js_between('  function _termTaskStatusLabel(', '  function _termTaskPlaceholderHtml(')
 ASSOCIATION = _js_between('  function _termSessionAssociationHtml(', '  function _termTaskStatusLabel(')
 ALL_TOGGLE = _js_between('  function termSetWipOnly(', '  function termSetRecentEnabled(')
@@ -546,9 +547,18 @@ const fs=require('node:fs');
  assert(await evaluate(`(()=>{const row=document.querySelector('.term-display-main'),dot=row.querySelector('.sess-attention');return !!dot&&getComputedStyle(dot).backgroundColor==='rgb(248, 81, 73)'&&getComputedStyle(dot).animationName==='term-attention-pulse'&&row.getAttribute('aria-label').includes('Please review <preview>')})()`),'red attention sparkles and carries literal hover text');
  await click('.term-display-main');
  assert(await evaluate(`!!document.querySelector('.term-display-main .sess-attention')&&LabTerminalCompletion.status(termSessions.find(s=>s.name===automationName)).state==='attention'`),'clicking red does not clear it');
+ await evaluate(`_termHighlightNotification(termSessions.find(s=>s.name===automationName))`);
+ assert(await evaluate(`document.querySelector('.term-display-main').classList.contains('term-notification-target')&&document.querySelector('.term-display-main').getAnimations().some(a=>a.animationName==='term-notification-arrival')`),'notification cue animates the actual merged destination in both rail orientations');
+ await evaluate(`termSessions.find(s=>s.name===automationName).terminal_status.message='Updated request';termRenderSessionList()`);
+ assert(await evaluate(`document.querySelector('.term-display-main.term-notification-target')?.getAnimations().some(a=>a.animationName==='term-notification-arrival')`),'actual report rerender retains the destination cue');
+ await sleep(250);
+ fs.writeFileSync(process.argv[1]+'/../notification-target.png',Buffer.from((await send('Page.captureScreenshot',{format:'png'})).data,'base64'));
  await send('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'reduce'}]});
  assert(await evaluate(`getComputedStyle(document.querySelector('.sess-attention')).animationName==='none'`),'reduced motion keeps attention steady');
+ const cue=await evaluate(`(()=>{const s=getComputedStyle(document.querySelector('.term-notification-target'));return {animation:s.animationName,shadow:s.boxShadow,border:s.borderColor,background:s.backgroundColor}})()`);
+ assert(cue.animation==='none'&&cue.shadow!=='none'&&cue.border==='rgb(200, 229, 255)','reduced motion keeps an obvious steady destination highlight: '+JSON.stringify(cue));
  await send('Emulation.setEmulatedMedia',{features:[]});
+ await evaluate(`_termClearNotificationHighlight()`);
  await evaluate(`(()=>{const s=termSessions.find(s=>s.name===automationName);s.llm_controlled=true;LabTerminalCompletion.input(s,'yes, proceed\\r')})()`);
  assert(await evaluate(`(()=>{const row=document.querySelector('.term-display-main');return !!row.querySelector('.sess-working')&&!row.querySelector('.sess-attention')&&row.getAttribute('aria-label').includes('Working - responded yes, proceed')})()`),'submission paints yellow immediately with the response, before polling or an agent report');
  await evaluate(`termRenderSessionList()`);

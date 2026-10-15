@@ -1,7 +1,6 @@
 // A view of current terminal reports, not a separate notification history.
 (() => {
-  const finishLifetime = 5 * 60 * 1000;
-  let scopes = {}, bridge, timer;
+  let scopes = {}, bridge;
   const opening = new Set();
   const escape = value => String(value || '').replace(/[&<>"']/g,
     ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
@@ -14,14 +13,11 @@
       for (const session of sessions) {
         const {report, indicator} = completion.details(session);
         if (!report || !['attention', 'finished'].includes(indicator)) continue;
-        const expiresAt = indicator === 'finished' ? Number(report.updated_at) * 1000 + finishLifetime : null;
-        if (expiresAt !== null && (!Number.isFinite(expiresAt) || expiresAt <= Date.now())) continue;
         const key = completion.key(session);
         const owner = {workspace_id:session.workspace_id || scope.slice(separator + 2),
           vault:session.vault || scope.slice(0, separator)};
         const item = {key, session, owner, report_id:report.id, state:indicator,
-          message:report.message || (indicator === 'attention' ? 'Needs your input' : 'Work finished'),
-          expires_at:expiresAt};
+          message:report.message || (indicator === 'attention' ? 'Needs your input' : 'Work finished')};
         // Prefer the native row over another workspace's shared view.
         if (!unique.has(key) || scope === `${owner.vault}::${owner.workspace_id}`) unique.set(key, item);
       }
@@ -38,15 +34,14 @@
       const session = await bridge?.open(item);
       if (!session) return false;
       if (item.state === 'finished') window.LabTerminalCompletion.acknowledge('', session, reportId);
+      // Reviewing green can rebuild the tab rail; highlight its final DOM.
+      bridge?.highlight?.(session);
       return true;
     } finally { opening.delete(key); render(); }
   }
 
   function render() {
-    clearTimeout(timer);
     const rows = items(), host = document.getElementById('termNotifications');
-    const expiry = Math.min(...rows.filter(row => row.expires_at !== null).map(row => row.expires_at));
-    if (Number.isFinite(expiry)) timer = setTimeout(render, Math.max(1, expiry - Date.now()));
     if (!host) return;
     host.hidden = !rows.length;
     const html = rows.map(row => {
