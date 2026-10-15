@@ -16,7 +16,8 @@ identify all instructions that apply.
 
 Every agent, including agents assigned to an Objective or a task, must read:
 
-1. This user guide and the Lab changelog, unless already loaded.
+1. This user guide and new changelog changes returned by `lab context llm` or
+   `lab context update`, unless already loaded.
 2. The owning vault's root instructions.
 3. The owning workspace's root instructions.
 4. Applicable Objective, task and working repository instructions and the
@@ -26,10 +27,13 @@ Check existing `AGENTS.md` (or `agent.md`), `CLAUDE.md` and
 `.github/copilot-instructions.md`. Read vault-wide rules first and preserve each
 file's scope. Provider discovery in an Objective or linked checkout can miss
 the vault and workspace roots; read those roots even if your terminal starts
-elsewhere. Lab does not create or link client instruction, skill or memory files.
+elsewhere. The explicit agent-instruction refresh described below manages only
+its marked section in `AGENTS.md`. Other instructions, skills and memory remain
+owned by the user.
 
-The sidebar's **META** section lists **Lab agent context**, **Lab user guide**,
-**Lab changelog**, and existing Vault, Workspace, Objective and selected-folder
+The sidebar's **META** section lists one **Lab context** document combining the
+agent instructions and complete user guide, **Lab changelog**, and existing
+Vault, Workspace, Objective and selected-folder
 instruction files. Click a document to read it. Documentation and instruction
 shortcuts expose their absolute paths in their tooltips; the context reader
 lists absolute paths in its text. Switching Objectives updates the Objective
@@ -49,7 +53,7 @@ once. On `main`, it shows the same files as Uncommitted. Each checkout/worktree
 uses its own changes; new files appear after staging. Existing hidden-file and
 extension filters still apply.
 
-Click **Lab agent context** to inspect the context for the selected scope. Drag
+Click **Lab context** to inspect the combined context for the selected scope. Drag
 it, or the reader's **Drag context to terminal** button, onto a terminal to paste
 the full context without submitting it. The context keeps the scope captured
 when opened or dragged, even if you select another folder while it loads.
@@ -59,6 +63,35 @@ loaded.
 
 ## Read the installed documentation
 
+The top-bar **↻ Update and restart Lab** button refreshes the **Lab managed**
+section at the top of `AGENTS.md` in the current vault, workspace and selected
+Objective. It captures that scope when clicked and applies the newly installed
+template after the server restarts. Missing files are created. Existing user
+instructions stay below the marked section, unchanged; future refreshes replace
+only that section, move it back to the top and remove duplicate managed sections.
+Current files are not rewritten. Creating or opening a scope alone does not
+write instructions.
+
+The managed section contains just this startup instruction:
+
+```md
+Important: On startup, run `lab context llm`, read its full output and follow its instructions before working.
+```
+
+Refresh the same files without updating or restarting Lab with:
+
+```bash
+lab agents refresh --workspace <id> --objective <id>
+```
+
+Omit `--objective` for vault and workspace only; omit both for the selected
+vault only. `--vault /absolute/vault/path` selects another vault. The command and
+button use the same writer. They do not scan other workspaces, Objectives or
+linked checkouts. Symlinks and malformed managed sections are left untouched
+and reported. Keep custom rules outside the `lab:managed-context` markers.
+Refreshing files does not send input to running agents; their next
+`lab context update` reads changed framework context.
+
 For a single instruction in your own `AGENTS.md`, use:
 
 ```md
@@ -66,15 +99,22 @@ At the start of every agent session, including resumed conversations, and after
 context compaction, run `lab context llm` and follow its instructions before working.
 ```
 
-`lab context llm` always prints the current Lab agent instructions, full user
-guide and changelog in one response, with absolute source paths and the applicable
+`lab context llm` always prints the same combined Lab agent instructions and full
+user guide shown in META, with absolute source paths and the applicable
 vault/workspace/Objective/checkout instruction paths. Read the complete output;
 increase the tool output limit or retrieve any truncated remainder. Specialized
-topic guides remain available for deeper work. Lab does not edit your instruction
-files. The command marks its own Lab tmux terminal **LLM-controlled**, so no
+topic guides remain available for deeper work. Reading context does not edit
+instruction files. The command marks its own Lab tmux terminal **LLM-controlled**, so no
 separate marker command is needed. It records the version only after successful
 output and always prints again for a new conversation or context recovery, even
 when that same terminal previously loaded the current version.
+
+The changelog portion contains only the diff since that tmux session's last
+acknowledged version; an unchanged changelog is omitted. The first successful
+read establishes a baseline. If no earlier snapshot exists (including sessions
+from older Lab releases), the command says so instead of guessing past changes.
+`lab context changelog` and the separate **Lab changelog** META entry still show
+the full history when needed.
 
 These commands print documentation and do not create files in a workspace:
 
@@ -122,9 +162,14 @@ content ID; compare it for equality, not ordering. It changes automatically when
 the packaged context topics, instruction-path template, user guide or changelog
 change, independently of file timestamps or installation paths.
 
-New agent launches inject a short instruction to run `lab context llm` and leave
-the full context unread. Only a successful llm/update read records the version in
-the tmux session's `@lab_context_version` option. Sessions track it independently, including on
+Agent launches inject a short instruction to run `lab context llm`. They preserve
+the last acknowledged version so resumed conversations retain their changelog
+baseline; `llm` always prints full instructions regardless. After successful
+output and flush, Lab saves the changelog snapshot under
+`$LAB_HOME/state/agent-context/` (default `~/.lab/state/agent-context/`) and then
+updates the tmux session's `@lab_context_version` option. This live tmux option,
+rather than an inherited environment variable, is authoritative. A failed read,
+output or snapshot write does not advance it. Sessions track it independently, including on
 older sockets after rotation. The check does not download code, restart Lab,
 or edit workspace files. Outside tmux, update prints the current context each
 time without saving a version. Existing agents that predate this check must be

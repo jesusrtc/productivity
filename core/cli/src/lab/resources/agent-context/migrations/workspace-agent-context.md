@@ -2,7 +2,10 @@
 
 Lab now supplies framework capabilities at agent launch. Each workspace owns
 its AGENTS.md, CLAUDE.md, skills and memory policy. Lab does not seed or link
-those files automatically. `lab agents sync` is a read-only compatibility check.
+those files automatically. The explicit `lab agents refresh` action and the
+top-bar update/restart button can create/update a marked Lab managed section in
+selected AGENTS.md files, preserving all other content. `lab agents sync` remains
+a read-only compatibility check.
 
 Read and inspect first:
 

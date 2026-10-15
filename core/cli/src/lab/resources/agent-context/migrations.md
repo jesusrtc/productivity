@@ -64,5 +64,5 @@ Lab alone does not migrate client data.
 
 `lab agent context migrations`, `lab agents context migrations`, and
 `lab context migrations` read this same overview. The context supplied when an
-agent starts, and the “Lab agent context” document in the UI, point to this guide.
+agent starts, and the combined “Lab context” document in META, point to this guide.
 Starting an agent does not run a migration.

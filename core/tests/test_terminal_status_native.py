@@ -105,7 +105,8 @@ def test_native_launch_bootstraps_full_context_and_updates_only_its_session(
     monkeypatch.setenv('TMUX_PANE',pane)
     for _ in range(2):
         result = CliRunner().invoke(main, ['context','llm'])
-        assert result.exit_code == 0 and '# Lab user guide' in result.output and '# Lab changelog' in result.output
+        assert result.exit_code == 0 and '# Lab user guide' in result.output
+        assert agent_context.read_context('changelog').strip() not in result.output
         assert CliRunner().invoke(main, ['context','update']).output == ''
     assert run('show-options','-qv','-t','lab-owned-context',agent_context.CONTEXT_VERSION_OPTION).stdout.strip() == version
     assert run('show-options','-qv','-t','lab-owned-context','@lab_llm').stdout.strip() == 'codex'

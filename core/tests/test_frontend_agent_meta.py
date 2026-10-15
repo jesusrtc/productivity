@@ -12,7 +12,7 @@ def test_meta_contains_context_and_workspace_instruction_documents_only():
     source = SOURCE.read_text()
     assert "const META_FILES = new Set(['AGENTS.md', 'agent.md', 'CLAUDE.md', '.github/copilot-instructions.md'])" in source
     assert 'const mainFiles = otherFiles.filter(f => !META_FILES.has(f.path))' in source
-    assert 'Lab agent context' in source
+    assert '>Lab context</span>' in source
     assert '_vaultProjectionMetaHtml' not in source
     assert '_populateSharedMetaPlaceholders' not in source
     assert 'renderSharedClaudeTree' not in source
@@ -61,7 +61,7 @@ const window = {};
 '''
     result = subprocess.run(['node', '-e', script], text=True, capture_output=True, check=True)
     data = json.loads(result.stdout)
-    assert 'Lab agent context' in data['initial']
+    assert 'Lab context' in data['initial']
     assert data['initial'].count('data-agent-instructions-root=') == 1
     assert 'Assistant instructions' in data['initial']
     assert 'data-agent-instructions-root="/workspace"' in data['selected']
@@ -100,7 +100,7 @@ const fetch = async url => {
     result = subprocess.run(['node', '-e', script], text=True, capture_output=True, check=True)
     data = json.loads(result.stdout)
     assert '# Actual launch context\n&lt;instructions&gt;' in data['body']
-    assert data['title'] == 'Lab agent context'
+    assert data['title'] == 'Lab context'
     assert data['editing'] is False
 
 
@@ -152,9 +152,10 @@ const termWS={readyState:WebSocket.OPEN},explorerToast=(...args)=>notices.push(a
   assert(_sidebarProjectView(base,folder),'project sidebar mounts');
   await new Promise(resolve=>setTimeout(resolve,0));
   assert(document.querySelectorAll('#sidebar [data-lab-agent-context]').length===1,'each workspace has one draggable Lab context item');
-  for(const doc of docs){
+  assert(!document.querySelector('[data-lab-document="user-guide"]'),'user guide is part of the single context document');
+  for(const doc of docs.filter(doc=>doc.name==='changelog')){
    const link=document.querySelector(`[data-lab-document="${doc.name}"]`);
-   assert(link?.textContent===doc.title&&link.title===doc.path,'META exposes both installed docs with absolute paths');
+   assert(link?.textContent===doc.title&&link.title===doc.path,'META retains the separate changelog with its absolute path');
   }
   for(const [scope,root] of [['Vault',vault],['Workspace',base],['Objective',objectiveRoot]]){
    const row=document.querySelector(`[data-agent-instructions-scope="${scope}"] a`);
@@ -185,12 +186,13 @@ const termWS={readyState:WebSocket.OPEN},explorerToast=(...args)=>notices.push(a
  releaseDocument({ok:true,json:async()=>({...docs[0],content:'Late document'})});await oldDocument;
  assert(!document.getElementById('docModalBody').textContent.includes('Late document'),'late document responses do not repopulate a closed reader');
  window.fetch=async url=>{reads++;guideRequests.push(new URL(url,'http://lab').searchParams);return {ok:true,json:async()=>({content:guide})};};
- const icons=()=>[...document.querySelectorAll('#sidebar [data-sidebar-section-shortcut]')].filter(row=>row.getClientRects().length);
+ const visible=row=>row.getClientRects().length&&getComputedStyle(row).visibility!=='hidden';
+ const icons=()=>[...document.querySelectorAll('#sidebar [data-sidebar-section-shortcut]')].filter(visible);
  const project=document.querySelector('[data-project-sidebar]');project.dataset.objectiveSidebarMode='worktree';project.dataset.objectiveRecentScopes='2';
  assert(icons().length===2&&icons().map(row=>row.getAttribute('aria-label')).sort().join(',')==='Files,Recently updated','one Files icon and one icon for the entire two-worktree recent union');
- assert(![...document.querySelectorAll('#sidebar [data-entry-kind=file]:not(.sidebar-file-meta),#sidebar .sidebar-file-recent')].some(row=>row.getClientRects().length),'compact project view hides individual files in both lists');
+ assert(![...document.querySelectorAll('#sidebar [data-entry-kind=file]:not(.sidebar-file-meta),#sidebar .sidebar-file-recent')].some(visible),'compact project view hides individual files in both lists');
  assert([...document.querySelectorAll('[data-agent-instructions-scope] .sidebar-file-meta')].every(row=>row.getClientRects().length),'instruction shortcuts remain visible in the compact sidebar');
- assert([...document.querySelectorAll('[data-lab-document]')].length===2&&[...document.querySelectorAll('[data-lab-document]')].every(row=>row.getClientRects().length),'guide and changelog remain visible in the compact sidebar');
+ assert([...document.querySelectorAll('[data-lab-document]')].length===1&&[...document.querySelectorAll('[data-lab-document]')].every(row=>row.getClientRects().length),'only the changelog sits beside combined context in the compact sidebar');
  project.dataset.objectiveSidebarMode='task';assert(icons().length===1&&icons()[0].dataset.sidebarSectionShortcut==='recent','task mode keeps only the available recent list icon');
  project.dataset.objectiveRecentScopes='0';assert(icons().length===0,'empty task scopes do not leave an orphan recent icon');
  project.dataset.objectiveSidebarMode='worktree';project.dataset.objectiveRecentScopes='2';document.body.classList.add('sidebar-drawer-open');

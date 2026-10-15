@@ -302,7 +302,7 @@ def test_claude_resume_refreshes_supported_snapshots_but_honors_user_choice(tmp_
 
 
 @pytest.mark.parametrize('agent', agent_context.AGENTS)
-def test_launch_leaves_full_context_unread_and_rolls_back_failed_exec(
+def test_launch_preserves_last_context_version_and_rolls_back_failed_exec(
         monorepo, binaries, monkeypatch, agent):
     from lab import terminal_context
     monkeypatch.setenv('PATH', str(binaries))
@@ -323,7 +323,7 @@ def test_launch_leaves_full_context_unread_and_rolls_back_failed_exec(
         guide = (json.loads(argv[2].split('=', 1)[1]) if agent == 'codex'
                  else argv[2] if agent == 'claude' else env['LAB_AGENT_CONTEXT'])
         assert f'Lab context version: {env["LAB_AGENT_CONTEXT_VERSION"]}.' in guide
-        assert marker[agent_context.CONTEXT_VERSION_OPTION] == ''
+        assert marker[agent_context.CONTEXT_VERSION_OPTION] == 'old'
         assert marker['@lab_llm'] == agent
         assert 'You are in Lab terminal `neurona-owned`, pane `%42`' in guide
         assert 'run `lab context llm` before other tools' in guide
@@ -336,7 +336,7 @@ def test_launch_leaves_full_context_unread_and_rolls_back_failed_exec(
         monkeypatch.setattr(os, 'execvpe', lambda *args: None)
         result = CliRunner().invoke(main, ['agents', 'run', agent, '--', '--resume', 'old',
                                           '--system-prompt-snapshot', 'on'])
-        assert result.exit_code == 0 and marker[agent_context.CONTEXT_VERSION_OPTION] == ''
+        assert result.exit_code == 0 and marker[agent_context.CONTEXT_VERSION_OPTION] == 'old'
     marker[agent_context.CONTEXT_VERSION_OPTION] = 'previous'
     marker['@lab_llm'] = '0'
     def fail(*args):

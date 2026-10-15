@@ -13,3 +13,5 @@ all real files and custom links intact. Do not reintroduce automatic linking,
 instruction seeding, or shared skills under workspaces. This supersedes the old
 cross-agent symlink/auto-memory sync workflow; the framework repo's own memory
 policy still applies to framework work.
+
+Later user refinements: see [explicit managed instruction refresh](explicit-managed-agent-instructions.md) and [combined context/changelog differences](combined-context-and-changelog-deltas.md). These supersede the relevant creation, META and changelog/version rules above.

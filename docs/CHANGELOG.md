@@ -5,6 +5,30 @@ guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 
 ## 2026-10-15
 
+### One META context document and per-terminal changelog differences
+
+- Combined agent instructions and the complete user guide into one **Lab
+  context** document in META, shared by `lab context llm` and context dragging.
+  The separate user-guide entry is removed; the full changelog remains available.
+- Terminal context reads include only changelog differences since the version
+  acknowledged by that tmux session. A missing prior snapshot establishes a
+  baseline with an explicit notice; unchanged changelogs are omitted.
+- Successful output stores the changelog snapshot and then advances
+  `@lab_context_version`. Launches preserve that baseline, while `llm` always
+  prints full instructions. Failed output/storage cannot consume an update.
+
+### Refresh the Lab managed instruction section
+
+- The top-bar update/restart button now refreshes the current vault, workspace
+  and selected Objective `AGENTS.md` after the new server starts. Missing files
+  are created with a brief `lab context llm` startup instruction.
+- The marked **Lab managed** section stays at the top and receives the latest
+  template on refresh. User content outside it is preserved, duplicates are
+  consolidated and already-current files are not rewritten.
+- Added `lab agents refresh` and `POST /api/agents/context/refresh` for the same
+  scoped action without a framework update. Symlinks and malformed sections are
+  reported without replacement; ordinary creation and reads remain unchanged.
+
 ### One command loads the full agent context
 
 - Added `lab context llm`: always print the current agent instructions, complete

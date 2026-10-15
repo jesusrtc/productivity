@@ -4,7 +4,7 @@ import os
 import click
 from lab.agent_context import ContextError, TOPICS, current_context, guide_path, read_context, llm_context
 from lab.agent_context import context_version, CONTEXT_VERSION_OPTION
-from lab import terminal_context, terminal_status
+from lab import context_history, terminal_context, terminal_status
 
 
 @click.command(name='context')
@@ -25,18 +25,21 @@ def context_cmd(topic: str, show_path: bool) -> None:
                 return
             # No process-global or browser-selected destination. Outside tmux,
             # print context each time without persisting an acknowledgement.
-            terminal = None
+            terminal, previous = None, None
             if os.environ.get('TMUX') or os.environ.get('TMUX_PANE'):
                 terminal = terminal_context.current()
+                previous = terminal.option(CONTEXT_VERSION_OPTION)
                 if topic == 'llm':
                     if terminal.option(terminal_status.LLM_OPTION) not in ('1', 'claude', 'codex', 'copilot'):
                         terminal.set_option(terminal_status.LLM_OPTION, '1')
-                elif terminal.option(CONTEXT_VERSION_OPTION) == version:
+                elif previous == version:
                     return
-            click.echo(llm_context(version=version))
+            changelog = read_context('changelog')
+            click.echo(llm_context(version=version, previous_version=previous, changelog=changelog))
             click.get_text_stream('stdout').flush()
             # Mark only after successful output; a failed read/pipe stays pending.
             if terminal:
+                context_history.record(version, changelog)
                 terminal.set_option(CONTEXT_VERSION_OPTION, version)
             return
         content = str(guide_path(topic)) if show_path else current_context() if topic == 'overview' else read_context(topic)

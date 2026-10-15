@@ -385,15 +385,20 @@ def test_consolidated_logs_have_a_home_section() -> None:
     assert "function initLogs" not in lab_app
 
 
-def test_framework_update_button_waits_for_a_new_server_boot_before_reload() -> None:
+@pytest.mark.parametrize('refresh_outcome', ['ok', 'partial', 'http-error'])
+def test_framework_update_button_waits_for_a_new_server_boot_before_reload(refresh_outcome) -> None:
     root = Path(__file__).resolve().parents[2]
     source = (root / "core/src/core/static/js/lab-app.js").read_text()
     start = source.index("// Framework self-update and verified process restart.")
     end = source.index("let currentDiffTab", start)
     helper = source[start:end]
     result = _run_node(
-        """
+        'const refreshOutcome = ' + json.dumps(refresh_outcome) + ';\n' + """
 let reloads = 0;
+let refreshBody = null;
+let currentWorkspace = {is_workspace:true, name:'demo', path:'/vault/workspaces/demo'};
+let currentVaultId = 'active';
+const _vaultForWorkspace = () => ({id:'owner'});
 const calls = [];
 const icon = {textContent: '↻'};
 const classes = new Set();
@@ -408,7 +413,7 @@ const button = {
 };
 const document = {getElementById(id) { return id === 'updateRestartBtn' ? button : null; }};
 const location = {reload() { reloads += 1; }};
-const window = {};
+const window = {LabObjectives:{terminalLaunchContext:()=>({id:'objective',context:{path:'/vault/workspaces/demo'}})}};
 const toasts = [];
 function confirm() { return true; }
 function explorerToast(message, error = false) { toasts.push({message, error}); }
@@ -417,7 +422,14 @@ let runtimeChecks = 0;
 async function fetch(path, options = {}) {
   calls.push({path, method: options.method || 'GET'});
   if (path === '/api/git/update-restart') {
+    currentWorkspace = {is_workspace:true, name:'different', path:'/other'};
     return {ok: true, json: async () => ({boot_id: 'old', revision: 'abc1234'})};
+  }
+  if (path === '/api/agents/context/refresh') {
+    refreshBody = JSON.parse(options.body);
+    return {ok:refreshOutcome !== 'http-error',json:async()=>refreshOutcome === 'http-error'
+      ? {detail:'Refresh unavailable'} : {ok:refreshOutcome === 'ok',files:refreshOutcome === 'ok'
+        ? [] : [{path:'/vault/AGENTS.md',detail:'Unclosed section'}]}};
   }
   runtimeChecks += 1;
   return {
@@ -432,6 +444,7 @@ async function fetch(path, options = {}) {
   await labUpdateAndRestart();
   process.stdout.write(JSON.stringify({
     calls,
+    refreshBody,
     reloads,
     disabled: button.disabled,
     icon: icon.textContent,
@@ -450,13 +463,40 @@ async function fetch(path, options = {}) {
             {"path": "/api/git/update-restart", "method": "POST"},
             {"path": "/api/git/runtime", "method": "GET"},
             {"path": "/api/git/runtime", "method": "GET"},
+            {"path": "/api/agents/context/refresh", "method": "POST"},
         ],
-        "reloads": 1,
-        "disabled": True,
-        "icon": "✓",
+        "refreshBody": {"vault": "owner", "workspace_id": "demo", "objective_id": "objective"},
+        "reloads": 1 if refresh_outcome == 'ok' else 0,
+        "disabled": refresh_outcome == 'ok',
+        "icon": "✓" if refresh_outcome == 'ok' else '↻',
         "busy": False,
-        "toasts": [{"message": "Lab updated to abc1234. Reloading…", "error": False}],
+        "toasts": [{"message": {
+            'ok': 'Lab updated to abc1234. Reloading…',
+            'partial': 'Some agent instructions were not refreshed: /vault/AGENTS.md: Unclosed section',
+            'http-error': 'Refresh unavailable',
+        }[refresh_outcome], "error": refresh_outcome != 'ok'}],
     }
+
+
+def test_agent_refresh_scope_excludes_home_and_vault_pseudo_workspaces():
+    source = (Path(__file__).resolve().parents[2] / 'core/src/core/static/js/lab-app.js').read_text()
+    helper = source[source.index('  function _labAgentRefreshScope()'):source.index('  async function labRefreshAgentInstructions(')]
+    result = _run_node('''
+let currentWorkspace=null;
+const currentVaultId='active',_vaultForWorkspace=workspace=>({id:workspace?.vault_id});
+const window={LabObjectives:{terminalLaunchContext:()=>({id:'stale',context:{path:'/old'}})}};
+''' + helper + '''
+const results=[];
+for(const workspace of [null,{name:'__self__',is_workspace:true},
+  {name:'__vault__',is_workspace:true,vault_id:'selected'},
+  {name:'__assistant__',is_workspace:true,vault_id:'__assistant__'},
+  {name:'real',path:'/new',is_workspace:true,vault_id:'owner'}]){
+  currentWorkspace=workspace;results.push(_labAgentRefreshScope());
+}
+process.stdout.write(JSON.stringify(results));
+''')
+    assert result == [{'vault': 'active'}, {'vault': 'active'}, {'vault': 'selected'},
+                      {'vault': 'active'}, {'vault': 'owner', 'workspace_id': 'real'}]
 
 
 @pytest.mark.parametrize("file", ["errors.log", "backend.log", "frontend.log"])

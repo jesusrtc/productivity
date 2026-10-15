@@ -207,7 +207,7 @@ window.ensureLiveMarkdownEditor = (function () {
   </select>
   <span class="branch" id="branchLabel"></span>
   {% if IS_ADMIN %}<button type="button" class="theme-toggle" id="resourcesBtn" onclick="LabResources.open()" title="Host usage and Lab processes" aria-label="Resources">Resources</button>{% endif %}
-  {% if IS_ADMIN %}<button class="theme-toggle framework-update-btn" id="updateRestartBtn" onclick="labUpdateAndRestart()" title="Pull origin/main, then restart Lab" aria-label="Update and restart Lab"><span class="framework-update-icon" aria-hidden="true">↻</span></button>{% endif %}
+  {% if IS_ADMIN %}<button class="theme-toggle framework-update-btn" id="updateRestartBtn" onclick="labUpdateAndRestart()" title="Update Lab and refresh agent instructions" aria-label="Update and restart Lab"><span class="framework-update-icon" aria-hidden="true">↻</span></button>{% endif %}
   {% if IS_ADMIN %}<button type="button" class="theme-toggle" id="globalServersBtn" onclick="openProxiesModal()" title="Manage servers across workspaces">Servers</button>{% endif %}
   {% if IS_ADMIN %}<button type="button" class="theme-toggle" id="globalLogsBtn" onclick="goToLogs()" title="Logs across workspaces"><span class="lab-log-dot" aria-hidden="true"></span><span class="lab-log-label">Logs</span></button>{% endif %}
   {% if IS_ADMIN %}<button class="theme-toggle" id="settingsBtn" onclick="openSettings()" title="Settings (⌘,)" aria-label="Settings" style="font-size:15px;line-height:1;padding:4px 10px">⚙</button>{% endif %}

@@ -67,7 +67,7 @@ def test_agent_context_reads_the_installed_launch_guide(client, monkeypatch):
     import types
     guide = '# Framework instructions\nRead local workspace instructions too.\n'
     module = types.ModuleType('lab.agent_context')
-    module.read_context = lambda: guide
+    module.read_combined_context = lambda: guide
     monkeypatch.setitem(sys.modules, 'lab.agent_context', module)
     response = client.get('/api/agents/context/guide')
     assert response.status_code == 200
@@ -91,6 +91,9 @@ def test_agent_context_instantiates_owning_paths_for_objective_and_worktree(clie
             'path': str(source), 'workspace_id': 'client', 'objective_id': first['id']})
         assert response.status_code == 200, response.text
         content = response.json()['content']
+        from lab.agent_context import read_context
+        assert read_context('user-guide').strip() in content
+        assert content.count('# Lab user guide\n') == 1
         assert f'Source folder: `{source}`' in content
         for label, root in [('Vault', monorepo), ('Workspace', workspace), ('Objective', Path(first['path']))]:
             assert f'- {label} root: `{root}`; instructions: `{root / "AGENTS.md"}`' in content
@@ -125,3 +128,53 @@ def test_lab_docs_are_readable_outside_vault_without_arbitrary_file_access(clien
         assert response.json() == {**doc, 'content': read_context(doc['name'])}
     for name in ['overview', '../AGENTS.md', '/etc/passwd']:
         assert client.get('/api/agents/context/document', params={'name': name}).status_code == 404
+
+
+def test_agent_refresh_uses_latest_template_and_preserves_selected_scope_content(client, monorepo, tmp_path, monkeypatch):
+    from pathlib import Path
+    from lab import agent_instructions, paths
+    other = tmp_path / 'other-vault'
+    (other / 'workspaces').mkdir(parents=True)
+    (other / 'content').mkdir()
+    paths.write_vault_registry({'active': 'main', 'vaults': [
+        {'id': 'main', 'name': 'Main', 'path': str(monorepo)},
+        {'id': 'other', 'name': 'Other', 'path': str(other)}]})
+    response = client.post('/api/workspaces', json={'name': 'New workflow', 'vault': 'other'})
+    assert response.status_code == 200, response.text
+    workspace = other / 'workspaces/new-workflow'
+    response = client.post('/api/objectives', json={'workspace_id': 'new-workflow', 'vault': 'other',
+        'action': {'type': 'create', 'name': 'New Objective'}})
+    assert response.status_code == 200, response.text
+    objective = response.json()['objectives'][0]
+    custom = b'# Workspace instructions\r\n\r\nPreserve this exact content.\r\n'
+    (workspace / 'AGENTS.md').write_bytes(custom)
+    body = {'vault': 'other', 'workspace_id': 'new-workflow', 'objective_id': objective['id']}
+    response = client.post('/api/agents/context/refresh', json=body)
+    assert response.status_code == 200 and response.json()['ok'], response.text
+    roots = [other, workspace, Path(objective['path'])]
+    assert [row['status'] for row in response.json()['files']] == ['created', 'updated', 'created']
+    assert (workspace / 'AGENTS.md').read_bytes().endswith(custom)
+    assert not (monorepo / 'AGENTS.md').exists()
+    assert paths.read_vault_registry()['active'] == 'main'
+    guide = client.get('/api/agents/context/guide', params={'vault': 'other', 'path': str(other)})
+    assert guide.status_code == 200 and f'- Vault root: `{other}`' in guide.json()['content']
+    assert all(row['status'] == 'unchanged' for row in client.post('/api/agents/context/refresh', json=body).json()['files'])
+    newer = tmp_path / 'newer.md'
+    newer.write_bytes(agent_instructions.TEMPLATE.read_bytes().replace(b'On startup,', b'On each startup,'))
+    monkeypatch.setattr(agent_instructions, 'TEMPLATE', newer)
+    response = client.post('/api/agents/context/refresh', json=body)
+    assert response.json()['ok'] and all(row['status'] == 'updated' for row in response.json()['files'])
+    for root in roots:
+        content = (root / 'AGENTS.md').read_bytes()
+        assert content.startswith(agent_instructions.START) and content.count(agent_instructions.START) == 1
+        assert b'On each startup,' in content
+    assert (workspace / 'AGENTS.md').read_bytes().endswith(custom)
+
+
+def test_agent_refresh_rejects_unknown_scope_without_parent_edits(client, monorepo, seed_workspace):
+    workspace = seed_workspace()
+    for body in ({'vault': 'missing'}, {'workspace_id': '../outside'},
+                 {'objective_id': 'missing'}, {'workspace_id': 'demo', 'objective_id': 'missing'}):
+        response = client.post('/api/agents/context/refresh', json=body)
+        assert response.status_code in {400, 404}, response.text
+    assert not (monorepo / 'AGENTS.md').exists() and not (workspace / 'AGENTS.md').exists()

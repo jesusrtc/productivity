@@ -122,16 +122,20 @@ def agent_launch_context(request: Request, path: str | None = None,
                          vault: str | None = None) -> dict:
     """Instantiate the installed guide for the captured sidebar scope."""
     try:
-        from lab.agent_context import read_context
+        from lab.agent_context import read_combined_context
     except ImportError as exc:
         raise HTTPException(status_code=503, detail="The installed Lab CLI does not expose launch context yet.") from exc
     if path is None:
-        return {"content": read_context()}
+        return {"content": read_combined_context()}
     from lab import paths, objective_store
     from core import workspace_documents
     from core.routes.diff import _entry_root
 
     root = auth.request_root(request)
+    if vault:
+        from core.routes.term import _vault_root_for
+        auth.require_vault(request, vault)
+        root = _vault_root_for(root, vault)
     workspace_root = objective_root = None
     if workspace_id:
         root = workspace_documents.workspace(request, workspace_id, vault)
@@ -148,9 +152,31 @@ def agent_launch_context(request: Request, path: str | None = None,
             raise HTTPException(404, 'Objective not found')
         objective_root = Path(objective['path'])
     source = _entry_root(path, request)
-    return fsguard.guarded(root, lambda: {"content": read_context(
+    return fsguard.guarded(root, lambda: {"content": read_combined_context(
         source_root=source, vault_root=root, workspace_root=workspace_root,
         objective_root=objective_root)})
+
+
+class AgentInstructionsRefresh(BaseModel):
+    vault: str | None = None
+    workspace_id: str | None = None
+    objective_id: str | None = None
+
+
+@router.post('/api/agents/context/refresh')
+def refresh_agent_instructions(body: AgentInstructionsRefresh, request: Request) -> dict:
+    """Explicitly refresh the managed section in the selected owning scopes."""
+    from lab import agent_instructions
+    from core import workspace_documents
+    from core.routes.mutation import _root_for_vault
+    auth.require_admin(request)  # This operation includes vault-wide instructions.
+    root = (workspace_documents.workspace(request, body.workspace_id, body.vault)
+            if body.workspace_id else _root_for_vault(request, body.vault))
+    try:
+        return fsguard.guarded(root, lambda: agent_instructions.refresh(
+            root, workspace_id=body.workspace_id, objective_id=body.objective_id))
+    except (ValueError, OSError) as exc:
+        raise HTTPException(400, str(exc)) from exc
 
 
 @router.get('/api/agents/context/documents')

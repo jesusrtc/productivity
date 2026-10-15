@@ -382,7 +382,7 @@ most two generations. Do not edit it by hand; use `lab terminal`.
 
 New Claude, Codex, and Copilot terminals use `lab agents run` to add the
 short instruction to run `lab context llm`, which loads the full agent guide,
-user guide/changelog and owning instruction paths and marks the terminal
+user guide, per-terminal changelog differences and owning instruction paths, and marks the terminal
 LLM-controlled. Each workspace retains its own instructions.
 The wrapper execs the agent; no persistent helper process or workspace agent
 files are created. Plain shell tabs and attached sessions are unchanged.

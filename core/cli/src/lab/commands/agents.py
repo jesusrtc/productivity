@@ -40,14 +40,12 @@ def run(vault: Path | None, workspace_id: str | None, objective_id: str | None,
         env['LAB_CONTEXT_OBJECTIVE'] = objective_id
     try:
         argv, env = agent_context.prepare_launch(agent, list(args), env=env)
-        terminal, previous, previous_llm = None, '', ''
+        terminal, previous_llm = None, ''
         try:
-            # The launch prompt only requests the bootstrap command. A new or
-            # resumed conversation has not read the consolidated guide yet.
+            # Keep the last acknowledged version for changelog diffs. The
+            # bootstrap requires llm, which always prints full instructions.
             terminal = terminal_context.current(env)
-            previous = terminal.option(agent_context.CONTEXT_VERSION_OPTION)
             previous_llm = terminal.option(terminal_status.LLM_OPTION)
-            terminal.set_option(agent_context.CONTEXT_VERSION_OPTION, '')
             terminal.set_option(terminal_status.LLM_OPTION, agent)
         except terminal_context.TerminalContextError:
             # Non-tmux launches remain supported. A failed marker is retried by
@@ -58,7 +56,6 @@ def run(vault: Path | None, workspace_id: str | None, objective_id: str | None,
         except OSError:
             if terminal:
                 try:
-                    terminal.set_option(agent_context.CONTEXT_VERSION_OPTION, previous)
                     terminal.set_option(terminal_status.LLM_OPTION, previous_llm)
                 except terminal_context.TerminalContextError:
                     pass
@@ -74,6 +71,28 @@ def sync(dry_run: bool, notebooks_only: bool) -> None:
     """Compatibility check; no longer writes or links agent files."""
     click.echo(agentsync.NOTICE)
     click.echo('Use `lab context` to read the guide or `lab agents detach --dry-run` to inspect legacy links.')
+
+
+@agents_group.command('refresh')
+@click.option('--vault', type=click.Path(path_type=Path, exists=True, file_okay=False),
+              help='Owning vault path; defaults to the selected vault.')
+@click.option('--workspace', 'workspace_id', help='Also refresh this workspace.')
+@click.option('--objective', 'objective_id', help='Also refresh this Objective in the selected workspace.')
+def refresh(vault: Path | None, workspace_id: str | None, objective_id: str | None) -> None:
+    """Create/update the top Lab managed section in the selected AGENTS.md files.
+
+    Preserves all instructions outside the marked section. No recursive scan.
+    """
+    from lab import agent_instructions
+    try:
+        report = agent_instructions.refresh(vault or paths.find_vault_root(),
+                                            workspace_id=workspace_id, objective_id=objective_id)
+    except (OSError, ValueError, paths.MonorepoNotFound) as exc:
+        raise click.ClickException(str(exc)) from exc
+    for row in report['files']:
+        click.echo(f"{row['status']}: {row['path']}" + (f" — {row['detail']}" if row.get('detail') else ''))
+    if not report['ok']:
+        raise click.ClickException('Some instruction files were not refreshed; see details above.')
 
 
 @agents_group.command('detach')

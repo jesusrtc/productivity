@@ -47,7 +47,8 @@
 
   async function labUpdateAndRestart() {
     if (_labUpdateRestartBusy) return;
-    if (!confirm('Pull origin/main with rebase/autostash and restart Lab now?')) return;
+    if (!confirm('Pull origin/main with rebase/autostash, restart Lab and refresh the Lab managed section in the current vault/workspace/Objective AGENTS.md files?')) return;
+    const contextScope = _labAgentRefreshScope();
     const button = document.getElementById('updateRestartBtn');
     const icon = button && button.querySelector('.framework-update-icon');
     _labUpdateRestartBusy = true;
@@ -62,6 +63,8 @@
       if (!response.ok) throw new Error(result.detail || 'update failed');
       if (button) button.title = 'Restarting Lab…';
       await _labWaitForNewBoot(result.boot_id);
+      if (button) button.title = 'Refreshing agent instructions…';
+      await labRefreshAgentInstructions(contextScope);
       if (button) {
         button.classList.remove('is-busy');
         button.title = `Updated to ${result.revision}; reloading`;
@@ -74,13 +77,34 @@
       if (button) {
         button.disabled = false;
         button.classList.remove('is-busy');
-        button.title = 'Pull origin/main, then restart Lab';
+        button.title = 'Update Lab and refresh agent instructions';
       }
       if (icon) icon.textContent = '↻';
       explorerToast(String(error && error.message || error), true);
     }
   }
   window.labUpdateAndRestart = labUpdateAndRestart;
+
+  function _labAgentRefreshScope() {
+    const workspace = currentWorkspace?.is_workspace && !String(currentWorkspace.name || '').startsWith('__') ? currentWorkspace : null;
+    const owner = _vaultForWorkspace(currentWorkspace)?.id;
+    const vault = owner && !owner.startsWith('__') ? owner : currentVaultId;
+    const objective = workspace ? window.LabObjectives?.terminalLaunchContext?.() : null;
+    return {...(vault ? {vault} : {}), ...(workspace ? {workspace_id: workspace.name} : {}),
+      ...(objective?.context?.path === workspace?.path && objective?.id ? {objective_id: objective.id} : {})};
+  }
+
+  async function labRefreshAgentInstructions(scope = _labAgentRefreshScope()) {
+    const response = await fetch('/api/agents/context/refresh', {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(scope),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.detail || 'Could not refresh agent instructions');
+    if (!result.ok) throw new Error('Some agent instructions were not refreshed: ' +
+      result.files.filter(file => file.detail).map(file => `${file.path}: ${file.detail}`).join('; '));
+    return result;
+  }
+  window.labRefreshAgentInstructions = labRefreshAgentInstructions;
 
   let currentDiffTab = 'uncommitted';
   let viewMode = 'split';
@@ -7153,8 +7177,9 @@
   // Keep workspace instructions reachable when Files shows another folder.
   // These are current files, not evidence of a running provider's loaded context.
   function _agentContextSource(baseRoot, fileRoot) {
-    const workspace = currentWorkspace?.path === baseRoot && currentWorkspace?.is_workspace ? currentWorkspace : null;
-    const vault = _vaultForWorkspace(workspace);
+    const workspace = currentWorkspace?.path === baseRoot && currentWorkspace?.is_workspace
+      && !String(currentWorkspace.name || '').startsWith('__') ? currentWorkspace : null;
+    const vault = _vaultForWorkspace(currentWorkspace);
     const objective = workspace ? window.LabObjectives?.terminalLaunchContext?.() : null;
     return {path: fileRoot,
       ...(workspace ? {workspace_id: workspace.name} : {}),
@@ -7210,7 +7235,7 @@
   }
 
   function _agentContextRowHtml(source = {}) {
-    return `<a class="sidebar-file sidebar-file-meta" data-lab-agent-context data-agent-context-source="${escAttr(JSON.stringify(source))}" draggable="true" role="button" tabindex="0" onclick="openAgentContext(this)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openAgentContext(this)}" title="Read Lab agent context, or drag its full text into a terminal">${fileIconHtml('AGENTS.md')}<span class="sidebar-fname">Lab agent context</span></a>`;
+    return `<a class="sidebar-file sidebar-file-meta" data-lab-agent-context data-agent-context-source="${escAttr(JSON.stringify(source))}" draggable="true" role="button" tabindex="0" onclick="openAgentContext(this)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openAgentContext(this)}" title="Read the combined Lab agent instructions and user guide, or drag them into a terminal">${fileIconHtml('AGENTS.md')}<span class="sidebar-fname">Lab context</span></a>`;
   }
 
   function _agentContextSourceFromRow(row) {
@@ -7280,7 +7305,7 @@
     if (!slots.length) return;
     try {
       const docs = await _readLabDocumentation();
-      for (const slot of slots) if (slot.isConnected) slot.innerHTML = docs.map(doc => {
+      for (const slot of slots) if (slot.isConnected) slot.innerHTML = docs.filter(doc => doc.name !== 'user-guide').map(doc => {
         const action = `openLabDocumentation(${JSON.stringify(doc.name)})`;
         return `<a class="sidebar-file sidebar-file-meta" data-lab-document="${escAttr(doc.name)}" role="button" tabindex="0" onclick="${escAttr(action)}" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click()}" title="${escAttr(doc.path)}">${fileIconHtml(doc.path)}<span class="sidebar-fname">${esc(doc.title)}</span></a>`;
       }).join('');
@@ -7325,7 +7350,7 @@
     const body = document.getElementById('docModalBody');
     const generation = ++_docModalFilesGeneration;
     document.getElementById('docModalFiles').hidden = true;
-    document.getElementById('docModalTitle').textContent = 'Lab agent context';
+    document.getElementById('docModalTitle').textContent = 'Lab context';
     document.getElementById('docModalTitle').title = '';
     body.innerHTML = '<div class="loading">Loading…</div>';
     modal.classList.add('active');

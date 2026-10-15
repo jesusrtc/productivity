@@ -45,8 +45,10 @@ the running notebook, open `$(scripts/lab-url.sh)/#/nb?path=<path>`.
 ## On workspace work
 
 Workspaces own their instructions, skills, and memory policy. Read applicable
-workspace-owned `AGENTS.md` / `CLAUDE.md` files when present; Lab does not generate
-or link them. Framework capability guidance is supplied by `lab agents run` at
+workspace-owned `AGENTS.md` / `CLAUDE.md` files when present. The explicit
+`lab agents refresh` action manages only its marked top section in selected
+`AGENTS.md` files; preserve all other content and do not link instruction files.
+Framework capability guidance is supplied by `lab agents run` at
 launch and can be read with `lab context` (or `lab context markdown`,
 `lab context notebooks`, `lab context servers`, `lab context migrations`).
 Read `lab migrations` for migration instructions and expected formats.

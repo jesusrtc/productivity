@@ -51,7 +51,8 @@ def context_version() -> str:
     digest = hashlib.sha256()
     for name, path in sorted([(name, guide_path(name)) for name in TOPICS]
                              + [('instruction-paths', GUIDE_DIR / 'instruction-paths.md'),
-                                ('bootstrap', GUIDE_DIR / 'bootstrap/AGENTS.md')]):
+                                ('bootstrap', GUIDE_DIR / 'bootstrap/AGENTS.md'),
+                                ('managed-section', GUIDE_DIR / 'managed-section.md')]):
         digest.update(name.encode() + b'\0' + path.read_bytes() + b'\0')
     return str(int.from_bytes(digest.digest()[:6], 'big'))
 
@@ -71,8 +72,8 @@ def read_context(topic: str = 'overview', *, source_root: Path | None = None,
     if topic != 'overview':
         return guide
     docs = ('## Lab documentation\n\n'
-            + ('`lab context llm` includes these installed documents in full.\n\n' if bootstrap
-               else 'Read the user guide and changelog before working with Lab, unless already loaded.\n\n'))
+            '`lab context llm` combines the agent instructions and full user guide, '
+            'plus changelog changes since this terminal’s last read.\n\n')
     docs += '\n'.join(f'- {doc["title"]}: {_path_code(doc["path"])}.' for doc in documentation())
     intro, rest = guide.split('\n\n', 1)
     guide = intro + '\n\n' + docs + '\n\n' + rest
@@ -151,14 +152,27 @@ def current_context(*, cwd: Path | None = None, env: dict[str, str] | None = Non
     return intro + '\n\n' + launch + '\n' + rest
 
 
-def llm_context(*, version: str | None = None) -> str:
-    """One complete startup read, using canonical installed documents."""
-    sections = [current_context(version=version)]
-    for topic in DOCUMENTS:
-        sections.append(f'Source: {_path_code(guide_path(topic).resolve())}. '
-                        'Relative document links resolve from this file.\n\n'
-                        + read_context(topic).rstrip())
-    return '\n\n---\n\n'.join(sections) + '\n'
+def combine_user_guide(overview: str) -> str:
+    """The same complete document for META and terminal context reads."""
+    return (overview.rstrip() + '\n\n---\n\n'
+            + f'Source: {_path_code(guide_path("user-guide").resolve())}. '
+            'Relative document links resolve from this file.\n\n'
+            + read_context('user-guide').rstrip() + '\n')
+
+
+def read_combined_context(**scope) -> str:
+    return combine_user_guide(read_context(**scope))
+
+
+def llm_context(*, version: str | None = None, previous_version: str | None = None,
+                changelog: str | None = None) -> str:
+    """Full instructions and user guide, followed only by unseen changelog changes."""
+    from lab import context_history
+    version = version or context_version()
+    context = combine_user_guide(current_context(version=version))
+    changes = context_history.changes(previous_version, version,
+                                      read_context('changelog') if changelog is None else changelog)
+    return context + ('\n---\n\n' + changes if changes else '')
 
 
 def _codex_config_options(args: list[str], cwd: Path) -> tuple[list[str], list[str], Path]:

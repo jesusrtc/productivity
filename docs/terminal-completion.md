@@ -19,12 +19,13 @@ sound or external message is sent. Reduced-motion mode keeps all dots steady.
 
 The packaged Lab launch bootstrap identifies the calling terminal/pane and requires
 `lab context llm` at startup and after compaction. This always prints the agent
-guide, full user guide/changelog and owning instruction paths, and marks the
+guide, full user guide, per-terminal changelog differences and owning instruction paths, and marks the
 terminal LLM-controlled without a separate `lab terminal llm` step.
 On subsequent turns `lab context update` checks the current
 numeric content version against that session's `@lab_context_version`: unchanged
 is silent; changed or missing prints the same consolidated context and records it
-after successful output. New launches leave the full context unread. Versions cover
+after successful output and snapshot storage. New launches preserve the last
+acknowledged version for diffs; the startup llm read remains mandatory. Versions cover
 the bootstrap and all packaged topics,
 the instruction-path template and canonical user guide/changelog, compare by
 equality, and do not depend on timestamps. Reading `lab context` alone does not
@@ -118,7 +119,7 @@ keyboard acknowledgement, hover text, compact/expanded and merged terminals,
 workspace aggregation and reduced-motion styling. No fixture sends input to a
 user's live terminal.
 
-Launch-context tests verify provider handoff, unread startup versions, repeated
+Launch-context tests verify provider handoff, retained changelog baselines, repeated
 full bootstrap, failed-launch rollback, silent unchanged checks, changed context,
 failed output and independent
 sessions. A real provider smoke test must also confirm that the agent itself

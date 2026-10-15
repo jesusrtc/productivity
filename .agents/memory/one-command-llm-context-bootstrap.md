@@ -16,3 +16,5 @@ workspace AGENTS files. Full reads must recover any tool-output truncation.
 This supersedes the launcher-acknowledged overview-only behavior in
 agent-context-refreshes-per-terminal.md. Working/attention/finished reports and
 immediate yellow feedback on user submissions keep their existing behavior.
+
+Later user refinements: see [explicit managed instruction refresh](explicit-managed-agent-instructions.md) and [combined context/changelog differences](combined-context-and-changelog-deltas.md). These supersede the relevant creation, META and changelog/version rules above.

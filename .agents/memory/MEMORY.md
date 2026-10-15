@@ -842,3 +842,7 @@
 - [LLM submissions show working immediately](llm-submissions-show-working-immediately.md) — LLM session markers and immediate yellow on submitted messages; red responses show the submitted answer until the agent updates it.
 
 - [One command bootstraps full LLM context](one-command-llm-context-bootstrap.md) — always-full startup/compaction context, automatic LLM marker, silent subsequent updates and short launcher reinforcement.
+
+- [Explicit Lab managed instruction refresh](explicit-managed-agent-instructions.md) — current owning scopes, top managed section, preserved user bytes; replaces automatic creation seeding.
+
+- [Combined context and changelog differences](combined-context-and-changelog-deltas.md) — one META context, per-terminal snapshots/diffs and acknowledgement only after successful output/storage.

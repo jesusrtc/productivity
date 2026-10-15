@@ -96,6 +96,8 @@ def doctor_all(root: Path | None = None, *, include_cli: bool = True) -> dict:
                'detail': str(agent_context.guide_path(topic))} for topic in agent_context.TOPICS]
     bootstrap = agent_context.GUIDE_DIR / 'bootstrap/AGENTS.md'
     checks.append({'label': 'Lab context: bootstrap', 'ok': bootstrap.is_file(), 'detail': str(bootstrap)})
+    managed = agent_context.GUIDE_DIR / 'managed-section.md'
+    checks.append({'label': 'Lab context: managed section', 'ok': managed.is_file(), 'detail': str(managed)})
     cli = [{'label': {'claude': 'Claude Code CLI', 'codex': 'Codex CLI', 'copilot': 'GitHub Copilot CLI'}[agent],
             'ok': bool(shutil.which(agent)), 'detail': shutil.which(agent) or 'not found'}
            for agent in agent_context.AGENTS] if include_cli else []
