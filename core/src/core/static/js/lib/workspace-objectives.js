@@ -84,9 +84,9 @@
     return scopeRows(o).find(row=>!row.fixed&&sameAsset(asset,{folder:{root:row.path,path:'.'}},o))||null;
   }
   function taskDisplayName(task,o=objective()) {const assigned=taskWorktrees(task,o);return assigned.length===1?assigned[0].label:task.title;}
-  function taskNameHtml(task,o=objective()) {
+  function taskNameHtml(task,o=objective(),{marker=true}={}) {
     const assigned=taskWorktrees(task,o);
-    return assigned.length===1?`<span class="objective-task-worktree-name" style="--worktree-color:${esc(assigned[0].color)}"><i aria-hidden="true"></i>${esc(assigned[0].label)}</span>`:esc(task.title);
+    return assigned.length===1?`<span class="objective-task-worktree-name" style="--worktree-color:${esc(assigned[0].color)}">${marker?'<i aria-hidden="true"></i>':''}${esc(assigned[0].label)}</span>`:esc(task.title);
   }
   function sidebarMode(path) {
     if(!active(path))return null;
@@ -1207,7 +1207,7 @@
       {objective_id:link.objective_id,...(main?{main:'objective'}:{task_id:link.task_id})};
     await change({type:'terminal',session_id:terminalIdentity(t),source:t.document_source,...target},{expected:data().revision});
   }
-  function terminalTaskNameHtml(t) {const binding=terminalTask(t);return binding?taskNameHtml(binding.task,binding.objective):null;}
+  function terminalTaskNameHtml(t) {const binding=terminalTask(t);return binding?taskNameHtml(binding.task,binding.objective,{marker:false}):null;}
   function terminalWorktreeColor(t) {const binding=terminalTask(t),assigned=binding?taskWorktrees(binding.task,binding.objective):[];return assigned.length===1?assigned[0].color:null;}
   function terminalColor(t) {return terminalWorktreeColor(t);}
   function terminalObjective(t) {const d=data();if(!d?.enabled)return null;const link=terminalLink(t);if(link?.main==='workflow'||link?.view==='workflow')return null;return d.objectives.find(o=>o.id===link?.objective_id)||d.objectives.find(o=>o.worktrees.some(w=>t.linked_scope?.root&&[w.path,w.resolved_path].includes(t.linked_scope.root)||t.cwd&&[w.path,w.resolved_path].includes(t.cwd)))||d.objectives[0];}

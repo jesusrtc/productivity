@@ -5,6 +5,13 @@ guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 
 ## 2026-10-15
 
+### Terminal tabs keep only their status dot
+
+- Removed Home/folder badges, extra **main** prefixes and location/automation
+  dots from terminal tabs, including task, recommended and merged rows.
+- Tabs retain their icons and name colors. The single agent-status dot is now
+  vertically centered between icon and name, including in the compact rail.
+
 ### Inspect terminal reports and click acknowledgements
 
 - Added `lab ui terminal-status [NAME]` to compare server reports, browser state,

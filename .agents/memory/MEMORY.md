@@ -832,3 +832,5 @@
 - [Agent context refreshes per terminal](agent-context-refreshes-per-terminal.md) — per-session numeric versions, silent unchanged updates, every-turn checks and explicit short-task reporting.
 
 - [Terminal status diagnostics include browser review](terminal-status-diagnostics.md) — trace server/browser/rendered state and click acknowledgement; status and location dots are separate.
+
+- [Terminal tabs have only status dots](terminal-tabs-have-only-status-dots.md) — icon, centered agent-status dot and colored/plain name; no location/automation dots, Home labels or extra main prefixes.

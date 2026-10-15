@@ -2045,7 +2045,7 @@
   .term-sessions .sess .sess-icon .ft-icon, .term-active-session > span > .ft-icon { margin-right: 0; vertical-align: middle; }
   .term-sessions .sess .sess-order { display: none; color: var(--text-dim); font-size: 9px; line-height: 1; }
   .term-sessions .sess .sess-link { position: absolute; top: 2px; right: 3px; color: var(--accent); font-size: 8px; line-height: 1; opacity: .9; }
-  .term-sessions .sess .sess-activity { position: absolute; top: calc(50% - 3px); right: 3px; width: 6px; height: 6px; border-radius: 50%; pointer-events: none; }
+  .term-sessions .sess .sess-activity { position: static; flex: none; order: 1; width: 6px; height: 6px; border-radius: 50%; pointer-events: none; }
   .term-sessions .sess .sess-completion { background: var(--green); animation: term-completion-blink 1.6s step-end infinite; box-shadow: 0 0 5px var(--green); pointer-events: auto; cursor: pointer; }
   .term-sessions .sess .sess-working { background: var(--yellow); }
   .term-sessions .sess .sess-attention { background: var(--red); animation: term-attention-pulse 1.6s ease-in-out infinite; box-shadow: 0 0 5px var(--red); }
@@ -2084,8 +2084,6 @@
   .term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open) .sess { justify-content: center; height: 36px; padding: 0 18px 0 4px; flex-wrap: nowrap; }
   .term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open) .sess-icon { flex: none; }
   .term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open) :is(.sess-label, .term-home-association span, .term-folder-association small, .term-new-label, .term-task-link-label, .term-tab-group-label span) { display: none; }
-  .term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open) .sess-label:has(.objective-task-worktree-name) { display:block; flex:none; font-size:0; line-height:6px; }
-  .term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open) .sess-label .objective-task-worktree-name i { margin-right:3px; vertical-align:middle; }
   .term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open) .term-home-association { position: absolute; right: 3px; bottom: 3px; max-width: none; }
   .term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open) .term-task-link-pill { display: none; }
   .term-panel.term-sessions-horizontal .term-session-switcher { display: contents; }
@@ -2106,7 +2104,6 @@
   .term-panel.term-sessions-horizontal.term-sessions-full .term-sessions { width: auto; padding: 6px 10px; }
   .term-panel.term-sessions-horizontal.term-sessions-full .term-sessions .sess { width: auto; max-width: 240px; padding: 3px 9px; }
   .term-panel.term-sessions-horizontal.term-sessions-full .term-sessions .sess .sess-label { flex: 0 1 auto; max-width: 140px; }
-  .term-panel.term-sessions-full .term-sessions .sess:has(.sess-activity) { padding-right: 14px; }
 
   .term-sessions .sess:hover { color: var(--text-primary); background: var(--bg-tertiary); border-color: var(--accent); }
   .term-session-tooltip { position: fixed; z-index: 1200; width: min(420px, calc(100vw - 16px)); box-sizing: border-box; padding: 9px 10px; color: var(--text-primary); background: #20252c; border: 1px solid #414852; border-radius: 6px; box-shadow: 0 5px 18px rgba(0,0,0,.48); font: 11px/1.35 ui-monospace, monospace; overflow-wrap: anywhere; pointer-events: auto; }
@@ -2156,6 +2153,7 @@
   .term-home-association { display: inline-flex; align-items: center; gap: 4px; min-width: 0; color: var(--term-association-color); font-size: 10px; flex-shrink: 0; }
   .term-home-association::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
   .term-home-association span { max-width: 80px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .term-sessions .term-home-association::before { display:none; }
   .term-sessions .term-home-association span { display: none; }
   .term-sessions-full .term-sessions .term-home-association span { display: inline; }
   .term-sessions .term-folder-association { flex-shrink: 1; max-width: 60%; }
@@ -2184,12 +2182,8 @@
   .term-sessions .sess.term-display-main { color:var(--term-display-main-color); }
   .term-sessions .sess.term-display-main .sess-label { color:inherit; }
   .term-sessions .sess.term-display-main .sess-label :is(.objective-task-worktree-name, .term-home-association) { color:inherit; font:inherit; }
-  .term-sessions .sess.term-display-main .sess-label .objective-task-worktree-name i,
-  .term-sessions .sess.term-display-main .sess-label .term-home-association::before { display:none; }
   .term-panel.term-sessions-full .term-sessions .sess.term-display-main .sess-label.custom { color:var(--term-display-main-color); }
-  .term-display-main-dot { flex:none; width:6px; height:6px; border-radius:50%; background:var(--term-display-main-color); }
-  .term-sessions .objective-task-terminal .sess-label { order: 1; }
-  .term-sessions .objective-task-terminal .sess-label .objective-task-worktree-name i { width:6px; height:6px; }
+  .term-sessions .sess .sess-label { order: 2; }
   .term-sessions .objective-task-terminal .sess-icon { order:0; margin:0; }
   .term-sessions .term-task-placeholder { border-style: dashed; color: var(--text-secondary); text-align:left; }
   .term-task-create { order: 4; color: var(--accent); font-size: 14px; }
@@ -2203,8 +2197,6 @@
   .term-sessions .sess .term-automation-relaunch:focus-visible { outline:1px solid var(--accent); }
   .term-sessions .sess .term-automation-relaunch:disabled { opacity:.4; cursor:wait; }
   .term-panel.term-sessions-full .term-sessions .sess:has(.term-automation-relaunch) { padding-right:22px; }
-  .term-sessions .sess:has(.term-automation-relaunch) .sess-activity { right:21px; }
-  .term-panel.term-sessions-full .term-sessions .sess:has(.term-automation-relaunch):has(.sess-activity) { padding-right:32px; }
   .term-sessions-horizontal .term-subtab-node, .term-sessions-horizontal .term-subtab-children { flex-direction: row; align-items: center; }
   .term-sessions-horizontal .term-subtab-children { margin-left: 0; padding-left: 4px; }
   .term-sessions-horizontal .term-tab-group, .term-sessions-horizontal .term-tab-group-tabs { flex-direction: row; }
@@ -2221,12 +2213,8 @@
   :is(.term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open), .term-panel.term-sessions-horizontal:not(.term-sessions-full)) .term-sessions :is(.sess-label, .term-subtab-caret, .term-home-association span, .term-folder-association small) { display:none; }
   :is(.term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open), .term-panel.term-sessions-horizontal:not(.term-sessions-full)) .term-sessions .sess:has(.sess-icon)::before { display:none; }
   :is(.term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open), .term-panel.term-sessions-horizontal:not(.term-sessions-full)) .term-sessions .sess .sess-icon { display:flex; align-items:center; justify-content:center; position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); flex:none; order:0; width:20px; height:20px; margin:0; font-size:20px; line-height:1; }
-  :is(.term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open), .term-panel.term-sessions-horizontal:not(.term-sessions-full)) .term-sessions .sess .sess-activity { top:3px; right:3px; }
+  :is(.term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open), .term-panel.term-sessions-horizontal:not(.term-sessions-full)) .term-sessions .sess .sess-activity { position:absolute; top:calc(50% - 3px); right:3px; }
   :is(.term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open), .term-panel.term-sessions-horizontal:not(.term-sessions-full)) .term-sessions :is(.term-subtab-children, .term-tab-group-tabs, .objective-terminal-group) { margin:0; padding:0; border:0; }
-  :is(.term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open), .term-panel.term-sessions-horizontal:not(.term-sessions-full)) .term-sessions .sess :is(.term-display-main-dot, .term-home-association, .sess-label:has(.objective-task-worktree-name)) { position:absolute; right:3px; bottom:3px; margin:0; max-width:none; }
-  :is(.term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open), .term-panel.term-sessions-horizontal:not(.term-sessions-full)) .term-sessions .sess .sess-label:has(.objective-task-worktree-name) { display:block; flex:none; height:6px; font-size:0; line-height:6px; }
-  :is(.term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open), .term-panel.term-sessions-horizontal:not(.term-sessions-full)) .term-sessions .sess-label .objective-task-worktree-name i { margin:0; vertical-align:top; }
-  :is(.term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open), .term-panel.term-sessions-horizontal:not(.term-sessions-full)) .term-sessions .sess.term-automation-terminal::after { content:''; position:absolute; right:3px; bottom:3px; width:5px; height:5px; border-radius:50%; background:var(--text-primary); pointer-events:none; }
   :is(.term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open), .term-panel.term-sessions-horizontal:not(.term-sessions-full)) .term-sessions .term-task-create { position:absolute; right:3px; top:3px; font-size:10px; line-height:1; }
   /* Expanding the vertical rail reveals titles beside its fixed icon column.
      The 49px column is the 62px rail minus its padding and right border. */
@@ -2235,12 +2223,7 @@
   .term-panel:not(.term-sessions-horizontal) .term-session-switcher .term-sessions .sess { height:36px; min-height:36px; }
   .term-panel:not(.term-sessions-horizontal) .term-session-switcher.term-tabs-open .term-sessions .sess { padding-left:54px; }
   .term-panel:not(.term-sessions-horizontal) .term-session-switcher .term-sessions .sess .sess-icon { display:flex; position:absolute; left:calc((var(--term-icon-column) - 2px)/2); top:50%; transform:translate(-50%,-50%); width:20px; height:20px; margin:0; font-size:20px; line-height:1; }
-  .term-panel:not(.term-sessions-horizontal) .term-session-switcher .term-sessions .sess .sess-activity { left:38px; right:auto; top:3px; }
-  .term-panel:not(.term-sessions-horizontal) .term-session-switcher .term-sessions .sess .term-display-main-dot,
-  .term-panel:not(.term-sessions-horizontal) .term-session-switcher .term-sessions .sess .sess-label .objective-task-worktree-name i { position:absolute; left:38px; right:auto; bottom:3px; margin:0; }
-  .term-panel:not(.term-sessions-horizontal) .term-session-switcher:not(.term-tabs-open) .term-sessions .sess .sess-label:has(.objective-task-worktree-name) { position:static; height:0; }
-  .term-panel:not(.term-sessions-horizontal) .term-session-switcher.term-tabs-open .term-sessions .sess .term-home-association::before { position:absolute; left:38px; bottom:3px; margin:0; }
-  .term-panel:not(.term-sessions-horizontal) .term-session-switcher .term-sessions .sess.term-automation-terminal::after { content:''; position:absolute; left:39px; right:auto; bottom:3px; width:5px; height:5px; border-radius:50%; background:var(--text-primary); pointer-events:none; }
+  .term-panel:not(.term-sessions-horizontal) .term-session-switcher .term-sessions .sess .sess-activity { position:absolute; left:38px; right:auto; top:calc(50% - 3px); }
   .term-panel:not(.term-sessions-horizontal) .term-session-switcher .term-sessions .term-task-create { position:absolute; left:38px; right:auto; top:3px; font-size:10px; line-height:1; }
   .term-group-menu { max-height: calc(100vh - 16px); overflow-y: auto; }
   .term-group-menu hr { border: 0; border-top: 1px solid var(--border); margin: 4px 0; }

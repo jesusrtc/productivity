@@ -216,7 +216,7 @@ Use `unlink: true` with the session ID to remove the asset link. Linking does no
 replace task ownership, change the launch directory or restart a session.
 
 Hovering over the vertical terminal rail reveals titles beside the existing
-icons. Icon sizes, row heights, colored markers and green review controls
+icons. Icon sizes, row heights and agent-status controls
 stay in place. Renewal (**↻**) appears beside the title only when terminal titles
 are visible. It hides again when the rail collapses; task emojis and custom icons
 remain visible. Agent-reported terminal status uses a steady yellow dot for
@@ -240,8 +240,11 @@ terminals. Other headers remain available, including when **Show all terminals**
 is enabled; that option changes the status filter, not which Objective is open.
 The Objective main row is labeled **Main**. Named terminal tabs show the saved
 name alone, such as **ASTA CLI**, without extra workspace, folder or **main**
-labels. Their colored location markers retain the folder details in hover
-tooltips. An unnamed worktree terminal can use its worktree as its fallback name.
+labels. All terminal rows show the icon, one vertically centered agent-status
+dot when reported, and the terminal name. Home/folder badges, location dots and
+extra **main** prefixes are omitted, including on automation, task and merged
+tabs. Existing name/icon colors and folder details in hover tooltips remain.
+An unnamed worktree terminal can use its worktree as its fallback name.
 
 ## Report terminal status explicitly
 
@@ -277,8 +280,9 @@ keyboard activation and direct green-dot review do the same. A new report
 replaces the old state. Merely viewing, hovering or restoring a tab never
 acknowledges green. Reduced-motion mode uses steady colored dots.
 
-In the compact terminal rail, the status dot is at the upper-right. The separate
-lower-right Home/folder/worktree marker keeps its location color (often gray).
+The single status dot is vertically centered beside the icon, between the icon
+and name when titles are shown. Compact tabs keep the same centered status dot;
+there is no second Home/folder/worktree or automation marker.
 After a green report is reviewed, hover still shows **Finished · Reviewed by
 click** and its message. A click can only review the finished report displayed
 on that tab; it cannot consume a newer report that arrives before the repaint.

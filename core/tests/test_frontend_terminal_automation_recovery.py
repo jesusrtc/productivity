@@ -114,7 +114,7 @@ window.LabObjectives={terminalMain:()=>null,taskForTerminal:()=>null};
  }
  for(const name of ['stopped','running','unknown']){
   const dot=getComputedStyle(row(name),'::after');
-  assert(dot.backgroundColor==='rgb(230, 237, 243)'&&dot.width==='5px'&&dot.right==='3px'&&dot.bottom==='3px','small white marker in corner');
+  assert(dot.content==='none','automation terminals do not add a white location dot');
   assert(getComputedStyle(row(name).querySelector('.sess-label')).display==='none','folded name hidden');
  }
  switcher.classList.add('term-tabs-open');
