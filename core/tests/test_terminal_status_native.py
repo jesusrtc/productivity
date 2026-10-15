@@ -63,7 +63,7 @@ def test_native_agent_reports_follow_exact_pane_and_survive_backend_reads(
     assert replacement['llm_controlled'] is None, 'LLM control belongs to the session incarnation'
 
 
-def test_native_launch_records_context_and_updates_only_its_session(
+def test_native_launch_bootstraps_full_context_and_updates_only_its_session(
         native_creation_tmux, monorepo, tmp_path, monkeypatch):
     run, _, _ = native_creation_tmux
     captured = tmp_path / 'received.json'
@@ -93,16 +93,22 @@ def test_native_launch_records_context_and_updates_only_its_session(
     version = agent_context.context_version()
     assert f'Lab context version: {version}.' in guide
     assert 'You are in Lab terminal `lab-owned-context`' in guide
+    assert 'run `lab context llm` before other tools' in guide
+    assert '# Lab user guide' not in guide
     assert received['version'] == version
     assert run('show-options','-qv','-t','lab-owned-context','@lab_llm').stdout.strip() == 'codex'
-    assert run('show-options','-qv','-t','lab-owned-context',agent_context.CONTEXT_VERSION_OPTION).stdout.strip() == version
+    assert run('show-options','-qv','-t','lab-owned-context',agent_context.CONTEXT_VERSION_OPTION).stdout.strip() == ''
     pane = run('display-message','-p','-t','lab-owned-context','#{pane_id}').stdout.strip()
     socket_path = run('display-message','-p','#{socket_path}').stdout.strip()
     server_pid = run('display-message','-p','#{pid}').stdout.strip()
     monkeypatch.setenv('TMUX',f'{socket_path},{server_pid},0')
     monkeypatch.setenv('TMUX_PANE',pane)
-    result = CliRunner().invoke(main, ['context','update'])
-    assert result.exit_code == 0 and result.output == ''
+    for _ in range(2):
+        result = CliRunner().invoke(main, ['context','llm'])
+        assert result.exit_code == 0 and '# Lab user guide' in result.output and '# Lab changelog' in result.output
+        assert CliRunner().invoke(main, ['context','update']).output == ''
+    assert run('show-options','-qv','-t','lab-owned-context',agent_context.CONTEXT_VERSION_OPTION).stdout.strip() == version
+    assert run('show-options','-qv','-t','lab-owned-context','@lab_llm').stdout.strip() == 'codex'
     # Simulate a running agent having an older guide. Another pane/session and
     # ordinary context reads cannot consume its pending refresh.
     run('set-option','-t','lab-owned-context',agent_context.CONTEXT_VERSION_OPTION,'old')

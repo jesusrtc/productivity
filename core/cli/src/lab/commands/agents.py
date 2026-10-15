@@ -42,15 +42,12 @@ def run(vault: Path | None, workspace_id: str | None, objective_id: str | None,
         argv, env = agent_context.prepare_launch(agent, list(args), env=env)
         terminal, previous, previous_llm = None, '', ''
         try:
-            # An explicitly retained Claude snapshot may still contain old
-            # context. Leave its first update pending instead of claiming it
-            # received our appended instructions.
-            snapshot = agent == 'claude' and any(arg.startswith('--system-prompt-snapshot') for arg in args)
+            # The launch prompt only requests the bootstrap command. A new or
+            # resumed conversation has not read the consolidated guide yet.
             terminal = terminal_context.current(env)
             previous = terminal.option(agent_context.CONTEXT_VERSION_OPTION)
             previous_llm = terminal.option(terminal_status.LLM_OPTION)
-            terminal.set_option(agent_context.CONTEXT_VERSION_OPTION,
-                                '' if snapshot else env['LAB_AGENT_CONTEXT_VERSION'])
+            terminal.set_option(agent_context.CONTEXT_VERSION_OPTION, '')
             terminal.set_option(terminal_status.LLM_OPTION, agent)
         except terminal_context.TerminalContextError:
             # Non-tmux launches remain supported. A failed marker is retried by

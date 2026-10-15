@@ -50,7 +50,8 @@ def context_version() -> str:
     """A content-derived decimal ID, stable across installs and file timestamps."""
     digest = hashlib.sha256()
     for name, path in sorted([(name, guide_path(name)) for name in TOPICS]
-                             + [('instruction-paths', GUIDE_DIR / 'instruction-paths.md')]):
+                             + [('instruction-paths', GUIDE_DIR / 'instruction-paths.md'),
+                                ('bootstrap', GUIDE_DIR / 'bootstrap/AGENTS.md')]):
         digest.update(name.encode() + b'\0' + path.read_bytes() + b'\0')
     return str(int.from_bytes(digest.digest()[:6], 'big'))
 
@@ -63,12 +64,15 @@ def _path_code(path: Path | str) -> str:
 
 def read_context(topic: str = 'overview', *, source_root: Path | None = None,
                  vault_root: Path | None = None, workspace_root: Path | None = None,
-                 objective_root: Path | None = None) -> str:
+                 objective_root: Path | None = None, bootstrap: bool = False) -> str:
     """Read the guide with installation-specific, absolute documentation paths."""
-    guide = guide_path(topic).read_text(encoding='utf-8')
+    path = GUIDE_DIR / 'bootstrap/AGENTS.md' if bootstrap else guide_path(topic)
+    guide = path.read_text(encoding='utf-8')
     if topic != 'overview':
         return guide
-    docs = '## Lab documentation\n\nRead the user guide and changelog before working with Lab, unless already loaded.\n\n'
+    docs = ('## Lab documentation\n\n'
+            + ('`lab context llm` includes these installed documents in full.\n\n' if bootstrap
+               else 'Read the user guide and changelog before working with Lab, unless already loaded.\n\n'))
     docs += '\n'.join(f'- {doc["title"]}: {_path_code(doc["path"])}.' for doc in documentation())
     intro, rest = guide.split('\n\n', 1)
     guide = intro + '\n\n' + docs + '\n\n' + rest
@@ -97,7 +101,7 @@ def read_context(topic: str = 'overview', *, source_root: Path | None = None,
 
 
 def current_context(*, cwd: Path | None = None, env: dict[str, str] | None = None,
-                    version: str | None = None) -> str:
+                    version: str | None = None, bootstrap: bool = False) -> str:
     """Include owning roots discoverable from this terminal without creating files."""
     from lab import paths, objective_store
     cwd = (cwd or Path.cwd()).resolve()
@@ -133,7 +137,8 @@ def current_context(*, cwd: Path | None = None, env: dict[str, str] | None = Non
                 objective = root
         if objective_id and objective is None:
             raise ContextError(f'Owning Objective not found: {objective_id}')
-    guide = read_context(source_root=cwd, vault_root=vault, workspace_root=workspace, objective_root=objective)
+    guide = read_context(source_root=cwd, vault_root=vault, workspace_root=workspace,
+                         objective_root=objective, bootstrap=bootstrap)
     launch = f'Lab context version: {version or context_version()}.\n'
     try:
         terminal = terminal_context.current(env)
@@ -144,6 +149,16 @@ def current_context(*, cwd: Path | None = None, env: dict[str, str] | None = Non
                    'The terminal reporting instructions below apply to every user turn, including short tasks.\n')
     intro, rest = guide.split('\n\n', 1)
     return intro + '\n\n' + launch + '\n' + rest
+
+
+def llm_context(*, version: str | None = None) -> str:
+    """One complete startup read, using canonical installed documents."""
+    sections = [current_context(version=version)]
+    for topic in DOCUMENTS:
+        sections.append(f'Source: {_path_code(guide_path(topic).resolve())}. '
+                        'Relative document links resolve from this file.\n\n'
+                        + read_context(topic).rstrip())
+    return '\n\n---\n\n'.join(sections) + '\n'
 
 
 def _codex_config_options(args: list[str], cwd: Path) -> tuple[list[str], list[str], Path]:
@@ -257,12 +272,12 @@ def prepare_launch(agent: str, args: list[str], *, cwd: Path | None = None,
     child_env['LAB_AGENT_CONTEXT_VERSION'] = version
     if agent == 'codex':
         overrides, remaining, config_cwd = _codex_config_options(args, cwd)
-        guide = current_context(cwd=config_cwd, env=child_env, version=version)
+        guide = current_context(cwd=config_cwd, env=child_env, version=version, bootstrap=True)
         existing = _codex_developer_instructions(binary, overrides, config_cwd, child_env)
         combined = guide + ('\n\n' + existing if existing else '')
         return [binary, '-c', 'developer_instructions=' + json.dumps(combined), *remaining], child_env
     if agent == 'claude':
-        guide = current_context(cwd=cwd, env=child_env, version=version)
+        guide = current_context(cwd=cwd, env=child_env, version=version, bootstrap=True)
         # Recent Claude versions retain a resumed conversation's initial system
         # prompt. Refresh it where supported; older versions already rebuild when
         # an append flag is supplied. Preserve an explicit user snapshot choice.
@@ -300,8 +315,9 @@ def prepare_launch(agent: str, args: list[str], *, cwd: Path | None = None,
     # This process-local setting is additive; the user's own instruction dirs,
     # agent home, auth, and repository discovery all retain their normal behavior.
     dirs = [part for part in child_env.get('COPILOT_CUSTOM_INSTRUCTIONS_DIRS', '').split(',') if part]
-    if str(GUIDE_DIR) not in dirs:
-        dirs.append(str(GUIDE_DIR))
+    bootstrap_dir = str(GUIDE_DIR / 'bootstrap')
+    if bootstrap_dir not in dirs:
+        dirs.append(bootstrap_dir)
     child_env['COPILOT_CUSTOM_INSTRUCTIONS_DIRS'] = ','.join(dirs)
-    child_env['LAB_AGENT_CONTEXT'] = current_context(cwd=cwd, env=child_env, version=version)
+    child_env['LAB_AGENT_CONTEXT'] = current_context(cwd=cwd, env=child_env, version=version, bootstrap=True)
     return [binary, *args], child_env

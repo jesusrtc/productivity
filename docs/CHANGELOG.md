@@ -5,6 +5,17 @@ guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 
 ## 2026-10-15
 
+### One command loads the full agent context
+
+- Added `lab context llm`: always print the current agent instructions, complete
+  user guide and changelog, plus owning instruction paths, and mark the calling
+  Lab terminal LLM-controlled. One startup line in a user's `AGENTS.md` is enough.
+- Launchers now reinforce that command with a short bootstrap. They leave the
+  context version unread until the agent executes the command successfully.
+- `lab context update` prints the same consolidated context when changed and
+  stays silent otherwise. Startup and compaction use `llm` even in a terminal
+  whose version is current, so a new conversation always receives the instructions.
+
 ### Asset links automatically dock in the central work area
 
 - Ordinary external asset clicks now try to align their real Chrome window

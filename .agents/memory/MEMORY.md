@@ -840,3 +840,5 @@
 - [Terminal tabs have only status dots](terminal-tabs-have-only-status-dots.md) — icon, centered agent-status dot and colored/plain name; no location/automation dots, Home labels or extra main prefixes.
 
 - [LLM submissions show working immediately](llm-submissions-show-working-immediately.md) — LLM session markers and immediate yellow on submitted messages; red responses show the submitted answer until the agent updates it.
+
+- [One command bootstraps full LLM context](one-command-llm-context-bootstrap.md) — always-full startup/compaction context, automatic LLM marker, silent subsequent updates and short launcher reinforcement.

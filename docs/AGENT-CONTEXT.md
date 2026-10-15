@@ -1,9 +1,9 @@
 # Framework context without workspace agent files
 
-Lab supplies a small capability guide when its terminal launcher starts Codex,
-Claude Code, or Copilot. The startup guide requires reading the installed
-[user guide](USER-GUIDE.md), [changelog](CHANGELOG.md) and owning instruction
-files, supplying their absolute paths. The user guide covers Markdown copying,
+Lab supplies a short startup instruction when its terminal launcher starts Codex,
+Claude Code, or Copilot: execute `lab context llm`. That command prints the agent
+guide, complete installed [user guide](USER-GUIDE.md) and [changelog](CHANGELOG.md),
+and owning instruction paths in one response. The user guide covers Markdown copying,
 live notebooks, metadata, tasks, terminals and local servers. Lab defers
 project conventions, content, skills, and memory policy to the workspace and
 the user.
@@ -12,6 +12,7 @@ The installed `lab` package carries the guide and topic documentation. No
 source-checkout path or symlink is needed. Read it from any directory:
 
 ```bash
+lab context llm
 lab context
 lab context markdown
 lab context notebooks
@@ -23,6 +24,29 @@ lab context changelog
 lab context user-guide --path
 lab context --path
 ```
+
+One line in a user-owned `AGENTS.md` can be the entire Lab integration:
+
+```md
+At the start of every agent session, including resumed conversations, and after
+context compaction, run `lab context llm` and follow its instructions before working.
+```
+
+The command always prints the full context, even if the terminal already has the
+latest version. Read all output, increasing the tool limit or recovering any
+truncated remainder. It marks the exact calling Lab tmux session LLM-controlled
+and records `@lab_context_version` only after successful output. It does not set
+working/attention/finished; the returned instructions explain those reports.
+Outside tmux, it prints context without storing markers. Workspace instruction
+files remain owned by the user and are never generated or modified by the command.
+
+On subsequent turns, run `lab context update`: unchanged is silent; changed or
+missing prints the same complete context and records its version after output.
+`lab context version` only prints the numeric content fingerprint. New launches
+leave context unread until the agent runs llm/update, so an injected startup
+instruction cannot be mistaken for a completed full read. After compaction or
+starting a new conversation in the same tmux terminal, use `llm` unconditionally.
+Plain `lab context` remains a read-only overview, without marker/version changes.
 
 Lab's New agent buttons use this launcher automatically. In an ordinary shell:
 
@@ -43,14 +67,14 @@ can specify `--workspace` and `--objective`; the process-local
 `lab context` reads. Plain shell tabs stay ordinary shells;
 typing a provider's bare command in one bypasses this launcher. Existing running
 agents are not interrupted or sent unsolicited messages; ask an existing agent
-to read `lab context`, or start a new session to load the guide at startup.
+to run `lab context llm`, or start a new session to receive the startup instruction.
 Claude resumes refresh their system prompt on versions supporting that option,
 unless you explicitly request snapshot retention. Older versions receive the
 append flag using their normal resume behavior. A fresh session is the simplest
 way to discard old conversational instructions across providers.
 
 Every workspace sidebar includes **Lab agent context**, including Objective
-and worktree Files views. Click it to read the installed launch guide, or drag
+and worktree Files views. Click it to read the installed agent overview, or drag
 the shortcut or the reader's **Drag context to terminal** button onto a terminal
 console to paste the full guide without submitting it. A packaged template adds
 the owning vault, workspace and selected Objective instruction paths. Every
@@ -74,18 +98,18 @@ vault's explorer roots.
 
 - Codex: the launcher uses the local app-server `config/read` operation to read
   existing effective developer instructions, including trusted project config,
-  then combines them with Lab's guide using a process-local `-c` override. This
+  then combines them with Lab's short bootstrap using a process-local `-c` override. This
   starts no model turn and writes no configuration. Repository `AGENTS.md`
   discovery stays enabled. Failure to read existing instructions produces an
   error instead of silently replacing them.
-- Claude Code: `--append-system-prompt` adds the guide with resolved paths. If the
+- Claude Code: `--append-system-prompt` adds the bootstrap with resolved paths. If the
   caller already supplied an append prompt or file, the launcher combines both.
   Existing repository instructions and all other launch options are preserved.
 - Copilot: a process-local `COPILOT_CUSTOM_INSTRUCTIONS_DIRS` includes the
-  packaged directory containing `AGENTS.md`, retaining existing custom paths.
-  Those bootstrap instructions require reading the process-local
-  `LAB_AGENT_CONTEXT` environment variable, containing the launch's resolved
-  guide and absolute references.
+  packaged `agent-context/bootstrap` directory containing `AGENTS.md`, retaining
+  existing custom paths. Those instructions require the same `lab context llm`
+  startup command. The process-local `LAB_AGENT_CONTEXT` retains the launch's
+  scoped bootstrap and absolute references, but no separate environment read is needed.
   Provider home directories, authentication, and normal instruction discovery
   are unchanged.
 
@@ -131,8 +155,8 @@ commit or push changes in user vaults.
 
 Operating guidance lives in `docs/USER-GUIDE.md`; dated changes live in
 `docs/CHANGELOG.md`. ALWAYS update the user guide, changelog and relevant topic
-with requested Lab changes, including operational guidance changes. The small
-bootstrap and topic files live in
+with requested Lab changes, including operational guidance changes. The full
+overview, short startup bootstrap and topic files live in
 `core/cli/src/lab/resources/agent-context/`. Editable installs read canonical
 checkout docs; wheel and source-distribution builds copy the same docs into
 `lab/resources/docs/`. No separately maintained manual copies are needed.

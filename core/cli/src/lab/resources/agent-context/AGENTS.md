@@ -1,14 +1,27 @@
 # Lab framework capabilities
 
+## Startup and context recovery
+
+At the start of every agent session, including a resumed conversation, and
+after context compaction, run `lab context llm` before other tools. It always
+prints this guide, the full Lab user guide and changelog, and the applicable
+owning instruction paths. Read its complete output, retrieving any truncated
+remainder before working. When reading that output, the bootstrap is already
+complete; do not rerun it merely because these instructions mention it.
+
+The command marks the calling Lab tmux terminal as LLM-controlled and records
+the context version after successful output. No separate `lab terminal llm`
+step is needed. Outside tmux it prints the same context without storing markers.
+
 ## Required at every turn
 
-At the start of every user turn, including short requests, greetings, and work
-resumed after input or compaction, run `lab context update` before other tools.
+At the start of each subsequent user turn, including short requests, greetings,
+and work resumed after input, run `lab context update` before other tools.
 Read and follow any context it prints before continuing. Empty output means your
 tmux session already has the current version; do not reread it unnecessarily.
 `lab context version` prints only the current numeric version. The launcher
-records the version it supplied in the calling tmux session; update records a
-new version only after printing its context. These commands do not update code,
+leaves the full context unread; llm/update record its version only after printing
+the consolidated context. These commands do not update code,
 restart anything, or edit workspace instructions.
 
 Inside a Lab terminal, status reporting is required even for a ten-second wait
@@ -33,10 +46,11 @@ task and working repository instructions. This includes agents starting inside
 an Objective folder or linked repository/worktree; provider discovery alone may
 omit the owning roots. Keep each file's scope and the user's task scope intact.
 
-The launcher supplies absolute documentation and instruction paths for known
-scopes. With Copilot, first read the LAB_AGENT_CONTEXT environment variable
-(`printenv LAB_AGENT_CONTEXT`) for that launch's absolute paths. Run `lab context`
-to rediscover paths in the current terminal. LAB_VAULT identifies the owning
+The launcher reinforces the startup command and supplies absolute documentation
+and instruction paths for known scopes. `lab context llm` resolves these paths
+directly for every provider, including Copilot; no separate environment read is
+needed. Run `lab context` to rediscover paths in the current terminal.
+LAB_VAULT identifies the owning
 vault; Objective/task context or workspace metadata identifies the workspace.
 Read the full operating guide with `lab context user-guide` and changes with
 `lab context changelog`. These commands also work in installed packages.
@@ -48,9 +62,8 @@ agent instruction, skill or memory files merely to integrate with Lab.
 
 ## Report terminal status
 
-At the start of an agent session inside a Lab tmux terminal, run
-`lab terminal llm` to mark it LLM-controlled, including when started manually
-from a shell. This command is idempotent; Lab launches already set the marker.
+The startup `lab context llm` command marks the terminal LLM-controlled, including
+when started manually from a shell. Lab launches already set this marker.
 It does not report working or finished. `lab terminal llm --off` restores
 ordinary shell behavior when the terminal is no longer used for an agent.
 

@@ -2,18 +2,21 @@
 import os
 
 import click
-from lab.agent_context import ContextError, TOPICS, current_context, guide_path, read_context
+from lab.agent_context import ContextError, TOPICS, current_context, guide_path, read_context, llm_context
 from lab.agent_context import context_version, CONTEXT_VERSION_OPTION
-from lab import terminal_context
+from lab import terminal_context, terminal_status
 
 
 @click.command(name='context')
-@click.argument('topic', default='overview', type=click.Choice([*TOPICS, 'version', 'update']))
+@click.argument('topic', default='overview', type=click.Choice([*TOPICS, 'llm', 'version', 'update']))
 @click.option('--path', 'show_path', is_flag=True, help='Print the installed guide path.')
 def context_cmd(topic: str, show_path: bool) -> None:
-    """Read Lab context. VERSION prints its number; UPDATE prints changed context only."""
+    """LLM loads full agent context and marks its terminal. UPDATE is silent if current.
+
+    VERSION prints the content ID. Other topics read individual guides.
+    """
     try:
-        if topic in ('version', 'update'):
+        if topic in ('llm', 'version', 'update'):
             if show_path:
                 raise click.UsageError('--path is only available for documentation topics.')
             version = context_version()
@@ -25,9 +28,12 @@ def context_cmd(topic: str, show_path: bool) -> None:
             terminal = None
             if os.environ.get('TMUX') or os.environ.get('TMUX_PANE'):
                 terminal = terminal_context.current()
-                if terminal.option(CONTEXT_VERSION_OPTION) == version:
+                if topic == 'llm':
+                    if terminal.option(terminal_status.LLM_OPTION) not in ('1', 'claude', 'codex', 'copilot'):
+                        terminal.set_option(terminal_status.LLM_OPTION, '1')
+                elif terminal.option(CONTEXT_VERSION_OPTION) == version:
                     return
-            click.echo(current_context(version=version))
+            click.echo(llm_context(version=version))
             click.get_text_stream('stdout').flush()
             # Mark only after successful output; a failed read/pipe stays pending.
             if terminal:

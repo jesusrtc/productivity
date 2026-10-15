@@ -59,11 +59,29 @@ loaded.
 
 ## Read the installed documentation
 
+For a single instruction in your own `AGENTS.md`, use:
+
+```md
+At the start of every agent session, including resumed conversations, and after
+context compaction, run `lab context llm` and follow its instructions before working.
+```
+
+`lab context llm` always prints the current Lab agent instructions, full user
+guide and changelog in one response, with absolute source paths and the applicable
+vault/workspace/Objective/checkout instruction paths. Read the complete output;
+increase the tool output limit or retrieve any truncated remainder. Specialized
+topic guides remain available for deeper work. Lab does not edit your instruction
+files. The command marks its own Lab tmux terminal **LLM-controlled**, so no
+separate marker command is needed. It records the version only after successful
+output and always prints again for a new conversation or context recovery, even
+when that same terminal previously loaded the current version.
+
 These commands print documentation and do not create files in a workspace:
 
 ```bash
 lab --help
 lab context
+lab context llm
 lab context user-guide
 lab context changelog
 lab context user-guide --path
@@ -95,21 +113,22 @@ Use the detailed topics for the work you are doing:
 `lab agent context` and `lab agents context` are aliases. Add `--path` to a
 topic to print its installed absolute file path.
 
-Agents must run `lab context update` at the start of every user turn, including
+After the startup bootstrap, agents must run `lab context update` at the start of every user turn, including
 short requests and resumed work, before other tools. It prints nothing when the
 calling tmux session has the current context. When context changes, it prints the
-new overview and records its version after successful output. Read and follow
+same consolidated context and records its version after successful output. Read and follow
 that output before continuing. `lab context version` prints only a decimal
 content ID; compare it for equality, not ordering. It changes automatically when
 the packaged context topics, instruction-path template, user guide or changelog
 change, independently of file timestamps or installation paths.
 
-New agent launches record the supplied version in their own tmux session's
-`@lab_context_version` option. Sessions track it independently, including on
+New agent launches inject a short instruction to run `lab context llm` and leave
+the full context unread. Only a successful llm/update read records the version in
+the tmux session's `@lab_context_version` option. Sessions track it independently, including on
 older sockets after rotation. The check does not download code, restart Lab,
 or edit workspace files. Outside tmux, update prints the current context each
 time without saving a version. Existing agents that predate this check must be
-asked once to run `lab context update` and follow its every-turn instructions;
+asked once to run `lab context llm` and follow its startup/every-turn instructions;
 an updated file alone cannot teach an already running agent the new rule.
 
 ## Launch agents and use terminals
@@ -128,8 +147,8 @@ lab agents run --vault /absolute/vault/path --workspace <id> --objective <id> co
 
 Arguments after `--` belong to the provider. A bare provider command in a plain
 shell bypasses Lab's launcher. Existing agents are not interrupted or sent
-unsolicited messages when the guide changes; ask them to read `lab context`
-and `lab context user-guide`, or start a new session.
+unsolicited messages when the guide changes; ask them to run `lab context llm`,
+or start a new session.
 
 Lab terminal launches also pin the owning workspace and, when associated, the
 Objective. For a manual launch in an external worktree, pass `--workspace` and
@@ -138,14 +157,15 @@ Objective. For a manual launch in an external worktree, pass `--workspace` and
 owning instructions even outside their folders. Without explicit ownership,
 Lab discovers workspace and Objective roots from the current directory.
 
-Codex receives the guide and absolute references through a process-local
+Codex receives the startup instruction and absolute references through a process-local
 developer instruction override combined with its existing trusted instructions.
 Claude receives them through an appended system prompt, retaining user append
 prompts and files. Supported Claude resumes refresh their system prompt unless
 the user explicitly retains a snapshot. Copilot loads Lab's packaged bootstrap
-instructions alongside existing custom instruction directories; those
-instructions require reading `LAB_AGENT_CONTEXT` for the launch's absolute
-references. Repository discovery, provider homes and authentication remain
+instructions alongside existing custom instruction directories. Every provider
+is instructed to execute `lab context llm`; `LAB_AGENT_CONTEXT` remains available
+as Copilot's launch reference, with no separate environment read required.
+Repository discovery, provider homes and authentication remain
 provider-owned. See `lab context` for the context of the current terminal.
 
 Opening a terminal does not itself authorize an agent to modify content. Work
@@ -250,7 +270,8 @@ An unnamed worktree terminal can use its worktree as its fallback name.
 ## Report terminal status explicitly
 
 Lab agent launches mark their terminal **LLM-controlled** automatically. Agents
-started manually can run `lab terminal llm` in their own terminal; Lab also
+started manually run `lab context llm` to load instructions and mark their own
+terminal (`lab terminal llm` remains available for marker-only control). Lab also
 detects local Codex, Claude and Copilot processes during normal terminal refresh.
 The marker appears in hover details, without adding another dot or name badge.
 It persists for that tmux session. Run `lab terminal llm --off` after returning

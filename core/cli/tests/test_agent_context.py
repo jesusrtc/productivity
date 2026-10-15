@@ -219,7 +219,7 @@ def test_copilot_preserves_existing_environment_and_args(tmp_path, binaries):
     argv, env = agent_context.prepare_launch('copilot', ['--resume', 'abc'], cwd=tmp_path, env=original)
     assert argv[1:] == ['--resume', 'abc']
     assert env['COPILOT_HOME'] == '/custom/home'
-    assert env['COPILOT_CUSTOM_INSTRUCTIONS_DIRS'] == '/custom/one,/custom/two,' + str(agent_context.GUIDE_DIR)
+    assert env['COPILOT_CUSTOM_INSTRUCTIONS_DIRS'] == '/custom/one,/custom/two,' + str(agent_context.GUIDE_DIR / 'bootstrap')
     assert original['COPILOT_CUSTOM_INSTRUCTIONS_DIRS'] == '/custom/one,/custom/two'
     assert str(agent_context.guide_path('user-guide')) in env['LAB_AGENT_CONTEXT']
     assert str(agent_context.guide_path('changelog')) in env['LAB_AGENT_CONTEXT']
@@ -238,6 +238,9 @@ def test_launch_paths_follow_pinned_vault_objective_and_codex_cd(monorepo, seed_
         args = ['--cd', str(objective)] if agent == 'codex' else []
         argv, child = agent_context.prepare_launch(agent, args, cwd=monorepo if args else objective, env=env)
         content = json.loads(argv[2].split('=', 1)[1]) if agent == 'codex' else argv[2] if agent == 'claude' else child['LAB_AGENT_CONTEXT']
+        assert 'run `lab context llm` before other tools' in content
+        assert 'context compaction' in content
+        assert len(content) < 8000 and 'lab notifications finished' not in content
         for label, root in [('Vault', monorepo), ('Workspace', workspace), ('Objective', objective)]:
             assert f'- {label} root: `{root}`; instructions: `{root / "AGENTS.md"}`' in content
         assert f'Source folder: `{objective}`' in content
@@ -299,7 +302,7 @@ def test_claude_resume_refreshes_supported_snapshots_but_honors_user_choice(tmp_
 
 
 @pytest.mark.parametrize('agent', agent_context.AGENTS)
-def test_launch_records_the_context_actually_supplied_and_rolls_back_failed_exec(
+def test_launch_leaves_full_context_unread_and_rolls_back_failed_exec(
         monorepo, binaries, monkeypatch, agent):
     from lab import terminal_context
     monkeypatch.setenv('PATH', str(binaries))
@@ -319,11 +322,11 @@ def test_launch_records_the_context_actually_supplied_and_rolls_back_failed_exec
     def execute(binary, argv, env):
         guide = (json.loads(argv[2].split('=', 1)[1]) if agent == 'codex'
                  else argv[2] if agent == 'claude' else env['LAB_AGENT_CONTEXT'])
-        assert f'Lab context version: {marker[agent_context.CONTEXT_VERSION_OPTION]}.' in guide
-        assert marker[agent_context.CONTEXT_VERSION_OPTION] == env['LAB_AGENT_CONTEXT_VERSION']
+        assert f'Lab context version: {env["LAB_AGENT_CONTEXT_VERSION"]}.' in guide
+        assert marker[agent_context.CONTEXT_VERSION_OPTION] == ''
         assert marker['@lab_llm'] == agent
         assert 'You are in Lab terminal `neurona-owned`, pane `%42`' in guide
-        assert 'run `lab context update` before other tools' in guide
+        assert 'run `lab context llm` before other tools' in guide
     monkeypatch.setattr(os, 'execvpe', execute)
     result = CliRunner().invoke(main, ['agents', 'run', agent])
     assert result.exit_code == 0, result.output

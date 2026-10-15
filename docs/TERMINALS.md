@@ -100,7 +100,8 @@ Agent-reported status uses steady yellow for working, pulsing red
 for attention and blinking green for finished; task-status dots remain omitted.
 Only green clears on a tab click. LLM-controlled terminals also turn yellow
 immediately on submitted input; the next agent report supplies the real WIP text.
-`lab terminal llm` marks manual agent sessions; `--off` restores shell behavior.
+`lab context llm` loads instructions and marks manual agent sessions;
+`lab terminal llm --off` restores shell behavior.
 Hover shows LLM control, the report and reveals names
 without moving or resizing icons and controls. See
 [terminal status](terminal-completion.md) for commands and lifecycle rules. An active
@@ -380,7 +381,9 @@ most two generations. Do not edit it by hand; use `lab terminal`.
 ## Framework context in agent terminals
 
 New Claude, Codex, and Copilot terminals use `lab agents run` to add the
-packaged Lab capability guide while preserving each workspace's instructions.
+short instruction to run `lab context llm`, which loads the full agent guide,
+user guide/changelog and owning instruction paths and marks the terminal
+LLM-controlled. Each workspace retains its own instructions.
 The wrapper execs the agent; no persistent helper process or workspace agent
 files are created. Plain shell tabs and attached sessions are unchanged.
 See [Agent context](AGENT-CONTEXT.md) for manual launches and legacy-link cleanup.

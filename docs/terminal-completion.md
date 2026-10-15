@@ -17,21 +17,25 @@ sound or external message is sent. Reduced-motion mode keeps all dots steady.
 
 ## Agent contract
 
-The packaged Lab launch context identifies the calling terminal/pane and requires
-`lab context update` before other tools on every turn. This checks the current
+The packaged Lab launch bootstrap identifies the calling terminal/pane and requires
+`lab context llm` at startup and after compaction. This always prints the agent
+guide, full user guide/changelog and owning instruction paths, and marks the
+terminal LLM-controlled without a separate `lab terminal llm` step.
+On subsequent turns `lab context update` checks the current
 numeric content version against that session's `@lab_context_version`: unchanged
-is silent; changed or missing prints fresh context and records it after output.
-New launches record their supplied version. Versions cover all packaged topics,
+is silent; changed or missing prints the same consolidated context and records it
+after successful output. New launches leave the full context unread. Versions cover
+the bootstrap and all packaged topics,
 the instruction-path template and canonical user guide/changelog, compare by
 equality, and do not depend on timestamps. Reading `lab context` alone does not
-acknowledge an update. Outside tmux, update always prints and stores nothing.
+acknowledge an update. Outside tmux, llm/update always print and store nothing.
 
 Agents must then report working before the requested work on every user turn,
 including greetings and short waits, attention before yielding for needed input/approval/review,
 and finished immediately before the final response when the requested work is
 complete. Report transitions rather than every tool call. An agent resuming from
 attention must explicitly report working. Existing agents can load the updated
-instructions once with `lab context update` or the context reader's drag-to-terminal action;
+instructions once with `lab context llm` or the context reader's drag-to-terminal action;
 older loaded instructions cannot trigger a check they do not yet describe.
 Outside a Lab tmux terminal, skip reporting; never choose another session by guess.
 
@@ -45,7 +49,8 @@ changes task status or completes checklist items.
 
 `lab agents run` marks the exact calling tmux session with `@lab_llm` before
 executing the provider, restoring the previous value if execution fails. Agents
-started manually should run `lab terminal llm`; the server also recognizes local
+started manually should run `lab context llm` for the full bootstrap (or
+`lab terminal llm` for marker-only control); the server also recognizes local
 Codex, Claude and Copilot processes under that pane's process tree during normal
 refresh. It checks executable/script identity, never prompt text. A detected
 provider is retained with the session marker; no workspace metadata is rewritten.
@@ -113,8 +118,9 @@ keyboard acknowledgement, hover text, compact/expanded and merged terminals,
 workspace aggregation and reduced-motion styling. No fixture sends input to a
 user's live terminal.
 
-Launch-context tests verify provider handoff, recorded versions, failed-launch
-rollback, silent unchanged checks, changed context, failed output and independent
+Launch-context tests verify provider handoff, unread startup versions, repeated
+full bootstrap, failed-launch rollback, silent unchanged checks, changed context,
+failed output and independent
 sessions. A real provider smoke test must also confirm that the agent itself
 executes the check and status commands for an ordinary request; command and UI
 fixtures alone cannot establish that the model follows the instructions.

@@ -17,3 +17,6 @@ status instructions but skipped reporting during a short sleep request. Context
 now identifies the calling terminal and requires executed context/status commands
 for every turn, including short tasks. Fixture tests of commands and UI alone do
 not prove model compliance; distinguish native tests from actual provider checks.
+
+The consolidated startup command and delayed acknowledgement supersede the
+launch behavior above; see [One command bootstraps full LLM context](one-command-llm-context-bootstrap.md).
