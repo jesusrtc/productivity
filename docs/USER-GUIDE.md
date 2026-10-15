@@ -68,6 +68,8 @@ lab context user-guide
 lab context changelog
 lab context user-guide --path
 lab context changelog --path
+lab context version
+lab context update
 lab agents doctor
 ```
 
@@ -92,6 +94,23 @@ Use the detailed topics for the work you are doing:
 
 `lab agent context` and `lab agents context` are aliases. Add `--path` to a
 topic to print its installed absolute file path.
+
+Agents must run `lab context update` at the start of every user turn, including
+short requests and resumed work, before other tools. It prints nothing when the
+calling tmux session has the current context. When context changes, it prints the
+new overview and records its version after successful output. Read and follow
+that output before continuing. `lab context version` prints only a decimal
+content ID; compare it for equality, not ordering. It changes automatically when
+the packaged context topics, instruction-path template, user guide or changelog
+change, independently of file timestamps or installation paths.
+
+New agent launches record the supplied version in their own tmux session's
+`@lab_context_version` option. Sessions track it independently, including on
+older sockets after rotation. The check does not download code, restart Lab,
+or edit workspace files. Outside tmux, update prints the current context each
+time without saving a version. Existing agents that predate this check must be
+asked once to run `lab context update` and follow its every-turn instructions;
+an updated file alone cannot teach an already running agent the new rule.
 
 ## Launch agents and use terminals
 
@@ -241,11 +260,14 @@ They discover the calling pane's session on its own tmux socket, including a
 socket that is draining after rotation. Outside a Lab tmux terminal the command
 fails clearly without guessing a destination.
 
-The agent must report working when starting or resuming, attention before
-handing control back for needed input/approval/review, and finished immediately
+The agent must report working on every user turn, including greetings and short
+tasks such as `sleep 10`, after checking context and before doing the work;
+attention before handing control back for needed input/approval/review; and finished immediately
 before its final response when the requested work is complete. This instruction
-is included in the launch context and `lab context`. Existing sessions need to
-read the updated context, or receive it via **Drag context to terminal**.
+is included in the launch context and `lab context`. The launch context identifies
+the actual Lab terminal and pane when available. Execute the reporting commands;
+describing a status in prose does not set the dot. Existing sessions need to
+run `lab context update`, or receive it via **Drag context to terminal**.
 
 Status is the latest explicit report. Quiet output, elapsed time, terminal
 redraws and provider transcript events never change it. An unreported terminal

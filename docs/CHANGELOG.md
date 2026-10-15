@@ -3,6 +3,19 @@
 User-facing changes to Lab are recorded here alongside updates to the user
 guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 
+## 2026-10-15
+
+### Refresh agent context per terminal
+
+- Added `lab context version`, which prints a numeric content ID, and
+  `lab context update`, which stays silent when the calling tmux session is
+  current and prints fresh context once when it changes. Each session records
+  its own version; the commands do not pull code or restart anything.
+- New launches record the context they supplied and identify the current Lab
+  terminal/pane in the instructions. Agents must check for context updates at
+  every turn, then report working and finished/attention even for short requests.
+  Existing agents need to read this new rule once with `lab context update`.
+
 ## 2026-10-14
 
 ### Agents explicitly report terminal status

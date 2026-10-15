@@ -59,6 +59,7 @@ def test_all_help_errors_aliases_and_completion_match_eager_click_registration()
         'index': [('index', 'index_group')],
         'link': [('link', 'link_group')],
         'notebook': [('notebook', 'notebook_group')],
+        'notifications': [('notifications', 'notifications_cmd')],
         'objective': [('objective', 'objective_group')],
         'ref': [('ref', 'ref_group')],
         'repo': [('repo', 'repo_group')],

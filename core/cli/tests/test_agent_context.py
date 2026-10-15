@@ -12,6 +12,12 @@ from lab import agent_context, agentsync, paths
 from lab.cli import main
 
 
+@pytest.fixture(autouse=True)
+def isolate_calling_terminal(monkeypatch):
+    monkeypatch.delenv('TMUX', raising=False)
+    monkeypatch.delenv('TMUX_PANE', raising=False)
+
+
 def snapshot(root):
     return {str(p.relative_to(root)): (os.readlink(p) if p.is_symlink() else p.read_bytes())
             for p in root.rglob('*') if p.is_file() or p.is_symlink()}
@@ -177,7 +183,7 @@ def test_codex_merges_existing_context_through_rpc(tmp_path, binaries):
     assert json.loads(argv[2].split('=', 1)[1]).endswith('EXISTING_PROJECT_RULES')
     assert 'Lab framework capabilities' in argv[2]
     assert argv[3:] == ['resume', '--last', '--model', 'custom']
-    assert env == {'PATH': str(binaries)}
+    assert env == {'PATH': str(binaries), 'LAB_AGENT_CONTEXT_VERSION': agent_context.context_version()}
 
 
 def test_codex_config_args_keep_cwd_and_literal_prompt(tmp_path):
@@ -290,3 +296,46 @@ def test_claude_resume_refreshes_supported_snapshots_but_honors_user_choice(tmp_
     argv, _ = agent_context.prepare_launch('claude', ['--resume', 'session', '--system-prompt-snapshot', 'on'], cwd=tmp_path, env={'PATH': str(binaries)})
     assert argv.count('--system-prompt-snapshot') == 1
     assert argv[-1] == 'on'
+
+
+@pytest.mark.parametrize('agent', agent_context.AGENTS)
+def test_launch_records_the_context_actually_supplied_and_rolls_back_failed_exec(
+        monorepo, binaries, monkeypatch, agent):
+    from lab import terminal_context
+    monkeypatch.setenv('PATH', str(binaries))
+    monkeypatch.setenv('TMUX', '/tmp/owned,socket,123,0')
+    monkeypatch.setenv('TMUX_PANE', '%42')
+    marker = ['old']
+    def tmux(socket, *args):
+        assert socket == '/tmp/owned,socket'
+        if args[0] == 'display-message':
+            assert args[3] == '%42'
+            return '$7\tneurona-owned'
+        assert args[args.index('-t')+1] == '$7'
+        if args[0] == 'set-option':
+            marker[0] = args[-1]
+        return marker[0]
+    monkeypatch.setattr(terminal_context, 'tmux', tmux)
+    def execute(binary, argv, env):
+        guide = (json.loads(argv[2].split('=', 1)[1]) if agent == 'codex'
+                 else argv[2] if agent == 'claude' else env['LAB_AGENT_CONTEXT'])
+        assert f'Lab context version: {marker[0]}.' in guide
+        assert marker[0] == env['LAB_AGENT_CONTEXT_VERSION']
+        assert 'You are in Lab terminal `neurona-owned`, pane `%42`' in guide
+        assert 'run `lab context update` before other tools' in guide
+    monkeypatch.setattr(os, 'execvpe', execute)
+    result = CliRunner().invoke(main, ['agents', 'run', agent])
+    assert result.exit_code == 0, result.output
+    if agent == 'claude':
+        # A retained old prompt must refresh even if this terminal had already
+        # loaded the current context during a different conversation.
+        monkeypatch.setattr(os, 'execvpe', lambda *args: None)
+        result = CliRunner().invoke(main, ['agents', 'run', agent, '--', '--resume', 'old',
+                                          '--system-prompt-snapshot', 'on'])
+        assert result.exit_code == 0 and marker[0] == ''
+    marker[0] = 'previous'
+    def fail(*args):
+        raise OSError('cannot execute provider')
+    monkeypatch.setattr(os, 'execvpe', fail)
+    result = CliRunner().invoke(main, ['agents', 'run', agent])
+    assert result.exit_code != 0 and marker[0] == 'previous'

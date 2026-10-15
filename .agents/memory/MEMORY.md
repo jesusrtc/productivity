@@ -828,3 +828,5 @@
 - [Markdown and asset links use windows](markdown-and-asset-links-use-windows.md) — normal clicks open client pop-outs; Cmd/Ctrl clicks open tabs, with link details on the asset context menu.
 
 - [Terminal status is agent-reported](terminal-status-is-agent-reported.md) — explicit yellow working, red attention and green finished; only green clears on click, with no output-based estimation or pop-ups.
+
+- [Agent context refreshes per terminal](agent-context-refreshes-per-terminal.md) — per-session numeric versions, silent unchanged updates, every-turn checks and explicit short-task reporting.

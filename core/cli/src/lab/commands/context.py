@@ -1,15 +1,39 @@
 """Read framework capabilities without writing to a vault or workspace."""
+import os
+
 import click
 from lab.agent_context import ContextError, TOPICS, current_context, guide_path, read_context
+from lab.agent_context import context_version, CONTEXT_VERSION_OPTION
+from lab import terminal_context
 
 
 @click.command(name='context')
-@click.argument('topic', default='overview', type=click.Choice(list(TOPICS)))
+@click.argument('topic', default='overview', type=click.Choice([*TOPICS, 'version', 'update']))
 @click.option('--path', 'show_path', is_flag=True, help='Print the installed guide path.')
 def context_cmd(topic: str, show_path: bool) -> None:
-    """Read Lab's user guide, changelog, overview or capability topics."""
+    """Read Lab context. VERSION prints its number; UPDATE prints changed context only."""
     try:
+        if topic in ('version', 'update'):
+            if show_path:
+                raise click.UsageError('--path is only available for documentation topics.')
+            version = context_version()
+            if topic == 'version':
+                click.echo(version)
+                return
+            # No process-global or browser-selected destination. Outside tmux,
+            # print context each time without persisting an acknowledgement.
+            terminal = None
+            if os.environ.get('TMUX') or os.environ.get('TMUX_PANE'):
+                terminal = terminal_context.current()
+                if terminal.option(CONTEXT_VERSION_OPTION) == version:
+                    return
+            click.echo(current_context(version=version))
+            click.get_text_stream('stdout').flush()
+            # Mark only after successful output; a failed read/pipe stays pending.
+            if terminal:
+                terminal.set_option(CONTEXT_VERSION_OPTION, version)
+            return
         content = str(guide_path(topic)) if show_path else current_context() if topic == 'overview' else read_context(topic)
-    except (ContextError, OSError) as exc:
+    except (ContextError, terminal_context.TerminalContextError, OSError) as exc:
         raise click.ClickException(str(exc)) from exc
     click.echo(content)

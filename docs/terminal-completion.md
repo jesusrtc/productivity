@@ -16,12 +16,22 @@ sound or external message is sent. Reduced-motion mode keeps all dots steady.
 
 ## Agent contract
 
-The packaged Lab launch context instructs agents to report working when starting
-or resuming a task, attention before yielding for needed input/approval/review,
+The packaged Lab launch context identifies the calling terminal/pane and requires
+`lab context update` before other tools on every turn. This checks the current
+numeric content version against that session's `@lab_context_version`: unchanged
+is silent; changed or missing prints fresh context and records it after output.
+New launches record their supplied version. Versions cover all packaged topics,
+the instruction-path template and canonical user guide/changelog, compare by
+equality, and do not depend on timestamps. Reading `lab context` alone does not
+acknowledge an update. Outside tmux, update always prints and stores nothing.
+
+Agents must then report working before the requested work on every user turn,
+including greetings and short waits, attention before yielding for needed input/approval/review,
 and finished immediately before the final response when the requested work is
 complete. Report transitions rather than every tool call. An agent resuming from
 attention must explicitly report working. Existing agents can load the updated
-instructions with `lab context` or the context reader's drag-to-terminal action.
+instructions once with `lab context update` or the context reader's drag-to-terminal action;
+older loaded instructions cannot trigger a check they do not yet describe.
 Outside a Lab tmux terminal, skip reporting; never choose another session by guess.
 
 Working and attention remain until replaced by an agent report. Silence, output,
@@ -73,3 +83,9 @@ Frontend tests cover all three states, stale reads/clicks, reloads, shared views
 keyboard acknowledgement, hover text, compact/expanded and merged terminals,
 workspace aggregation and reduced-motion styling. No fixture sends input to a
 user's live terminal.
+
+Launch-context tests verify provider handoff, recorded versions, failed-launch
+rollback, silent unchanged checks, changed context, failed output and independent
+sessions. A real provider smoke test must also confirm that the agent itself
+executes the check and status commands for an ordinary request; command and UI
+fixtures alone cannot establish that the model follows the instructions.

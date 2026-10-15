@@ -1,6 +1,7 @@
 """Framework capabilities supplied at launch, without workspace filesystem changes."""
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -9,6 +10,8 @@ import selectors
 import shutil
 import subprocess
 import time
+
+from lab import terminal_context
 
 GUIDE_DIR = Path(__file__).parent / 'resources' / 'agent-context'
 TOPICS = {'overview': 'AGENTS.md', 'markdown': 'markdown.md',
@@ -19,6 +22,7 @@ TOPICS = {'overview': 'AGENTS.md', 'markdown': 'markdown.md',
           'changelog': 'CHANGELOG.md'}
 DOCUMENTS = {'user-guide': 'Lab user guide', 'changelog': 'Lab changelog'}
 AGENTS = ('codex', 'claude', 'copilot')
+CONTEXT_VERSION_OPTION = '@lab_context_version'
 
 
 class ContextError(RuntimeError):
@@ -40,6 +44,15 @@ def guide_path(topic: str = 'overview') -> Path:
 def documentation() -> list[dict[str, str]]:
     return [{'name': name, 'title': title, 'path': str(guide_path(name).resolve())}
             for name, title in DOCUMENTS.items()]
+
+
+def context_version() -> str:
+    """A content-derived decimal ID, stable across installs and file timestamps."""
+    digest = hashlib.sha256()
+    for name, path in sorted([(name, guide_path(name)) for name in TOPICS]
+                             + [('instruction-paths', GUIDE_DIR / 'instruction-paths.md')]):
+        digest.update(name.encode() + b'\0' + path.read_bytes() + b'\0')
+    return str(int.from_bytes(digest.digest()[:6], 'big'))
 
 
 def _path_code(path: Path | str) -> str:
@@ -83,7 +96,8 @@ def read_context(topic: str = 'overview', *, source_root: Path | None = None,
     return intro + '\n\n' + scoped.rstrip() + '\n\n' + rest
 
 
-def current_context(*, cwd: Path | None = None, env: dict[str, str] | None = None) -> str:
+def current_context(*, cwd: Path | None = None, env: dict[str, str] | None = None,
+                    version: str | None = None) -> str:
     """Include owning roots discoverable from this terminal without creating files."""
     from lab import paths, objective_store
     cwd = (cwd or Path.cwd()).resolve()
@@ -119,7 +133,17 @@ def current_context(*, cwd: Path | None = None, env: dict[str, str] | None = Non
                 objective = root
         if objective_id and objective is None:
             raise ContextError(f'Owning Objective not found: {objective_id}')
-    return read_context(source_root=cwd, vault_root=vault, workspace_root=workspace, objective_root=objective)
+    guide = read_context(source_root=cwd, vault_root=vault, workspace_root=workspace, objective_root=objective)
+    launch = f'Lab context version: {version or context_version()}.\n'
+    try:
+        terminal = terminal_context.current(env)
+    except terminal_context.TerminalContextError:
+        pass
+    else:
+        launch += (f'You are in Lab terminal {_path_code(terminal.name)}, pane {_path_code(terminal.pane)}. '
+                   'The terminal reporting instructions below apply to every user turn, including short tasks.\n')
+    intro, rest = guide.split('\n\n', 1)
+    return intro + '\n\n' + launch + '\n' + rest
 
 
 def _codex_config_options(args: list[str], cwd: Path) -> tuple[list[str], list[str], Path]:
@@ -229,14 +253,16 @@ def prepare_launch(agent: str, args: list[str], *, cwd: Path | None = None,
     if not binary:
         raise ContextError(f'{agent} CLI not found on PATH')
     cwd = (cwd or Path.cwd()).resolve()
+    version = context_version()
+    child_env['LAB_AGENT_CONTEXT_VERSION'] = version
     if agent == 'codex':
         overrides, remaining, config_cwd = _codex_config_options(args, cwd)
-        guide = current_context(cwd=config_cwd, env=child_env)
+        guide = current_context(cwd=config_cwd, env=child_env, version=version)
         existing = _codex_developer_instructions(binary, overrides, config_cwd, child_env)
         combined = guide + ('\n\n' + existing if existing else '')
         return [binary, '-c', 'developer_instructions=' + json.dumps(combined), *remaining], child_env
     if agent == 'claude':
-        guide = current_context(cwd=cwd, env=child_env)
+        guide = current_context(cwd=cwd, env=child_env, version=version)
         # Recent Claude versions retain a resumed conversation's initial system
         # prompt. Refresh it where supported; older versions already rebuild when
         # an append flag is supplied. Preserve an explicit user snapshot choice.
@@ -277,5 +303,5 @@ def prepare_launch(agent: str, args: list[str], *, cwd: Path | None = None,
     if str(GUIDE_DIR) not in dirs:
         dirs.append(str(GUIDE_DIR))
     child_env['COPILOT_CUSTOM_INSTRUCTIONS_DIRS'] = ','.join(dirs)
-    child_env['LAB_AGENT_CONTEXT'] = current_context(cwd=cwd, env=child_env)
+    child_env['LAB_AGENT_CONTEXT'] = current_context(cwd=cwd, env=child_env, version=version)
     return [binary, *args], child_env

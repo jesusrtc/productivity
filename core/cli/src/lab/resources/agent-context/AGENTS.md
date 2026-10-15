@@ -1,5 +1,25 @@
 # Lab framework capabilities
 
+## Required at every turn
+
+At the start of every user turn, including short requests, greetings, and work
+resumed after input or compaction, run `lab context update` before other tools.
+Read and follow any context it prints before continuing. Empty output means your
+tmux session already has the current version; do not reread it unnecessarily.
+`lab context version` prints only the current numeric version. The launcher
+records the version it supplied in the calling tmux session; update records a
+new version only after printing its context. These commands do not update code,
+restart anything, or edit workspace instructions.
+
+Inside a Lab terminal, status reporting is required even for a ten-second wait
+or a one-line answer. After checking context, run
+`lab notifications working "Short description"` before doing the requested work.
+Immediately before your final reply, run
+`lab notifications finished "What was completed"`, or
+`lab notifications attention "What you need from the user"` if input, approval,
+or review is needed to continue. Execute these commands; mentioning them in prose
+does not report a status. The CLI does not infer these transitions for you.
+
 Lab provides documents, live notebooks, workspace/task metadata, terminals and
 managed local servers. Explicit user requests and vault/workspace-owned
 instructions take precedence over framework defaults.
@@ -39,9 +59,12 @@ Inside a Lab tmux terminal, explicitly report your state with these commands:
 These only set the terminal's dot and hover text: steady yellow for working,
 pulsing red for attention, blinking green for finished. They send no pop-ups or
 external messages. Report transitions, not every tool call. The command resolves
-its own tmux session; never guess another terminal's name. If TMUX/TMUX_PANE are
-absent, skip reporting rather than targeting another session. If reporting fails,
-continue the user's work and mention the failure when relevant.
+its own tmux session; never guess another terminal's name. A launch identifying
+your Lab terminal above confirms that reporting applies. Otherwise check whether
+TMUX/TMUX_PANE exist before skipping reporting; do not assume they are absent.
+Outside a Lab tmux terminal, skip reporting. If a sandbox blocks the tmux socket,
+use the tool's normal approval mechanism for the same command. If reporting still
+fails, continue the user's work and mention the failure when relevant.
 
 Only finished clears on an explicit tab or green-dot click. Working and attention
 remain until you explicitly report a different state; resuming after input must
