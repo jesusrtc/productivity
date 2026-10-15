@@ -199,6 +199,9 @@ const termUpdateTabGroup=()=>{groupCollapsed=false;termRenderSessionList();};
 
 def test_notification_selects_owning_task_and_keeps_assets_accessible_in_chrome(tmp_path):
     objectives = (ROOT / 'core/src/core/static/js/lib/workspace-objectives.js').read_text()
+    activation = _js_between('  async function _termActivateTab(', '  function _termHomeAssociationHtml(')
+    navigation_setup = NAV_SETUP.replace("const _termActivateTab=async(name,options)=>{calls.push(['activate',name,options]);termCurrentSession=name;if(typeof termRenderSessionList==='function')termRenderSessionList();};", activation)
+    tab_click = _js_between("      node.addEventListener('click', (event) => {\n        _termHideSessionTooltip();", "    el.querySelectorAll('[data-divider-options]')").rsplit('\n    });', 1)[0]
     setup = r'''
 const assert=(ok,message)=>{if(!ok)throw Error(message)};
 const until=async fn=>{for(let i=0;i<100;i++){if(fn())return;await new Promise(r=>setTimeout(r,5));}throw Error('Timed out '+fn)};
@@ -216,20 +219,27 @@ const fixture={enabled:true,revision:'one',focused:['other','owning'],objectives
 window.fetch=async()=>({ok:true,json:async()=>structuredClone(fixture)});
 window.marked={};window.DOMPurify={};
 window.LabMarkdownEditor={create:(node,options)=>{node.textContent=options.body;return {value:options.body,destroy(){},focus(){}}}};
-const errors=[],activated=[],created=[];let fileRoot='/workspace';
+const errors=[],activated=[],created=[],opened=[];let fileRoot='/workspace';
+const _termHideSessionTooltip=()=>{},termCloseGroupMenu=()=>{},_termSelectTab=()=>{},explorerToast=message=>errors.push(message);
+const termDeadSessions=new Set(),_termIsScopeActive=id=>id===scope.workspace_id,_termCancelPendingLinkedFileOpen=()=>{};
+const termAttach=async name=>{termCurrentSession=name},_termOpenLinkedFile=()=>{throw Error('Unexpected file fallback')};
+window.LabExternalLinks={open:(url,options)=>opened.push(['url',url,options])};
 window.addEventListener('error',e=>errors.push(e.message));window.addEventListener('unhandledrejection',e=>errors.push(String(e.reason)));
 '''
     checks = r'''
 (async()=>{try{
  const O=LabObjectives,N=LabTerminalNotifications,C=LabTerminalCompletion;
+ const showFile=(kind,value)=>{opened.push([kind,value]);document.getElementById('content').innerHTML='<article>Native '+kind+' viewer</article>';};
  O.connect({context:()=>({...scope,path:'/workspace'}),scopeRoot:()=>fileRoot,selectWorktree:row=>{fileRoot=row.path},
+  openFolder:folder=>opened.push(['folder',folder]),openFile:file=>showFile('file',file),openNotebook:resource=>showFile('notebook',resource),
   refreshTabs:()=>document.getElementById('tabs').innerHTML=O.tabsHtml('/workspace'),prepareCenter:()=>{},
   sessions:()=>termSessions,parentTerminal:s=>s.name==='child'?primary:null,
   activateLinkedTerminal:ids=>activated.push(ids),createTaskTerminal:()=>created.push(true)});
  refresh=async()=>{termSessions=[primary,target,child];};await refresh();
  await O.load();O.selectObjective('owning',{activateTerminal:false});O.openTask('nested');
  O.openForTerminal(target);
- assert(!O.terminalLaunchContext().task,'ordinary linked-folder navigation enters worktree browsing');
+ assert(O.terminalLaunchContext().task?.id==='nested','ordinary linked-folder navigation retains its owning task');
+ assert(opened.at(-1)?.[0]==='folder','linked folder opens while keeping task assets');
  N.configure({open:_termOpenNotification,label:row=>row.session.logical_name,error:message=>errors.push(message)});
  N.update({'owner::demo':[target,child]});
  const open=async s=>{const button=[...document.querySelectorAll('.term-notification')].find(node=>node.dataset.key===C.key(s));assert(button,'notification exists');button.click();await until(()=>termCurrentSession===s.name&&!document.querySelector('.term-notification:disabled'));};
@@ -237,6 +247,7 @@ window.addEventListener('error',e=>errors.push(e.message));window.addEventListen
   const context=O.terminalLaunchContext();
   assert(context.id==='owning'&&context.task?.id==='nested','owning Objective and exact nested task are selected');
   assert(document.querySelector('#tabs [data-current-objective]')?.textContent.includes('Owning subtask'),'task is selected in the top navigation');
+  assert(document.querySelector('#content [data-task-mode-head]')?.dataset.taskId==='nested','task header stays mounted above the opened asset');
   assert(document.querySelector('[data-objective-bucket="task"]')?.textContent.includes('owning review asset'),'owning task assets stay available');
   assert(!activated.length&&!created.length,'notification never switches to the primary or creates a terminal');
  };
@@ -253,10 +264,51 @@ window.addEventListener('error',e=>errors.push(e.message));window.addEventListen
  O.selectObjective('other',{activateTerminal:false});await open(child);checkTask();
  assert(termCurrentSession==='child'&&!C.status(child),'green child inherits owning task while keeping its exact terminal and reviewing green');
  await O.load(undefined,true);checkTask();
+
+ // Exercise the real terminal-rail click listener, not just the navigation helper.
+ const clickTab=async s=>{mountTab(s);document.querySelector('#terminalRail [data-name]').click();await until(()=>termCurrentSession===s.name);};
+ const owner=fixture.objectives[1];
+ owner.resources.push({id:'analysis',kind:'notebook',title:'Analysis notebook',path:'owning/analysis.ipynb'},
+  {id:'notes',kind:'document',title:'Notes',path:'owning/notes.md',content:{tabs:[{id:'result',title:'Results',body:'Exact linked results'},{id:'other',title:'Other',body:'Wrong tab'}]}},
+  {id:'links',kind:'link',title:'Issue',url:'https://example.com',sublinks:[{id:'thread',title:'Thread',url:'https://example.com/thread'}]});
+ nested.assets.push({resource_id:'analysis'},{resource_id:'notes',tab_id:'result'},{resource_id:'links',sub_link_id:'thread'});
+ parent.assets.push({resource_id:'notes'});
+ const relink=async asset=>{fixture.terminal_links.secondary={objective_id:'owning',primary:false,asset:{objective_id:'owning',...asset}};fixture.revision+='!';await O.load(undefined,true);O.selectObjective('other',{activateTerminal:false});};
+ await relink({resource_id:'analysis'});
+ const saved=JSON.stringify(fixture.terminal_links);
+ await clickTab(target);checkTask();
+ assert(opened.at(-1)?.[0]==='notebook'&&opened.at(-1)[1].id==='analysis','asset-only notebook terminal opens the notebook in its owning task');
+ assert(JSON.stringify(fixture.terminal_links)===saved,'navigation never changes stored terminal ownership');
+ O.selectObjective('other',{activateTerminal:false});await open(target);checkTask();
+ assert(opened.at(-1)?.[0]==='notebook','notification follows the same task and linked notebook navigation');
+ await relink({file:{root:'/workspace',path:'/workspace/owning/./analysis.ipynb'}});
+ await clickTab(target);checkTask();
+ assert(opened.at(-1)?.[0]==='file'&&opened.at(-1)[1].path.endsWith('analysis.ipynb'),'absolute file links resolve the catalog task and open that exact file');
+ await relink({resource_id:'notes',tab_id:'result'});await clickTab(target);checkTask();
+ assert(document.getElementById('content').textContent.includes('Exact linked results'),'exact document subtab opens inside its task, ahead of the whole-document parent assignment');
+ await relink({resource_id:'links',sub_link_id:'thread'});await clickTab(target);checkTask();
+ assert(opened.at(-1)?.[0]==='url'&&opened.at(-1)[1]==='https://example.com/thread','exact URL sublink opens while retaining the task');
+ fixture.terminal_links.secondary={objective_id:'owning',resource_id:'analysis'};fixture.revision+='legacy';
+ await O.load(undefined,true);O.selectObjective('other',{activateTerminal:false});await clickTab(target);checkTask();
+ assert(opened.at(-1)?.[0]==='notebook','legacy resource links also select their asset task');
+ fixture.terminal_links.child={objective_id:'owning',asset:{objective_id:'owning',resource_id:'notes',tab_id:'result'}};fixture.revision+='child';
+ await O.load(undefined,true);O.selectObjective('other',{activateTerminal:false});await clickTab(child);checkTask();
+ assert(termCurrentSession==='child'&&document.getElementById('content').textContent.includes('Exact linked results'),'inherited child keeps its exact session and opens its own asset within the task');
+ await relink({resource_id:'review'});await clickTab(target);
+ assert(!O.terminalLaunchContext().task,'shared assets do not arbitrarily select one of multiple tasks');
+ O.openTask('nested');await clickTab(target);checkTask();
+ assert(document.getElementById('content').textContent.includes('Review material'),'shared asset retains an already selected matching task');
+ await open(target);checkTask();
+ assert(document.getElementById('content').textContent.includes('Review material'),'notification retains the selected matching task for a shared asset');
+ O.selectObjective('other',{activateTerminal:false});await clickTab(primary);checkTask();
+ assert(document.getElementById('content').textContent.includes('Task specification'),'task terminal without an asset opens its task details');
+ O.selectObjective('other',{activateTerminal:false});await _termActivateTab(primary.name);checkTask();
+ assert(termCurrentSession==='primary','direct terminal activation also selects the task');
  assert(!errors.length,errors.join('\n'));
  document.body.dataset.result='pass';
 }catch(error){document.body.dataset.result='fail';document.body.append(String(error.stack||error));}})();
 '''
     css = (ROOT / 'core/src/core/static/css/lab-shell.css').read_text() + (ROOT / 'core/src/core/static/css/workspace-objectives.css').read_text()
-    html = '<!doctype html><meta charset="utf-8"><style>'+css+'</style><body><div id="tabs" class="repo-tabs"></div><aside id="sidebar"><section data-objectives-sidebar></section></aside><main id="content"></main><div id="termNotifications" class="term-notifications"></div><script>'+setup+NAV_SETUP+objectives+MODULE+NOTIFICATIONS+NAVIGATION+checks+'</script>'
+    tabs = "function mountTab(s){const host=document.getElementById('terminalRail');host.innerHTML='<button data-name=\"'+s.name+'\">'+s.name+'</button>';const node=host.firstElementChild,completionDot=null;"+tab_click+"}"
+    html = '<!doctype html><meta charset="utf-8"><style>'+css+'</style><body><div id="tabs" class="repo-tabs"></div><aside id="sidebar"><section data-objectives-sidebar></section></aside><main id="content"></main><div id="terminalRail"></div><div id="termNotifications" class="term-notifications"></div><script>'+setup+navigation_setup+objectives+MODULE+NOTIFICATIONS+NAVIGATION+tabs+checks+'</script>'
     _check_project_html(tmp_path, html, focused=True)

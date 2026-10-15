@@ -848,3 +848,5 @@
 - [Combined context and changelog differences](combined-context-and-changelog-deltas.md) — one META context, per-terminal snapshots/diffs and acknowledgement only after successful output/storage.
 
 - [Floating terminal messages follow status](terminal-header-action-messages.md) — top-right toast cards, persistent red/green messages, exact cross-vault/task navigation with accessible task assets and a destination-tab pulse.
+
+- [Terminal clicks select tasks and open their linked assets](terminal-clicks-open-task-assets.md) — shared tab/notification navigation, asset-only task resolution, exact subtabs and preserved task assets without reassigning sessions.

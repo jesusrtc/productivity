@@ -104,10 +104,11 @@ Clicking a message opens the owning workspace, Objective and exact terminal,
 scrolls its tab into view and pulses it three times (a steady highlight with
 reduced motion). Collapsed groups and the selected Objective's task filter open
 when needed to reveal that tab. Only a green click reviews and clears status.
-Notification clicks also select the owning task/subtask and its details so task
-assets stay accessible, including for secondary and inherited child terminals.
-This task context takes priority over the terminal's asset link for notification
-navigation; ordinary terminal-tab clicks retain their asset-link behavior.
+Notification and terminal-tab clicks both select the owning task/subtask and
+open its linked asset within that task, or its details when no asset is linked.
+Task assets stay accessible, including for secondary and inherited child
+terminals. Explicit task ownership takes priority over an asset in a different
+Objective.
 Green messages have no timer and persist across reloads.
 Messages are deduplicated across shared views, and red takes precedence in
 workspace, Home and Assistant indicators.
@@ -266,6 +267,12 @@ Clicking either side activates the other: notebooks/files open their normal
 viewer, document subtabs retain their IDs, and URL links open their exact
 destination through the usual browser action. The tab and active header use the
 asset's shared icon, ahead of task/default icons; the terminal name stays intact.
+When the terminal has no explicit or inherited task, the linked asset's unique
+task assignment supplies its navigation context without reassigning the session.
+Exact subtab/sublink assignments take priority over whole-resource assignments.
+If several tasks share the asset, retain an already selected matching task;
+otherwise open the asset without guessing a task. Linked folders open without
+entering the separate worktree-browsing mode when a task is selected.
 **Unlink asset** restores the usual icon without stopping or restarting anything.
 New file links outside Objectives also activate in both directions without
 requiring **Sync linked**; existing links retain that preference until relinked.

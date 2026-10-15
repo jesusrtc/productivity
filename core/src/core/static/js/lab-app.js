@@ -11649,7 +11649,8 @@
     const scopeDocument = !session.document_source && session.linked_scope?.root && window.LabScopeLinks;
     if (options.openDocument === false) {
       _termCancelPendingLinkedFileOpen();
-    } else if (window.LabObjectives?.terminalAsset?.(session) && window.LabObjectives.openForTerminal(session)) {
+    } else if ((window.LabObjectives?.terminalAsset?.(session) || window.LabObjectives?.taskForTerminal?.(session))
+        && window.LabObjectives.openForTerminal(session)) {
       _termCancelPendingLinkedFileOpen();
     } else if (session.linked_file?.activate) {
       // An explicit asset link takes precedence over the original scope's
@@ -15805,13 +15806,14 @@
       await window.LabObjectives?.load();
       if (!current() || !sameScope()) return null;
       const objective = window.LabObjectives?.terminalObjective(session);
-      if (objective) window.LabObjectives.selectObjective(objective.id, {activateTerminal:false});
+      if (objective && window.LabObjectives.terminalLaunchContext?.()?.id !== objective.id)
+        window.LabObjectives.selectObjective(objective.id, {activateTerminal:false});
     }
     document.body.classList.add('term-open');
     if (document.body.classList.contains('term-collapsed')) termToggleCollapse();
     else _termRememberVisibility(_termVisibilityKey(), true);
     termStartPeriodicRefresh();
-    const linked = window.LabObjectives?.openForTerminal(session, {preferTask:true});
+    const linked = window.LabObjectives?.openForTerminal(session);
     await _termActivateTab(session.name, {openDocument:!linked});
     return sameScope() && termCurrentSession === session.name ? session : null;
   }

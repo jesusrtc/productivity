@@ -714,9 +714,9 @@
     const node=form('Trash '+info.title+'?',`<p>Remove this asset from the Objective and detach its task assignments? Source files and running terminals are preserved.</p>`,()=>change({type:'asset-trash',objective_id:owner,...target,confirmed:true},{scope}));
     node.querySelector('[type=submit]').textContent='Trash asset';
   }
-  function openAsset(asset,event=null,{activateTerminal=true}={}) {
+  function openAsset(asset,event=null,{activateTerminal=true,preserveTask=false}={}) {
     if(activateTerminal)activateAssetTerminal(asset);
-    if(asset.folder){const scope=asset.folder.path==='.'&&scopeRows().find(t=>[t.path,t.resolved_path].includes(asset.folder.root));if(scope)selectScope(scope);else bridge.openFolder?.(asset.folder);return;}
+    if(asset.folder){const scope=asset.folder.path==='.'&&scopeRows().find(t=>[t.path,t.resolved_path].includes(asset.folder.root));if(scope&&!preserveTask)selectScope(scope);else bridge.openFolder?.(asset.folder);return;}
     if(asset.file){bridge.openFile?.(asset.file);return;}
     const info=assetInfo(asset);if(info?.resource?.kind==='link'){state().selected={resource:asset.resource_id,tab:null,subLink:asset.sub_link_id||null};persistView();paint();openLinkUrl(info.reference,event);return;}
     openResource(asset.resource_id,asset.tab_id||null,asset.sub_link_id||null);
@@ -1122,13 +1122,18 @@
   }
   function assetFile(asset,o) {
     if(asset.file)return asset.file;
-    const r=o?.resources.find(r=>r.id===asset.resource_id);
+    const r=asset.reference||o?.resources.find(r=>r.id===asset.resource_id);
     return r&&['file','notebook','document'].includes(r.kind)?{root:r.file_root||context()?.path,path:r.path}:null;
   }
   function sameTerminalAsset(a,b,o) {
     const left=assetFile(a,o),right=assetFile(b,o);
-    if(left&&right)return left.root.replace(/\/$/,'')+'/'+left.path===right.root.replace(/\/$/,'')+'/'+right.path
+    const absolute=file=>{
+      const path=file.path.startsWith('/')?file.path:assetRoot(file.root,o).replace(/\/$/,'')+'/'+file.path;
+      const parts=[];for(const part of path.split('/')){if(part==='..')parts.pop();else if(part&&part!=='.')parts.push(part);}return '/'+parts.join('/');
+    };
+    if(left&&right)return absolute(left)===absolute(right)
       &&(a.tab_id||null)===(b.tab_id||null);
+    if(a.folder&&b.folder)return absolute(a.folder)===absolute(b.folder);
     return ['resource_id','tab_id','sub_link_id'].every(k=>(a[k]||null)===(b[k]||null))
       &&JSON.stringify(a.folder||null)===JSON.stringify(b.folder||null)&&!left&&!right;
   }
@@ -1350,21 +1355,32 @@
       return `<section class="objective-terminal-group" data-objective-active="${id===current}" style="--objective-color:${esc(o.color)}"><div class="objective-terminal-header"><button type="button" class="objective-terminal-heading" data-select-objective="${esc(id)}" aria-expanded="${expanded}" title="${esc(o.name)}"><span aria-hidden="true">${expanded?'▾':'▸'}</span> ${esc(o.name)}</button>${filter}</div>${mainHtml}<div class="objective-terminal-rows"${expanded?'':' hidden'}>${terminals}</div></section>`;
     }).join('')+newButton;
   }
-  function openForTerminal(t,{preferTask=false}={}) {
-    const binding=terminalTask(t);
-    // Notification navigation owns task focus. Following a linked worktree
-    // instead would enter folder browsing and hide the task's asset list.
-    if(preferTask&&binding){
-      state().objective=binding.objective.id;openTask(binding.task.id);paint();return true;
+  function terminalNavigationTask(t,asset) {
+    const binding=terminalTask(t);if(binding||!asset)return binding;
+    // An asset link is independent of terminal ownership. Use its existing
+    // task assignment for navigation without reassigning the running session.
+    const o=asset.objective,target=asset.target;
+    let matches=tasks(o).filter(task=>taskAssets(task).some(a=>sameTerminalAsset(a,target,o)));
+    if(!matches.length&&(target.tab_id||target.sub_link_id)){
+      const whole={...target,tab_id:null,sub_link_id:null};
+      matches=tasks(o).filter(task=>taskAssets(task).some(a=>sameTerminalAsset(a,whole,o)));
     }
-    const asset=terminalLink(t)?.asset&&terminalAsset(t);
+    const task=matches.length===1?matches[0]:o.id===objective()?.id&&matches.find(t=>t.id===focusedTask()?.id);
+    return task?{objective:o,task}:null;
+  }
+  function openForTerminal(t) {
+    if(!t||!active(context()?.path))return false;
+    const asset=terminalAsset(t),binding=terminalNavigationTask(t,asset);
+    if(binding&&(asset||binding.inherited)){
+      state().objective=binding.objective.id;openTask(binding.task.id);
+      if(asset?.objective.id===binding.objective.id)openAsset(asset.target,null,{activateTerminal:false,preserveTask:true});
+      paint();return true;
+    }
     if(asset){
-      if(binding&&binding.objective.id===asset.objective.id){state().objective=binding.objective.id;openTask(binding.task.id);}
-      else if(state().objective!==asset.objective.id){state().objective=asset.objective.id;state().focus=null;}
+      state().objective=asset.objective.id;state().focus=null;resetWorktreeBrowse();
       openAsset(asset.target,null,{activateTerminal:false});return true;
     }
     if(terminalMain(t)?.kind==='workflow')return true;
-    if(binding?.inherited){state().objective=binding.objective.id;openTask(binding.task.id);paint();return true;}
     const link=terminalLink(t),o=terminalObjective(t);if(!o||!link)return false;
     state().objective=o.id;state().view='objective';
     const resource=o.resources.find(r=>r.id===link.resource_id),root=link.folder?.root||link.file?.root||t.linked_scope?.root;

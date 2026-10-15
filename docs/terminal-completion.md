@@ -108,12 +108,13 @@ red/yellow/green precedence.
 Cards overlay the interface without resizing the console, including when the
 terminal panel is closed. They are in-app elements, not desktop notifications.
 
-Notification navigation selects the terminal's owning task/subtask and opens its
-details before attaching the exact session. This includes inherited children and
-secondary terminals; it never substitutes the task's primary terminal. Task focus
-takes precedence over a linked asset for this action, since following a worktree
-folder would clear task selection and hide its assets. Ordinary tab navigation
-still follows asset links.
+Notification and ordinary tab navigation share task selection: explicit or
+inherited task ownership comes first, then a unique assignment of the linked
+asset when no task is bound. Open the asset within that task context, or the task
+details without an asset, and attach the exact session rather than its primary.
+Linked folders keep the task's assets visible. An asset in a different Objective
+does not override explicit task ownership; shared assets do not pick an arbitrary
+task.
 
 ## Transport and persistence
 

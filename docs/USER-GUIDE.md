@@ -270,6 +270,12 @@ asset activates its terminal; clicking the terminal opens that asset, including
 the exact document subtab or URL sublink. The terminal adopts the asset's icon
 (notebook, GitHub, etc.) in its tab and active header, keeping its name and origin.
 This works for task primaries, automation terminals and fixed main terminals.
+Terminal clicks first select the owning task/subtask and keep **Task assets**
+visible while opening the linked asset within that context. Without an explicit
+or inherited task link, an asset assigned to exactly one task selects that task;
+an exact document subtab assignment takes priority over a whole-document one.
+Shared assets keep an already selected matching task, otherwise open without
+choosing an arbitrary task. Navigation does not change terminal ownership.
 **Unlink asset** removes only that navigation link and restores the usual icon.
 New file links outside Objectives also activate in both directions; older file
 links retain their existing **Sync linked** preference until relinked.
@@ -403,12 +409,12 @@ status changes; clicking one opens its owning workspace, Objective and exact
 terminal without dismissing the request. Submitting a response turns the
 terminal yellow and removes the red message immediately.
 
-Clicking either color also selects the terminal's owning task or subtask and
-opens its details, keeping **Task assets** accessible. This includes additional
-terminals in the same task and children that inherit a parent's task. The exact
-notifying terminal stays selected. Notification navigation prioritizes task
-context over a linked folder or asset; ordinary terminal-tab clicks still follow
-their asset links.
+Clicking either color follows the same task-and-asset navigation as clicking the
+terminal tab: select its task/subtask, then open its linked asset, or its task
+details when no asset is linked. This includes asset-only links, additional task
+terminals and children that inherit a parent's task. **Task assets** stay
+accessible and the exact notifying terminal stays selected. Explicit task
+ownership takes priority if an asset points to a different Objective.
 
 Green **Finished** messages stay until reviewed by click or replaced by a newer
 terminal status; they do not expire, including across page reloads.

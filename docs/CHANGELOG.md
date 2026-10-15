@@ -5,6 +5,17 @@ guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 
 ## 2026-10-15
 
+### Terminal clicks select the task and open its linked asset
+
+- Terminal tabs and notification cards now share navigation: select the owning
+  task/subtask, then open the linked notebook, file, document subtab or URL
+  sublink while keeping Task assets accessible.
+- Asset-only terminal links resolve their existing task assignment, including
+  legacy resource links and equivalent absolute file paths. Shared assets retain
+  a matching selected task without arbitrarily choosing one.
+- Linked folders no longer clear task selection during terminal navigation.
+  Session ownership, launch folders and the exact selected terminal are preserved.
+
 ### Notification clicks retain the owning task and its assets
 
 - Red and green notification clicks now select the terminal's owning task or
