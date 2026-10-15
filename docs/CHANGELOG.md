@@ -5,6 +5,14 @@ guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 
 ## 2026-10-15
 
+### Floating terminal notification cards
+
+- Terminal attention and finish messages now float in a top-right stack of red
+  and green cards. They overlay the interface, keep the console size unchanged,
+  and remain visible when the terminal panel is closed.
+- Exact terminal navigation, persistent attention requests, five-minute finish
+  expiry and red-first workspace indicators retain their existing behavior.
+
 ### Terminal messages link to work needing attention
 
 - The terminal header lists red input requests and green finished reports across

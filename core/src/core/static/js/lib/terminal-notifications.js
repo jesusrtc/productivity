@@ -52,7 +52,7 @@
     const html = rows.map(row => {
       const label = bridge?.label(row) || `${row.owner.workspace_id} / ${row.session.label || row.session.logical_name || row.session.name}`;
       const state = row.state === 'attention' ? 'Needs input' : 'Finished';
-      return `<button type="button" class="term-notification ${row.state}" data-key="${escape(row.key)}" data-report-id="${escape(row.report_id)}"${opening.has(row.key) ? ' disabled' : ''} title="${escape(state + ' · ' + label + ' · ' + row.message)}"><span class="term-notification-dot" aria-hidden="true"></span><span class="term-notification-copy"><span class="term-notification-context">${escape(state + ' · ' + label)}</span><span class="term-notification-message">${escape(row.message)}</span></span><span aria-hidden="true">↗</span></button>`;
+      return `<button type="button" class="term-notification ${row.state}" data-key="${escape(row.key)}" data-report-id="${escape(row.report_id)}"${opening.has(row.key) ? ' disabled' : ''} title="${escape(state + ' · ' + label + ' · ' + row.message)}"><span class="term-notification-icon" aria-hidden="true">${row.state === 'attention' ? '!' : '✓'}</span><span class="term-notification-copy"><span class="term-notification-context">${escape(state + ' · ' + label)}</span><span class="term-notification-message">${escape(row.message)}</span></span><span aria-hidden="true">↗</span></button>`;
     }).join('');
     if (host._notificationHtml === html) return;
     host._notificationHtml = html; host.innerHTML = html;

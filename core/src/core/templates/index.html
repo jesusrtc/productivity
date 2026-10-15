@@ -311,7 +311,6 @@ window.ensureLiveMarkdownEditor = (function () {
     <button id="termCopyAttachBtn" onclick="termCopyAttachCmd()" title="Copy read-only tmux attach command">&#x1F4CB;</button>
     <button id="termSettingsBtn" onclick="termOpenSettings()" title="Terminal settings" aria-label="Terminal settings">&#x2699;</button>
   </div>
-  <div id="termNotifications" class="term-notifications" role="region" aria-label="Terminal messages" hidden></div>
   <div class="term-stage">
     <!-- Icons and status stay visible; hover or keyboard focus reveals labels. -->
     <div class="term-session-switcher" id="termSessionSwitcher">
@@ -468,6 +467,7 @@ window.ensureLiveMarkdownEditor = (function () {
 <!-- Explorer secondary-click menu. Populated and positioned by lab-app.js. -->
 <div class="explorer-context-menu" id="explorerContextMenu" role="menu" aria-hidden="true"></div>
 <div class="explorer-toast" id="explorerToast" role="status" aria-live="polite"></div>
+<div id="termNotifications" class="term-notifications" role="region" aria-label="Terminal notifications" hidden></div>
 
 <!-- Workspace-scoped file sidebar display preferences. Each workspace, vault,
      and framework root has its own settings in this browser's localStorage. -->
