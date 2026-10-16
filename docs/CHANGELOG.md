@@ -5,6 +5,18 @@ guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 
 ## 2026-10-16
 
+### Retire terminals belonging to inactive tasks
+
+- Task terminals stay hidden by default outside In progress. A background check
+  now stops them one hour after Completed, Won’t do or Undo/Not started, or three
+  days after Paused, across registered vaults and without an open browser.
+- Children inherit their parent’s task unless separately assigned. Reactivation
+  cancels expiry; status changes reset the window. Exact tmux identity and task
+  ownership are rechecked before stopping attached or busy expired sessions.
+- Conversation identities and saved links remain available, with automatic
+  restoration suppressed until explicit reopening. Legacy tasks receive a fresh
+  persisted grace period. Admin status/check APIs are available through `lab api`.
+
 ### Faster notification-to-terminal activation
 
 - Notification clicks show and focus the terminal before graphics initialization,

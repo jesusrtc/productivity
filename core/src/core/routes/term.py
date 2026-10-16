@@ -2193,6 +2193,7 @@ class NewSession(BaseModel):
     # When True, ignore any saved claude_session_id and start a brand-new
     # conversation (new UUID). Used by the manual "+ New Claude" picker.
     start_fresh: bool = False
+    restore: bool = False  # Automatic browser restore; never revive expired task tabs.
     label: str | None = Field(default=None, max_length=120)
     # Explicit launches only. Never saved or replayed by a session restore.
     startup_command: str | None = Field(default=None, min_length=1, max_length=16000)
@@ -3281,6 +3282,8 @@ def create_session(body: NewSession, request: Request) -> dict:
         saved_session = _workspace_session_by_name(root, body.workspace_id).get(
             _sanitize(body.name or agent or "bash"), {}
         )
+    if body.restore and saved_session.get('task_terminal_retired_at'):
+        raise HTTPException(409, 'This task terminal expired. Open it explicitly to resume.')
     saved_scope = saved_session.get("linked_scope")
     owns_workspace = body.workspace_id and body.workspace_id not in {
         SELF_WORKSPACE_ID, CEREBRO_WORKSPACE_ID, LOGS_WORKSPACE_ID,
@@ -3366,6 +3369,8 @@ def create_session(body: NewSession, request: Request) -> dict:
                 info.get("logical_name") or preferred_sane
             )
             if saved:
+                if saved.get('task_terminal_retired_at'):
+                    _upsert_workspace_session(root, body.workspace_id, {'name': saved['name'], 'task_terminal_retired_at': None})
                 for key in ("label", "summary", "linked_file", "linked_scope", "linked_task"):
                     if saved.get(key):
                         row[key] = saved[key]
@@ -3413,6 +3418,8 @@ def create_session(body: NewSession, request: Request) -> dict:
             }
         )
         entry["tmux_socket"] = existing_socket
+        if body.workspace_id and saved_session.get('task_terminal_retired_at'):
+            _upsert_workspace_session(root, body.workspace_id, {'name': logical, 'task_terminal_retired_at': None})
         meta[tmux_name] = entry
         _save_meta(root, meta)
         _invalidate_workspace_term_caches()
@@ -3500,6 +3507,8 @@ def create_session(body: NewSession, request: Request) -> dict:
     # prevents a terminal created concurrently with a handoff from landing
     # on the just-retired socket. The lock is never touched by terminal I/O.
     with tmux_sockets.state_lock():
+        if body.restore and body.workspace_id and _workspace_session_by_name(root, body.workspace_id).get(logical, {}).get('task_terminal_retired_at'):
+            raise HTTPException(409, 'This task terminal expired. Open it explicitly to resume.')
         socket_name = _active_tmux_socket()
         if (
             socket_name != tmux_sockets.DEFAULT_SOCKET
@@ -3567,7 +3576,7 @@ def create_session(body: NewSession, request: Request) -> dict:
     # Record durable provider identity (Claude resumes it; Copilot uses it for
     # display-name lookup even though reopening still starts a fresh session).
     if body.workspace_id:
-        entry: dict = {"name": logical, "kind": kind, "cwd": str(cwd)}
+        entry: dict = {"name": logical, "kind": kind, "cwd": str(cwd), "task_terminal_retired_at": None}
         if body.label and body.label.strip():
             entry["label"] = body.label.strip()
         if linked_scope:
@@ -3731,6 +3740,11 @@ def launch_terminal_automation(body: AutomationLaunch, request: Request) -> dict
                         label=step["label"], cwd=step["cwd"], startup_command=step["command"],
                         startup_health_command=step["health_command"], startup_guidelines=step["guidelines"],
                     ), request))
+                    if body.parent or index:
+                        from core.task_terminal_cleanup import save_parents
+                        save_parents(root, body.workspace_id, {
+                            created[-1]['logical_name']: parent['logical_name'] if body.parent else created[0]['logical_name'],
+                        })
                     if not body.parent and body.objective_id:
                         # Commit ownership with the launch, including CLI launches
                         # and partial runs. Only the first defined step owns the task.

@@ -5,8 +5,10 @@ from copy import deepcopy
 from datetime import datetime, timezone
 import hashlib
 import json
+import math
 from pathlib import Path
 import re
+import time
 import uuid
 
 from lab import assistant_documents as documents, assistant_records as records
@@ -44,6 +46,9 @@ def validate(tasks, tab_ids):
             raise ValueError('Invalid task priority or completion')
         if not isinstance(task.get('status','not_started'),str) or task.get('status','not_started') not in STATUSES or task.get('status_override') is not None and (not isinstance(task['status_override'],str) or task['status_override'] not in {'in_progress','blocked'}):
             raise ValueError('Invalid task status')
+        if 'status_changed_at' in task and (type(task['status_changed_at']) not in {int, float}
+                or not math.isfinite(task['status_changed_at']) or task['status_changed_at'] <= 0):
+            raise ValueError('Task status time must be a positive timestamp')
         if task.get('parent_id') is not None and not isinstance(task['parent_id'], str):
             raise ValueError('Invalid task parent')
         if task.get('tab_id') is not None and (not isinstance(task['tab_id'], str) or task['tab_id'] not in tab_ids):
@@ -156,8 +161,16 @@ def from_rows(row, rows, *, by_parent=None):
     return with_content(row, row.get('body',''), [(tab,tab.get('body','')) for tab in records.descendants(rows,row,by_parent=by_parent)])
 
 
+def _stamp_status(before, tasks):
+    previous = {task['id']: task.get('status') for task in before}
+    for task in tasks:
+        if task['id'] in previous and previous[task['id']] != task.get('status'):
+            task['status_changed_at'] = time.time()
+
+
 def settle(meta, body, tabs):
     tasks = with_content(meta, body, tabs)
+    _stamp_status(meta.get('tasks', []), tasks)
     for task in tasks:
         task.pop('checklist', None)
         task.pop('recurrence_state', None)
@@ -192,7 +205,8 @@ def mutate(meta, tabs, values, task_id=None, delete=False, *, body=''):
     unknown = set(values) - FIELDS
     if unknown:
         raise ValueError('Unknown task fields: ' + ', '.join(sorted(unknown)))
-    tasks = normalize(meta.get('tasks', []))
+    before = deepcopy(meta.get('tasks', []))
+    tasks = normalize(before)
     if task_id:
         task = next((item for item in tasks if item['id'] == task_id), None)
         if task is None:
@@ -255,6 +269,7 @@ def mutate(meta, tabs, values, task_id=None, delete=False, *, body=''):
     task['updated'] = now()
     meta['tasks'] = normalize(tasks)
     settle(meta, body, tabs)
+    _stamp_status(before, meta['tasks'])
     meta['updated'] = now()
     return task['id']
 
@@ -280,6 +295,7 @@ def refresh_recurring(root, reference, *, now=None, record_rows=None):
         return False
     with records.lock(root):
         source, raw, meta, body, tabs = read(root, reference, record_rows=record_rows)
+        before = deepcopy(meta.get('tasks', []))
         tasks = with_content(meta, body, tabs)
         for task in tasks:
             if task['status'] != 'done' or not task_cycles.ready(task, now=now):
@@ -297,6 +313,7 @@ def refresh_recurring(root, reference, *, now=None, record_rows=None):
                     task_cycles.reopened(item)
         meta['tasks'] = tasks
         settle(meta, body, tabs)
+        _stamp_status(before, meta['tasks'])
         packed = documents.pack(meta, body, tabs)
         if packed != raw:
             meta['updated'] = datetime.now(timezone.utc).isoformat()

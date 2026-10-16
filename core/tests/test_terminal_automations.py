@@ -37,6 +37,25 @@ def _launch(parent, catalog, **patch):
             'revision': catalog['revision'], 'run_id': str(uuid.uuid4()), **patch}
 
 
+def test_expired_task_terminal_refuses_automatic_restore_and_explicit_reopen_clears_marker(
+    client, seed_workspace, monorepo, isolated_prefix,
+):
+    from core.routes import term
+    seed_workspace()
+    body = {'workspace_id': 'demo', 'kind': 'terminal', 'name': 'retired'}
+    created = client.post('/api/term/sessions', json=body)
+    assert created.status_code == 200, created.text
+    saved = term._workspace_session_by_name(monorepo, 'demo')['retired']
+    term._upsert_workspace_session(monorepo, 'demo', {'name': 'retired', 'task_terminal_retired_at': time.time()})
+    assert client.post('/api/term/sessions', json={**body, 'restore': True}).status_code == 409
+    assert client.delete('/api/term/sessions/' + created.json()['name']).status_code == 200
+    assert client.post('/api/term/sessions', json={**body, 'restore': True}).status_code == 409
+    reopened = client.post('/api/term/sessions', json=body)
+    assert reopened.status_code == 200, reopened.text
+    after = term._workspace_session_by_name(monorepo, 'demo')['retired']
+    assert after['session_id'] == saved['session_id'] and not after.get('task_terminal_retired_at')
+
+
 @pytest.mark.parametrize('delay', [None, 0, 2.5, 300])
 def test_launch_delay_defaults_persists_and_only_waits_between_new_steps(
     client, seed_workspace, isolated_prefix, launch_waits, monkeypatch, delay,

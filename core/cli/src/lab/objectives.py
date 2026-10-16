@@ -119,6 +119,8 @@ def _validate_task_tree(objective):
 
 
 def _set_task_status(task, status):
+    if task.get('status', 'done' if task.get('done') else 'todo') != status:
+        task['status_changed_at'] = time.time()
     task['status'] = status
     task['done'] = status == 'done'
     if status == 'done':

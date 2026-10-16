@@ -342,9 +342,25 @@ progress**. Paused, Not started, Completed and Won’t do tasks stay hidden even
 when selected, including child terminals that inherit their status. Selecting
 one of those tasks opens its details without creating or activating a terminal.
 Changing it back to In progress makes its terminal available again. Hidden
-sessions keep running. Use **Show all** on an Objective or **Show all terminals**
+sessions keep running during their retention window: **Completed**, **Won’t do**
+and **Undo / Not started** get **1 hour** after the status change; **Paused** gets
+**3 days**. A background check runs every minute across registered vaults and
+stops expired task terminals and their inherited children, including attached
+or busy sessions. Returning to In progress cancels expiry; changing to another
+inactive status starts its new window. Children with their own task use that
+task’s status. Workflow/Objective mains, managed servers and shared document
+terminals are excluded. Conversation IDs and saved links remain available;
+expired processes do not return on browser reload. Reopen them explicitly when
+needed. Older tasks without a recorded status-change time receive a full window
+from their first background observation, retained across server restarts.
+Use **Show all** on an Objective or **Show all terminals**
 in the terminal menu to inspect them explicitly; **Show WIP** restores the
 In progress filter. Workflow and current Objective main terminals remain available.
+
+Inspect retention with `lab api call get /api/term/task-cleanup`; run a check now
+with `lab api call post /api/term/task-cleanup`. Assistant task links use the same
+policy: Not started and closed statuses get one hour, Blocked gets three days.
+Set `LAB_TASK_TERMINAL_CLEANUP=0` in the server environment to disable the worker.
 
 Objective headers in the terminal rail also switch Objectives. Clicking a header
 selects that Objective, unfolds its terminals and folds every other Objective's

@@ -13058,7 +13058,7 @@
     // sessions if the source/alias later disappears. The user can paste the
     // source name again from + New when they want to reattach it.
     const toRestore = saved.filter(s =>
-      s && s.name && s.kind !== 'attached' && !liveLogicalNames.has(s.name)
+      s && s.name && s.kind !== 'attached' && !s.task_terminal_retired_at && !liveLogicalNames.has(s.name)
     );
     // Assistant links user-created sessions; entering Tasks must not revive
     // every saved terminal or allocate a default agent.
@@ -13083,6 +13083,7 @@
           kind: s.kind || 'claude',
           agent: s.agent,
           name: s.name,
+          restore: true,
           // No explicit `auto`: the vault's per-agent autopilot
           // setting decides (an explicit value here would override it).
         }),
@@ -13654,6 +13655,25 @@
       all[scope] = _termNormalizeGroupState(state);
       localStorage.setItem(_TERM_GROUPS_KEY, JSON.stringify(all));
     } catch {}
+    _termSyncTaskParents(state,scope);
+  }
+
+  const _termTaskParentWrites = new Map();
+  function _termSyncTaskParents(state,scope=_termGroupScopeKey()) {
+    const index=scope.lastIndexOf('::'),workspace=scope.slice(index+2),vault=scope.slice(0,index);
+    if(index<0||!workspace)return;
+    const previous=_termTaskParentWrites.get(scope),parents={...state.tabParents};
+    for(const child of state.tabRoots||[])parents[child]=null;
+    for(const child of Object.keys(previous?.parents||{}))if(!(child in parents))parents[child]=null;
+    const signature=JSON.stringify(Object.entries(parents).sort(([a],[b])=>a.localeCompare(b)));
+    if(previous?.signature===signature||!Object.keys(parents).length)return;
+    const entry={parents,signature};
+    entry.pending=(previous?.pending||Promise.resolve()).catch(()=>{}).then(async()=>{
+      const response=await fetch('/api/term/sessions/parents',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({workspace_id:workspace,vault:vault==='framework'?null:vault,parents})});
+      if(!response.ok)throw new Error('Could not save terminal inheritance');
+    }).catch(()=>{if(_termTaskParentWrites.get(scope)===entry)entry.signature=null;});
+    _termTaskParentWrites.set(scope,entry);
   }
 
   function _termSessionLogical(name) {
@@ -15148,6 +15168,7 @@
   }
 
   function termRenderSessionList() {
+    _termSyncTaskParents(_termReadGroupState());
     if (typeof _sidebarPinTerminalScope === 'function') {
       for (const session of termSessions || []) _sidebarPinTerminalScope(session.linked_scope, session.logical_name || session.name);
     }

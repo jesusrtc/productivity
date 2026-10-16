@@ -231,7 +231,8 @@ const _termActivateTab=async name=>{termCurrentSession=name;termRenderSessionLis
 const renamed=[],termRenameSession=name=>renamed.push(name);
 const termToggleCollapse=()=>document.body.classList.toggle('term-collapsed'),_termRememberVisibility=()=>{},_termVisibilityKey=()=>workspace,termStartPeriodicRefresh=()=>{};
 const fixture={enabled:true,revision:'fixture',focused:['one','two','empty'],terminal_links:Object.fromEntries(termSessions.map(s=>[s.session_id,{objective_id:s.name==='other'?'two':'one',task_id:s.name}])),objectives:['one','two','empty'].map((id,i)=>({id,name:id,color:['#58a6ff','#bc8cff','#ffa657'][i],path:'/workspace/'+id,purpose:'',tasks:(id==='one'?['a','b','c']:id==='two'?['other']:[]).map(name=>({id:name,title:name,children:[],status:'in_progress',done:false})),resources:[],worktrees:[],shared_assets:[],unassigned_assets:[],archived_assets:[]}))};
-window.fetch=async(url,options={})=>{if(options.method==='POST'){mutations.push(JSON.parse(options.body));return{ok:true,json:async()=>({})};}return{ok:true,json:async()=>structuredClone(fixture)}};
+window.parentMutations=[];
+window.fetch=async(url,options={})=>{if(options.method==='POST'){(url==='/api/term/sessions/parents'?parentMutations:mutations).push(JSON.parse(options.body));return{ok:true,json:async()=>({})};}return{ok:true,json:async()=>structuredClone(fixture)}};
 window.errors=[];window.addEventListener('error',e=>errors.push(e.error?.stack||e.message));window.addEventListener('unhandledrejection',e=>errors.push(String(e.reason)));
 const created=[];
 fixture.task_terminals=true;
@@ -283,6 +284,7 @@ const fs=require('node:fs');
  await click('[data-action=cancel]');assert(await evaluate('_termReadGroupState().tabParents.b===undefined&&mutations.length===0'),'cancel preserves layout');
  await drag(tab('b'),tab('a'));await click('[data-action=child]');await sleep(60);
  assert(await evaluate(`_termReadGroupState().tabParents.b==='a'&&document.querySelector('[data-term-parent=a] .sess[data-name=b]')&&mutations.length===1&&termCurrentSession==='b'`),'Make child commits hierarchy once and selects the new child');
+ assert(await evaluate(`parentMutations.some(row=>row.workspace_id===workspace&&row.vault===vault&&row.parents.b==='a')`),'child inheritance reaches background cleanup with captured workspace and vault');
  assert(await evaluate(`getComputedStyle(document.querySelector('.sess[data-name=a] .sess-label')).color===getComputedStyle(document.querySelector('.sess[data-name=b] .sess-label')).color&&getComputedStyle(document.querySelector('.sess[data-name=a] .sess-label')).color!==getComputedStyle(document.querySelector('.objective-terminal-heading[data-select-objective=one]')).color`),'moving a terminal keeps unrelated names neutral');
  fs.writeFileSync(process.argv[1]+'/../subtabs.png',Buffer.from((await send('Page.captureScreenshot',{format:'png'})).data,'base64'));
  await click(tab('a'));await evaluate('LabObjectives.renderTasks()');

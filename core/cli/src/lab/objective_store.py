@@ -120,6 +120,9 @@ def _validate(value, target):
         if 'completed_at' in task and (type(task['completed_at']) not in {int, float}
                 or not math.isfinite(task['completed_at']) or task['completed_at'] <= 0):
             raise ValueError(f'{target}: Task completion time must be a positive timestamp')
+        if 'status_changed_at' in task and (type(task['status_changed_at']) not in {int, float}
+                or not math.isfinite(task['status_changed_at']) or task['status_changed_at'] <= 0):
+            raise ValueError(f'{target}: Task status time must be a positive timestamp')
     return value
 
 

@@ -338,6 +338,36 @@ links remain separate. See [OBJECTIVES.md](OBJECTIVES.md).
 
 ## Inactive terminal cleanup
 
+Task retention runs automatically every minute across registered vaults, without
+an open browser. Completed, Won’t do and Undo/Not started tasks retain running
+terminals for one hour after their status changes; Paused retains them for three
+days. The default In progress bar hides them immediately. Explicit Show all
+remains available during that window. A return to In progress cancels cleanup;
+each different status starts a fresh window. Repeated saves of the same status
+do not extend it. Children inherit their saved parent’s task unless they have
+their own task assignment. Automation launches persist this relationship even
+from the CLI; existing browser hierarchies are copied when their bar is opened.
+
+The worker rechecks task ownership/status under the task lock and atomically
+matches the exact tmux socket, session ID, creation time and pane PID before
+stopping anything. Unlike idle cleanup below, task expiry also stops connected
+and busy inactive-task processes. Main terminals, managed server tabs, unrelated
+terminals and shared document processes are excluded. Saved conversation IDs,
+task links and parent ownership are retained; a retirement marker prevents
+automatic browser restoration. Explicitly reopening a terminal clears it.
+Missing historical status timestamps get a full grace period starting on first
+observation, persisted at the vault’s `.lab/state/task-terminal-retention.json`.
+The effective window cannot begin before that tmux incarnation was created.
+
+`GET /api/term/task-cleanup` reports the policy, pending expirations and last run;
+`POST /api/term/task-cleanup` runs a check immediately. Both require admin access
+and are available through `lab api call`. `POST /api/term/sessions/parents` saves
+cleanup inheritance for the specified workspace/vault without changing another
+browser’s layout. Assistant-linked tasks map Not started to Undo, Done to
+Completed, Skipped/Cancelled to Won’t do and Blocked to Paused. The configured
+Assistant database remains the only eligible Assistant source. Set
+`LAB_TASK_TERMINAL_CLEANUP=0` to disable automatic checks.
+
 Open **Resources** in the header and choose **Show cleanup candidates**. The
 Resources table shows sessions with no recorded activity/access for more than
 seven days, initially across **All workspaces**. Tabs narrow the review to one
