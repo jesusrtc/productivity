@@ -5,6 +5,14 @@ guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 
 ## 2026-10-16
 
+### Keep META skill trees folded until needed
+
+- All META skill folders now start folded at every scope.
+- Expanded trees stay open while visible and through ordinary refreshes, then
+  fold after five minutes out of view, including hidden tabs or a different
+  workspace/Objective. Returning after a delayed background timer still applies
+  expiry, and cached sidebar trees cannot restore expired expansion.
+
 ### Give automations their own icons and terminal colors
 
 - Added automation appearance controls with a terminal-outline icon, service

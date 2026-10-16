@@ -7281,7 +7281,7 @@
       if (entry.type !== 'dir') return _agentInstructionRowsHtml([entry], root, '', true);
       const label = top ? `${scope ? scope + ' ' : ''}skills · ${entry.name}` : entry.name;
       const title = root + '/' + entry.path + (entry.cycle ? ' · Link points to an ancestor folder' : '');
-      const open = expanded.get(entry.path) ?? top;
+      const open = expanded.get(entry.path) ?? false;
       return `<details class="sidebar-agent-skills-folder" data-agent-skill-path="${escAttr(entry.path)}"${open ? ' open' : ''}><summary class="sidebar-file-meta${symlinkClass(entry)}" title="${escAttr(title)}" data-entry-kind="folder" data-entry-root="${escAttr(root)}" data-entry-path="${escAttr(entry.path)}" draggable="true"><span class="sidebar-fname"><span class="ft-icon ft-skill-folder" aria-hidden="true">📁</span>${symlinkMarker(entry)}${esc(label)}/</span></summary><div class="sidebar-agent-skills-children">${(entry.children || []).map(child => render(child)).join('')}${entry.unavailable ? '<div class="sidebar-agent-instructions-note">Folder unavailable.</div>' : ''}</div></details>`;
     };
     return folders.map(folder => render(folder, true)).join('');
@@ -7289,14 +7289,81 @@
 
   function _populateAgentSkillRows(slot, folders, root, scope) {
     if (!slot) return;
+    const states = _populateAgentSkillRows.expanded ||= new Map();
+    const visibility = _agentSkillVisibility(slot, root);
     const signature = JSON.stringify(folders);
     if (slot._skillsSignature === signature) return;
-    const states = _populateAgentSkillRows.expanded ||= new Map();
     const expanded = new Map([...(states.get(root) || []), ...[...slot.querySelectorAll('[data-agent-skill-path]')].map(node => [node.dataset.agentSkillPath, node.open])]);
     states.set(root, expanded);
     slot.innerHTML = _agentSkillRowsHtml(folders, root, scope, expanded);
-    for (const node of slot.querySelectorAll('[data-agent-skill-path]')) node.addEventListener('toggle', () => expanded.set(node.dataset.agentSkillPath, node.open));
+    for (const node of slot.querySelectorAll('[data-agent-skill-path]')) node.addEventListener('toggle', () => {
+      if (!node.isConnected || states.get(root) !== expanded) return;
+      expanded.set(node.dataset.agentSkillPath, node.open);
+      visibility.refresh(root);
+    });
+    for (const summary of slot.querySelectorAll('details > summary')) summary.addEventListener('click', () => visibility.refresh(root, true));
     slot._skillsSignature = signature;
+    visibility.refresh(root);
+  }
+
+  function _agentSkillVisibility(slot, root) {
+    const timeout = 5 * 60 * 1000;
+    let controller = _agentSkillVisibility.controller;
+    if (!controller) {
+      const roots = new Map(), slots = new Map();
+      const state = root => {
+        if (!roots.has(root)) roots.set(root, {epoch:0, unseenAt:null, timer:null});
+        return roots.get(root);
+      };
+      const fold = root => {
+        const entry = state(root);
+        _populateAgentSkillRows.expanded?.get(root)?.clear();
+        entry.epoch++;
+        for (const [node, info] of slots) if (info.root === root) {
+          for (const folder of node.querySelectorAll('[data-agent-skill-path]')) folder.open = false;
+          node._skillsFoldEpoch = entry.epoch;
+        }
+      };
+      const refresh = (root, opened = false) => {
+        const entry = state(root), now = Date.now();
+        clearTimeout(entry.timer); entry.timer = null;
+        if (opened) entry.unseenAt = null;
+        // Check elapsed time before acknowledging a return: background tabs
+        // can defer timers until the user makes them visible again.
+        if (entry.unseenAt !== null && now - entry.unseenAt >= timeout) { fold(root); entry.unseenAt = now; }
+        const visible = !document.hidden && [...slots].some(([node, info]) => info.root === root && node.isConnected && info.visible);
+        if (visible) { entry.unseenAt = null; return; }
+        entry.unseenAt ??= now;
+        if ([...(_populateAgentSkillRows.expanded?.get(root)?.values() || [])].some(Boolean))
+          entry.timer = setTimeout(() => refresh(root), Math.max(1, timeout - (now - entry.unseenAt)));
+      };
+      const observer = new IntersectionObserver(entries => {
+        const changed = new Set();
+        for (const entry of entries) {
+          const info = slots.get(entry.target); if (!info) continue;
+          info.visible = entry.isIntersecting; changed.add(info.root);
+        }
+        for (const [node, info] of slots) if (!node.isConnected) {
+          observer.unobserve(node); slots.delete(node); changed.add(info.root);
+        }
+        changed.forEach(root => refresh(root));
+      });
+      controller = _agentSkillVisibility.controller = {roots, slots, state, observer, refresh};
+      document.addEventListener('visibilitychange', () => roots.forEach((_, root) => refresh(root)));
+    }
+    for (const [node, info] of controller.slots) if (!node.isConnected) {
+      controller.observer.unobserve(node); controller.slots.delete(node); controller.refresh(info.root);
+    }
+    const entry = controller.state(root);
+    controller.refresh(root);
+    if ((slot._skillsFoldEpoch ?? 0) !== entry.epoch) {
+      for (const folder of slot.querySelectorAll('[data-agent-skill-path]')) folder.open = false;
+    }
+    slot._skillsFoldEpoch = entry.epoch;
+    if (!controller.slots.has(slot)) {
+      controller.slots.set(slot, {root, visible:false}); controller.observer.observe(slot);
+    }
+    return controller;
   }
 
   async function _populateAgentContextMeta(sidebar) {

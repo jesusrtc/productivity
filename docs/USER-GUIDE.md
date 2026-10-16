@@ -45,8 +45,11 @@ skills** folders, plus skills in a separately selected folder/worktree. It check
 `.github/skills/`, `.copilot/skills/` and Claude's older `.claude/commands/`.
 Missing folders add no entries. Expand a folder to browse all nested folders and
 files, including hidden and empty folders; click a file to open it at its owning
-root. This is independent of the Files dotfile toggle. Folder expansion survives
-ordinary refreshes. Existing symlinked skills are browsable, with cycles stopped.
+root. Skill folders start folded. Expansion survives ordinary refreshes while
+you browse, then the whole tree folds after five minutes out of view, including
+when you switch away or hide the browser tab. Returning before five minutes
+keeps it open. This is independent of the Files dotfile toggle. Existing symlinked
+skills are browsable, with cycles stopped.
 These are files currently on disk; each provider decides which skills it loads.
 Agents can inspect the same tree with
 `lab api call GET /api/agents/context/files --query path=/absolute/scope --query include_skills=true`

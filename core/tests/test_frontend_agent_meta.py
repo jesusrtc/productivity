@@ -121,6 +121,12 @@ window.LabObjectives={instructionRoot:()=>objectiveRoot};
 const _populateLabDocumentation=async()=>{};
 const opened=[],modals=[];window.openWorkspaceDoc=(path,options)=>opened.push({path,...options});
 window.openWorkspaceDocModal=(path,options)=>modals.push({path,...options});
+let now=1000000;Date.now=()=>now;
+const realSetTimeout=window.setTimeout.bind(window),realClearTimeout=window.clearTimeout.bind(window),timers=new Map();let timerId=100000;
+window.setTimeout=(callback,delay,...args)=>{if(delay<1000)return realSetTimeout(callback,delay,...args);const id=++timerId;timers.set(id,{callback,at:now+delay});return id;};
+window.clearTimeout=id=>{if(timers.has(id))timers.delete(id);else realClearTimeout(id);};
+const advance=ms=>{now+=ms;for(const [id,timer] of [...timers])if(timer.at<=now){timers.delete(id);timer.callback();}};
+const settle=()=>new Promise(resolve=>realSetTimeout(resolve,60));
 const roots={'/vault':['.claude/skills'],'/workspace':['.agents/skills','.github/skills'],'/workspace/objectives/first':['.codex/skills']};
 let changed=false;
 function skill(path){
@@ -146,10 +152,12 @@ window.fetch=async url=>{
  host.innerHTML=_agentContextMetaHtml('/workspace','/checkout','Workspace instructions',_workspaceAgentContextGroups('/workspace','/checkout'));
  await _populateAgentContextMeta(host);
  assert(host.querySelectorAll('[data-agent-skill-path]').length===20,'all nested folders, including empty folders, are present');
+ assert(!host.querySelector('[data-agent-skill-path][open]'),'every skill folder starts folded');
  assert(host.querySelector('[data-agent-skills-root="/checkout"]').innerHTML==='','absent skill folders have no placeholder');
  for(const [root,scope,path] of [['/vault','Vault','.claude/skills'],['/workspace','Workspace','.agents/skills'],[objectiveRoot,'Objective','.codex/skills']]){
   const slot=host.querySelector(`[data-agent-skills-root="${root}"]`),folder=slot.querySelector('details');
-  assert(folder.open&&folder.querySelector('summary').textContent.includes(scope+' skills'),'each scope labels its own skills');
+  assert(!folder.open&&folder.querySelector('summary').textContent.includes(scope+' skills'),'each scope labels its own folded skills');
+  folder.querySelector('summary').click();assert(folder.open,'scope folders expand on demand');
   const example=folder.querySelector('details'),summary=example.querySelector('summary');summary.click();assert(example.open,'folders expand natively');
   const file=example.querySelector('a');file.click();file.dispatchEvent(new MouseEvent('dblclick',{bubbles:true}));
   assert(opened.at(-1).root===root&&opened.at(-1).path===path+'/example/SKILL.md','files open with exact owning root and relative path');
@@ -170,6 +178,24 @@ window.fetch=async url=>{
  host.innerHTML=_agentContextMetaHtml('/workspace','/checkout','Workspace instructions',_workspaceAgentContextGroups('/workspace','/checkout'));
  await _populateAgentContextMeta(host);
  assert(!host.querySelector('[data-agent-skills-root="/workspace/objectives/first"]')&&host.querySelector('[data-agent-skills-root="'+objectiveRoot+'"]').innerHTML==='','switching Objective discards its old skills and omits absent ones');
+ const visible=host.querySelector('[data-agent-skills-root="/workspace"]');
+ visible.scrollIntoView();await settle();advance(6*60*1000);
+ assert(visible.querySelector('details').open,'visible skill folders stay open after five minutes');
+ host.style.display='none';await settle();advance(4*60*1000);
+ changed=!changed;await _populateAgentContextMeta(host);await settle();advance(60*1000-1);
+ assert(visible.querySelector('details').open,'unseen folders retain expansion until the five-minute deadline');
+ advance(1);await settle();
+ assert(!visible.querySelector('[open]'),'five minutes out of view folds the whole tree, including descendants');
+ host.style.display='';await settle();
+ const folder=visible.querySelector('details');folder.open=true;await settle();
+ let hidden=true;Object.defineProperty(document,'hidden',{configurable:true,get:()=>hidden});document.dispatchEvent(new Event('visibilitychange'));
+ now+=5*60*1000;hidden=false;document.dispatchEvent(new Event('visibilitychange'));
+ assert(!folder.open,'returning from a hidden tab applies expiry even when background timers were deferred');
+ delete document.hidden;await settle();
+ folder.open=true;await settle();const cached=host.innerHTML;
+ host.replaceChildren();await settle();advance(5*60*1000);
+ host.innerHTML=cached;await _populateAgentContextMeta(host);await settle();
+ assert(!host.querySelector('[data-agent-skills-root="/workspace"] [open]'),'expired scope expansion cannot return after sidebar reconstruction');
  document.body.dataset.result='pass';
 }catch(error){document.body.dataset.result='fail';document.body.append(String(error.stack||error))}})();
 '''

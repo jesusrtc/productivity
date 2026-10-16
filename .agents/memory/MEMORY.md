@@ -1,5 +1,7 @@
 # Memory index
 
+- [META skills fold after five minutes unseen](meta-skills-fold-after-five-minutes-unseen.md) — folded scope roots by default; retain expansion while visible, auto-fold after five minutes away, including hidden tabs and cached sidebars.
+
 - [Automation icons and colors](automation-icons-and-colors.md) — outlined terminal/service/emoji/PNG choices, highlighted main, inherited child icons and white child text with independent overrides.
 
 - [Inactive task terminals expire](inactive-task-terminals-expire.md) — hide by default, automatically stop after one hour for Completed/Won’t do/Undo or three days for Paused; retained identities, inherited children and reactivation checks.

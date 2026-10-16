@@ -21,7 +21,10 @@ loaded it. Current location references: [Codex](https://learn.chatgpt.com/docs/b
 [Copilot](https://docs.github.com/en/copilot/concepts/agents/about-agent-skills).
 
 Folders appear only when present. Their tree includes every nested directory
-and file, including hidden and empty folders, and retains expansion on refresh.
+and file, including hidden and empty folders. Trees start folded and retain
+expansion during ordinary refreshes while being viewed. After five continuous
+minutes out of view, including a hidden browser tab or a different scope, the
+tree and its nested folders fold automatically. Returning sooner keeps expansion.
 File opening, context actions and dragging carry the owning root and relative
 path. Symlinked skills retain that source path; ancestor cycles stop recursion.
 Discovery reads only these skill directories, not the rest of the repository,
