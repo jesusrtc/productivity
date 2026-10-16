@@ -17,7 +17,7 @@
     const label=(name,control)=>`<label class="term-automation-field"><span>${name}</span>${control}</label>`;
     function add(row={id:crypto.randomUUID(),name:'',steps:[{label:'',cwd:'',command:''}]}) {
       const card=document.createElement('details');card.className='settings-folder term-automation-recipe';card.dataset.automation=row.id;card.open=true;
-      card.innerHTML=`<summary>${esc(row.name||'New automation')}</summary>${label('Automation name',`<input data-name value="${esc(row.name)}" required maxlength="120" placeholder="Development services">`)}<div data-steps></div><div class="term-automation-actions"><button type="button" data-add-step>+ Terminal</button><button type="button" data-remove-automation>Remove automation</button></div>`;
+      card.innerHTML=`<summary>${esc(row.name||'New automation')}</summary>${label('Automation name',`<input data-name value="${esc(row.name)}" required maxlength="120" placeholder="Development services">`)}${label('Seconds between launches',`<input data-launch-delay type="number" min="0" max="300" step="any" required value="${esc(row.launch_delay_seconds??5)}">`)}<p class="settings-hint">Wait between starting this automation’s terminals. Default: 5 seconds. Set 0 to start without a delay (maximum 300 seconds).</p><div data-steps></div><div class="term-automation-actions"><button type="button" data-add-step>+ Terminal</button><button type="button" data-remove-automation>Remove automation</button></div>`;
       const steps=card.querySelector('[data-steps]');
       function reorder() { [...steps.children].forEach((step,index)=>{step.querySelector('[data-up]').disabled=index===0;step.querySelector('[data-down]').disabled=index===steps.children.length-1;});card.querySelector('[data-add-step]').disabled=steps.children.length>=20; }
       function step(row={}) {
@@ -51,9 +51,11 @@
     return () => [...list.children].map(card=>{
       const steps=[...card.querySelector('[data-steps]').children].map(step=>({label:step.querySelector('[data-label]').value.trim(),cwd:step.querySelector('[data-cwd]').value.trim(),command:step.querySelector('[data-command]').value,health_command:step.querySelector('[data-health-command]').value,guidelines:[...step.querySelector('[data-guides]').children].map(guide=>({title:guide.querySelector('[data-guide-title]').value.trim(),text:guide.querySelector('[data-guide-text]').value}))}));
       const name=card.querySelector('[data-name]').value.trim();
+      const delay=card.querySelector('[data-launch-delay]'),launch_delay_seconds=delay.valueAsNumber;
+      if(!delay.validity.valid||!Number.isFinite(launch_delay_seconds))throw new Error('Enter a launch delay from 0 to 300 seconds.');
       if(!name||!steps.length||steps.some(step=>!step.label||!step.command.trim()))throw new Error('Each automation needs a name and at least one named terminal with a command.');
       if(steps.some(step=>step.guidelines.some(guide=>!guide.text.trim())))throw new Error('Enter instructions or a command for each guideline, or remove it.');
-      return {id:card.dataset.automation,name,steps};
+      return {id:card.dataset.automation,name,launch_delay_seconds,steps};
     });
   }
 
@@ -84,6 +86,8 @@
         if(token!==review||closed)return;
         if(!valid()){message('The workspace or task context changed. Close and reopen this launcher.',true);return;}
         preview.innerHTML=data.steps.map((step,index)=>`<section class="term-automation-preview"><strong>${index+1}. ${esc(step.label)}${!parent&&index===0?' · Primary':''}</strong><small>${esc(step.cwd)}</small><pre>${esc(step.command)}</pre></section>`).join('');
+        const delay=data.launch_delay_seconds??5;
+        dialog.querySelector('[data-hint]').textContent=(data.steps.length===1?'One terminal starts immediately.':delay?`The first terminal starts immediately, then Lab waits ${delay} second${delay===1?'':'s'} between launches.`:'Terminals start in order with no delay between launches.')+' Commands run independently; exited commands keep their logs and open a shell.';
         launch.disabled=false;message(`${data.steps.length} ${parent?'child ':''}terminal${data.steps.length===1?'':'s'} ready`);
       }catch(error){if(token===review)message(error.message,true);}
     }

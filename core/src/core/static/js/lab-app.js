@@ -13558,9 +13558,10 @@
       return result;
     };
     const tabRoots=[...new Set((Array.isArray(raw?.tabRoots)?raw.tabRoots:[]).filter(id=>typeof id==='string'&&id&&id.length<=160))];
+    const tabExpanded=Object.fromEntries(Object.entries(raw?.tabExpanded||{}).filter(([id,value])=>id&&id.length<=160&&typeof value==='boolean'));
     const taskHierarchy = raw?.taskHierarchy && typeof raw.taskHierarchy === 'object' ? raw.taskHierarchy : null;
     const taskTerminals = raw?.taskTerminals && typeof raw.taskTerminals === 'object' ? raw.taskTerminals : {};
-    return {groups, order, membership, tabGroups, tabMembership, tabParents:links('tabParents'), tabAfter:links('tabAfter'),tabRoots,tabDisplayMains:links('tabDisplayMains'),tabDisplayMainVersion:raw?.tabDisplayMainVersion === 2 ? 2 : 1,taskHierarchy,taskTerminals};
+    return {groups, order, membership, tabGroups, tabMembership, tabParents:links('tabParents'), tabAfter:links('tabAfter'),tabRoots,tabExpanded,tabDisplayMains:links('tabDisplayMains'),tabDisplayMainVersion:raw?.tabDisplayMainVersion === 2 ? 2 : 1,taskHierarchy,taskTerminals};
   }
 
   function _termSyncTaskHierarchy(data) {
@@ -13603,7 +13604,7 @@
     for(const field of ['tabParents','tabAfter','tabDisplayMains'])for(const [child,parent] of Object.entries(state[field])){
       if(logical.has(child)||logical.has(parent))delete state[field][child];
     }
-    for(const name of logical){delete state.tabMembership[name];delete state.membership[name];}
+    for(const name of logical){delete state.tabMembership[name];delete state.membership[name];delete state.tabExpanded[name];}
     state.order=state.order.filter(token=>!logical.has(token.slice(2)));state.tabRoots=state.tabRoots.filter(name=>!logical.has(name));
     _termWriteGroupState(state,scope);_termInvalidateSessionReads(scope);_termSessionsCache.delete(scope);
     termSessions=termSessions.filter(s=>!removed.has(s.session_id));termRenderSessionList();
@@ -13835,9 +13836,11 @@
       // Keep the path to a nested WIP row visible without showing a hover-only
       // ancestor's label. Its parent still controls disclosure of that label.
       const labelOnly = expanded && !!disclosure;
+      const pinned = state.tabExpanded?.[logical] === true;
+      const toggleLabel = pinned ? 'Collapse child terminals' : 'Keep child terminals expanded';
       const parent = displayPill(session, index).replace(/^(<[^>]+)(>)/, '$1'+(labelOnly?disclosure:'')+'$2')
         .replace(/role="(tab|button)"/, `role="$1" aria-expanded="${expanded}" data-subtab-toggle`)
-        .replace(/^(<[^>]+>)/, '$1<span class="term-subtab-caret" aria-hidden="true">'+(expanded?'▾':'▸')+'</span>');
+        .replace(/^(<[^>]+>)/, `$1<span class="term-subtab-caret" data-subtab-pin role="button" tabindex="0" aria-label="${toggleLabel}" title="${toggleLabel}" aria-pressed="${pinned}" aria-expanded="${expanded}">${expanded?'▾':'▸'}</span>`);
       return `<div class="term-subtab-node${expanded?' has-visible-child':''}" data-term-parent="${termSessEsc(logical)}"${labelOnly?' data-subtab-hover-parent':disclosure}>${parent}<div class="term-subtab-children" role="group" aria-label="Subtabs of ${termSessEsc(_termSessionDisplay(session))}"${expanded?'':' hidden'}>${childHtml}</div></div>`;
     };
     return (session, index) => parents[session.logical_name] ? '' : render(session, index);
@@ -13846,8 +13849,11 @@
   function _termWireSubtabs(container, hovered = new Map()) {
     container._labSubtabHoverCleanup?.();
     const close = [], cancelTimers = [];
+    const scope = _termGroupScopeKey(), state = _termReadGroupState(scope);
     container.querySelectorAll('.term-subtab-node').forEach(node => {
       const pill = node.querySelector(':scope > .sess'), children = node.querySelector(':scope > .term-subtab-children');
+      const toggle = pill.querySelector('[data-subtab-pin]');
+      let pinned = state.tabExpanded[node.dataset.termParent] === true;
       let hoverTimer = null;
       let pointerInside = hovered.has(node.dataset.termParent);
       const cancelHover = () => {
@@ -13857,14 +13863,19 @@
       cancelTimers.push(cancelHover);
       const show = revealed => {
         node._labSubtabsRevealed = revealed;
+        const visible = pinned || revealed;
         for (const row of children.children) {
           const target = row.hasAttribute('data-subtab-hover-parent') ? row.querySelector(':scope > .sess') : row;
-          if (target.hasAttribute('data-subtab-hover-only')) target.hidden = !revealed;
+          if (target.hasAttribute('data-subtab-hover-only')) target.hidden = !visible;
         }
         const expanded = [...children.children].some(row => !row.hidden);
         children.hidden = !expanded;
         pill.setAttribute('aria-expanded', String(expanded));
-        pill.querySelector('.term-subtab-caret').textContent = expanded ? '▾' : '▸';
+        toggle.textContent = expanded ? '▾' : '▸';
+        toggle.setAttribute('aria-expanded', String(expanded));
+        toggle.setAttribute('aria-pressed', String(pinned));
+        toggle.title = pinned ? 'Collapse child terminals' : 'Keep child terminals expanded';
+        toggle.setAttribute('aria-label', toggle.title);
       };
       const startHover = (enteredAt = performance.now()) => {
         cancelHover(); node._labSubtabHoverAt = enteredAt;
@@ -13874,12 +13885,27 @@
         }, Math.max(0, 1000 - (performance.now() - enteredAt)));
       };
       const collapse = () => { cancelHover(); show(false); };
+      const persist = event => {
+        event.preventDefault(); event.stopPropagation(); cancelHover();
+        pinned = !pinned;
+        const next = _termReadGroupState(scope);
+        next.tabExpanded[node.dataset.termParent] = pinned;
+        _termWriteGroupState(next, scope);
+        show(false);
+      };
+      toggle.addEventListener('click', persist);
+      toggle.addEventListener('keydown', event => {
+        event.stopPropagation();
+        if (event.key === 'Enter' || event.key === ' ') persist(event);
+      });
+      for (const type of ['dblclick','dragstart']) toggle.addEventListener(type, event => { event.preventDefault(); event.stopPropagation(); });
       const leave = () => { pointerInside = false; collapse(); };
       close.push(leave);
       const previous = hovered.get(node.dataset.termParent);
       if (previous) node._labSubtabHoverAt = previous.enteredAt;
       if (previous?.revealed) show(true);
       else if (previous && previous.enteredAt !== null) startHover(previous.enteredAt);
+      if (!previous?.revealed) show(false);
       node.addEventListener('pointerenter', () => {
         if (pointerInside) return;
         pointerInside = true;

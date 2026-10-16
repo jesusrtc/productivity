@@ -232,8 +232,13 @@ definition becomes the task's primary and opens immediately; the remaining
 terminals open beneath it in definition order. A previous primary keeps running.
 The preview identifies **Primary** and shows every command and resolved folder.
 Configure and reorder definitions in **Settings → workspace → Terminal
-automations**. Empty or relative folders use the selected Objective's folder,
-or the workspace folder when no Objective is selected. Without an active task,
+automations**. Each automation has **Seconds between launches**, defaulting to
+**5 seconds** for both existing and new definitions. The first command starts
+immediately; Lab waits the configured interval before starting each next terminal.
+Choose 0 to disable the delay, or any value up to 300 seconds. The preview shows
+the saved interval. Commands still run independently; this delay does not wait
+for a previous command to finish. Empty or relative folders use the selected
+Objective's folder, or the workspace folder when no Objective is selected. Without an active task,
 the first terminal is the automation's primary within that Objective or workspace.
 Secondary-clicking an existing terminal → **Launch automation…** still opens all
 steps as that terminal's children. See [Terminals](TERMINALS.md#terminal-automations).
@@ -244,6 +249,19 @@ Use `lab api describe POST /api/term/automations/launch` for the request schema.
 Omit `parent` and supply the workspace, automation ID, catalog revision, a fresh
 run UUID, and the active `objective_id` / `task_id`; the server assigns the first
 terminal as primary. Set `preview: true` to check the recipe without starting it.
+Save `launch_delay_seconds` on the automation through `POST /api/term/automations`
+with the current catalog revision. For long groups, give `lab api call` a
+sufficient `--timeout` (for example, `--timeout 180`); the response arrives after
+all launches and their intervening waits.
+
+When terminal names are visible, a small arrow beside any terminal with children
+lets you **Keep child terminals expanded** or **Collapse child terminals**.
+This applies to automation groups and other nested terminals. Clicking saves
+the choice for that parent, workspace and vault in this browser, including
+across reloads. A highlighted arrow means the group is pinned open. Hovering
+still reveals children temporarily after one second and never changes the saved
+choice. Existing active-family and In progress visibility rules still apply.
+Agents can use `lab ui inspect` and click the parent's `[data-subtab-pin]` control.
 
 To change a terminal group's primary, secondary-click a child terminal →
 **Make primary**. It takes its immediate parent's position, with the previous

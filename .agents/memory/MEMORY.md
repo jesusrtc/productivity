@@ -1,5 +1,9 @@
 # Memory index
 
+- [Automation launches wait five seconds](automation-launches-wait-five-seconds.md) — saved per-recipe delay, 5-second default, immediate first launch, CLI parity and duplicate-run protection.
+
+- [Child terminal expansion is saved](child-terminal-expansion-is-saved.md) — visible-name arrow pins children open per browser/workspace/vault, with temporary hover and reload persistence.
+
 - [Asset links automatically dock with fallback](asset-links-auto-dock-with-fallback.md) — central-area native windows on asset clicks, ordinary pop-outs on failure, closable setup alerts and a per-browser setting; supersedes demo-only defaults.
 
 - [Window docking trial is opt-in](window-dock-trial-is-opt-in.md) — real Chrome popup alignment in the demo, explicit native permission and one independently revertible commit; normal links remain unchanged.

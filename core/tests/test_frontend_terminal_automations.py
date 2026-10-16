@@ -59,7 +59,7 @@ window.fetch=async(url,options={})=>{
   else {assert(body.cwd==='/fixture/objective'||body.cwd===scope.path,'direct launch uses its own captured folder');directRequests.push(body);}
   const recipe=catalogs.demo.automations.find(row=>row.id===body.automation_id);
   if(body.preview){previewCalls++;if(failPreview)return {ok:false,json:async()=>({detail:'Missing folder'})};
-   data={name:recipe.name,steps:recipe.steps.map(row=>({...row,cwd:row.cwd?(body.cwd||'/fixture/checkout')+'/'+row.cwd:(body.cwd||'/fixture/checkout')}))};
+   data={name:recipe.name,launch_delay_seconds:recipe.launch_delay_seconds,steps:recipe.steps.map(row=>({...row,cwd:row.cwd?(body.cwd||'/fixture/checkout')+'/'+row.cwd:(body.cwd||'/fixture/checkout')}))};
   }else{
    launchCalls++;if(hold)await new Promise(r=>release=r);
    data={sessions:recipe.steps.slice(0,partial?1:undefined).map((row,index)=>({name:'run-'+launchCalls+'-'+index,logical_name:'run-'+launchCalls+'-'+index,session_id:'uuid-'+launchCalls+'-'+index,label:row.label,cwd:row.cwd?(body.cwd||'/fixture/checkout')+'/'+row.cwd:(body.cwd||'/fixture/checkout'),workspace_id:'demo'})),...(partial?{error:'Frontend: spawn failed'}:{})};
@@ -85,19 +85,25 @@ const launchMenu=async()=>{q('[data-name="'+parent.name+'"]').dispatchEvent(new 
  await LabSettings.open({scope,section:'automations'});
  await until(()=>q('[data-add-automation]'));
  q('[data-add-automation]').click();fill('[data-name]','Development');fill('[data-label]','Logs');fill('[data-command]',"printf '<log>\\n'");
+ assert(q('[data-launch-delay]').value==='5','new automations default to five seconds');
+ fill('[data-launch-delay]','-1');assert(!q('[data-launch-delay]').checkValidity(),'negative delays rejected');
+ fill('[data-launch-delay]','2.5');
  q('[data-add-step]').click();const steps=[...document.querySelectorAll('[data-step]')];
  steps[1].querySelector('[data-label]').value='Frontend';steps[1].querySelector('[data-cwd]').value='frontend';steps[1].querySelector('[data-command]').value='npm run dev';
  q('[data-add-automation]').click();const diagnostic=[...document.querySelectorAll('[data-automation]')].at(-1);
  diagnostic.querySelector('[data-name]').value='Diagnostics';diagnostic.querySelector('[data-label]').value='Inspect';diagnostic.querySelector('[data-command]').value='printf diagnostics';
+ diagnostic.querySelector('[data-launch-delay]').value='0';
  q('.settings-form').requestSubmit();await until(()=>q('[data-message]').textContent==='Saved');
  assert(saved===1&&launchCalls===0&&previewCalls===0,'saving creates no terminals or launch previews');
  LabSettings.close();await LabSettings.open({scope,section:'automations'});await until(()=>q('[data-command]'));
  assert(q('#labSettingsCenter [data-name]').value==='Development'&&document.querySelectorAll('[data-step]').length===3,'saved recipes restored');
+ assert(q('[data-launch-delay]').value==='2.5'&&[...document.querySelectorAll('[data-launch-delay]')][1].value==='0','custom and disabled delays survive reopening settings');
  q('[data-down]').click();assert(q('[data-label]').value==='Frontend','step order editable');q('[data-up]:not(:disabled)').click();assert(q('[data-label]').value==='Logs','step order restored');
  LabSettings.close();
  await launchMenu();await until(()=>!q('[data-launch]').disabled);
  assert(q('[data-preview]').textContent.includes('/fixture/checkout/frontend')&&q('[data-preview]').textContent.includes("<log>"),'escaped commands and resolved paths reviewed');
  assert(!q('[data-preview] log'),'command text never interpreted as markup');
+ assert(q('[data-hint]').textContent.includes('2.5 seconds between launches'),'saved delay appears in the launch preview');
  assert(q('[data-choice]').options.length===2,'choose among saved automations');q('[data-choice]').value=catalogs.demo.automations[1].id;q('[data-choice]').dispatchEvent(new Event('change'));await until(()=>q('[data-preview]').textContent.includes('diagnostics'));assert(q('[data-preview]').textContent.includes('Inspect')&&!q('[data-preview]').textContent.includes('Frontend'),'selection previews only chosen group');
  q('#termAutomationLauncher [data-close]').click();assert(launchCalls===0&&termSessions.length===1,'cancel launches nothing');
  await launchMenu();await until(()=>!q('[data-launch]').disabled);

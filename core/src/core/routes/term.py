@@ -3675,7 +3675,7 @@ def launch_terminal_automation(body: AutomationLaunch, request: Request) -> dict
         raise HTTPException(400, "Choose the Objective that owns this task")
     # Serialize duplicate submissions. Session names include the run UUID, so
     # a repeated request adopts the same live children without replaying input.
-    with terminal_automations.lock:
+    with terminal_automations.launch_lock(folder, body.run_id):
         try:
             catalog = terminal_automations.read(folder)
             if body.revision != catalog["revision"]:
@@ -3719,32 +3719,37 @@ def launch_terminal_automation(body: AutomationLaunch, request: Request) -> dict
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
         if body.preview:
-            return {"name": row["name"], "steps": steps}
+            return {"name": row["name"], "steps": steps, "launch_delay_seconds": row["launch_delay_seconds"]}
         created = []
         for index, step in enumerate(steps):
             try:
-                created.append(create_session(NewSession(
-                    workspace_id=body.workspace_id, vault=body.vault, kind="terminal",
-                    objective_id=body.objective_id,
-                    name=f"automation-{body.run_id.hex}-{index + 1}",
-                    label=step["label"], cwd=step["cwd"], startup_command=step["command"],
-                    startup_health_command=step["health_command"], startup_guidelines=step["guidelines"],
-                ), request))
-                if not body.parent and body.objective_id:
-                    # Commit ownership with the launch, including CLI launches
-                    # and partial runs. Only the first defined step owns the task.
-                    from lab import objectives
-                    target = ({'task_id': body.task_id} if body.task_id and index == 0
-                              else {'view': 'tasks' if body.task_id else 'objective'})
-                    objectives.mutate(root, body.workspace_id, {
-                        'type': 'terminal', 'session_id': created[-1]['session_id'],
-                        'objective_id': body.objective_id, **target,
-                    })
+                with terminal_automations.lock:
+                    created.append(create_session(NewSession(
+                        workspace_id=body.workspace_id, vault=body.vault, kind="terminal",
+                        objective_id=body.objective_id,
+                        name=f"automation-{body.run_id.hex}-{index + 1}",
+                        label=step["label"], cwd=step["cwd"], startup_command=step["command"],
+                        startup_health_command=step["health_command"], startup_guidelines=step["guidelines"],
+                    ), request))
+                    if not body.parent and body.objective_id:
+                        # Commit ownership with the launch, including CLI launches
+                        # and partial runs. Only the first defined step owns the task.
+                        from lab import objectives
+                        target = ({'task_id': body.task_id} if body.task_id and index == 0
+                                  else {'view': 'tasks' if body.task_id else 'objective'})
+                        objectives.mutate(root, body.workspace_id, {
+                            'type': 'terminal', 'session_id': created[-1]['session_id'],
+                            'objective_id': body.objective_id, **target,
+                        })
             except HTTPException as exc:
                 # Preserve running services and expose them even after a partial failure.
                 return {"sessions": created, "error": f"{step['label']}: {exc.detail}"}
             except (OSError, ValueError) as exc:
                 return {"sessions": created, "error": f"{step['label']}: {exc}"}
+            # The first terminal starts immediately. Only newly started steps
+            # incur a wait; adopting an existing run never delays or replays it.
+            if index < len(steps) - 1 and not created[-1].get("already_running") and row["launch_delay_seconds"]:
+                terminal_automations.sleep(row["launch_delay_seconds"])
         return {"sessions": created}
 
 

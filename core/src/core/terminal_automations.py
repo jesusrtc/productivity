@@ -4,12 +4,26 @@ from __future__ import annotations
 import hashlib
 import json
 import threading
+from time import sleep
+import weakref
 from pathlib import Path
 
 from lab import storage
 from pydantic import BaseModel, Field, field_validator
 
 lock = threading.RLock()
+_launch_locks = weakref.WeakValueDictionary()
+
+
+def launch_lock(folder: Path, run_id: object):
+    """Serialize repeat submissions without holding the catalog lock while waiting."""
+    key = (folder, str(run_id))
+    with lock:
+        run_lock = _launch_locks.get(key)
+        if run_lock is None:
+            run_lock = threading.RLock()
+            _launch_locks[key] = run_lock
+        return run_lock
 
 
 class Guideline(BaseModel):
@@ -58,6 +72,8 @@ class Step(BaseModel):
 class Automation(BaseModel):
     id: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,80}$")
     name: str = Field(min_length=1, max_length=120)
+    launch_delay_seconds: float = Field(default=5.0, ge=0, le=300, allow_inf_nan=False,
+                                      description="Seconds to wait between starting terminals; 0 disables the delay.")
     steps: list[Step] = Field(min_length=1, max_length=20)
 
     @field_validator("name")

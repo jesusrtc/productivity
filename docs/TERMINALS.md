@@ -89,7 +89,12 @@ When launched from a terminal, it uses that parent's fixed launch folder instead
 Relative paths resolve against the same base folder for every step; absolute
 paths and `~/folder` are also supported.
 Every directory is checked before any command starts. Commands start in list
-order in separate tmux sessions and run independently. For dependent operations,
+order in separate tmux sessions, with **5 seconds between launches** by default.
+Set **Seconds between launches** in the automation's workspace settings to
+change this interval (0–300 seconds, including fractions); 0 disables waiting.
+Existing definitions without this field also use 5 seconds. The first command
+starts immediately, with no extra wait after the last. The launch preview shows
+the saved delay. Commands run independently. For dependent operations,
 combine them in one command, for example `npm run build && npm run dev`.
 An exited command prints its exit code and leaves an interactive shell with the
 logs retained. Automation tabs show their saved names with a left icon and
@@ -124,6 +129,15 @@ child stays visible along with its direct siblings and parent/grandparent path.
 Other automation children appear after holding the pointer over their parent
 for one second. Moving away cancels the reveal. Keyboard disclosure is immediate,
 and background tab refreshes preserve the elapsed hover time.
+When names are visible, each parent also has a small arrow button. Click
+**Keep child terminals expanded** to keep its children visible after leaving
+the rail, refreshing the list or reloading the page. The arrow is highlighted
+while pinned; click **Collapse child terminals** to return to temporary hover
+disclosure. Each parent's choice is saved per workspace/vault in this browser.
+Nested and automation parents use the same control. It is hidden in the compact
+icon rail and supports Enter/Space without selecting or relaunching a terminal.
+Active-family and own-In-progress rows keep their existing visibility rules.
+Through `lab ui inspect` / `lab ui click`, target the parent's `[data-subtab-pin]`.
 A stopped automation adds a **↻**
 relaunch button beside its tab. Its parent gets the same control to relaunch all
 stopped descendants together; running or unknown children are skipped.
@@ -165,6 +179,14 @@ override the base folder with `cwd`. To add children to an existing terminal,
 pass its runtime `parent` name instead of these context fields. `preview: true`
 checks all directories without starting sessions. Task ownership is persisted
 by the API; tab order and child nesting belong to the browser that launched it.
+The preview includes `launch_delay_seconds`. To configure it through the CLI,
+read the catalog, set that field on the chosen automation and save the catalog
+with its revision through `POST /api/term/automations`; use `lab api describe`
+to inspect the schema. Launch requests use that saved delay. Increase
+`lab api call --timeout` for runs whose combined waits exceed its 30-second
+default (for example `--timeout 180`). Settings reads and saves remain available
+while a run waits. Repeated requests adopting already-running terminals do not
+add waits or replay commands.
 
 Definitions live in the workspace's `.lab/terminal-automations.json`, so every
 browser sees the same saved recipes. This is separate from browser-owned tab

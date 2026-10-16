@@ -2,6 +2,8 @@
 import json
 import shlex
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
+import threading
 import time
 import uuid
 
@@ -13,11 +15,18 @@ from .test_term_routes import isolated_prefix  # noqa: F401
 from .test_term_creation_native import native_creation_tmux, native_creation_client  # noqa: F401
 
 
-def _save(client, workspace, steps):
+@pytest.fixture(autouse=True)
+def launch_waits(monkeypatch):
+    waits = []
+    monkeypatch.setattr(terminal_automations, 'sleep', waits.append)
+    return waits
+
+
+def _save(client, workspace, steps, **options):
     current = client.get('/api/term/automations', params={'workspace_id': workspace}).json()
     response = client.post('/api/term/automations', json={
         'workspace_id': workspace, 'revision': current['revision'],
-        'automations': [{'id': 'dev', 'name': 'Development', 'steps': steps}],
+        'automations': [{'id': 'dev', 'name': 'Development', 'steps': steps, **options}],
     })
     assert response.status_code == 200, response.text
     return response.json()
@@ -26,6 +35,96 @@ def _save(client, workspace, steps):
 def _launch(parent, catalog, **patch):
     return {'workspace_id': 'demo', 'parent': parent['name'], 'automation_id': 'dev',
             'revision': catalog['revision'], 'run_id': str(uuid.uuid4()), **patch}
+
+
+@pytest.mark.parametrize('delay', [None, 0, 2.5, 300])
+def test_launch_delay_defaults_persists_and_only_waits_between_new_steps(
+    client, seed_workspace, isolated_prefix, launch_waits, monkeypatch, delay,
+):
+    from core.routes import term
+    folder = seed_workspace()
+    steps = [{'label': str(i), 'command': 'printf ready'} for i in range(3)]
+    if delay is None:
+        # Older recipes acquire the default on read without rewriting their file.
+        path = folder / '.lab/terminal-automations.json'
+        path.parent.mkdir(exist_ok=True)
+        raw = json.dumps({'automations': [{'id': 'dev', 'name': 'Development', 'steps': steps}]})
+        path.write_text(raw)
+        catalog = client.get('/api/term/automations?workspace_id=demo').json()
+        assert path.read_text() == raw
+    else:
+        catalog = _save(client, 'demo', steps, launch_delay_seconds=delay)
+        assert client.get('/api/term/automations?workspace_id=demo').json() == catalog
+    expected = 5 if delay is None else delay
+    assert catalog['automations'][0]['launch_delay_seconds'] == expected
+    schema = client.get('/api/commands').json()['components']['schemas']['Automation']['properties']['launch_delay_seconds']
+    assert schema['default'] == 5 and schema['minimum'] == 0 and schema['maximum'] == 300
+    body = _launch({'name': None}, catalog)
+    preview = client.post('/api/term/automations/launch', json={**body, 'preview': True})
+    assert preview.json()['launch_delay_seconds'] == expected
+    assert launch_waits == []
+    original = term.create_session
+    seen = []
+    def create(body, request):
+        seen.append(list(launch_waits))
+        return original(body, request)
+    monkeypatch.setattr(term, 'create_session', create)
+    result = client.post('/api/term/automations/launch', json=body).json()
+    assert len(result['sessions']) == 3 and 'error' not in result
+    assert seen == ([[], [expected], [expected, expected]] if expected else [[], [], []])
+    assert launch_waits == ([expected, expected] if expected else [])
+    launch_waits.clear()
+    repeated = client.post('/api/term/automations/launch', json=body).json()
+    assert all(row['already_running'] for row in repeated['sessions'])
+    assert launch_waits == []
+
+
+@pytest.mark.parametrize('delay', [-1, 301, None, 'invalid'])
+def test_invalid_launch_delay_cannot_replace_saved_recipe(client, seed_workspace, isolated_prefix, delay):
+    seed_workspace()
+    catalog = _save(client, 'demo', [{'label': 'One', 'command': 'printf one'}])
+    response = client.post('/api/term/automations', json={
+        'workspace_id': 'demo', 'revision': catalog['revision'],
+        'automations': [{**catalog['automations'][0], 'launch_delay_seconds': delay}],
+    })
+    assert response.status_code == 422
+    assert client.get('/api/term/automations?workspace_id=demo').json() == catalog
+
+
+def test_wait_keeps_settings_available_and_serializes_duplicate_run(
+    client, seed_workspace, isolated_prefix, monkeypatch,
+):
+    seed_workspace()
+    catalog = _save(client, 'demo', [{'label': 'One', 'command': 'printf one'},
+                                     {'label': 'Two', 'command': 'printf two'}])
+    body = _launch({'name': None}, catalog)
+    waiting, release, duplicate_started = threading.Event(), threading.Event(), threading.Event()
+    def wait(seconds):
+        assert seconds == 5
+        waiting.set()
+        assert release.wait(5)
+    monkeypatch.setattr(terminal_automations, 'sleep', wait)
+    def duplicate():
+        duplicate_started.set()
+        return client._inner.post('/api/term/automations/launch', json=body)
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        first = pool.submit(client._inner.post, '/api/term/automations/launch', json=body)
+        try:
+            assert waiting.wait(5)
+            again = pool.submit(duplicate)
+            assert duplicate_started.wait(5)
+            # Even a settings write can finish while this run is waiting.
+            saved = pool.submit(client._inner.post, '/api/term/automations', json={
+                'workspace_id': 'demo', 'revision': catalog['revision'],
+                'automations': catalog['automations'],
+            }).result(timeout=3)
+            assert saved.status_code == 200
+            assert not again.done()
+        finally:
+            release.set()
+        original, repeated = first.result(timeout=5).json(), again.result(timeout=5).json()
+    assert [row['name'] for row in original['sessions']] == [row['name'] for row in repeated['sessions']]
+    assert all(row['already_running'] for row in repeated['sessions'])
 
 
 def test_recipes_are_workspace_owned_versioned_and_never_launch_on_save(client, seed_workspace, isolated_prefix):
@@ -241,10 +340,19 @@ def test_native_launch_runs_once_in_tmux_and_keeps_exited_logs(native_creation_t
         {'label': 'Frontend', 'cwd': 'frontend', 'command': "printf 'frontend log\\n'; pwd"},
     ])
     body = _launch(parent or {'name':None}, catalog)
+    # Exercise the actual server wait with real tmux launches, then ensure an
+    # idempotent replay below never waits or re-executes the first command.
+    waits = []
+    def wait(seconds):
+        started = time.monotonic()
+        time.sleep(seconds)
+        waits.append(time.monotonic() - started)
+    monkeypatch.setattr(terminal_automations, 'sleep', wait)
     response = client.post('/api/term/automations/launch', json=body)
     assert response.status_code == 200, response.text
     rows = response.json()['sessions']
     assert len(rows) == 2 and all(row['tmux_socket'] == socket for row in rows)
+    assert len(waits) == 1 and waits[0] >= 5
     assert len(client.get('/api/term/sessions?workspace_id=demo').json()) == 2 + int(with_parent)
     deadline = time.monotonic() + 5
     while True:
@@ -258,6 +366,7 @@ def test_native_launch_runs_once_in_tmux_and_keeps_exited_logs(native_creation_t
     assert (folder / 'count').read_text() == 'x'
     repeated = client.post('/api/term/automations/launch', json=body).json()['sessions']
     assert all(row['already_running'] for row in repeated)
+    assert len(waits) == 1
     assert (folder / 'count').read_text() == 'x'
     # The completed build is an ordinary interactive child now, with its logs.
     run('send-keys', '-t', rows[0]['name'], 'printf usable-shell', 'Enter')

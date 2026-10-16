@@ -27,6 +27,13 @@ Objective or workspace folder; `preview: true` resolves all steps without
 starting commands. Supplying `parent` instead retains the existing child-terminal
 launch mode. Through `lab ui`, use **+ New → Launch automation…** to retain the
 browser's tab nesting as well as the server's primary assignment.
+Each automation's saved `launch_delay_seconds` defaults to 5 (0 disables it;
+maximum 300). Read and save the catalog through `/api/term/automations` with its
+revision to change the delay; previews include it. Launches wait between new
+terminals, so use a sufficient `lab api call --timeout`, such as 180 seconds.
+When terminal names are visible, `lab ui inspect` exposes each parent's
+`[data-subtab-pin]` control. Click it to save expanded/collapsed children in that
+browser's workspace/vault scope; temporary hover disclosure stays available.
 
 Terminal asset navigation uses the `terminal-asset` Objective action, separately
 from the existing `terminal` action for task/Objective ownership. Pass

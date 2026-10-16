@@ -3,6 +3,21 @@
 User-facing changes to Lab are recorded here alongside updates to the user
 guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 
+## 2026-10-16
+
+### Space automation launches and remember expanded terminal groups
+
+- Added **Seconds between launches** to each automation, defaulting to 5 for
+  existing and new recipes. The first terminal starts immediately; 0 disables
+  the delay. Settings accept up to 300 seconds, and launch previews show it.
+- The server applies the saved delay for UI and CLI launches. Settings remain
+  available during waits; repeat requests adopt live terminals without delays
+  or replaying commands.
+- Parents now show a small expand/collapse arrow when terminal names are
+  visible, including automation parents. Clicking saves the group's state per
+  workspace/vault in this browser and retains it across reloads. Hover still
+  reveals children temporarily; active-family and WIP visibility are preserved.
+
 ## 2026-10-15
 
 ### Terminal clicks select the task and open its linked asset

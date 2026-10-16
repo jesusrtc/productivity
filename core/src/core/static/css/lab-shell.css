@@ -2206,10 +2206,16 @@
   .term-sessions .objective-task-terminal .sess-icon { order:0; margin:0; }
   .term-sessions .term-task-placeholder { border-style: dashed; color: var(--text-secondary); text-align:left; }
   .term-task-create { order: 4; color: var(--accent); font-size: 14px; }
-  .term-sessions .sess .term-subtab-caret { position: absolute; left: 2px; top: 2px; font-size: 9px; color: var(--text-dim); line-height: 1; }
+  .term-sessions .sess .term-subtab-caret { display:none; position:absolute; right:1px; top:50%; transform:translateY(-50%); width:18px; height:22px; border-radius:3px; font:13px/22px sans-serif; text-align:center; color:var(--text-dim); cursor:pointer; }
+  :is(.term-panel:not(.term-sessions-horizontal).term-sessions-full .term-session-switcher.term-tabs-open, .term-panel.term-sessions-horizontal.term-sessions-full) .term-sessions .sess .term-subtab-caret { display:block; }
+  .term-sessions .sess .term-subtab-caret:hover { background:var(--bg-tertiary); }
+  .term-sessions .sess .term-subtab-caret[aria-pressed="true"] { color:var(--accent); }
+  .term-sessions .sess .term-subtab-caret:focus-visible { outline:1px solid var(--accent); }
+  .term-panel.term-sessions-full .term-sessions .sess:has(.term-subtab-caret) { padding-right:23px; }
+  .term-panel.term-sessions-full .term-sessions .sess:has(.term-subtab-caret):has(.term-automation-relaunch) { padding-right:43px; }
+  .term-sessions .sess:has(.term-automation-relaunch) .term-subtab-caret { right:21px; }
   .term-panel .term-sessions .sess.term-automation-terminal { justify-content:flex-start; padding:7px 8px; color:var(--text-primary); }
   .term-sessions .sess.term-automation-terminal::before { display:none; }
-  .term-sessions .sess.term-automation-terminal .term-subtab-caret { display:none; }
   .term-sessions .sess .term-automation-relaunch { display:none; position:absolute; right:1px; top:50%; transform:translateY(-50%); width:16px; height:20px; padding:0; border:0; border-radius:3px; background:transparent; color:var(--accent); font:15px/20px sans-serif; cursor:pointer; }
   :is(.term-panel:not(.term-sessions-horizontal).term-sessions-full .term-session-switcher.term-tabs-open, .term-panel.term-sessions-horizontal.term-sessions-full) .term-sessions .sess .term-automation-relaunch { display:block; }
   .term-sessions .sess .term-automation-relaunch:hover { background:var(--bg-tertiary); }

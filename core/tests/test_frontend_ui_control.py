@@ -166,7 +166,8 @@ const fs=require('node:fs'),{execFileSync}=require('node:child_process');
  ui('wait','#termAutomationLauncher [data-preview]','--text','First defined · Primary');
  assert(await evaluate(`document.querySelector('#termAutomationLauncher').textContent.includes('CLI task')`),'launcher captures the active task');
  ui('click','#termAutomationLauncher [data-launch]');
- for(let i=0;i<100;i++){if(await evaluate(`!document.querySelector('#termAutomationLauncher')`))break;await new Promise(r=>setTimeout(r,30));}
+ const launchDeadline=Date.now()+12000; // Includes the default five-second interval.
+ while(Date.now()<launchDeadline){if(await evaluate(`!document.querySelector('#termAutomationLauncher')`))break;await new Promise(r=>setTimeout(r,30));}
  assert(await evaluate(`(()=>{const rows=termSessions.filter(s=>s.logical_name.startsWith('automation-')),task=LabObjectives.taskForTerminal(rows[0]);return rows.length===2&&rows[0].label==='First defined'&&termCurrentSession===rows[0].name&&!automationGroup.tabParents[rows[0].logical_name]&&automationGroup.tabParents[rows[1].logical_name]===rows[0].logical_name&&task?.title==='CLI task'&&!task.inherited})()`),'CLI launch creates exactly its recipe terminals, activates first and nests second');
  const launched=await evaluate(`termSessions.filter(s=>s.logical_name.startsWith('automation-'))`);
  data=cli('api','call','GET','/api/objectives','--query','workspace_id=demo');
