@@ -5,6 +5,17 @@ guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 
 ## 2026-10-16
 
+### Browse skill folders at every META level
+
+- META now shows existing skill directories for the vault, workspace, selected
+  Objective and separate Files folder, covering shared, Codex, Claude and
+  Copilot locations plus older Claude command skills.
+- Expand each tree to browse all nested files and folders, including hidden
+  and empty directories. File links retain their owning root; refresh preserves
+  expansion and symlink cycles cannot recurse indefinitely.
+- Skill discovery is read-only and independent of the Files dotfile toggle.
+  The same scoped tree is available through `lab api` and the UI through `lab ui`.
+
 ### Confirm deletion of a whole terminal family
 
 - Closing a parent tab now warns that all child terminals will also be deleted,

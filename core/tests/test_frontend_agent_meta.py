@@ -1,4 +1,4 @@
-"""Meta is instruction context, not a browser for shared skill mounts."""
+"""META shows current instructions and existing scope-owned skill folders."""
 from pathlib import Path
 import json
 import subprocess
@@ -8,7 +8,7 @@ from .test_frontend_project_cache import _check_project_html
 SOURCE = Path(__file__).parents[1] / 'src/core/static/js/lab-app.js'
 
 
-def test_meta_contains_context_and_workspace_instruction_documents_only():
+def test_meta_contains_context_instructions_and_existing_skill_slots():
     source = SOURCE.read_text()
     assert "const META_FILES = new Set(['AGENTS.md', 'agent.md', 'CLAUDE.md', '.github/copilot-instructions.md'])" in source
     assert 'const mainFiles = otherFiles.filter(f => !META_FILES.has(f.path))' in source
@@ -102,6 +102,79 @@ const fetch = async url => {
     assert '# Actual launch context\n&lt;instructions&gt;' in data['body']
     assert data['title'] == 'Lab context'
     assert data['editing'] is False
+
+
+def test_meta_skill_trees_keep_scope_paths_and_expansion_in_chrome(tmp_path):
+    from .test_frontend_terminal_ui import LAB_SHELL_CSS
+
+    source = SOURCE.read_text()
+    helpers = source[source.index('  function _agentContextSource('):source.index('  function _readLabDocumentation(')]
+    setup = r'''
+const assert=(value,message)=>{if(!value)throw Error(message)};
+const esc=value=>String(value).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+const escAttr=value=>esc(value).replaceAll('"','&quot;').replaceAll("'",'&#39;');
+const fileIconHtml=()=>'<span class="ft-icon ft-md"></span>',symlinkClass=()=>'',symlinkTitle=()=>'',symlinkMarker=()=>'';
+let _workspaceDocRoot='',_workspaceDocPath='',objectiveRoot='/workspace/objectives/first';
+const currentWorkspace={name:'demo',path:'/workspace',is_workspace:true},VAULT_ROOT='/vault';
+const _vaultForWorkspace=()=>({id:'one',path:'/vault'});
+window.LabObjectives={instructionRoot:()=>objectiveRoot};
+const _populateLabDocumentation=async()=>{};
+const opened=[],modals=[];window.openWorkspaceDoc=(path,options)=>opened.push({path,...options});
+window.openWorkspaceDocModal=(path,options)=>modals.push({path,...options});
+const roots={'/vault':['.claude/skills'],'/workspace':['.agents/skills','.github/skills'],'/workspace/objectives/first':['.codex/skills']};
+let changed=false;
+function skill(path){
+ const node=(name,type,children=[])=>({name,type,path:path+'/'+name,...(type==='dir'?{children}:{} )});
+ return{name:path,path,type:'dir',children:[node('example','dir',[
+  {name:'SKILL.md',path:path+'/example/SKILL.md',type:'file'},
+  {name:'scripts',path:path+'/example/scripts',type:'dir',children:[
+   {name:'deep',path:path+'/example/scripts/deep',type:'dir',children:[
+    {name:'<literal>.py',path:path+'/example/scripts/deep/<literal>.py',type:'file'},
+    {name:'empty',path:path+'/example/scripts/deep/empty',type:'dir',children:[]}
+   ]}
+  ]},...(changed?[{name:'new.md',path:path+'/example/new.md',type:'file'}]:[])
+ ])]};
+}
+window.fetch=async url=>{
+ const parsed=new URL(url,'http://fixture');assert(parsed.searchParams.get('include_skills')==='true','skill discovery requested with instruction read');
+ const root=parsed.searchParams.get('path');return{ok:true,json:async()=>({files:[],skills:(roots[root]||[]).map(skill)})};
+};
+'''
+    checks = r'''
+(async()=>{try{
+ const host=document.querySelector('#sidebar');
+ host.innerHTML=_agentContextMetaHtml('/workspace','/checkout','Workspace instructions',_workspaceAgentContextGroups('/workspace','/checkout'));
+ await _populateAgentContextMeta(host);
+ assert(host.querySelectorAll('[data-agent-skill-path]').length===20,'all nested folders, including empty folders, are present');
+ assert(host.querySelector('[data-agent-skills-root="/checkout"]').innerHTML==='','absent skill folders have no placeholder');
+ for(const [root,scope,path] of [['/vault','Vault','.claude/skills'],['/workspace','Workspace','.agents/skills'],[objectiveRoot,'Objective','.codex/skills']]){
+  const slot=host.querySelector(`[data-agent-skills-root="${root}"]`),folder=slot.querySelector('details');
+  assert(folder.open&&folder.querySelector('summary').textContent.includes(scope+' skills'),'each scope labels its own skills');
+  const example=folder.querySelector('details'),summary=example.querySelector('summary');summary.click();assert(example.open,'folders expand natively');
+  const file=example.querySelector('a');file.click();file.dispatchEvent(new MouseEvent('dblclick',{bubbles:true}));
+  assert(opened.at(-1).root===root&&opened.at(-1).path===path+'/example/SKILL.md','files open with exact owning root and relative path');
+  assert(modals.at(-1).root===root,'double click retains its scope');
+  assert(file.textContent==='SKILL.md','file labels avoid repeating the whole folder path');
+ }
+ assert(!host.querySelector('literal'),'skill filenames are escaped instead of interpreted as HTML');
+ const slot=host.querySelector('[data-agent-skills-root="/workspace"]'),before=slot.querySelector('details details');
+ await _populateAgentContextMeta(host);assert(slot.querySelector('details details')===before&&before.open,'unchanged polling preserves expanded folder nodes');
+ changed=true;await _populateAgentContextMeta(host);
+ assert(slot.querySelector('details details').open&&slot.textContent.includes('new.md'),'changed skills preserve expansion while adding new files');
+ const summary=slot.querySelector('summary');assert(summary.dataset.entryRoot==='/workspace'&&summary.dataset.entryPath==='.agents/skills','folder actions and drag retain owning roots');
+ await new Promise(resolve=>setTimeout(resolve,0));
+ host.innerHTML=_agentContextMetaHtml('/workspace','/checkout','Workspace instructions',_workspaceAgentContextGroups('/workspace','/checkout'));
+ await _populateAgentContextMeta(host);
+ assert(host.querySelector('[data-agent-skills-root="/workspace"] details details').open,'full sidebar rebuild retains folder expansion');
+ objectiveRoot='/workspace/objectives/second';
+ host.innerHTML=_agentContextMetaHtml('/workspace','/checkout','Workspace instructions',_workspaceAgentContextGroups('/workspace','/checkout'));
+ await _populateAgentContextMeta(host);
+ assert(!host.querySelector('[data-agent-skills-root="/workspace/objectives/first"]')&&host.querySelector('[data-agent-skills-root="'+objectiveRoot+'"]').innerHTML==='','switching Objective discards its old skills and omits absent ones');
+ document.body.dataset.result='pass';
+}catch(error){document.body.dataset.result='fail';document.body.append(String(error.stack||error))}})();
+'''
+    page = '<!doctype html><style>'+LAB_SHELL_CSS.read_text()+'.sidebar{width:360px}</style><body class="workspace-active"><aside id="sidebar" class="sidebar"></aside><script>'+setup+helpers+checks+'</script>'
+    _check_project_html(tmp_path, page, screenshot=True)
 
 
 def test_project_workspaces_expose_context_and_drop_its_full_text_in_chrome(tmp_path):

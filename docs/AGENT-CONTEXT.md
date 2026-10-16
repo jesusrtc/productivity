@@ -10,6 +10,29 @@ live notebooks, metadata, tasks, terminals and local servers. Lab defers
 project conventions, content, skills, and memory policy to the workspace and
 the user.
 
+META lists existing scope-owned skill folders alongside instructions at the
+vault, workspace, Objective and separately selected folder/worktree levels.
+The paths checked at each root are `skills`, `content/skills`, `.agents/skills`,
+`.claude/skills`, `.codex/skills`, `.github/skills`, `.copilot/skills` and the
+backwards-compatible `.claude/commands`. This includes shared conventions and
+older provider locations; a displayed path is not a claim that a provider has
+loaded it. Current location references: [Codex](https://learn.chatgpt.com/docs/build-skills),
+[Claude Code](https://code.claude.com/docs/en/skills), and
+[Copilot](https://docs.github.com/en/copilot/concepts/agents/about-agent-skills).
+
+Folders appear only when present. Their tree includes every nested directory
+and file, including hidden and empty folders, and retains expansion on refresh.
+File opening, context actions and dragging carry the owning root and relative
+path. Symlinked skills retain that source path; ancestor cycles stop recursion.
+Discovery reads only these skill directories, not the rest of the repository,
+and does not create folders or load/execute skill instructions.
+
+`GET /api/agents/context/files?path=/absolute/scope&include_skills=true` returns
+`files` plus the nested `skills` tree; callers omitting the flag retain the
+instruction-file array. The endpoint uses the explorer's existing scope access
+checks. Use `lab api describe GET /api/agents/context/files` for the parameters,
+`lab api call` to read it, or `lab ui` to expand its META folder summaries.
+
 The installed `lab` package carries the guide and topic documentation. No
 source-checkout path or symlink is needed. Read it from any directory:
 

@@ -1,5 +1,9 @@
 # Meta is agent context; skills belong to the workspace
 
+Superseded by [META includes scoped skill folders](meta-includes-scoped-skill-folders.md)
+following the user's October 16, 2026 request. The historical rule below no
+longer prohibits showing existing skill directories in META.
+
 The sidebar Meta section shows the installed Lab launch guide and instruction
 files in the selected project/worktree (AGENTS.md, CLAUDE.md, and Copilot's
 instruction file). It must not render vault skill mounts, shared .agents/.claude

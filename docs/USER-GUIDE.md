@@ -39,6 +39,19 @@ shortcuts expose their absolute paths in their tooltips; the context reader
 lists absolute paths in its text. Switching Objectives updates the Objective
 instruction shortcuts while retaining the owning vault and workspace.
 
+META also shows existing **Vault skills**, **Workspace skills** and **Objective
+skills** folders, plus skills in a separately selected folder/worktree. It checks
+`skills/`, `content/skills/`, `.agents/skills/`, `.claude/skills/`, `.codex/skills/`,
+`.github/skills/`, `.copilot/skills/` and Claude's older `.claude/commands/`.
+Missing folders add no entries. Expand a folder to browse all nested folders and
+files, including hidden and empty folders; click a file to open it at its owning
+root. This is independent of the Files dotfile toggle. Folder expansion survives
+ordinary refreshes. Existing symlinked skills are browsable, with cycles stopped.
+These are files currently on disk; each provider decides which skills it loads.
+Agents can inspect the same tree with
+`lab api call GET /api/agents/context/files --query path=/absolute/scope --query include_skills=true`
+or use the visible folder summaries and file links through `lab ui`.
+
 The compact first column preserves the expanded layout's vertical spacing.
 **Files** and **Recently updated** each show one section icon; their hidden
 rows leave the same blank space, even for long trees. **META** and its document

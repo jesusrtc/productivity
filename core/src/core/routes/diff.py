@@ -815,11 +815,13 @@ def api_workspace_files(path: str, request: Request, include_dotfiles: bool = Fa
 
 
 @router.get("/api/agents/context/files")
-def api_agent_instruction_files(path: str, request: Request):
+def api_agent_instruction_files(path: str, request: Request, include_skills: bool = False):
     """List local instruction files without scanning a whole repository.
 
     These are files currently on disk, not a provider's loaded-context history.
     Include Copilot's instructions independently of the explorer dotfile toggle.
+    With include_skills, return {files, skills} and recursively list only the
+    existing skill directories at this root, including provider and legacy paths.
     """
     root = _entry_root(path, request)
 
@@ -832,6 +834,9 @@ def api_agent_instruction_files(path: str, request: Request):
                 if not candidate.is_file():
                     entry["broken"] = True
                 files.append(_with_symlink_fields(entry, candidate))
+        if include_skills:
+            from core import agent_skills
+            return {"files": files, "skills": agent_skills.collect(root)}
         return files
 
     return fsguard.guarded(auth.request_root(request), collect)

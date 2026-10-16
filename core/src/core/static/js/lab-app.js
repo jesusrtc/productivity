@@ -7190,12 +7190,13 @@
   function _agentContextMetaHtml(baseRoot, fileRoot, baseLabel = 'Workspace instructions', instructionGroups = null) {
     const groups = instructionGroups || [{root: baseRoot, label: baseLabel}];
     if (!instructionGroups && fileRoot !== baseRoot) groups.push({root: fileRoot, label: 'Selected folder instructions'});
-    return `<div class="sidebar-title sidebar-meta-title" title="Instruction files on disk. Browsing another folder leaves a running agent's startup context unchanged.">Meta</div>
+    return `<div class="sidebar-title sidebar-meta-title" title="Instruction files and skill folders on disk. Browsing another folder leaves a running agent's startup context unchanged.">Meta</div>
       ${_agentContextRowHtml(_agentContextSource(baseRoot, fileRoot))}`
       + '<div data-lab-documentation><div class="sidebar-agent-instructions-note">Loading Lab documentation…</div></div>'
       + groups.map(group => `<div class="sidebar-agent-instructions">
         ${group.label ? `<div class="sidebar-agent-instructions-label" title="${escAttr(group.root)}">${esc(group.label)}</div>` : ''}
         <div data-agent-instructions-root="${escAttr(group.root)}" data-agent-instructions-scope="${escAttr(group.scope || '')}"><div class="sidebar-agent-instructions-note">Loading…</div></div>
+        <div data-agent-skills-root="${escAttr(group.root)}" data-agent-skills-scope="${escAttr(group.scope || (group.label || '').replace(/ instructions$/, ''))}"></div>
       </div>`).join('');
   }
 
@@ -7266,24 +7267,52 @@
     return entry.pending;
   }
 
-  function _agentInstructionRowsHtml(files, root, scope = '') {
+  function _agentInstructionRowsHtml(files, root, scope = '', basename = false) {
     return files.filter(f => !scope || !f.broken).map(f => {
       const action = `openWorkspaceDoc(${JSON.stringify(f.path)}, {root:${JSON.stringify(root)}})`;
       const modalAction = `event.stopPropagation();openWorkspaceDocModal(${JSON.stringify(f.path)}, {root:${JSON.stringify(root)}})`;
       const activeCls = _workspaceDocRoot === root && _workspaceDocPath === f.path ? ' active' : '';
-      return `<a class="sidebar-file sidebar-file-meta${activeCls}${symlinkClass(f)}" data-filepath="${escAttr(f.path)}" draggable="true" data-entry-kind="file" data-entry-root="${escAttr(root)}" data-entry-path="${escAttr(f.path)}"${symlinkTitle(f) || ` title="${escAttr(root + '/' + f.path)}"`} onclick="${escAttr(action)}" ondblclick="${escAttr(modalAction)}"><span class="sidebar-fname">${fileIconHtml(f.name, f)}${esc(scope ? scope + ' ' + f.path : f.path)}</span></a>`;
+      return `<a class="sidebar-file sidebar-file-meta${activeCls}${symlinkClass(f)}" data-filepath="${escAttr(f.path)}" draggable="true" data-entry-kind="file" data-entry-root="${escAttr(root)}" data-entry-path="${escAttr(f.path)}"${symlinkTitle(f) || ` title="${escAttr(root + '/' + f.path)}"`} onclick="${escAttr(action)}" ondblclick="${escAttr(modalAction)}"><span class="sidebar-fname">${fileIconHtml(f.name, f)}${esc(scope ? scope + ' ' + f.path : basename ? f.name : f.path)}</span></a>`;
     }).join('') || (scope ? '' : '<div class="sidebar-agent-instructions-note">No instruction files here.</div>');
+  }
+
+  function _agentSkillRowsHtml(folders, root, scope = '', expanded = new Map()) {
+    const render = (entry, top = false) => {
+      if (entry.type !== 'dir') return _agentInstructionRowsHtml([entry], root, '', true);
+      const label = top ? `${scope ? scope + ' ' : ''}skills · ${entry.name}` : entry.name;
+      const title = root + '/' + entry.path + (entry.cycle ? ' · Link points to an ancestor folder' : '');
+      const open = expanded.get(entry.path) ?? top;
+      return `<details class="sidebar-agent-skills-folder" data-agent-skill-path="${escAttr(entry.path)}"${open ? ' open' : ''}><summary class="sidebar-file-meta${symlinkClass(entry)}" title="${escAttr(title)}" data-entry-kind="folder" data-entry-root="${escAttr(root)}" data-entry-path="${escAttr(entry.path)}" draggable="true"><span class="sidebar-fname"><span class="ft-icon ft-skill-folder" aria-hidden="true">📁</span>${symlinkMarker(entry)}${esc(label)}/</span></summary><div class="sidebar-agent-skills-children">${(entry.children || []).map(child => render(child)).join('')}${entry.unavailable ? '<div class="sidebar-agent-instructions-note">Folder unavailable.</div>' : ''}</div></details>`;
+    };
+    return folders.map(folder => render(folder, true)).join('');
+  }
+
+  function _populateAgentSkillRows(slot, folders, root, scope) {
+    if (!slot) return;
+    const signature = JSON.stringify(folders);
+    if (slot._skillsSignature === signature) return;
+    const states = _populateAgentSkillRows.expanded ||= new Map();
+    const expanded = new Map([...(states.get(root) || []), ...[...slot.querySelectorAll('[data-agent-skill-path]')].map(node => [node.dataset.agentSkillPath, node.open])]);
+    states.set(root, expanded);
+    slot.innerHTML = _agentSkillRowsHtml(folders, root, scope, expanded);
+    for (const node of slot.querySelectorAll('[data-agent-skill-path]')) node.addEventListener('toggle', () => expanded.set(node.dataset.agentSkillPath, node.open));
+    slot._skillsSignature = signature;
   }
 
   async function _populateAgentContextMeta(sidebar) {
     await Promise.all([_populateLabDocumentation(sidebar), ...[...sidebar.querySelectorAll('[data-agent-instructions-root]')].map(async slot => {
       const root = slot.dataset.agentInstructionsRoot;
       try {
-        const response = await fetch(`/api/agents/context/files?path=${encodeURIComponent(root)}`);
-        const files = await response.json();
-        if (!response.ok) throw new Error(files.detail || 'Could not load instruction files.');
+        const response = await fetch(`/api/agents/context/files?path=${encodeURIComponent(root)}&include_skills=true`);
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || 'Could not load instruction files and skills.');
+        const files = Array.isArray(data) ? data : data.files;
         // A folder switch may have replaced this slot while the request ran.
-        if (slot.isConnected) slot.innerHTML = _agentInstructionRowsHtml(files, root, slot.dataset.agentInstructionsScope);
+        if (slot.isConnected) {
+          slot.innerHTML = _agentInstructionRowsHtml(files, root, slot.dataset.agentInstructionsScope);
+          const skills = slot.parentElement?.querySelector('[data-agent-skills-root]');
+          _populateAgentSkillRows(skills, data.skills || [], root, skills?.dataset.agentSkillsScope);
+        }
       } catch (error) {
         if (slot.isConnected) slot.innerHTML = `<div class="sidebar-agent-instructions-note">${esc(error.message)}</div>`;
       }
@@ -10562,8 +10591,8 @@
       _sidebarRememberAvailableExtensions(fileEntries);
       _sidebarMaybeLogRecentDiagnostics(fileEntries, fileRoot);
 
-      // Framework documentation and scoped instructions belong in Meta. Workspace settings
-      // and local skills stay in Files, rooted at the selected folder/worktree.
+      // Meta keeps scoped instructions and skills reachable independently of
+      // the selected Files folder. Workspace settings remain in Files.
       const META_FILES = new Set(['AGENTS.md', 'agent.md', 'CLAUDE.md', '.github/copilot-instructions.md']);
       // Folders that should open automatically — docs is where 95% of the
       // reading lives, so showing it collapsed by default hides everything.

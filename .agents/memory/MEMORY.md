@@ -1,5 +1,7 @@
 # Memory index
 
+- [META includes scoped skill folders](meta-includes-scoped-skill-folders.md) — existing vault/workspace/Objective skill trees for Codex, Claude and Copilot, including all subfolders; supersedes the earlier no-skills rule.
+
 - [Closing parent tabs deletes children](closing-parent-tabs-deletes-children.md) — one explicit confirmation includes every folded/nested descendant, followed by recursive session and layout deletion.
 
 - [Automation launches wait five seconds](automation-launches-wait-five-seconds.md) — saved per-recipe delay, 5-second default, immediate first launch, CLI parity and duplicate-run protection.
@@ -610,7 +612,7 @@
 
 - [Terminal project/worktree links](terminal-project-worktree-links.md) — new terminals inherit the selected folder and cwd; file links cascade, unlink preserves scope, and colors coexist with recent highlights
 
-- [Meta is agent context, not skills](meta-is-agent-context-not-skills.md) — show the launch guide and local instructions; keep workspace skills and settings in Files
+- [Meta is agent context, not skills](meta-is-agent-context-not-skills.md) — historical rule, superseded by META includes scoped skill folders; settings remain in Files.
 
 - [Terminal tabs show project names](terminal-tabs-show-project-names.md) — default linked labels use the project; worktree/file details appear at the top of hover cards on tabs and the header
 
