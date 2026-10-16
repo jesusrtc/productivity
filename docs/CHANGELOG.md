@@ -5,6 +5,14 @@ guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 
 ## 2026-10-16
 
+### Faster notification-to-terminal activation
+
+- Notification clicks show and focus the terminal before graphics initialization,
+  avoiding a blocking first-open renderer setup. Output and input work immediately;
+  graphics acceleration follows the first output paint during browser idle time.
+- Exact session validation, workspace/Objective/task and linked-asset navigation,
+  persistent red requests, green review and destination highlighting are retained.
+
 ### Browse skill folders at every META level
 
 - META now shows existing skill directories for the vault, workspace, selected

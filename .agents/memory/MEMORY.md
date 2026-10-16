@@ -1,5 +1,7 @@
 # Memory index
 
+- [Notification arrival paints before graphics setup](notification-arrival-paints-before-gpu.md) — connect and paint output before idle GPU initialization; retain live incarnation validation and exact navigation.
+
 - [META includes scoped skill folders](meta-includes-scoped-skill-folders.md) — existing vault/workspace/Objective skill trees for Codex, Claude and Copilot, including all subfolders; supersedes the earlier no-skills rule.
 
 - [Closing parent tabs deletes children](closing-parent-tabs-deletes-children.md) — one explicit confirmation includes every folded/nested descendant, followed by recursive session and layout deletion.

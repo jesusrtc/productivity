@@ -11724,7 +11724,7 @@
       }
     }
     // The mounted-session fast path also cancels an older pending attach.
-    await termAttach(name, workspaceId);
+    await termAttach(name, workspaceId, {deferWebgl:options.deferWebgl});
   }
 
   function _termHomeAssociationHtml(session) {
@@ -15915,7 +15915,7 @@
     else _termRememberVisibility(_termVisibilityKey(), true);
     termStartPeriodicRefresh();
     const linked = window.LabObjectives?.openForTerminal(session);
-    await _termActivateTab(session.name, {openDocument:!linked});
+    await _termActivateTab(session.name, {openDocument:!linked, deferWebgl:true});
     return sameScope() && termCurrentSession === session.name ? session : null;
   }
   window.LabTerminalNotifications?.configure({
@@ -17516,10 +17516,38 @@
   // Any failure (no WebGL, context-limit hit, context loss) falls back to
   // the DOM renderer silently — rendering correctness is unaffected.
   let _termWebglFailed = false;  // hard failure → stop retrying this page-load
-  function _termEnableWebgl() {
+  function _termEnableWebgl(afterPaint = false) {
     if (_termWebglFailed || !termXterm || typeof WebglAddon === 'undefined') return;
     const xt = termXterm;
     if (xt._webglAddon) return;
+    if (afterPaint) {
+      if (xt._labWebglPending) return;
+      const pending = xt._labWebglPending = {};
+      const container = termContainer;
+      // Notification arrival must paint the terminal's output before GPU
+      // atlas/shader setup. The DOM renderer is fully usable in the meantime.
+      afterFirstPaint(() => {
+        if (xt._labWebglPending !== pending) return;
+        const enable = () => {
+          if (xt._labWebglPending !== pending) return;
+          xt._labWebglPending = null;
+          if (termXterm === xt && termContainer === container && container?.isConnected) {
+            const cols = xt.cols, rows = xt.rows;
+            _termEnableWebgl();
+            // DOM and WebGL round cell widths differently. Fit the final
+            // renderer without clearing output or sending any input bytes.
+            try {
+              termFitAddon?.fit();
+              if (xt.cols !== cols || xt.rows !== rows) termSendResize();
+            } catch {}
+          }
+        };
+        if (window.requestIdleCallback) window.requestIdleCallback(enable, {timeout:1000});
+        else setTimeout(enable, 0);
+      });
+      return;
+    }
+    xt._labWebglPending = null;
     let addon;
     try {
       addon = new WebglAddon.WebglAddon();
@@ -17539,6 +17567,7 @@
     }
   }
   function _termDisableWebgl(xt) {
+    if (xt) xt._labWebglPending = null;
     const addon = xt?._webglAddon;
     if (!addon) return;
     xt._webglAddon = null;
@@ -17833,7 +17862,7 @@
     }
   }
 
-  async function termAttach(name, workspaceId = _termActiveWorkspaceId()) {
+  async function termAttach(name, workspaceId = _termActiveWorkspaceId(), {deferWebgl = false} = {}) {
     workspaceId = workspaceId || _termActiveWorkspaceId();
     console.log('[term] termAttach', name, 'workspace=', workspaceId, 'currentSession=', termCurrentSession, 'currentWorkspace=', termCurrentWorkspaceId, 'cacheHas=', _termCache.has(_termCacheKey(workspaceId, name)));
     if (!name || !workspaceId) return;
@@ -18002,7 +18031,11 @@
           // Resolve the live xterm at write-time — not a closure-captured
           // reference. See _openWS comment for the regression context.
           const xt = _xtermFor(name, workspaceId);
-          if (xt) xt.write(_termStripModes(msg.data));
+          if (xt) xt.write(_termStripModes(msg.data), deferWebgl && !xt._webglAddon && !_termWebglFailed ? () => {
+            // Wait for the first real output, rather than an empty pane, before
+            // scheduling graphics setup. Parked sockets must not activate it.
+            if (xt === termXterm && !isParked() && !isStale()) _termEnableWebgl(true);
+          } : undefined);
         } else if (msg.type === 'exit') {
           // If this WS is parked (we're viewing a different session /
           // workspace), don't surface the exit. The user has no UI for
@@ -18071,7 +18104,7 @@
       termCurrentWorkspaceId = workspaceId;
       _termCache.delete(scopeKey);
       _termShowPane(termContainer);
-      _termEnableWebgl();
+      _termEnableWebgl(deferWebgl);
       try { termFitAddon.fit(); } catch {}
       _termFocusActiveSoon();
       // Do NOT send resize here — SIGWINCH causes Claude TUI to redraw and
@@ -18094,7 +18127,7 @@
       termCurrentWorkspaceId = workspaceId;
       _termCache.delete(scopeKey);
       _termShowPane(termContainer);
-      _termEnableWebgl();
+      if (!deferWebgl) _termEnableWebgl();
       try { termFitAddon.fit(); } catch {}
       _termFocusActiveSoon();
       // Reconnect without clobbering claude's in-progress input: see _openWS.
@@ -18161,7 +18194,7 @@
     } catch {}
     // Enable the GPU renderer once the pane is visible (the addon reads
     // cell metrics from the live DOM, so it must come after display:block).
-    _termEnableWebgl();
+    if (!deferWebgl) _termEnableWebgl();
     termXterm.clear();
     _openWS(true);
   }

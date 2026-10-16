@@ -456,6 +456,13 @@ terminals and children that inherit a parent's task. **Task assets** stay
 accessible and the exact notifying terminal stays selected. Explicit task
 ownership takes priority if an asset points to a different Objective.
 
+Notification clicks connect and display the selected terminal before initializing
+its graphics accelerator. The terminal accepts input and renders output during
+that setup; acceleration resumes after the first output paint when the browser
+is idle. Live-session validation, task/asset navigation and review behavior are
+preserved. This removes graphics startup from the click's critical path, with a
+local click-to-visible-terminal target below 200 ms.
+
 Green **Finished** messages stay until reviewed by click or replaced by a newer
 terminal status; they do not expire, including across page reloads.
 Clicking one opens that terminal and reviews the displayed finish, clearing its

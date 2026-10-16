@@ -198,3 +198,31 @@ assert.deepEqual(b.repaints, []);
 termXterm = b; _termEnableWebgl();
 assert.equal(created, failure === 'disposed' ? 2 : 1); assert.equal(disposed, 1);
 '''.replace('FAILURE', json.dumps(failure)), source)
+
+
+@pytest.mark.parametrize('cancel', ['park', 'switch', 'remove', 'immediate', 'none'])
+def test_deferred_gpu_waits_for_paint_and_does_not_activate_an_old_pane(cancel):
+    source = section('  let _termWebglFailed', '  function termShowEmpty()')
+    source = source.replace('function _termDisableWebgl(', 'function disableGpu(')
+    source = source.replace('_termDisableWebgl(', 'disableGpu(')
+    run(r'''
+let created=0;
+const painted=[],idle=[];
+const afterFirstPaint=fn=>painted.push(fn);
+window.requestIdleCallback=fn=>idle.push(fn);
+const WebglAddon={WebglAddon:class {constructor(){created++;}onContextLoss(){}dispose(){}}};
+const a=termXterm={loadAddon(){},refresh(){},rows:20};
+const host=termContainer={isConnected:true};
+_termEnableWebgl(true);_termEnableWebgl(true);
+assert.equal(created,0);assert.equal(painted.length,1);assert.equal(idle.length,0);
+painted.shift()();
+assert.equal(created,0);assert.equal(idle.length,1);
+const cancel=CANCEL;
+if(cancel==='park')disableGpu(a);
+if(cancel==='switch')termXterm={loadAddon(){throw Error('wrong owner');}};
+if(cancel==='remove')host.isConnected=false;
+if(cancel==='immediate')_termEnableWebgl();
+idle.shift()();
+assert.equal(created,['none','immediate'].includes(cancel)?1:0);
+assert.equal(a._labWebglPending,null);
+'''.replace('CANCEL', json.dumps(cancel)), source)

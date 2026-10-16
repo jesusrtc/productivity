@@ -122,7 +122,7 @@ def _check_terminal_page(tmp_path, scripts, checks, *, gpu=False):
     assert result and result[1] == 'PASS', result[1] if result else rendered[-1000:]
 
 
-@pytest.mark.parametrize('renderer', ['dom', 'webgl', 'webgl-failure'])
+@pytest.mark.parametrize('renderer', ['dom', 'webgl', 'webgl-failure', 'webgl-deferred'])
 def test_fresh_terminal_has_fitted_geometry_before_connection(tmp_path, renderer):
     gpu = renderer != 'dom'
     source = APP.read_text()
@@ -140,6 +140,7 @@ def test_fresh_terminal_has_fitted_geometry_before_connection(tmp_path, renderer
         helpers += 'function _termEnableWebgl() {}\nfunction _termDisableWebgl() {}\n'
     helpers += 'const USE_GPU=' + str(gpu).lower() + ';\n'
     helpers += 'const RENDERER_MODE=' + repr(renderer) + ';\n'
+    helpers += section('  function afterFirstPaint(', '  function afterPageQuiet(')
     fresh = section('    const myContainer = _termMakeContainer();', '\n  function termSetStatus')
     # The extracted block ends with termAttach's closing brace.
     fresh = fresh.rsplit('  }', 1)[0]
@@ -152,6 +153,13 @@ def test_fresh_terminal_has_fitted_geometry_before_connection(tmp_path, renderer
 const errors=[];window.addEventListener('error',e=>errors.push(e.message));
 const assert=(ok,label)=>{if(!ok)throw Error(label);};
 const frame=()=>new Promise(resolve=>requestAnimationFrame(resolve));
+const deferWebgl=RENDERER_MODE==='webgl-deferred';
+const idle=[];
+if(deferWebgl){
+  const requestIdle=window.requestIdleCallback.bind(window);
+  // Keep xterm's own idle work running with native IdleDeadline objects.
+  window.requestIdleCallback=(callback,options)=>options?.timeout===1000?idle.push(callback):requestIdle(callback,options);
+}
 if(RENDERER_MODE==='webgl-failure') {
   const getContext=HTMLCanvasElement.prototype.getContext;
   HTMLCanvasElement.prototype.getContext=function(kind,...args) {
@@ -160,8 +168,8 @@ if(RENDERER_MODE==='webgl-failure') {
 }
 let termXterm,termFitAddon,termContainer,termWS=null;
 const termCurrentSession='owned',termCurrentWorkspaceId='alpha';
-let connections=0,connectionGrid;
-function termSendResize() {}
+let connections=0,connectionGrid,resizes=0;
+function termSendResize() {resizes++;}
 function _openWS() {
   const dims=termFitAddon.proposeDimensions();
   assert(dims&&dims.cols>2&&dims.rows>2,'connection must not wait for a font measurement frame');
@@ -181,7 +189,7 @@ function freshPane(name,workspaceId) {
     _termGuardViewportDisposal(termXterm);
     termFitAddon=new FitAddon.FitAddon();termXterm.loadAddon(termFitAddon);
     freshPane('owned','alpha');
-    const gpuExpected=USE_GPU&&RENDERER_MODE!=='webgl-failure';
+    const gpuExpected=USE_GPU&&RENDERER_MODE!=='webgl-failure'&&!deferWebgl;
     assert(!!termXterm._webglAddon===gpuExpected,'active renderer must match requested/fallback mode');
     if(RENDERER_MODE==='webgl-failure')assert(_termWebglFailed,'GPU failure must latch the DOM fallback');
     const renderedGrid=termFitAddon.proposeDimensions();
@@ -190,6 +198,19 @@ function freshPane(name,workspaceId) {
     await frame();await frame();
     assert(termXterm.buffer.active.getLine(0).translateToString(true)==='ready 中 e\u0301','first output changed');
     assert(document.activeElement===termXterm.textarea,'active terminal did not receive focus');
+    if(deferWebgl){
+      _termEnableWebgl(true);
+      for(let i=0;i<100&&!idle.length;i++)await new Promise(resolve=>setTimeout(resolve,5));
+      assert(!termXterm._webglAddon&&idle.length===1,'output paints before graphics initialization');
+      const beforeResizes=resizes;
+      idle.shift()();
+      assert(termXterm._webglAddon,'graphics acceleration is retained after arrival');
+      assert(termXterm.buffer.active.getLine(0).translateToString(true)==='ready 中 e\u0301','renderer handoff preserves output');
+      const after=termFitAddon.proposeDimensions();
+      assert(after.cols===termXterm.cols&&after.rows===termXterm.rows,'final renderer must fit its visible panel');
+      assert(resizes-beforeResizes===(after.cols!==connectionGrid.cols||after.rows!==connectionGrid.rows?1:0),'only a changed renderer grid sends a resize');
+      assert(document.activeElement===termXterm.textarea,'renderer handoff preserves focus');
+    }
     _termDisableWebgl(termXterm);termXterm.dispose();termContainer.remove();
     await frame();await frame();
   }

@@ -88,6 +88,7 @@ assert(await _termOpenNotification(item)===target,'opens exact session');
 assert(calls[0][1]==='/owner/demo','same-named workspace in another vault is not selected');
 assert(calls[1][0]==='objective'&&calls[1][1]==='exact-objective'&&!calls[1][2].activateTerminal,'selects Objective without starting its main');
 assert(calls[2][1]===target.name,'activates requested terminal');
+assert(calls[2][2].deferWebgl,'notification arrival renders before graphics setup');
 let release;refresh=()=>new Promise(resolve=>release=resolve);
 const pending=_termOpenNotification(item);await Promise.resolve();
 scope={workspace_id:'elsewhere',vault:'owner'};navLocation.href='/elsewhere';release();
@@ -222,7 +223,7 @@ window.LabMarkdownEditor={create:(node,options)=>{node.textContent=options.body;
 const errors=[],activated=[],created=[],opened=[];let fileRoot='/workspace';
 const _termHideSessionTooltip=()=>{},termCloseGroupMenu=()=>{},_termSelectTab=()=>{},explorerToast=message=>errors.push(message);
 const termDeadSessions=new Set(),_termIsScopeActive=id=>id===scope.workspace_id,_termCancelPendingLinkedFileOpen=()=>{};
-const termAttach=async name=>{termCurrentSession=name},_termOpenLinkedFile=()=>{throw Error('Unexpected file fallback')};
+const termAttach=async(name,workspace,options)=>{termCurrentSession=name;calls.push(['attach',name,options]);},_termOpenLinkedFile=()=>{throw Error('Unexpected file fallback')};
 window.LabExternalLinks={open:(url,options)=>opened.push(['url',url,options])};
 window.addEventListener('error',e=>errors.push(e.message));window.addEventListener('unhandledrejection',e=>errors.push(String(e.reason)));
 '''
@@ -242,7 +243,7 @@ window.addEventListener('error',e=>errors.push(e.message));window.addEventListen
  assert(opened.at(-1)?.[0]==='folder','linked folder opens while keeping task assets');
  N.configure({open:_termOpenNotification,label:row=>row.session.logical_name,error:message=>errors.push(message)});
  N.update({'owner::demo':[target,child]});
- const open=async s=>{const button=[...document.querySelectorAll('.term-notification')].find(node=>node.dataset.key===C.key(s));assert(button,'notification exists');button.click();await until(()=>termCurrentSession===s.name&&!document.querySelector('.term-notification:disabled'));};
+ const open=async s=>{const button=[...document.querySelectorAll('.term-notification')].find(node=>node.dataset.key===C.key(s));assert(button,'notification exists');button.click();await until(()=>termCurrentSession===s.name&&!document.querySelector('.term-notification:disabled'));assert(calls.filter(row=>row[0]==='attach').at(-1)?.[2].deferWebgl,'notification passes deferred rendering through real tab activation');};
  const checkTask=()=>{
   const context=O.terminalLaunchContext();
   assert(context.id==='owning'&&context.task?.id==='nested','owning Objective and exact nested task are selected');
@@ -266,7 +267,7 @@ window.addEventListener('error',e=>errors.push(e.message));window.addEventListen
  await O.load(undefined,true);checkTask();
 
  // Exercise the real terminal-rail click listener, not just the navigation helper.
- const clickTab=async s=>{mountTab(s);document.querySelector('#terminalRail [data-name]').click();await until(()=>termCurrentSession===s.name);};
+ const clickTab=async s=>{mountTab(s);document.querySelector('#terminalRail [data-name]').click();await until(()=>termCurrentSession===s.name);assert(!calls.filter(row=>row[0]==='attach').at(-1)?.[2].deferWebgl,'ordinary tab keeps its renderer policy');};
  const owner=fixture.objectives[1];
  owner.resources.push({id:'analysis',kind:'notebook',title:'Analysis notebook',path:'owning/analysis.ipynb'},
   {id:'notes',kind:'document',title:'Notes',path:'owning/notes.md',content:{tabs:[{id:'result',title:'Results',body:'Exact linked results'},{id:'other',title:'Other',body:'Wrong tab'}]}},

@@ -57,6 +57,30 @@ applies to named worktree terminals and legacy merged tabs. Colored location
 markers retain full folder details in their tooltips. Unnamed worktree terminals
 can still use the worktree as their fallback name.
 
+## Notification navigation
+
+Red attention and green finished cards open the exact reporting terminal,
+including its owning workspace, Objective, task and linked asset. Each click
+still checks the live session incarnation before activation or green review.
+The destination tab scrolls into view and pulses; red requests remain visible.
+
+For notification arrivals, the terminal connects at its fitted size and paints
+output using its DOM renderer first. Graphics atlas and shader initialization
+run after the first output paint in browser idle time, so they do not block
+activation. Cached panes use the same deferred graphics handoff. Input, output,
+focus and the terminal buffer are retained, with the existing DOM fallback on
+graphics failure. Parking, removing or switching away from a pane cancels its
+pending initialization. The local click-to-visible-terminal target is below
+200 ms; ordinary terminal-tab activation keeps its existing renderer policy.
+
+In a source checkout with Lab running and an existing Home notification, run
+`core/.venv/bin/python scripts/perf/lab_notification_latency.py` from the checkout
+root. The probe clicks real cards in three disposable Chrome profiles and keeps
+all samples, including uncached first opens. It checks the exact session, visible
+output and keyboard focus after a paint opportunity. It sends no terminal input,
+disables automatic session creation in its profiles and leaves the user's browser
+review state untouched. `--output /absolute/path/results.json` retains the timings.
+
 ## Terminal automations
 
 Closing a parent tab confirms deletion of its full terminal family before
