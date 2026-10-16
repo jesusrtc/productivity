@@ -48,6 +48,7 @@ def test_cli_operates_link_modal_drag_workspace_terminal_label_and_automation(cl
     automation_launch=app_source[app_source.index('  async function _termLaunchAutomation('):app_source.index('  async function _termPasteTaskContext(')]
     primary_action=app_source[app_source.index('  const _termPrimaryChanges ='):app_source.index('  function _termSubtabRenderer(')]
     tab_menu=app_source[app_source.index('  function termOpenTabMenu('):app_source.index('  function termOpenSelectedTabsMenu(')]
+    close_tabs=app_source[app_source.index('  const _termCloseTabsPending'):app_source.index('  function _termSessionDisplay(s)')]
     new_automation=next(line for line in (STATIC.parent/'templates/index.html').read_text().splitlines() if 'id="termNewAutomation"' in line)
     patch_links=app_source[app_source.index('  async function _termPatchLinks('):app_source.index('  window.LabTaskTerminalBridge =')]
     navigation=app_source[app_source.index('  function goToWorkspace('):app_source.index('  // Navigate to a workspace by its id')]
@@ -65,7 +66,9 @@ const _termSessionsCache=new Map(),_termSessionsKey=(w,v)=>w+'::'+v,termRenderSe
 let termSessionWidth=180,termSessionOrientation='vertical';const _TERM_SESSION_WIDTH_KEY='cli-test-width',_termSessionWidthBounds=()=>({min:160,max:220}),_termApplySessionView=()=>{document.querySelector('#termSessionList').style.width=termSessionWidth+'px'};
 let automationGroup={order:[],tabParents:{},tabRoots:[],tabAfter:{},tabMembership:{},tabGroups:[],tabDisplayMains:{}};
 const _termGroupScopeKey=()=>_termSessionsKey('demo',null),_termReadGroupState=()=>structuredClone(automationGroup),_termWriteGroupState=state=>{automationGroup=state};
-const _termHomeSection=()=>null,_termInvalidateSessionReads=()=>{},termSetAutoSpawnEnabled=async()=>{},_termRefreshSessionsForWorkspaceId=async()=>{};
+const _termHomeSection=()=>null,_termInvalidateSessionReads=()=>{},termSetAutoSpawnEnabled=async()=>{};
+let _termRefreshSessionsForWorkspaceId=async()=>{};
+const _vaultQuery=()=>'',_termEvictCache=()=>{},termDetach=()=>{termCurrentSession=null;},termShowEmpty=()=>{};
 window.LabSettingsBridge={currentScope:()=>({id:'demo',path:FIX.folder,label:'Demo',vault:null})};
 const termSessEsc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const _termSessionDisplay=s=>s.label||s.logical_name,_termSessionRecentMeta=()=>null,_termSessionIsWorking=()=>false,_termSessionSummary=()=>'',_termSessionTooltipPayload=()=> '{}',_termSessionContext=()=>({label:'Requests'}),_termSessionAssociationHtml=()=>'',_termRecentScopeKey=()=> 'demo',termDeadSessions=new Set(),_termSubtabParents=()=>automationGroup.tabParents;
@@ -95,7 +98,7 @@ LabObjectives.load().then(()=>LabObjectives.selectObjective(FIX.oid));
     page+='<button id="asset-picker" onclick="LabObjectives.chooseTerminalAsset(termSessions.find(t=>t.name===termCurrentSession))">Link to asset…</button>'
     page+='<div id="termNewPicker">'+new_automation+'</div>'
     page+='<div id="termPanel"><div id="termSessionSwitcher" class="term-tabs-open"><div id="termSessionList" style="width:180px">Terminal rail</div><div id="termSessionsResizer" role="separator" tabindex="0" aria-label="Resize terminal tabs" style="width:5px;height:30px"></div></div></div>'
-    page+='<script>'+file_icon+setup+patch_links+navigation+resize+automation_launch+terminal_create+primary_action+tab_menu+terminal_visual+terminal_pill+'_termInitSessionResize();'+hooks+'</script>'
+    page+='<script>'+file_icon+setup+patch_links+navigation+resize+automation_launch+terminal_create+primary_action+tab_menu+close_tabs+terminal_visual+terminal_pill+'_termInitSessionResize();'+hooks+'</script>'
     app=client.app
     @app.get('/_cli-test',include_in_schema=False)
     def fixture_page(): return HTMLResponse(page)
@@ -254,6 +257,22 @@ const fs=require('node:fs'),{execFileSync}=require('node:child_process');
  ui('command','objective-select','--json',JSON.stringify({objective:added.id}));
  assert(await evaluate(`LabObjectives.terminalLaunchContext().id===${JSON.stringify(added.id)}`),'UI navigation sees an API-created Objective immediately');
  const opened=cli('workspace','open','demo','--client',view.id);assert(opened.workspace==='demo'&&await evaluate(`document.querySelector('#view-status').textContent===FIX.folder&&new URL(location.href).searchParams.get('workspace')===FIX.folder`),'workspace command awaits real in-page navigation');
+ // Closing the automation primary must explicitly confirm and purge all descendants.
+ const nested=cli('api','call','POST','/api/term/sessions','--json',JSON.stringify({workspace_id:'demo',kind:'terminal',name:'close-nested'}));
+ await evaluate(`termSessions.push(${JSON.stringify(nested)});automationGroup.tabParents[${JSON.stringify(nested.logical_name)}]=${JSON.stringify(launched[0].logical_name)};termCurrentSession=${JSON.stringify(launched[1].name)};
+ _termRefreshSessionsForWorkspaceId=async()=>{termSessions=await fetch('/api/term/sessions?workspace_id=demo').then(r=>r.json())};`);
+ const groupNames=[launched[0].name,launched[1].name,nested.name];
+ ui('click','#terminal-menu');const rejected=ui('click','[data-action=close]');
+ assert(rejected.native_dialogs.some(dialog=>JSON.stringify(dialog).includes('All 2 child terminals')),'native confirmation explicitly includes nested children');
+ let live=cli('api','call','GET','/api/term/sessions','--query','workspace_id=demo');
+ assert(groupNames.every(name=>live.some(row=>row.name===name)),'cancel keeps every group process and tab');
+ ui('click','#terminal-menu');ui('click','[data-action=close]','--confirm','yes');
+ for(let i=0;i<200;i++){if(await evaluate(`_termCloseTabsPending.size===0`))break;await new Promise(r=>setTimeout(r,30));}
+ live=cli('api','call','GET','/api/term/sessions','--query','workspace_id=demo');
+ const savedSessions=cli('api','call','GET','/api/term/sessions/saved','--query','workspace_id=demo');
+ assert(groupNames.every(name=>!live.some(row=>row.name===name))&&live.some(row=>row.name===extras[0].name),'confirmed close kills the full family and preserves independent task terminals');
+ assert([launched[0].logical_name,launched[1].logical_name,nested.logical_name].every(logical=>!savedSessions.some(row=>row.name===logical)),'deleted children stay removed from saved sessions after reload');
+ assert(await evaluate(`!Object.keys(automationGroup.tabParents).length`),'closed hierarchy is removed from the browser layout');
  ws.close();console.log('PASS');
 })().catch(e=>{console.error(e.stack);process.exit(1)});
 '''

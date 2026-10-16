@@ -39,6 +39,7 @@ const _termSessionsKey = (workspace, vault) => vault + '::' + workspace;
 const groups=new Map();
 const _termReadGroupState=key=>structuredClone(groups.get(key)||{order:[],tabParents:{},tabAfter:{},tabRoots:[],tabMembership:{}});
 const _termWriteGroupState=(state,key)=>groups.set(key,structuredClone(state));
+const _termSubtabParents=state=>state.tabParents,_termDisplayMains=()=>new Map();
 const _vaultQuery = vault => '&vault=' + encodeURIComponent(vault);
 const _termSelectedScope = () => ({root: '/project', project_root: '/project'});
 let chooseScope = async scope => scope;

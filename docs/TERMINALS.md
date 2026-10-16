@@ -59,6 +59,17 @@ can still use the worktree as their fallback name.
 
 ## Terminal automations
 
+Closing a parent tab confirms deletion of its full terminal family before
+stopping anything. The question includes the number of child terminals, counting
+folded children and nested descendants. Confirming deletes children before the
+parent, purges their saved sessions and removes their browser layout entries;
+Cancel preserves them all. Automation groups, ordinary subterminals and merged
+parent tabs follow the same rule. Closing a child with descendants affects its
+own branch. Attached external sessions are detached from Lab. Failed deletions
+are reported, and successful closes remain removed. Use **Close tab** in the
+terminal menu or the current-terminal close action; `lab ui` exposes the same
+confirmation, with `--confirm yes` to approve it.
+
 Configure saved command groups in **Settings → workspace → Terminal automations**.
 The workspace's **Terminal sessions** section also has a shortcut. Each automation
 has a name and an ordered list of terminals, each with a terminal name,

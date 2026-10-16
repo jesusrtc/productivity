@@ -1,5 +1,7 @@
 # Memory index
 
+- [Closing parent tabs deletes children](closing-parent-tabs-deletes-children.md) — one explicit confirmation includes every folded/nested descendant, followed by recursive session and layout deletion.
+
 - [Automation launches wait five seconds](automation-launches-wait-five-seconds.md) — saved per-recipe delay, 5-second default, immediate first launch, CLI parity and duplicate-run protection.
 
 - [Child terminal expansion is saved](child-terminal-expansion-is-saved.md) — visible-name arrow pins children open per browser/workspace/vault, with temporary hover and reload persistence.

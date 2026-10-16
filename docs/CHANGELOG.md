@@ -5,6 +5,15 @@ guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 
 ## 2026-10-16
 
+### Confirm deletion of a whole terminal family
+
+- Closing a parent tab now warns that all child terminals will also be deleted,
+  including their count. Cancel stops nothing; confirmation closes the complete
+  branch, including folded and nested children, and purges saved tabs and layout.
+- Automation groups, ordinary subterminals, merged parent tabs and the
+  current-terminal close action share this behavior. The same confirmation is
+  available through `lab ui`.
+
 ### Space automation launches and remember expanded terminal groups
 
 - Added **Seconds between launches** to each automation, defaulting to 5 for

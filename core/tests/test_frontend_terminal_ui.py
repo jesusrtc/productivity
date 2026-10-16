@@ -2626,6 +2626,7 @@ def test_context_close_targets_only_requested_tabs_and_keeps_scope(mode: str) ->
 const mode = MODE;
 let vault = 'one', termCurrentSession = 'active';
 let termSessions = [{name:'active'}, {name:'background'}];
+const _termReadGroupState=()=>({}),_termSubtabParents=()=>({}),_termDisplayMains=()=>new Map();
 const calls = [], alerts = [];
 const _termVaultId = () => vault;
 const _termActiveWorkspaceId = () => 'demo';

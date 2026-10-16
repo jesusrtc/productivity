@@ -14292,7 +14292,7 @@
         else if (action.startsWith('group:')) termAssignTabGroup(sessionName, action.slice(6));
         else if (action === 'ungroup') termAssignTabGroup(sessionName, null);
         else if (action === 'before' || action === 'after') termCreateDivider(sessionName, action);
-        else if (action === 'close') void termCloseTabs([sessionName]);
+        else if (action === 'close') void termCloseTabs([parentSession?.name || sessionName]);
         else if (action === 'close-group') void termCloseTabGroup(membership);
       });
   }
@@ -14368,11 +14368,54 @@
   }
 
   const _termCloseTabsPending = new Set();
+  function _termCloseTabPlan(names) {
+    const state = _termReadGroupState(), parents = _termSubtabParents(state);
+    const rows = new Map(termSessions.map(session => [session.logical_name, session]));
+    const merged = new Map([..._termDisplayMains(state, termSessions, parents)].map(([parent, child]) => [child, parent]));
+    const selected = new Set(names.map(name => {
+      const session = termSessions.find(row => row.name === name);
+      const parent = merged.get(session?.logical_name);
+      return parent ? rows.get(parent)?.name || name : name;
+    }));
+    const logicals = new Set(termSessions.filter(row => selected.has(row.name)).map(row => row.logical_name).filter(Boolean));
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const [child, parent] of Object.entries(parents)) {
+        if (logicals.has(parent) && !logicals.has(child)) { logicals.add(child); changed = true; }
+      }
+    }
+    const children = termSessions.filter(row => logicals.has(row.logical_name) && logicals.has(parents[row.logical_name]));
+    const depth = name => {
+      let parent = parents[termSessions.find(row => row.name === name)?.logical_name], count = 0;
+      while (parent) { count++; parent = parents[parent]; }
+      return count;
+    };
+    const all = [...new Set([...selected, ...termSessions.filter(row => logicals.has(row.logical_name)).map(row => row.name)])];
+    return {names: all.sort((a, b) => depth(b) - depth(a)), childCount: children.length};
+  }
+
+  function _termForgetClosedTabs(names, scope, sessions) {
+    const logicals = new Set(sessions.filter(row => names.includes(row.name)).map(row => row.logical_name).filter(Boolean));
+    if (!logicals.size) return;
+    const state = _termReadGroupState(scope);
+    for (const field of ['tabParents','tabAfter','tabDisplayMains']) for (const [child, parent] of Object.entries(state[field] || {})) {
+      if (logicals.has(child) || logicals.has(parent)) delete state[field][child];
+    }
+    for (const field of ['tabMembership','membership','tabExpanded']) for (const logical of logicals) {
+      if (state[field]) delete state[field][logical];
+    }
+    state.order = (state.order || []).filter(token => !logicals.has(token.slice(2)));
+    state.tabRoots = (state.tabRoots || []).filter(logical => !logicals.has(logical));
+    _termWriteGroupState(state, scope);
+  }
+
   async function termCloseTabs(names, groupName = '') {
     const workspaceId = _termActiveWorkspaceId(), vaultId = _termVaultId();
     const scope = _termSessionsKey(workspaceId, vaultId);
     if (!workspaceId || !names.length || _termCloseTabsPending.has(scope)) return false;
-    names = [...new Set(names)];
+    const sessions = [...termSessions], plan = _termCloseTabPlan(names);
+    names = plan.names;
     if(names.some(name=>window.LabObjectives?.terminalMain?.(termSessions.find(s=>s.name===name)))){
       explorerToast('Workflow and Objective main terminals stay fixed.');return false;
     }
@@ -14381,12 +14424,13 @@
       return false;
     }
     const label = groupName ? `group "${groupName}" (${names.length} tabs)`
-      : names.length > 1 ? `${names.length} selected terminal tabs` : 'this terminal tab';
-    if (!confirm(`Close ${label}? Running work will stop and closed tabs will stay closed after reload. External sessions will only be detached from Lab.`)) return false;
+      : names.length > 1 ? `${names.length} terminal tabs` : 'this terminal tab';
+    const childWarning = plan.childCount ? ` All ${plan.childCount} child terminal${plan.childCount === 1 ? '' : 's'}, including nested children, will also be deleted.` : '';
+    if (!confirm(`Close ${label}?${childWarning} Running work will stop and closed tabs will stay closed after reload. External sessions will only be detached from Lab.`)) return false;
     const isActive = () => workspaceId === _termActiveWorkspaceId() && vaultId === _termVaultId();
     _termInvalidateSessionReads(scope);
     _termCloseTabsPending.add(scope);
-    const failures = [];
+    const failures = [], closed = [];
     try {
       const setting = await fetch('/api/ui/term-autospawn', {method: 'POST', headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({workspace_id: workspaceId, vault: vaultId, enabled: false})});
@@ -14399,6 +14443,7 @@
             throw new Error(result.detail || response.statusText || 'Request failed');
           }
           window.labFeatureUsage?.('Close terminal (secondary click)');
+          closed.push(name);
           if (isActive() && termCurrentSession === name) termDetach();
           _termEvictCache(name, workspaceId);
         } catch (error) { failures.push(`${name}: ${error.message}`); }
@@ -14410,6 +14455,7 @@
       alert('Could not close all selected tabs: ' + error.message);
       return false;
     } finally {
+      _termForgetClosedTabs(closed, scope, sessions);
       _termCloseTabsPending.delete(scope);
       if (isActive()) {
         await _termRefreshSessionsForWorkspaceId(workspaceId);
@@ -16867,6 +16913,7 @@
     const vaultId = typeof _termVaultId === 'function' ? _termVaultId() : null;
     const session = (termSessions || []).find(s => s && s.name === termCurrentSession);
     if(window.LabObjectives?.terminalMain?.(session)){explorerToast('Workflow and Objective main terminals stay fixed.');return;}
+    if (session && _termCloseTabPlan([session.name]).names.length > 1) return termCloseTabs([session.name]);
     const isAttached = session && session.kind === 'attached';
     const question = isAttached
       ? 'Detach ' + (session.logical_name || termCurrentSession) + ' from Lab? The original tmux session will keep running.'

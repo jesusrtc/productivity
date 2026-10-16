@@ -263,6 +263,15 @@ still reveals children temporarily after one second and never changes the saved
 choice. Existing active-family and In progress visibility rules still apply.
 Agents can use `lab ui inspect` and click the parent's `[data-subtab-pin]` control.
 
+Closing a parent terminal tab asks for confirmation that **all child terminals
+will also be deleted**, with their count. Confirming closes the whole family,
+including folded and nested children, and removes its saved tabs and layout.
+Cancel leaves the family running. This applies to automation groups, other
+parent/child tabs and merged parent tabs, whether using **Close tab** or the
+current-terminal close action. Attached external sessions are detached from Lab.
+Agents can use the same menu and confirmation through `lab ui`; an unanswered
+confirmation cancels the close, and `--confirm yes` approves the displayed action.
+
 To change a terminal group's primary, secondary-click a child terminal →
 **Make primary**. It takes its immediate parent's position, with the previous
 primary and its other children beneath it. If the parent owns the task or a
