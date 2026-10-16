@@ -13859,6 +13859,8 @@
     let position = 0;
     const rows = new Map(sessions.map((session, index) => [session.logical_name, {session, index}]));
     const displayPill = (session, index) => {
+      const appearance=window.LabTerminalAutomations?.inheritedAppearance?.(session,sessionsByLogical,parents);
+      if(appearance&&appearance!==session.automation_appearance)session={...session,automation_appearance:appearance};
       if (parents[session.logical_name]) session = {...session, terminal_child:true};
       if (!mains.has(session.logical_name)) return pill(session, index);
       const child = sessionsByLogical.get(mains.get(session.logical_name));
@@ -14793,7 +14795,7 @@
       kind,
       agent,
       badge: kind === 'claude' ? (agent || 'claude') : kind,
-      icon: window.LabObjectives?.terminalAsset?.(s)?.icon || (s?.linked_file?.activate ? fileIconHtml(linked) : s?.linked_task?.document_id ? '<span class="term-document-icon" aria-hidden="true">▤</span>'
+      icon: (s?.automation_appearance&&window.LabTerminalAutomations?.iconHtml?.(s.automation_appearance.icon)) || window.LabObjectives?.terminalAsset?.(s)?.icon || (s?.linked_file?.activate ? fileIconHtml(linked) : s?.linked_task?.document_id ? '<span class="term-document-icon" aria-hidden="true">▤</span>'
         : linked ? fileIconHtml(linked) : kind !== 'claude' ? '💻'
         : agent === 'codex' ? '🧠'
         : agent === 'copilot' ? '🐙'
@@ -15095,14 +15097,17 @@
     const identity = s.display_main?.identity || s;
     const main = window.LabObjectives?.terminalMain?.(identity);
     const automation = !main && /^automation-[0-9a-f]{32}-[1-9]\d*$/.test(s.logical_name || '');
+    const appearance=identity.automation_appearance;
+    const automationIcon=appearance&&window.LabTerminalAutomations?.iconHtml?.(appearance.icon);
     const objectiveTask = window.LabObjectives?.taskForTerminal(identity);
     const assetIcon=window.LabObjectives?.terminalAsset?.(identity)?.icon;
-    const taskIconClass = assetIcon || !main && objectiveTask?.assetIcon ? ' sess-task-icon' : '';
+    const taskIconClass = automationIcon || assetIcon || !main && objectiveTask?.assetIcon ? ' sess-task-icon' : '';
     const taskOwn=objectiveTask&&!objectiveTask.inherited&&objectiveTask.primary!==false;
-    const taskColorAttrs=objectiveTask?.color?` data-task-terminal-color style="color:${termSessEsc(objectiveTask.color)}"`:'';
+    const textColor=appearance?(appearance.color||'var(--text-primary)'):objectiveTask?.color;
+    const taskColorAttrs=textColor?` ${appearance?'data-automation-role="'+termSessEsc(appearance.role)+'"':'data-task-terminal-color'} style="color:${termSessEsc(textColor)}"`:'';
     const child=!main&&(identity.terminal_child||objectiveTask?.inherited);
     const childAttrs=child?' data-terminal-child':'';
-    const iconColor=objectiveTask?.color||(taskOwn?window.LabObjectives?.terminalWorktreeColor?.(identity):!main&&identity.linked_scope?.worktree?_termScopeColor(identity.linked_scope):null);
+    const iconColor=appearance?textColor:objectiveTask?.color||(taskOwn?window.LabObjectives?.terminalWorktreeColor?.(identity):!main&&identity.linked_scope?.worktree?_termScopeColor(identity.linked_scope):null);
     const iconColorAttrs=iconColor?` style="color:${termSessEsc(iconColor)}"`:'';
     const fallbackIcon=child?'⏺':'💻';
     const display = main?.label || ((s.display_main||!automation)&&taskOwn?objectiveTask.title:_termSessionDisplay(identity));
@@ -15131,18 +15136,18 @@
     const ariaLabel = `${display} · ${main ? main.kind+' main terminal · Fixed' : visual.badge}${s.automation?' · '+s.automation.reason:''}${objectiveTask ? (objectiveTask.inherited?' · Parent task context: ':' · Task: ')+objectiveTask.title+' · '+_termTaskStatusLabel(objectiveTask.status) : ''}${reported ? ` · ${reported.label}` : ''}${ready ? ' · Not yet viewed' : ''}${ariaSummary ? ` · ${context.label}: ${ariaSummary}` : ''}`;
     const tooltip = _termSessionTooltipPayload(s, [statusTitle, completion?.label, recentTitle].filter(Boolean).join(' · '));
     if (s.display_main) {
-      const icon=assetIcon || main?.icon || objectiveTask?.assetIcon || (child||objectiveTask?fallbackIcon:visual.icon);
+      const icon=automationIcon || assetIcon || main?.icon || objectiveTask?.assetIcon || (child||objectiveTask?fallbackIcon:visual.icon);
       const worktreeName=!main&&!objectiveTask&&!identity.label&&identity.linked_scope?.worktree&&!identity.linked_file?.path;
       const nameHtml=taskOwn?(window.LabObjectives?.terminalTaskNameHtml?.(identity)||termSessEsc(display)):worktreeName?_termSessionAssociationHtml(identity,{showName:true}):termSessEsc(display);
       return `<span class="sess ${visual.kind} term-display-main${main?' term-main-terminal':''}${active}${dead}" style="--term-display-main-color:${termSessEsc(s.display_main.color)}" role="tab" aria-label="${termSessEsc(ariaLabel+' · Merged with '+_termSessionDisplay(s)+' · Parent '+s.display_main.parent)}" aria-selected="${active ? 'true' : 'false'}" tabindex="${active ? '0' : '-1'}" draggable="false"${main?` data-terminal-main="${main.kind}"`:''}${childAttrs} data-name="${termSessEsc(s.name)}" data-logical="${termSessEsc(logical)}" data-display-main-parent="${termSessEsc(s.display_main.parent)}" data-tooltip="${termSessEsc(tooltip)}"><span class="sess-icon${taskIconClass}" aria-hidden="true"${iconColorAttrs}>${icon}</span>${activityHtml}<span class="sess-label custom"${taskColorAttrs}>${nameHtml}</span>${_termAutomationRelaunchHtml(s)}</span>`;
     }
     if (automation) {
-      return `<span class="sess ${visual.kind} term-automation-terminal${active}${dead}" role="tab" aria-label="${termSessEsc(ariaLabel)}" aria-selected="${active ? 'true' : 'false'}" tabindex="${active ? '0' : '-1'}" draggable="true"${childAttrs} data-order-token="${termSessEsc('s:'+logical)}" data-name="${termSessEsc(s.name)}" data-logical="${termSessEsc(logical)}" data-tooltip="${termSessEsc(tooltip)}"><span class="sess-icon${taskIconClass}" aria-hidden="true"${iconColorAttrs}>${assetIcon||objectiveTask?.assetIcon||fallbackIcon}</span>${activityHtml}<span class="sess-label custom"${taskColorAttrs}>${termSessEsc(display)}</span>${_termAutomationRelaunchHtml(s)}</span>`;
+      return `<span class="sess ${visual.kind} term-automation-terminal${active}${dead}" role="tab" aria-label="${termSessEsc(ariaLabel)}" aria-selected="${active ? 'true' : 'false'}" tabindex="${active ? '0' : '-1'}" draggable="true"${childAttrs} data-order-token="${termSessEsc('s:'+logical)}" data-name="${termSessEsc(s.name)}" data-logical="${termSessEsc(logical)}" data-tooltip="${termSessEsc(tooltip)}"><span class="sess-icon${taskIconClass}" aria-hidden="true"${iconColorAttrs}>${automationIcon||assetIcon||objectiveTask?.assetIcon||fallbackIcon}</span>${activityHtml}<span class="sess-label custom"${taskColorAttrs}>${termSessEsc(display)}</span>${_termAutomationRelaunchHtml(s)}</span>`;
     }
     const linked = String(s.linked_file && s.linked_file.path || '').trim();
     const scope = s.linked_scope;
     const worktreeOnly = !main && !objectiveTask && !s.label && scope?.worktree && !linked;
-    const icon = assetIcon || main?.icon || objectiveTask?.assetIcon || (child||objectiveTask?fallbackIcon:visual.icon);
+    const icon = automationIcon || assetIcon || main?.icon || objectiveTask?.assetIcon || (child||objectiveTask?fallbackIcon:visual.icon);
     const nameHtml = taskOwn ? (window.LabObjectives?.terminalTaskNameHtml?.(s)||termSessEsc(display)) : termSessEsc(display);
     const labelHtml = worktreeOnly ? _termSessionAssociationHtml(s,{showName:true}) : nameHtml;
     const scopeAttrs = scope ? ` style="--term-scope-color:${termSessEsc(_termScopeColor(scope))}" data-linked-scope="${termSessEsc(scope.root)}"` : '';

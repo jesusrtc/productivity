@@ -209,6 +209,7 @@ def test_native_terminal_drop_choice_hover_reload_and_objective_folding(tmp_path
     chrome = os.environ.get('CHROME_BIN') or shutil.which('chromium') or '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
     if not Path(chrome).is_file() or not shutil.which('node'):
         pytest.skip('Chrome and Node required')
+    shutil.copytree(LAB_SHELL_CSS.parents[1] / 'img/link-icons', tmp_path / 'img/link-icons')
     setup = r'''
 let vault='fixture',workspace='demo',termCurrentSession='a',termCurrentWorkspaceId='demo';
 let termSessionOrientation=ORIENTATION,termWipOnly=true;
@@ -605,6 +606,11 @@ const fs=require('node:fs');
  assert(await evaluate(`document.querySelector('[data-term-parent=grandparent] > .sess').dataset.name==='grandparent'&&document.querySelector('[data-term-parent=a] > .sess').dataset.name.startsWith('automation-')&&document.querySelector('.term-display-main').getClientRects().length>0&&_termSubtabParents(_termReadGroupState())[document.querySelector('.term-display-main').dataset.logical]==='a'`),'reload preserves the chosen parent-level row, its real parent and the unchanged grandparent');
  await secondaryClick('.term-display-main');await click('[data-action=unmerge-parent]');await move(await point('#outside'));
  assert(await evaluate(`document.querySelector('[data-term-parent=a] > .sess').dataset.name==='a'&&!document.querySelector('.term-display-main')&&!Object.keys(_termReadGroupState().tabDisplayMains).length&&errors.length===0`),'restore parent resets only the display preference');
+ await evaluate(`(async()=>{window.automationName='automation-'+('a'.repeat(32))+'-1';termSessions.find(s=>s.name==='a').automation_appearance={icon:{service:'github'},color:'#3fb950',role:'main'};const state=_termReadGroupState();state.tabExpanded.a=true;_termWriteGroupState(state);termRenderSessionList();const image=new Image();image.src='/img/link-icons/github.svg';await image.decode()})()`);
+ assert(await evaluate(`(()=>{const main=document.querySelector('.sess[data-name=a]'),child=document.querySelector('.sess[data-name="'+automationName+'"]');return main.querySelector('[data-link-service=github]')&&child.querySelector('[data-link-service=github]')&&getComputedStyle(main.querySelector('.sess-label')).color==='rgb(63, 185, 80)'&&child.querySelector('.sess-label').style.color==='var(--text-primary)'&&child.querySelector('[data-automation-role=child]')})()`),'automation parent keeps its chosen icon and green name; children inherit the icon with white text');
+ await evaluate(`termSessions.find(s=>s.name===automationName).automation_appearance={icon:{emoji:'🚀'},color:'#58a6ff',role:'child'};termRenderSessionList()`);
+ assert(await evaluate(`(()=>{const child=document.querySelector('.sess[data-name="'+automationName+'"]');return child.querySelector('.sess-icon').textContent==='🚀'&&getComputedStyle(child.querySelector('.sess-label')).color==='rgb(88, 166, 255)'&&document.querySelector('.sess[data-name=a] [data-link-service=github]')})()`),'child overrides preserve the parent appearance');
+ fs.writeFileSync(process.argv[1]+'/../automation-appearance.png',Buffer.from((await send('Page.captureScreenshot',{format:'png'})).data,'base64'));
  ws.close();console.log('PASS');
 })().catch(e=>{console.error(e.stack);process.exit(1)});
 '''

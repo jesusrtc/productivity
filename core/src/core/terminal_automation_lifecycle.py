@@ -48,7 +48,8 @@ def remember(folder: Path, session: dict, command: str, shell: str,
                "label": session.get("label") or session["logical_name"],
                "name": session["name"], "tmux_socket": session["tmux_socket"],
                "launch_id": uuid.uuid4().hex, "updated_at": time.time(),
-               "health_command": health_command, "guidelines": guidelines or [], "request_id": request_id}
+               "health_command": health_command, "guidelines": guidelines or [], "request_id": request_id,
+               "appearance": session.get('automation_appearance') or rows.get(session['logical_name'], {}).get('appearance')}
         rows[session["logical_name"]] = row
         save(folder, rows)
         return row

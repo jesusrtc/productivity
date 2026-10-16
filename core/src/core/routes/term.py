@@ -1619,7 +1619,7 @@ def _reconstruct_meta_entry(
                 entry["agent_session_id"] = s["agent_session_id"]
             if s.get("cwd"):
                 entry["cwd"] = s["cwd"]
-            for key in ("label", "summary", "linked_file", "linked_scope", "linked_task"):
+            for key in ("label", "summary", "linked_file", "linked_scope", "linked_task", "automation_appearance"):
                 if s.get(key):
                     entry[key] = s[key]
             break
@@ -2199,6 +2199,7 @@ class NewSession(BaseModel):
     startup_command: str | None = Field(default=None, min_length=1, max_length=16000)
     startup_health_command: str = Field(default="", max_length=16000)
     startup_guidelines: list[terminal_automations.Guideline] = Field(default_factory=list, max_length=20)
+    automation_appearance: terminal_automations.Appearance | None = None
 
 
 class AttachSession(BaseModel):
@@ -2263,7 +2264,7 @@ def _session_rows_for_root(
         logical = row.get("logical_name")
         saved = saved_by_logical.get(logical) if isinstance(logical, str) else None
         if saved:
-            for key in ("label", "summary", "linked_file", "linked_scope", "linked_task"):
+            for key in ("label", "summary", "linked_file", "linked_scope", "linked_task", "automation_appearance"):
                 if saved.get(key):
                     row[key] = saved[key]
         rows.append(row)
@@ -3371,7 +3372,7 @@ def create_session(body: NewSession, request: Request) -> dict:
             if saved:
                 if saved.get('task_terminal_retired_at'):
                     _upsert_workspace_session(root, body.workspace_id, {'name': saved['name'], 'task_terminal_retired_at': None})
-                for key in ("label", "summary", "linked_file", "linked_scope", "linked_task"):
+                for key in ("label", "summary", "linked_file", "linked_scope", "linked_task", "automation_appearance"):
                     if saved.get(key):
                         row[key] = saved[key]
         log.info(
@@ -3570,6 +3571,8 @@ def create_session(body: NewSession, request: Request) -> dict:
     }
     if body.label and body.label.strip():
         meta[tmux_name]["label"] = body.label.strip()
+    if body.automation_appearance:
+        meta[tmux_name]['automation_appearance'] = body.automation_appearance.model_dump()
     _save_meta(root, meta)
     _invalidate_workspace_term_caches()
 
@@ -3579,6 +3582,8 @@ def create_session(body: NewSession, request: Request) -> dict:
         entry: dict = {"name": logical, "kind": kind, "cwd": str(cwd), "task_terminal_retired_at": None}
         if body.label and body.label.strip():
             entry["label"] = body.label.strip()
+        if body.automation_appearance:
+            entry['automation_appearance'] = body.automation_appearance.model_dump()
         if linked_scope:
             entry["linked_scope"] = linked_scope
         if agent:
@@ -3592,10 +3597,10 @@ def create_session(body: NewSession, request: Request) -> dict:
         _upsert_workspace_session(root, body.workspace_id, entry)
         saved = _workspace_session_by_name(root, body.workspace_id).get(logical)
         if saved:
-            for key in ("label", "summary", "linked_file", "linked_scope", "linked_task"):
+            for key in ("label", "summary", "linked_file", "linked_scope", "linked_task", "automation_appearance"):
                 if saved.get(key):
                     meta[tmux_name][key] = saved[key]
-            if any(saved.get(key) for key in ("label", "summary", "linked_file", "linked_scope", "linked_task")):
+            if any(saved.get(key) for key in ("label", "summary", "linked_file", "linked_scope", "linked_task", "automation_appearance")):
                 _save_meta(root, meta)
         _invalidate_workspace_term_caches()
 
@@ -3727,6 +3732,8 @@ def launch_terminal_automation(body: AutomationLaunch, request: Request) -> dict
             steps = terminal_automations.resolve_steps(terminal_automations.Automation.model_validate(row), cwd)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
+        for index, step in enumerate(steps):
+            step['appearance'] = terminal_automations.appearance(row, step, index, parent=bool(body.parent))
         if body.preview:
             return {"name": row["name"], "steps": steps, "launch_delay_seconds": row["launch_delay_seconds"]}
         created = []
@@ -3739,7 +3746,17 @@ def launch_terminal_automation(body: AutomationLaunch, request: Request) -> dict
                         name=f"automation-{body.run_id.hex}-{index + 1}",
                         label=step["label"], cwd=step["cwd"], startup_command=step["command"],
                         startup_health_command=step["health_command"], startup_guidelines=step["guidelines"],
+                        automation_appearance=terminal_automations.Appearance(**step['appearance']),
                     ), request))
+                    if body.parent and index == 0:
+                        # Shared borrowed documents keep their canonical metadata.
+                        if parent['logical_name'] in _workspace_session_by_name(root, body.workspace_id):
+                            appearance = terminal_automations.Appearance(icon=row['icon'], color=row['color'], role='main').model_dump()
+                            _upsert_workspace_session(root, body.workspace_id, {'name': parent['logical_name'], 'automation_appearance': appearance})
+                            meta = _load_meta(root)
+                            if body.parent in meta:
+                                meta[body.parent]['automation_appearance'] = appearance
+                                _save_meta(root, meta)
                     if body.parent or index:
                         from core.task_terminal_cleanup import save_parents
                         save_parents(root, body.workspace_id, {
@@ -3793,6 +3810,7 @@ def _automation_status_rows(root: Path, folder: Path, workspace_id: str, logical
         rows.append({"name": name, "logical_name": logical, "kind": "terminal",
                      "workspace_id": workspace_id, "session_id": entry.get("session_id"),
                      "label": entry.get("label") or run["label"], "cwd": run["cwd"],
+                     "automation_appearance": entry.get('automation_appearance') or run.get('appearance'),
                      "tmux_socket": (current or run).get("tmux_socket", tmux_sockets.DEFAULT_SOCKET),
                      "automation_missing": current is None and listing is not None,
                      "pane_id": (current or {}).get("pane_id"), "pane_pid": (current or {}).get("pane_pid"),
@@ -3857,6 +3875,7 @@ def relaunch_terminal_automations(body: AutomationRecovery, request: Request) ->
                         workspace_id=body.workspace_id, vault=body.vault, kind="terminal", name=logical,
                         label=fresh["label"], cwd=str(cwd), startup_command=run["command"],
                         startup_health_command=run.get("health_command", ""), startup_guidelines=run.get("guidelines", []),
+                        automation_appearance=run.get('appearance'),
                     ), request)
                     # If a session appeared between listing and creation, adopt
                     # it without replaying its command.

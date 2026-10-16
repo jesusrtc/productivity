@@ -256,6 +256,16 @@ the first terminal is the automation's primary within that Objective or workspac
 Secondary-clicking an existing terminal → **Launch automation…** still opens all
 steps as that terminal's children. See [Terminals](TERMINALS.md#terminal-automations).
 
+Open **Icon and text color** in an automation to choose its terminal-outline,
+service (such as GitHub), emoji or uploaded PNG icon. Main tabs default to green
+text and matching icon color. Children inherit the main icon and default to
+white text in the dark theme; each terminal has its own optional icon and color
+overrides. The first terminal’s name identifies a standalone main; an existing
+parent keeps its name. Settings and launch previews show the appearance before
+commands run, and saved choices survive reload and automation recovery.
+PNG icons can be up to 256 × 256 pixels and 64 KB. Appearance settings are also
+available in the automation API through `lab api`.
+
 The same launch is available through `lab ui` using the menu's inspected control,
 or `lab api call POST /api/term/automations/launch --body-file /absolute/launch.json`.
 Use `lab api describe POST /api/term/automations/launch` for the request schema.

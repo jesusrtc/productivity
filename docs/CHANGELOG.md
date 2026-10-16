@@ -5,6 +5,15 @@ guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 
 ## 2026-10-16
 
+### Give automations their own icons and terminal colors
+
+- Added automation appearance controls with a terminal-outline icon, service
+  icons such as GitHub, emoji and PNG upload, plus previews and a main text color.
+- Main tabs default to green; children inherit the main icon and default to
+  white text in the dark theme. Per-terminal icon/color overrides are optional.
+- Parent names, task ownership and commands are preserved. Saved appearance
+  survives browser reload and automation recovery and is available via `lab api`.
+
 ### Retire terminals belonging to inactive tasks
 
 - Task terminals stay hidden by default outside In progress. A background check

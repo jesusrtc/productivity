@@ -2221,6 +2221,8 @@
   .term-sessions .sess:has(.term-automation-relaunch) .term-subtab-caret { right:21px; }
   .term-panel .term-sessions .sess.term-automation-terminal { justify-content:flex-start; padding:7px 8px; color:var(--text-primary); }
   .term-sessions .sess.term-automation-terminal::before { display:none; }
+  .term-automation-icon { display:inline-block; width:20px; height:20px; flex-shrink:0; object-fit:contain; vertical-align:middle; }
+  .term-sessions .sess-icon .term-automation-icon { width:18px; height:18px; }
   .term-sessions .sess .term-automation-relaunch { display:none; position:absolute; right:1px; top:50%; transform:translateY(-50%); width:16px; height:20px; padding:0; border:0; border-radius:3px; background:transparent; color:var(--accent); font:15px/20px sans-serif; cursor:pointer; }
   :is(.term-panel:not(.term-sessions-horizontal).term-sessions-full .term-session-switcher.term-tabs-open, .term-panel.term-sessions-horizontal.term-sessions-full) .term-sessions .sess .term-automation-relaunch { display:block; }
   .term-sessions .sess .term-automation-relaunch:hover { background:var(--bg-tertiary); }

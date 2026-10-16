@@ -5,7 +5,25 @@ import pytest
 
 from .test_frontend_project_cache import _check_project_html
 from .test_frontend_terminal_subtabs import GROUPS
-from .test_frontend_terminal_ui import _js_between, LAB_APP
+from .test_frontend_terminal_ui import _js_between, _run_node, LAB_APP
+
+
+def test_default_icon_inheritance_follows_parent_changes_and_respects_overrides():
+    script = (LAB_APP.parent / 'lib/terminal-automations.js').read_text()
+    result = _run_node('const window={};\n' + script + r'''
+const main={logical_name:'main',automation_appearance:{icon:{service:'github'},color:'#3fb950',role:'main'}};
+const child={logical_name:'child',automation_appearance:{icon:{builtin:'terminal'},color:null,role:'child',inherit_icon:true}};
+const nested={logical_name:'nested'},rows=new Map([main,child,nested].map(row=>[row.logical_name,row])),parents={child:'main',nested:'child'};
+const look=row=>LabTerminalAutomations.inheritedAppearance(row,rows,parents);
+const LabTerminalAutomations=window.LabTerminalAutomations;
+if(look(child).icon.service!=='github'||look(nested).color!==null)throw Error('default children inherit the current main icon with white text');
+main.automation_appearance.icon={emoji:'🚀'};
+if(look(child).icon.emoji!=='🚀'||look(nested).icon.emoji!=='🚀')throw Error('inherited icons follow later parent changes');
+child.automation_appearance={icon:{emoji:'📋'},color:'#58a6ff',role:'child',inherit_icon:false};
+if(look(child).color!=='#58a6ff'||look(nested).icon.emoji!=='📋')throw Error('explicit overrides define a child branch icon independently');
+console.log(JSON.stringify({pass:true}));
+''')
+    assert result['pass']
 
 
 @pytest.mark.parametrize('width', [1440, 390])
@@ -88,8 +106,20 @@ const launchMenu=async()=>{q('[data-name="'+parent.name+'"]').dispatchEvent(new 
  assert(q('[data-launch-delay]').value==='5','new automations default to five seconds');
  fill('[data-launch-delay]','-1');assert(!q('[data-launch-delay]').checkValidity(),'negative delays rejected');
  fill('[data-launch-delay]','2.5');
+ assert(q('[data-icon-choice]').value==='terminal'&&q('[data-look-color]').value==='#3fb950','main defaults to outlined terminal and green');
+ const mainChoice=q('[data-icon-choice]');mainChoice.value='service:github';mainChoice.dispatchEvent(new Event('change',{bubbles:true}));
+ assert(q('[data-look-icon] [data-link-service=github]'),'main icon preview uses the selected service');
+ mainChoice.value='image';mainChoice.dispatchEvent(new Event('change',{bubbles:true}));
+ const canvas=document.createElement('canvas');canvas.width=canvas.height=1;const bytes=Uint8Array.from(atob(canvas.toDataURL('image/png').split(',')[1]),c=>c.charCodeAt(0));
+ const transfer=new DataTransfer();transfer.items.add(new File([bytes],'terminal.png',{type:'image/png'}));const upload=q('[data-icon-file]');upload.files=transfer.files;upload.dispatchEvent(new Event('change',{bubbles:true}));
+ await until(()=>q('[data-look-icon] img'));
+ assert(q('[data-look-icon] img').src.startsWith('data:image/png;base64,'),'uploaded PNG previews after decoding');
+ mainChoice.value='service:github';mainChoice.dispatchEvent(new Event('change',{bubbles:true}));
  q('[data-add-step]').click();const steps=[...document.querySelectorAll('[data-step]')];
  steps[1].querySelector('[data-label]').value='Frontend';steps[1].querySelector('[data-cwd]').value='frontend';steps[1].querySelector('[data-command]').value='npm run dev';
+ assert(steps[1].querySelector('[data-icon-choice]').value==='inherit'&&steps[1].querySelector('[data-look-default]').checked&&steps[1].querySelector('[data-look-icon] [data-link-service=github]'),'children default to inherited icon and white');
+ const childChoice=steps[1].querySelector('[data-icon-choice]');childChoice.value='emoji:🚀';childChoice.dispatchEvent(new Event('change',{bubbles:true}));
+ const childColor=steps[1].querySelector('[data-look-color]');childColor.value='#58a6ff';childColor.dispatchEvent(new Event('input',{bubbles:true}));
  q('[data-add-automation]').click();const diagnostic=[...document.querySelectorAll('[data-automation]')].at(-1);
  diagnostic.querySelector('[data-name]').value='Diagnostics';diagnostic.querySelector('[data-label]').value='Inspect';diagnostic.querySelector('[data-command]').value='printf diagnostics';
  diagnostic.querySelector('[data-launch-delay]').value='0';
@@ -98,6 +128,8 @@ const launchMenu=async()=>{q('[data-name="'+parent.name+'"]').dispatchEvent(new 
  LabSettings.close();await LabSettings.open({scope,section:'automations'});await until(()=>q('[data-command]'));
  assert(q('#labSettingsCenter [data-name]').value==='Development'&&document.querySelectorAll('[data-step]').length===3,'saved recipes restored');
  assert(q('[data-launch-delay]').value==='2.5'&&[...document.querySelectorAll('[data-launch-delay]')][1].value==='0','custom and disabled delays survive reopening settings');
+ assert(q('[data-icon-choice]').value==='service:github'&&catalogs.demo.automations[0].steps[0].icon===null&&catalogs.demo.automations[0].steps[0].color===null,'overall icon and inherited defaults survive save');
+ assert(catalogs.demo.automations[0].steps[1].icon.emoji==='🚀'&&catalogs.demo.automations[0].steps[1].color==='#58a6ff','child icon and color overrides survive save');
  q('[data-down]').click();assert(q('[data-label]').value==='Frontend','step order editable');q('[data-up]:not(:disabled)').click();assert(q('[data-label]').value==='Logs','step order restored');
  LabSettings.close();
  await launchMenu();await until(()=>!q('[data-launch]').disabled);

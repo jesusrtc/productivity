@@ -3,12 +3,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import threading
 from time import sleep
 import weakref
 from pathlib import Path
+from typing import Literal
 
-from lab import storage
+from lab import link_icons, storage
 from pydantic import BaseModel, Field, field_validator
 
 lock = threading.RLock()
@@ -47,7 +49,37 @@ class Guideline(BaseModel):
         return value
 
 
-class Step(BaseModel):
+class Decoration(BaseModel):
+    icon: dict | None = None
+    color: str | None = Field(default=None, pattern=r'^#[0-9a-fA-F]{6}$')
+
+    @field_validator('icon')
+    @classmethod
+    def valid_icon(cls, value):
+        if value is None:
+            return None
+        if len(value) != 1:
+            raise ValueError('Choose one terminal, service, emoji or PNG icon')
+        key, content = next(iter(value.items()))
+        if key == 'builtin' and content == 'terminal':
+            return value
+        if key == 'service' and isinstance(content, str) and re.fullmatch(r'[a-z][a-z0-9-]{0,63}', content):
+            return value
+        if key == 'emoji' and isinstance(content, str) and 1 <= len(content) <= 32 and not any(
+                char.isspace() or (ord(char) < 128 and char not in '#*0123456789') for char in content) and any(
+                ord(char) >= 0x1f000 or 0x2300 <= ord(char) <= 0x27bf or char in '‼⁉©®™ℹ\u20e3' for char in content):
+            return value
+        if key == 'image':
+            return {'image': link_icons.validate_icon(content)}
+        raise ValueError('Choose a terminal, service, emoji or PNG icon')
+
+
+class Appearance(Decoration):
+    role: Literal['main', 'child']
+    inherit_icon: bool = False
+
+
+class Step(Decoration):
     label: str = Field(min_length=1, max_length=120)
     cwd: str = Field(default="", max_length=4096)
     command: str = Field(min_length=1, max_length=16000)
@@ -69,7 +101,9 @@ class Step(BaseModel):
         return value
 
 
-class Automation(BaseModel):
+class Automation(Decoration):
+    icon: dict | None = Field(default_factory=lambda: {'builtin': 'terminal'})
+    color: str = Field(default='#3fb950', pattern=r'^#[0-9a-fA-F]{6}$')
     id: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,80}$")
     name: str = Field(min_length=1, max_length=120)
     launch_delay_seconds: float = Field(default=5.0, ge=0, le=300, allow_inf_nan=False,
@@ -127,6 +161,13 @@ def resolve_steps(automation: Automation, parent_cwd: Path) -> list[dict]:
             raise ValueError(f"{step.label}: working directory does not exist: {path}")
         rows.append({**step.model_dump(), "cwd": str(path)})
     return rows
+
+
+def appearance(automation, step, index, *, parent=False):
+    main = not parent and index == 0
+    icon = automation['icon'] if parent else automation['steps'][0]['icon'] or automation['icon']
+    return Appearance(icon=step['icon'] or icon, color=step['color'] or (automation['color'] if main else None),
+                      role='main' if main else 'child', inherit_icon=not main and step['icon'] is None).model_dump()
 
 
 def shell_command(shell: str, cwd: Path, command: str) -> list[str]:

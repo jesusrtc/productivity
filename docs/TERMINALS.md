@@ -105,6 +105,28 @@ are never executed by launching or relaunching the automation. For example, save
 the app normally or with a debugger. Add, edit, reorder or remove entries, then
 save. Saving and opening settings never launch commands.
 
+Each automation has **Icon and text color** controls, with a terminal-outline
+icon like a command window, built-in service icons including GitHub, suggested
+or custom emoji, and uploaded PNG icons (up to 256 × 256 pixels and 64 KB).
+The main defaults to green text with a matching monochrome icon. In every
+terminal’s controls, **Inherit main icon** is the default; child text defaults
+to the theme’s primary color (white in dark mode). Set an icon or text color
+on a terminal to override that default. Standalone launches use the first
+terminal’s name for their main; launching beneath an existing terminal keeps
+that parent’s name and applies the automation’s main icon/color to it.
+An explicit first-terminal icon becomes the inherited icon for its standalone
+children. Ordinary new children also inherit an automation parent’s icon.
+
+The launch preview shows each effective icon and color. Appearance is retained
+in saved terminal metadata and recovery history, independent of commands and
+task colors, so browser reloads and explicit recovery preserve it. Selecting an
+icon never changes the terminal’s task, folder or linked asset. Recipe fields
+`icon` and `color` configure the main; each `steps[]` entry accepts the same
+optional overrides. Use `{"builtin":"terminal"}`, `{"service":"github"}`,
+`{"emoji":"🚀"}` or `{"image":"data:image/png;base64,…"}` for `icon`; colors
+use `#RRGGBB`. A null step icon inherits and a null step color uses the default.
+Inspect or save them through the existing `lab api` automation endpoints.
+
 Choose **+ New → Launch automation…** to create a group for the active task.
 The first defined terminal becomes the task's primary automatically, and the
 remaining terminals become its children in definition order. No starter terminal
@@ -132,9 +154,10 @@ starts immediately, with no extra wait after the last. The launch preview shows
 the saved delay. Commands run independently. For dependent operations,
 combine them in one command, for example `npm run build && npm run dev`.
 An exited command prints its exit code and leaves an interactive shell with the
-logs retained. Automation tabs show their saved names with a left icon and
-default to ⏺ for child terminals. The rail honors custom task icons, including
-inherited icons. Ordinary task terminals use 💻. A single centered status dot
+logs retained. Automation tabs show their saved names with the configured icon,
+inherited by default by their children. Older running sessions without appearance
+metadata keep their task/default icons until a new configured launch. Ordinary
+task terminals use 💻. A single centered status dot
 sits between icon and name; location dots and Home/main badges are omitted.
 Agent-reported status uses steady yellow for working, pulsing red
 for attention and blinking green for finished; task-status dots remain omitted.

@@ -1,5 +1,7 @@
 # Memory index
 
+- [Automation icons and colors](automation-icons-and-colors.md) — outlined terminal/service/emoji/PNG choices, highlighted main, inherited child icons and white child text with independent overrides.
+
 - [Inactive task terminals expire](inactive-task-terminals-expire.md) — hide by default, automatically stop after one hour for Completed/Won’t do/Undo or three days for Paused; retained identities, inherited children and reactivation checks.
 
 - [Notification arrival paints before graphics setup](notification-arrival-paints-before-gpu.md) — connect and paint output before idle GPU initialization; retain live incarnation validation and exact navigation.

@@ -64,6 +64,17 @@
 .term-automation-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
 .term-automation-step details { margin:14px 0; }
 .term-automation-step summary { cursor:pointer; }
+.term-automation-appearance { margin:12px 0; }
+.term-automation-appearance summary { cursor:pointer; }
+.term-automation-appearance [hidden] { display:none; }
+.term-automation-look-preview { display:flex; align-items:center; gap:9px; min-height:32px; margin-top:12px; font:13px/1.5 var(--font-mono,monospace); overflow-wrap:anywhere; }
+.term-automation-look-preview [data-look-icon],.term-automation-preview-icon { display:inline-flex; align-items:center; justify-content:center; width:24px; height:24px; flex-shrink:0; vertical-align:middle; }
+.term-automation-look-preview svg,.term-automation-look-preview img,.term-automation-preview-icon svg,.term-automation-preview-icon img { width:20px; height:20px; object-fit:contain; }
+.term-automation-colors { display:flex; flex-wrap:wrap; align-items:center; gap:12px; margin:10px 0; }
+.term-automation-colors label { display:flex; align-items:center; gap:8px; }
+.settings-form .term-automation-colors input[type=color] { width:42px; height:30px; padding:2px; }
+.settings-form .term-automation-colors input[type=checkbox] { width:auto; }
+.term-automation-appearance [data-look-error] { color:var(--red,#f85149); }
 .term-automation-guide-editor { margin:12px 0; padding:12px; border:1px solid var(--border); border-radius:5px; }
 .term-automation-launcher { width:min(700px,calc(100vw - 24px)); height:auto; max-height:90dvh; }
 .term-automation-body { overflow:auto; padding:16px 22px; min-height:0; }

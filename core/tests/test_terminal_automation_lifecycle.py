@@ -75,13 +75,13 @@ def test_guidelines_preserve_literal_whitespace_and_reject_empty_text():
         terminal_automations.Guideline(text="  \n")
 
 
-def _status(client, logical, expected=None):
+def _status(client, logical, expected=None, *, restart_ready=False):
     deadline = time.monotonic() + 7
     while True:
         response = client.get('/api/term/automations/status?workspace_id=demo')
         assert response.status_code == 200, response.text
         row = next(row for row in response.json()['sessions'] if row['logical_name'] == logical)
-        if expected is None or row['automation']['state'] == expected:
+        if (expected is None or row['automation']['state'] == expected) and (not restart_ready or row['automation']['can_restart']):
             return row
         assert time.monotonic() < deadline, row
         time.sleep(.05)
@@ -193,7 +193,7 @@ def test_native_explicit_renewal_reruns_running_and_stopped_children_but_keeps_p
     ])
     rows = client.post('/api/term/automations/launch', json=_launch(parent, catalog)).json()['sessions']
     stopped = _status(client, rows[0]['logical_name'], 'stopped')
-    alive = _status(client, rows[1]['logical_name'], 'running')
+    alive = _status(client, rows[1]['logical_name'], 'running', restart_ready=True)
     assert alive['automation']['can_restart'] and stopped['automation']['can_restart']
     old_pid = run('display-message', '-p', '-t', alive['name'], '#{pane_pid}').stdout
     body = {'workspace_id': 'demo', 'restart': True, 'request_id': str(uuid.uuid4()), 'targets': [
