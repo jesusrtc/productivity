@@ -135,7 +135,7 @@ const termUpdateTabGroup=()=>{groupCollapsed=false;termRenderSessionList();};
  await W.poll(true);
  const host=document.getElementById('termNotifications');
  assert(!host.closest('.term-panel')&&getComputedStyle(host).position==='fixed','cards float independently of terminal panel');
- assert(host.getBoundingClientRect().top===96&&Math.abs(innerWidth-host.getBoundingClientRect().right-12)<1,'stack sits at the top right below navigation');
+ assert(Math.abs(innerHeight-host.getBoundingClientRect().bottom-12)<1&&Math.abs(innerWidth-host.getBoundingClientRect().right-12)<1,'stack sits at the bottom right');
  document.body.classList.add('term-open');
  const consoleHeight=document.querySelector('.term-stage').getBoundingClientRect().height;
  host.hidden=true;
@@ -381,7 +381,7 @@ const icons=[{emoji:'🔬'},{service:'github'},{automation:{builtin:'terminal'}}
 const sessions=Array.from({length:45},(_,i)=>({name:'terminal-'+i,created:1,tmux_socket:'owned',tmux_id:'$'+i,
  workspace_id:'demo',vault:'owner',llm_controlled:true,
  notification_context:{workspace:'Workspace <Alpha>',objective:'Objective & Beta',icon:icons[i%icons.length]},
- terminal_status:{version:1,state:i%2?'attention':'finished',revision:1,id:'r'+i,updated_at:1000+i,message:'Result '+i+' <literal>'}}));
+ terminal_status:{version:1,state:i%2?'attention':'finished',revision:1,id:'r'+i,updated_at:1000+i,message:'Result '+i+' <literal>'+(i===44?' café':'')}}));
 let opened=[],fail=false,hold=false,release;
 '''
     checks = r'''
@@ -405,6 +405,29 @@ let opened=[],fail=false,hold=false,release;
  assert(toggle.getAttribute('aria-checked')==='true'&&getComputedStyle(toggle.querySelector('.keep-alive-switch'),'::after').transform!=='none','bell switch turns on visually');
  assert(cards().length===20&&cards()[0].textContent.includes('Result 44'),'history starts with newest 20 regardless of red/green');
  assert(cards()[2].textContent.includes('Result 42')&&cards()[2].textContent.includes('History'),'working terminal retains its last notification');
+
+ const search=host.querySelector('[data-notification-search]');
+ assert(search?.type==='search'&&search.getAttribute('aria-label')&&document.activeElement===search,'opening focuses an accessible search field');
+ assert(Math.abs(innerHeight-host.getBoundingClientRect().bottom-12)<1,'notification center is bottom anchored');
+ const find=value=>{const input=host.querySelector('[data-notification-search]');input.value=value;input.dispatchEvent(new Event('input',{bubbles:true}));};
+ find('terminal-2');assert(cards().length===11&&cards().some(card=>card.textContent.includes('Result 2')),'search includes older notifications beyond the first page');
+ find('WORKSPACE alpha terminal-4');assert(cards().length===6,'multiple case-insensitive keywords match workspace and terminal');
+ find('finished result 43');assert(cards().length===0&&host.textContent.includes('No matching notifications.')&&!host.querySelector('[data-notification-more]'),'all keywords must match and empty results are clear');
+ find('<literal>');assert(cards().length===20&&host.querySelector('[data-notification-more]')&&!host.querySelector('literal'),'literal markup searches are safe and filtering precedes pagination');
+ host.querySelector('[data-notification-more]').click();assert(cards().length===40,'filtered results paginate');
+ find('terminal-44');search.focus();search.setSelectionRange(4,4);N.update(snapshot);
+ assert(host.querySelector('[data-notification-search]')===search&&document.activeElement===search&&search.selectionStart===4&&cards().length===1,'polling preserves input identity, caret and filtered results');
+ find('CAFE');assert(cards().length===1,'message search ignores diacritics');
+ search.dispatchEvent(new CompositionEvent('compositionstart',{data:'re'}));find('Result');
+ search.dispatchEvent(new CompositionEvent('compositionend',{data:'Result'}));
+ assert(host.querySelector('[data-notification-search]')===search&&document.activeElement===search,'composition does not replace the input');
+ host.querySelector('[data-notification-clear]').click();
+ assert(search.value===''&&cards().length===20&&document.activeElement===search,'clear resets pagination and restores search focus');
+ host.scrollTop=host.scrollHeight;
+ await new Promise(requestAnimationFrame);
+ assert(search.getBoundingClientRect().top>=host.getBoundingClientRect().top&&search.getBoundingClientRect().bottom<=host.getBoundingClientRect().bottom,'search stays visible while scrolling history');
+ host.scrollTop=0;
+
  assert(!cards()[0].classList.contains('active-alert')&&cards()[1].classList.contains('active-alert'),'history and active requests are visibly distinct');
  assert(getComputedStyle(cards()[1],'::before').width==='3px'&&getComputedStyle(cards()[1],'::before').backgroundColor==='rgb(255, 255, 255)','active requests have an actual visible vertical line');
  assert(cards()[0].querySelector('.term-notification-context').textContent.startsWith('Workspace <Alpha> / Objective & Beta / terminal-44')&&!host.querySelector('alpha'),'workspace and Objective precede terminal and status as escaped text');
@@ -448,10 +471,17 @@ let opened=[],fail=false,hold=false,release;
  sessions[44].terminal_status={...sessions[44].terminal_status,id:'new-finish',revision:2,updated_at:2000};N.update(snapshot);
  assert(host.classList.contains('history-open')&&cards()[0].dataset.reportId==='new-finish'&&cards()[0].classList.contains('active-alert'),'new report updates the active marker without closing show-all');
  outside.click();assert(cards().length===23&&cards().some(card=>card.dataset.reportId==='new-finish'),'unreviewed finish returns after outside dismissal');
- toggle.click();cards()[0].click();await until(()=>!host.querySelector('.term-notification:disabled'));
+ toggle.click();find('terminal-44');
+ const reviewSearch=host.querySelector('[data-notification-search]');reviewSearch.focus();reviewSearch.setSelectionRange(5,5);
+ cards()[0].click();await until(()=>!host.querySelector('.term-notification:disabled'));
  assert(host.classList.contains('history-open')&&!C.status(sessions[44])&&cards()[0].dataset.reportId==='new-finish'&&!cards()[0].classList.contains('active-alert'),'review turns off the marker while the card and list remain');
+ assert(host.querySelector('[data-notification-search]')===reviewSearch&&reviewSearch.value==='terminal-44'&&reviewSearch.selectionStart===5&&cards().length===1,'review preserves search, its field and caret');
+ find('');
  C.input(sessions[43],'yes\r');
  assert(host.classList.contains('history-open')&&!cards().find(card=>card.dataset.key===C.key(sessions[43])).classList.contains('active-alert'),'responding updates the active marker while keeping show-all open');
+ find('terminal-1');assert(cards().length===11,'filter remains available after navigation and review updates');
+ outside.click();assert(!host.querySelector('[data-notification-search]')&&cards().length===21,'closing search restores unfiltered live alerts');
+ toggle.click();assert(host.querySelector('[data-notification-search]').value===''&&cards().length===20,'reopening starts with an empty search');
  N.update({});assert(!host.hidden&&host.textContent.includes('No notifications yet.'),'empty history is available');outside.click();assert(host.hidden,'empty automatic stack hides');
  N.update(snapshot);toggle.click();
  for(const width of [280,340,400]){host.style.width=width+'px';assert(host.scrollWidth<=width+2,'history fits narrow and wide layouts');

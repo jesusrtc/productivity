@@ -108,6 +108,17 @@ views and tied to the exact tmux incarnation. Recreated or stopped sessions do n
 inherit another session's history. Reports replaced before history retention
 was installed are unavailable.
 
+The stack and center are anchored to the bottom right without reserving console
+space. The center's search field stays at the top while results scroll. Search
+matches all entered keywords across workspace, Objective, terminal, vault,
+status, creation time and message, ignoring case and diacritics. It filters the
+complete history before the 20-item pagination, including reviewed alerts.
+Typing, background refresh and reviewing a card preserve the field and caret.
+The result count and no-match message update as you type. **Clear search** resets
+the page and keeps focus in the field. Closing clears the filter and restores
+the unfiltered active-alert stack. Use `lab ui inspect` and `lab ui fill` on the
+**Search notifications** field to search through the same UI.
+
 The control has no visible label and exposes **Show all notifications** to
 assistive technology. The terminal icon precedes workspace and Objective names
 in each card header, followed by the terminal and vault. Task, linked-asset and
@@ -226,7 +237,7 @@ task terminals use 💻. A single centered status dot
 sits between icon and name; location dots and Home/main badges are omitted.
 Agent-reported status uses steady yellow for working, pulsing red
 for attention and blinking green for finished; task-status dots remain omitted.
-Floating cards at the top right show red input requests until status changes
+Floating cards at the bottom right show red input requests until status changes
 and green finished messages until reviewed by click or replaced by a newer status.
 Clicking a message opens the owning workspace, Objective and exact terminal,
 scrolls its tab into view and pulses it three times (a steady highlight with

@@ -888,3 +888,5 @@
 - [Task blocks control terminal tab dragging](terminal-task-blocks-control-tab-dragging.md) — tasks move whole invisible blocks; individual terminal drags stay within their task, preserving internal order across moves/reload.
 
 - [Tab drag previews slide neighbours](tab-drag-neighbours-slide.md) — Chrome-like displacement for workspace and terminal tabs, smooth reversals, visual-only hover, cancellation and reduced motion.
+
+- [Notification center searches at the bottom](notification-center-searches-at-bottom.md) — bottom-right overlay, sticky keyword search across full history, stable input/caret and unfiltered active alerts on close.

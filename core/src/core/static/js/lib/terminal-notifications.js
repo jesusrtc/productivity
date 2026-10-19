@@ -2,7 +2,7 @@
 (() => {
   let scopes = {}, bridge;
   const pageSize = 20;
-  let historyOpen = false, visibleCount = pageSize;
+  let historyOpen = false, visibleCount = pageSize, searchQuery = '';
   const opening = new Set();
   const escape = value => String(value || '').replace(/[&<>"']/g,
     ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
@@ -42,9 +42,13 @@
   }
   function showHistory(value = true) {
     historyOpen = !!value; visibleCount = pageSize;
+    if (!historyOpen) searchQuery = '';
     render();
     const host = document.getElementById('termNotifications');
-    if (historyOpen && host) host.scrollTop = 0;
+    if (historyOpen && host) {
+      host.scrollTop = 0;
+      host.querySelector('[data-notification-search]')?.focus({preventScroll:true});
+    }
     if (historyOpen) void window.LabWorkspaceDocuments?.poll(true);
     return {open:historyOpen};
   }
@@ -63,40 +67,80 @@
     } finally { opening.delete(key); render(); }
   }
 
+  function labelFor(row) {
+    return bridge?.label?.(row) || [row.session.notification_context?.workspace || row.owner.workspace_id,
+      row.session.notification_context?.objective, row.session.label || row.session.logical_name || row.session.name].filter(Boolean).join(' / ');
+  }
+  function stateFor(row) {
+    return (row.kind ? row.kind === 'stale' ? 'Progress overdue' : 'Status not closed'
+      : row.state === 'attention' ? 'Needs input' : 'Finished') + (historyOpen && !row.active ? ' · History' : '');
+  }
+  const normalize = value => String(value || '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+  function setSearch(value) {
+    searchQuery = value; visibleCount = pageSize;
+    render();
+    const host = document.getElementById('termNotifications');
+    if (host) host.scrollTop = 0;
+  }
+
   function render() {
     document.querySelectorAll?.('[data-terminal-notification-center]').forEach(button => {
       button.setAttribute('aria-expanded', String(historyOpen));
       button.setAttribute('aria-checked', String(historyOpen));
     });
-    const all = items({history:historyOpen}), rows = historyOpen ? all.slice(0, visibleCount) : all;
+    const terms = historyOpen ? normalize(searchQuery).trim().split(/\s+/).filter(Boolean) : [];
+    const all = items({history:historyOpen}).map(row => ({...row, label:labelFor(row), status:stateFor(row), date:new Date(row.created_at * 1000)}));
+    // Search the complete history before paging, including owning context.
+    const filtered = terms.length ? all.filter(row => {
+      const text = normalize([row.label, row.status, row.state, row.message, row.date.toLocaleString(),
+        row.session.logical_name, row.session.name, row.owner.workspace_id, row.owner.vault].join(' '));
+      return terms.every(term => text.includes(term));
+    }) : all;
+    const rows = historyOpen ? filtered.slice(0, visibleCount) : filtered;
     const host = document.getElementById('termNotifications');
     if (!host) return;
     host.hidden = !historyOpen && !rows.length;
     host.classList.toggle('history-open', historyOpen);
-    let html = historyOpen ? '<div class="term-notification-header"><strong>Notification center</strong><button type="button" data-notification-close aria-label="Close notification center">×</button></div>' : '';
-    html += rows.map(row => {
+    // Keep the search field mounted through typing, IME composition, polling
+    // and review updates. Only the result list is replaced below it.
+    if (host._notificationMode !== historyOpen || historyOpen && !host.querySelector('[data-notification-list]')) {
+      host._notificationMode = historyOpen;
+      host._notificationHtml = null;
+      host.innerHTML = historyOpen ? '<div class="term-notification-toolbar"><div class="term-notification-header"><strong>Notification center</strong><button type="button" data-notification-close aria-label="Close notification center">×</button></div><div class="term-notification-search"><input type="search" data-notification-search aria-label="Search notifications" placeholder="Search notifications…" autocomplete="off"><button type="button" data-notification-clear aria-label="Clear search" hidden>×</button></div><div class="term-notification-count" data-notification-count role="status" aria-live="polite"></div></div><div class="term-notification-list" data-notification-list></div>' : '';
+      host.querySelector('[data-notification-close]')?.addEventListener('click', () => {
+        showHistory(false); document.querySelector('[data-terminal-notification-center]')?.focus();
+      });
+      host.querySelector('[data-notification-search]')?.addEventListener('input', event => setSearch(event.target.value));
+      host.querySelector('[data-notification-clear]')?.addEventListener('click', () => {
+        setSearch(''); host.querySelector('[data-notification-search]')?.focus({preventScroll:true});
+      });
+    }
+    if (historyOpen) {
+      const input = host.querySelector('[data-notification-search]');
+      if (input.value !== searchQuery) input.value = searchQuery;
+      host.querySelector('[data-notification-clear]').hidden = !searchQuery;
+      const count = host.querySelector('[data-notification-count]');
+      const summary = (rows.length < filtered.length ? `${rows.length} of ${filtered.length}` : String(filtered.length))
+        + (terms.length ? ' matching notifications' : ' notifications');
+      if (count.textContent !== summary) count.textContent = summary;
+    }
+    let html = rows.map(row => {
       const icon = bridge?.icon?.(row) || '💻';
-      const label = bridge?.label?.(row) || [row.session.notification_context?.workspace || row.owner.workspace_id,
-        row.session.notification_context?.objective, row.session.label || row.session.logical_name || row.session.name].filter(Boolean).join(' / ');
-      const state = (row.kind ? row.kind === 'stale' ? 'Progress overdue' : 'Status not closed'
-        : row.state === 'attention' ? 'Needs input' : 'Finished') + (historyOpen && !row.active ? ' · History' : '');
-      const date = new Date(row.created_at * 1000);
+      const {label, status:state, date} = row;
       const time = historyOpen && Number.isFinite(date.getTime())
         ? `<time class="term-notification-time" datetime="${date.toISOString()}">${escape(date.toLocaleString())}</time>` : '';
       return `<button type="button" class="term-notification ${row.state}${row.active ? ' active-alert' : ''}" data-active="${row.active}" data-key="${escape(row.key)}" data-report-id="${escape(row.report_id)}"${opening.has(row.key) ? ' disabled' : ''} title="${escape(label + ' · ' + state + ' · ' + row.message)}"><span class="term-notification-icon" aria-hidden="true">${row.state === 'attention' ? '!' : '✓'}</span><span class="term-notification-copy"><span class="term-notification-heading"><span class="term-notification-terminal-icon" aria-hidden="true">${icon}</span><span class="term-notification-context">${escape(label + ' · ' + state)}</span></span><span class="term-notification-message">${escape(row.message)}</span>${time}</span><span aria-hidden="true">↗</span></button>`;
     }).join('');
-    if (historyOpen && !rows.length) html += '<p class="term-notification-empty">No notifications yet.</p>';
-    if (historyOpen && all.length > rows.length) html += '<button type="button" class="term-notification-more" data-notification-more>Load more</button>';
-    if (host._notificationHtml === html) return;
+    if (historyOpen && !rows.length) html += '<p class="term-notification-empty">' + (all.length ? 'No matching notifications.' : 'No notifications yet.') + '</p>';
+    if (historyOpen && filtered.length > rows.length) html += '<button type="button" class="term-notification-more" data-notification-more>Load more</button>';
+    const list = historyOpen ? host.querySelector('[data-notification-list]') : host;
+    if (list._notificationHtml === html) return;
     const scroll = host.scrollTop;
-    host._notificationHtml = html; host.innerHTML = html;
+    list._notificationHtml = html; list.innerHTML = html;
     host.scrollTop = scroll;
     host.querySelectorAll('.term-notification').forEach(button => {
       button.onclick = () => void open(button.dataset.key, button.dataset.reportId)
         .catch(error => bridge?.error(error.message || 'Could not open terminal.'));
-    });
-    host.querySelector('[data-notification-close]')?.addEventListener('click', () => {
-      showHistory(false); document.querySelector('[data-terminal-notification-center]')?.focus();
     });
     host.querySelector('[data-notification-more]')?.addEventListener('click', () => {
       const previous = visibleCount; visibleCount += pageSize; render();

@@ -569,7 +569,7 @@ reviews its finished terminals and cannot clear working or attention.
 Status does not complete tasks or checklist requirements. If an agent cannot
 report, Lab retains its last reported state rather than inventing a finish.
 
-Floating notification cards appear at the top right, below the navigation bars,
+Floating notification cards appear at the bottom right, above the screen edge,
 for terminals across workspaces and vaults. They overlay the interface without
 resizing the console and remain visible when the terminal panel is closed.
 Red **Needs input** cards come first and remain until the terminal's
@@ -613,6 +613,15 @@ are labeled **History** and show their creation time. The latest alert is saved
 with its terminal session, including when the browser is closed. Browser storage
 also retains observed alerts from older CLI versions. Alerts already replaced
 before this feature was installed cannot be recovered.
+
+The notification center has a **Search notifications** field at the top. Type
+keywords to filter the full history by workspace, Objective, terminal, vault,
+status or message. Every keyword must match; case and accents are ignored.
+Search includes older entries beyond the first page, and **Load more** pages
+through the matching results. The field stays visible while you scroll and
+keeps your typing position during background updates and card reviews.
+**Clear search** restores the first page. Closing the center clears the search
+and restores all current alerts; reopening starts with an empty field.
 
 Each card shows its terminal's icon just before the owning workspace and
 Objective, followed by the terminal, vault and status. Icons follow the terminal's

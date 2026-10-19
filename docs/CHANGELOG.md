@@ -5,6 +5,15 @@ guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 
 ## 2026-10-19
 
+### Search notifications from a bottom-anchored center
+
+- Move notification cards and the history center to the bottom right.
+- Add a sticky search field for keywords across owning context, status and
+  message. Case/accents are ignored; all keywords must match. Search filters
+  the full history before pagination and retains typing/caret during updates.
+- Show matching counts, clear search and no-match feedback. Closing restores
+  unfiltered current alerts; card navigation and report-safe review are retained.
+
 ### Remind agents to report progress and flag stale WIP
 
 - Require meaningful checkpoints at least every 20 minutes. Copilot launches
