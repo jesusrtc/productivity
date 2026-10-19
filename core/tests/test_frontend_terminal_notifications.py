@@ -361,12 +361,26 @@ console.log(JSON.stringify({passed:true}));
 
 
 def test_notification_center_pagination_dismissal_and_review_in_chrome(tmp_path):
+    import json
+    import base64
+    from core.link_services import SERVICES
+
+    icon_renderer = _js_between('  function _termNotificationIcon(', '  window.LabTerminalNotifications?.configure(')
+    static = ROOT / 'core/src/core/static'
+    dependencies = (static / 'js/lib/scope-links.js').read_text() + (static / 'js/lib/terminal-automations.js').read_text()
     setup = r'''
 const assert=(ok,message)=>{if(!ok)throw Error(message)};
 const until=async fn=>{for(let i=0;i<100;i++){if(fn())return;await new Promise(r=>setTimeout(r,5));}throw Error('Timed out '+fn)};
+let activeWorkspace='unrelated',activeVault='other-vault',termSessions=[];
+const _termActiveWorkspaceId=()=>activeWorkspace,_termVaultId=()=>activeVault;
+const _termSubtabParents=()=>({}),_termReadGroupState=()=>({});
+const termSessEsc=value=>String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fileIconHtml=path=>'<svg class="ft-icon" width="20" height="20" viewBox="0 0 20 20" data-file-icon="'+termSessEsc(path)+'"><rect x="4" y="2" width="12" height="16" fill="none" stroke="currentColor"/></svg>';
+const png='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1cAAAAASUVORK5CYII=';
+const icons=[{emoji:'🔬'},{service:'github'},{automation:{builtin:'terminal'}},{automation:{image:png}},{file:'report.ipynb'},{link:{kind:'external',url:'https://github.com/org/repo'}}];
 const sessions=Array.from({length:45},(_,i)=>({name:'terminal-'+i,created:1,tmux_socket:'owned',tmux_id:'$'+i,
  workspace_id:'demo',vault:'owner',llm_controlled:true,
- notification_context:{workspace:'Workspace <Alpha>',objective:'Objective & Beta'},
+ notification_context:{workspace:'Workspace <Alpha>',objective:'Objective & Beta',icon:icons[i%icons.length]},
  terminal_status:{version:1,state:i%2?'attention':'finished',revision:1,id:'r'+i,updated_at:1000+i,message:'Result '+i+' <literal>'}}));
 let opened=[],fail=false,hold=false,release;
 '''
@@ -378,7 +392,7 @@ let opened=[],fail=false,hold=false,release;
  document.getElementById('repoTabs').innerHTML='<button class="repo-tab lid-awake-toggle">Lid Awake</button>'+N.buttonHtml();
  const toggle=document.querySelector('[data-terminal-notification-center]');
  const cards=()=>[...host.querySelectorAll('.term-notification')];
- N.configure({open:async item=>{if(fail)return null;if(hold)await new Promise(resolve=>release=resolve);opened.push(item.session.name);return item.session;}});
+ N.configure({icon:_termNotificationIcon,open:async item=>{if(fail)return null;if(hold)await new Promise(resolve=>release=resolve);opened.push(item.session.name);return item.session;}});
  N.update(snapshot);
  for(const s of sessions)if(s.terminal_status.state==='finished')C.acknowledge('',s);
  sessions[42].terminal_status={...sessions[42].terminal_status,state:'working',id:'working',revision:2};N.update(snapshot);
@@ -394,6 +408,19 @@ let opened=[],fail=false,hold=false,release;
  assert(!cards()[0].classList.contains('active-alert')&&cards()[1].classList.contains('active-alert'),'history and active requests are visibly distinct');
  assert(getComputedStyle(cards()[1],'::before').width==='3px'&&getComputedStyle(cards()[1],'::before').backgroundColor==='rgb(255, 255, 255)','active requests have an actual visible vertical line');
  assert(cards()[0].querySelector('.term-notification-context').textContent.startsWith('Workspace <Alpha> / Objective & Beta / terminal-44')&&!host.querySelector('alpha'),'workspace and Objective precede terminal and status as escaped text');
+ assert(cards().every(card=>card.querySelector('.term-notification-terminal-icon')?.nextElementSibling.classList.contains('term-notification-context')),'terminal icon precedes workspace and Objective on every card');
+ assert(host.querySelector('.term-notification-terminal-icon [data-link-service="github"]')&&host.querySelector('.term-notification-terminal-icon svg.term-automation-icon')&&host.querySelector('.term-notification-terminal-icon img')&&host.querySelector('[data-file-icon="report.ipynb"]'),'native service, outline, PNG and file icon renderers work from another workspace');
+ assert(cards()[0].querySelector('.term-notification-icon').textContent==='✓','terminal icon keeps the separate status symbol');
+ sessions[44].notification_context.icon={emoji:'<img src=x onerror=alert(1)>'};N.update(snapshot);
+ assert(cards()[0].querySelector('.term-notification-terminal-icon').textContent.includes('<img')&&!cards()[0].querySelector('img'),'custom emoji markup is escaped');
+ sessions[44].notification_context.icon=icons[2];N.update(snapshot);
+ const originalContext=sessions[44].notification_context;delete sessions[44].notification_context;
+ activeWorkspace='demo';activeVault='owner';termSessions=[sessions[44]];
+ window.LabObjectives={taskForTerminal:()=>({assetIcon:'🔭'})};N.update(snapshot);
+ assert(cards()[0].querySelector('.term-notification-terminal-icon').textContent==='🔭','local session refresh retains the current task icon without the attention descriptor');
+ activeWorkspace='unrelated';activeVault='other-vault';N.update(snapshot);
+ assert(cards()[0].querySelector('.term-notification-terminal-icon').textContent==='💻','fallback cannot borrow the selected workspace task icon');
+ sessions[44].notification_context=originalContext;N.update(snapshot);
  assert(cards().every(card=>card.querySelector('time'))&&!host.querySelector('literal'),'creation dates and escaped messages are visible');
  assert(host.querySelector('[data-notification-more]'),'older notifications can be loaded');
  const same=cards()[0];N.update(snapshot);assert(cards()[0]===same,'unchanged poll retains DOM and pagination');
@@ -427,7 +454,13 @@ let opened=[],fail=false,hold=false,release;
  assert(host.classList.contains('history-open')&&!cards().find(card=>card.dataset.key===C.key(sessions[43])).classList.contains('active-alert'),'responding updates the active marker while keeping show-all open');
  N.update({});assert(!host.hidden&&host.textContent.includes('No notifications yet.'),'empty history is available');outside.click();assert(host.hidden,'empty automatic stack hides');
  N.update(snapshot);toggle.click();
- for(const width of [340,400]){host.style.width=width+'px';assert(host.scrollWidth<=width+2,'history fits narrow and wide layouts');}
+ for(const width of [280,340,400]){host.style.width=width+'px';assert(host.scrollWidth<=width+2,'history fits narrow and wide layouts');
+  for(const card of cards()){
+   const icon=card.querySelector('.term-notification-terminal-icon'),context=card.querySelector('.term-notification-context');
+   assert(icon.getBoundingClientRect().width===16&&context.getBoundingClientRect().left>=icon.getBoundingClientRect().right,'wrapped headers retain a fixed icon before the text');
+   for(const child of icon.querySelectorAll('svg,img,.scope-link-icon'))assert(child.getBoundingClientRect().width===16&&child.getBoundingClientRect().height===16,'all icon types fit the header');
+  }
+ }
  assert(getComputedStyle(host).overflowY==='auto'&&host.clientHeight<=480,'history scrolls in a bounded overlay');
  hold=true;cards()[0].click();outside.click();release();
  await until(()=>!host.querySelector('.term-notification:disabled'));
@@ -436,8 +469,9 @@ let opened=[],fail=false,hold=false,release;
  document.body.dataset.result='pass';
 }catch(error){document.body.dataset.result='fail';document.body.append(String(error.stack||error));}})();
 '''
-    css = (ROOT / 'core/src/core/static/css/lab-shell.css').read_text()
-    html = '<!doctype html><meta charset="utf-8"><style>:root{--bg-primary:#0d1117;--bg-secondary:#161b22;--bg-tertiary:#21262d;--border:#30363d;--text-primary:#c9d1d9;--text-secondary:#8b949e;--accent:#58a6ff;}</style><style>'+css+'</style><body><nav id="repoTabs" class="repo-tabs"></nav><button id="outside" style="position:absolute;top:120px;left:20px">Outside</button><div id="termNotifications" class="term-notifications" role="region" aria-label="Terminal notifications"></div><script>'+setup+MODULE+NOTIFICATIONS+checks+'</script>'
+    github = base64.b64encode((static / 'img/link-icons/github.svg').read_bytes()).decode()
+    css = (static / 'css/lab-shell.css').read_text().replace('url("../img/link-icons/github.svg")', 'url("data:image/svg+xml;base64,' + github + '")')
+    html = '<!doctype html><meta charset="utf-8"><style>:root{--bg-primary:#0d1117;--bg-secondary:#161b22;--bg-tertiary:#21262d;--border:#30363d;--text-primary:#c9d1d9;--text-secondary:#8b949e;--accent:#58a6ff;}</style><style>'+css+'</style><body><nav id="repoTabs" class="repo-tabs"></nav><button id="outside" style="position:absolute;top:120px;left:20px">Outside</button><div id="termNotifications" class="term-notifications" role="region" aria-label="Terminal notifications"></div><script>window.LAB_LINK_SERVICES='+json.dumps(SERVICES)+';'+setup+dependencies+icon_renderer+MODULE+NOTIFICATIONS+checks+'</script>'
     _check_project_html(tmp_path, html, focused=True, screenshot=True)
 
 

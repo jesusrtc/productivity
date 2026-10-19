@@ -71,13 +71,14 @@
     host.classList.toggle('history-open', historyOpen);
     let html = historyOpen ? '<div class="term-notification-header"><strong>Notification center</strong><button type="button" data-notification-close aria-label="Close notification center">×</button></div>' : '';
     html += rows.map(row => {
+      const icon = bridge?.icon?.(row) || '💻';
       const label = bridge?.label?.(row) || [row.session.notification_context?.workspace || row.owner.workspace_id,
         row.session.notification_context?.objective, row.session.label || row.session.logical_name || row.session.name].filter(Boolean).join(' / ');
       const state = (row.state === 'attention' ? 'Needs input' : 'Finished') + (historyOpen && !row.active ? ' · History' : '');
       const date = new Date(row.created_at * 1000);
       const time = historyOpen && Number.isFinite(date.getTime())
         ? `<time class="term-notification-time" datetime="${date.toISOString()}">${escape(date.toLocaleString())}</time>` : '';
-      return `<button type="button" class="term-notification ${row.state}${row.active ? ' active-alert' : ''}" data-active="${row.active}" data-key="${escape(row.key)}" data-report-id="${escape(row.report_id)}"${opening.has(row.key) ? ' disabled' : ''} title="${escape(label + ' · ' + state + ' · ' + row.message)}"><span class="term-notification-icon" aria-hidden="true">${row.state === 'attention' ? '!' : '✓'}</span><span class="term-notification-copy"><span class="term-notification-context">${escape(label + ' · ' + state)}</span><span class="term-notification-message">${escape(row.message)}</span>${time}</span><span aria-hidden="true">↗</span></button>`;
+      return `<button type="button" class="term-notification ${row.state}${row.active ? ' active-alert' : ''}" data-active="${row.active}" data-key="${escape(row.key)}" data-report-id="${escape(row.report_id)}"${opening.has(row.key) ? ' disabled' : ''} title="${escape(label + ' · ' + state + ' · ' + row.message)}"><span class="term-notification-icon" aria-hidden="true">${row.state === 'attention' ? '!' : '✓'}</span><span class="term-notification-copy"><span class="term-notification-heading"><span class="term-notification-terminal-icon" aria-hidden="true">${icon}</span><span class="term-notification-context">${escape(label + ' · ' + state)}</span></span><span class="term-notification-message">${escape(row.message)}</span>${time}</span><span aria-hidden="true">↗</span></button>`;
     }).join('');
     if (historyOpen && !rows.length) html += '<p class="term-notification-empty">No notifications yet.</p>';
     if (historyOpen && all.length > rows.length) html += '<button type="button" class="term-notification-more" data-notification-more>Load more</button>';

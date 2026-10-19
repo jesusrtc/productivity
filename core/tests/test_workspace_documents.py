@@ -388,8 +388,8 @@ def test_notification_context_uses_native_objective_and_inherited_parent_in_one_
     result = client.get('/api/workspace-documents/attention')
     assert result.status_code == 200, result.text
     rows = {row['name']: row for row in result.json()['client::demo']}
-    assert rows[parent]['notification_context'] == {'workspace':'demo', 'objective':'Owner Objective'}
-    assert rows[child]['notification_context'] == rows[parent]['notification_context']
+    assert rows[parent]['notification_context'] == {'workspace':'demo', 'objective':'Owner Objective', 'icon':{'emoji':'🎯'}}
+    assert rows[child]['notification_context'] == {'workspace':'demo', 'objective':'Owner Objective', 'icon':{'emoji':'⏺'}}
     borrowed = result.json()['client::other'][0]
     assert borrowed['name'] == child and borrowed['notification_context'] == rows[child]['notification_context']
     assert borrowed['workspace_id'] == 'demo', 'Borrowing must not relabel a terminal with the destination Objective'
@@ -403,6 +403,40 @@ def test_notification_context_uses_native_objective_and_inherited_parent_in_one_
     contexts = route._notification_context(monorepo, 'demo', [rows[parent], rows[child]])
     assert contexts[child]['objective'] == 'Other Objective'
     assert contexts[parent]['objective'] == 'Owner Objective'
+
+
+def test_notification_icons_use_owner_tasks_assets_and_automation_inheritance(monorepo, seed_workspace, monkeypatch):
+    from core.routes import term, workspace_documents as route
+    from lab import objective_store
+
+    seed_workspace('demo')
+    saved = [dict(name=name, session_id=name) for name in
+             ('task', 'child', 'service', 'file', 'link', 'automation', 'automation-child', 'override', 'main')]
+    by_name = {row['name']: row for row in saved}
+    by_name['child']['parent_terminal'] = 'task'
+    by_name['automation'].update(automation_appearance={'icon':{'service':'github'}})
+    by_name['automation-child'].update(parent_terminal='automation', automation_appearance={'inherit_icon':True, 'icon':{'emoji':'old'}})
+    by_name['override'].update(parent_terminal='automation', automation_appearance={'icon':{'emoji':'🦊'}})
+    registry = {'objectives':[{'id':'owner', 'name':'Native Objective', 'tasks':[
+        {'id':'task', 'title':'Task', 'icon':{'emoji':'🔬'}, 'children':[
+            {'id':'service', 'title':'Subtask', 'icon':{'service':'github'}}]}],
+        'resources':[{'id':'github', 'kind':'link', 'url':'https://example.org', 'sublinks':[
+            {'id':'nested', 'sublinks':[{'id':'pr', 'url':'https://github.com/org/repo'}]}]}]}],
+        'terminal_links':{name:{'objective_id':'owner', 'task_id':task} for name, task in
+                          [('task','task'), ('service','service'), ('file','task'), ('link','task')]}}
+    registry['terminal_links']['file']['asset'] = {'file':{'root':'/owner', 'path':'report.ipynb'}}
+    registry['terminal_links']['link']['asset'] = {'resource_id':'github', 'sub_link_id':'pr'}
+    registry['terminal_links']['main'] = {'main':'workflow'}
+    monkeypatch.setattr(term, '_load_workspace', lambda *a:{'display_name':'Native Workspace', 'sessions':saved})
+    monkeypatch.setattr(objective_store, 'read', lambda *a:registry)
+    sessions = [dict(name='live-'+row['name'], logical_name=row['name']) for row in saved]
+    result = route._notification_context(monorepo, 'demo', sessions)
+    expected = {'task':{'emoji':'🔬'}, 'child':{'emoji':'🔬'}, 'service':{'service':'github'},
+                'file':{'file':'report.ipynb'}, 'link':{'link':{'kind':'external','url':'https://github.com/org/repo'}},
+                'automation':{'automation':{'service':'github'}}, 'automation-child':{'automation':{'service':'github'}},
+                'override':{'automation':{'emoji':'🦊'}}, 'main':{'emoji':'🏠'}}
+    assert {name.removeprefix('live-'):context['icon'] for name, context in result.items()} == expected
+    assert all(context['workspace'] == 'Native Workspace' for context in result.values())
 
 
 def test_invalid_notification_context_does_not_hide_alerts(client, linked_workspace, monorepo, monkeypatch):

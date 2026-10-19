@@ -48,7 +48,7 @@ def unlink_terminal(request: Request, body: UnlinkTerminal):
 
 
 def _notification_context(root: Path, workspace_id: str, sessions: list[dict]) -> dict:
-    """Read names once per owner, without loading document bodies or transcripts."""
+    """Read names and icon choices once per owner, without loading content."""
     from core.routes import term
     from lab import objective_store, objectives
 
@@ -61,26 +61,31 @@ def _notification_context(root: Path, workspace_id: str, sessions: list[dict]) -
     native = {row.get('logical_name'): row for row in sessions if row.get('logical_name')}
     terminal_links = registry.get('terminal_links', {})
 
-    def owner(session):
+    def ancestry(session):
         seen = set()
         while session:
             logical = session.get('logical_name') or session.get('name')
             if logical in seen:
-                return None
+                return
             seen.add(logical)
             entry = {**saved.get(logical, {}), **session}
             binding = next((terminal_links[key] for key in
                             (entry.get('session_id'), logical, entry.get('name')) if key in terminal_links), {})
+            parent = entry.get('parent_terminal')
+            if 'parent_terminal' not in entry and term.terminal_automation_lifecycle.NAME.fullmatch(logical or '') and not logical.endswith('-1'):
+                parent = logical.rsplit('-', 1)[0] + '-1'
+                entry['parent_terminal'] = parent
+            yield entry, binding
+            session = (native.get(parent) or saved.get(parent)) if parent else None
+
+    def owner(chain):
+        for entry, binding in chain:
             if binding.get('main') == 'workflow' or binding.get('view') == 'workflow':
                 return None
             objective_id = binding.get('objective_id') or entry.get('context_objective_id')
             if objective_id:
                 return by_id.get(objective_id)
-            parent = entry.get('parent_terminal')
-            if 'parent_terminal' not in entry and term.terminal_automation_lifecycle.NAME.fullmatch(logical or '') and not logical.endswith('-1'):
-                parent = logical.rsplit('-', 1)[0] + '-1'
-            if parent:
-                session = native.get(parent) or saved.get(parent)
+            if entry.get('parent_terminal'):
                 continue
             root_path = (entry.get('linked_scope') or {}).get('root') or entry.get('cwd')
             return next((o for o in by_id.values() if root_path and
@@ -88,11 +93,77 @@ def _notification_context(root: Path, workspace_id: str, sessions: list[dict]) -
                                                           for w in o.get('worktrees', [])))), None)
         return None
 
+    def asset_icon(asset, objective):
+        if not asset:
+            return None
+        objective = by_id.get(asset.get('objective_id'), objective) or {}
+        if asset.get('file'):
+            return {'file': asset['file']['path']}
+        if asset.get('folder'):
+            worktree = any(asset['folder']['root'] in (w.get('path'), w.get('resolved_path'))
+                           and w.get('kind', 'worktree') == 'worktree' for w in objective.get('worktrees', []))
+            return {'emoji': '⑂' if worktree else '⌂'}
+        resource = asset.get('reference') or next((r for r in objective.get('resources', [])
+                                                 if r['id'] == asset.get('resource_id')), None)
+        if not resource:
+            return None
+        if resource['kind'] == 'link':
+            child = next((c for c in objectives._sublink_rows(resource) if c['id'] == asset.get('sub_link_id')), {})
+            return {'link': {'kind': 'external', 'url': child.get('url') or resource.get('url')}}
+        return {'file': resource.get('path') or resource.get('title')} if resource['kind'] != 'assistant' else {'emoji': '▤'}
+
+    def icon(chain):
+        entry, binding = chain[0]
+        appearance = next((row['automation_appearance'] for row, _ in chain if row.get('automation_appearance')), None)
+        if appearance:
+            choice = appearance.get('icon')
+            for ancestor, _ in chain:
+                inherited = ancestor.get('automation_appearance')
+                if inherited:
+                    choice = inherited.get('icon') or choice
+                    if not inherited.get('inherit_icon'):
+                        break
+            return {'automation': choice or {}}
+        objective = by_id.get(binding.get('objective_id'))
+        linked = asset_icon(binding.get('asset') or binding, objective)
+        if linked:
+            return linked
+        if binding.get('main') == 'workflow':
+            return {'emoji': '🏠'}
+        if objective and not any(binding.get(k) for k in ('task_id', 'resource_id', 'file', 'folder', 'view')):
+            candidates = [(key, value) for key, value in terminal_links.items()
+                          if value.get('objective_id') == objective['id']
+                          and not any(value.get(k) for k in ('task_id', 'resource_id', 'file', 'folder', 'view'))]
+            primary = next((key for key, value in candidates if value.get('main') == 'objective'), candidates[0][0])
+            if primary in (entry.get('session_id'), entry.get('logical_name'), entry.get('name')):
+                return {'emoji': '🎯'}
+        for ancestor, link in chain:
+            if link.get('main'):
+                break
+            task_owner = by_id.get(link.get('objective_id'))
+            task = next((t for t in objectives._tasks(task_owner) if t['id'] == link.get('task_id')), None) if task_owner else None
+            if task:
+                custom = task.get('icon') or {}
+                if custom.get('emoji') or custom.get('service'):
+                    return {key: custom[key] for key in ('emoji', 'service') if custom.get(key)}
+                asset = custom.get('asset') or next((a for a in task.get('assets', []) if a['id'] == task.get('icon_asset_id')), None)
+                return asset_icon(asset, task_owner) or {'emoji': '⏺' if len(chain) > 1 or ancestor is not entry else '💻'}
+        if len(chain) > 1 or entry.get('parent_terminal'):
+            return {'emoji': '⏺'}
+        if (entry.get('linked_file') or {}).get('path'):
+            return {'file': entry['linked_file']['path']}
+        if (entry.get('linked_task') or {}).get('document_id'):
+            return {'emoji': '▤'}
+        agent = entry.get('agent') or entry.get('kind')
+        return {'emoji': {'codex': '🧠', 'copilot': '🐙', 'claude': '🤖'}.get(agent, '💻') if entry.get('kind') == 'claude' else '💻'}
+
     name = workspace.get('display_name') or workspace.get('name') or workspace_id
     result = {}
     for session in sessions:
-        objective = owner(session)
-        result[session['name']] = {'workspace': name, **({'objective': objective['name']} if objective else {})}
+        chain = list(ancestry(session))
+        objective = owner(chain)
+        result[session['name']] = {'workspace': name, 'icon': icon(chain),
+                                   **({'objective': objective['name']} if objective else {})}
     return result
 
 
@@ -158,6 +229,6 @@ def attention(request: Request):
     # exact terminal, even across vaults. No transcript/capture reads are needed.
     fields = ('name', 'session_id', 'created', 'created_at', 'tmux_socket', 'tmux_id',
               'terminal_status', 'terminal_notification', 'workspace_id', 'vault', 'logical_name', 'label',
-              'llm_controlled', 'notification_context')
+              'llm_controlled', 'notification_context', 'kind', 'agent', 'linked_file', 'linked_task', 'automation_appearance')
     return {scope: [{key: row[key] for key in fields if key in row} for row in sessions]
             for scope, sessions in result.items()}

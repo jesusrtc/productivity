@@ -531,9 +531,11 @@ with its terminal session, including when the browser is closed. Browser storage
 also retains observed alerts from older CLI versions. Alerts already replaced
 before this feature was installed cannot be recovered.
 
-Each card puts its owning workspace and Objective first, before the terminal,
-vault and status. Active alerts have a white vertical line; reviewed or superseded
-history does not. Answering a request, reviewing a finish or receiving a newer
+Each card shows its terminal's icon just before the owning workspace and
+Objective, followed by the terminal, vault and status. Icons follow the terminal's
+custom task, linked asset or automation choice, including inherited icons and
+terminals in other workspaces. Active alerts have a white vertical line; reviewed
+or superseded history does not. Answering a request, reviewing a finish or receiving a newer
 status automatically updates that marker. Existing red/green messages keep their
 normal status behavior.
 

@@ -1,5 +1,7 @@
 # Memory index
 
+- [Notification cards show terminal icons](notification-cards-show-terminal-icons.md) — terminal icon before workspace/Objective, using native task, asset and automation choices while keeping the status symbol.
+
 - [Show all terminals is a header switch](show-all-terminals-header-switch.md) — one saved on/off switch beside Terminal, visible with folded names; no separate Objective overrides or All shown buttons.
 
 - [Automations require a WIP task](automations-require-wip-task.md) — mandatory task picker and API validation, first row owns the task, inherited children hide with it on pause even beneath generic terminals.

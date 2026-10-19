@@ -2050,6 +2050,9 @@
   .term-notification:disabled { cursor: progress; opacity: .65; }
   .term-notification-icon { display: grid; place-items: center; flex: none; width: 23px; height: 23px; border: 2px solid currentColor; border-radius: 50%; box-sizing: border-box; font: bold 15px/1 system-ui, sans-serif; }
   .term-notification-copy { display: flex; flex: 1; flex-direction: column; gap: 4px; min-width: 0; }
+  .term-notification-heading { display: flex; align-items: flex-start; gap: 6px; }
+  .term-notification-terminal-icon { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 16px; height: 16px; font-size: 14px; line-height: 1; }
+  .term-notification-terminal-icon > :is(svg, img, .ft-icon, .scope-link-icon) { width: 16px; height: 16px; margin: 0; vertical-align: middle; object-fit: contain; }
   .term-notification-context { font-size: 11px; font-weight: 600; opacity: .85; overflow-wrap: anywhere; }
   .term-notification-message { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; overflow-wrap: anywhere; }
   .term-header .title { flex-shrink: 0; font-size: 12px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; }

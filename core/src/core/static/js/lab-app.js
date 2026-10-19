@@ -16023,10 +16023,34 @@
     await _termActivateTab(session.name, {openDocument:!linked, deferWebgl:true});
     return sameScope() && termCurrentSession === session.name ? session : null;
   }
+  function _termNotificationIcon({session, owner}) {
+    const icon = session.notification_context?.icon;
+    if (icon?.emoji) return termSessEsc(icon.emoji);
+    if (icon?.file) return fileIconHtml(icon.file);
+    if (icon?.link) return window.LabScopeLinks?.icon(icon.link) || '↗';
+    if (icon?.service || icon?.automation) return window.LabTerminalAutomations?.iconHtml(icon.automation || icon) || '💻';
+    // Local session refreshes carry richer metadata than the attention batch.
+    if (_termActiveWorkspaceId() === owner.workspace_id && (_termVaultId() || 'framework') === owner.vault) {
+      const current = termSessions.find(row => window.LabTerminalCompletion.key(row) === window.LabTerminalCompletion.key(session));
+      if (current) {
+        const parents = _termSubtabParents(_termReadGroupState(), termSessions);
+        const appearance = window.LabTerminalAutomations?.inheritedAppearance?.(current, new Map(termSessions.map(row => [row.logical_name, row])), parents);
+        if (appearance) return window.LabTerminalAutomations.iconHtml(appearance.icon);
+        const main = window.LabObjectives?.terminalMain?.(current), task = window.LabObjectives?.taskForTerminal?.(current);
+        return window.LabObjectives?.terminalAsset?.(current)?.icon || main?.icon || task?.assetIcon
+          || (parents[current.logical_name] || task?.inherited ? '⏺' : task ? '💻' : _termSessionVisual(current).icon);
+      }
+    }
+    if (session.automation_appearance) return window.LabTerminalAutomations?.iconHtml(session.automation_appearance.icon) || '💻';
+    const linked = session.linked_file?.path;
+    return linked ? fileIconHtml(linked) : session.linked_task?.document_id ? '▤'
+      : session.kind === 'claude' ? {codex:'🧠',copilot:'🐙'}[session.agent] || '🤖' : '💻';
+  }
   window.LabTerminalNotifications?.configure({
     open:_termOpenNotification,
     highlight:_termHighlightNotification,
     error:message => explorerToast(message, true),
+    icon:_termNotificationIcon,
     label:({session, owner}) => {
       const workspace = workspaceTabsAll.find(row => row.name === owner.workspace_id && _workspaceVaultId(row) === owner.vault);
       const context = session.notification_context;

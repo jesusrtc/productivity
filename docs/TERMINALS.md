@@ -85,8 +85,10 @@ inherit another session's history. Reports replaced before history retention
 was installed are unavailable.
 
 The control has no visible label and exposes **Show all notifications** to
-assistive technology. Workspace and Objective names lead each card, followed by
-the terminal and vault. The batch reads owner metadata once per workspace,
+assistive technology. The terminal icon precedes workspace and Objective names
+in each card header, followed by the terminal and vault. Task, linked-asset and
+automation icons use the native owner's saved choices, including inheritance.
+The batch reads owner metadata once per workspace,
 including parent inheritance and shared terminals, without loading document
 bodies or transcripts. A white vertical line marks active alerts and turns off
 when their status resolves or a finish is reviewed.

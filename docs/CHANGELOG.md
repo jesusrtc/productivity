@@ -5,6 +5,14 @@ guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 
 ## 2026-10-19
 
+### Show terminal icons in notification cards
+
+- Each active and historical notification shows its terminal's icon before
+  the workspace and Objective label, using saved task, asset and automation
+  choices across workspaces, including inherited icons.
+- Red/green status symbols, active markers and notification navigation retain
+  their existing behavior.
+
 ### Put Show all terminals in the panel header
 
 - Added a **Show all** on/off switch beside **Terminal**, visible even when
