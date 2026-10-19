@@ -1,0 +1,6 @@
+{
+  "name": "lab-progress",
+  "version": "1.0.0",
+  "description": "Lab terminal progress checkpoints and final status reporting",
+  "hooks": "hooks.json"
+}

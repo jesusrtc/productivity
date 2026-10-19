@@ -71,7 +71,7 @@ import yaml
 
 from lab import paths as lab_paths
 from lab import settings as lab_settings
-from lab import tmux_sockets, terminal_status
+from lab import tmux_sockets, terminal_status, terminal_progress
 
 from core import auth, copilot_identity, fsguard, terminal_automations, terminal_automation_lifecycle
 from core import vault_config
@@ -1777,7 +1777,7 @@ def _is_lab_tmux_name(name: str) -> bool:
 
 
 def _tmux_list(
-    prefixes: str | list[str], *, prune_draining: bool = True, activity: bool = False,
+    prefixes: str | list[str], *, prune_draining: bool = True, activity: bool = False, progress: bool = False,
 ) -> list[dict] | None:
     """Return live tmux sessions whose names start with any of ``prefixes``.
 
@@ -1815,6 +1815,7 @@ def _tmux_list(
                         + "|#{pane_id}|#{pane_dead}|#{window_panes}|#{window_activity}"
                         + "|#{pane_width}|#{pane_height}"
                         + "|#{@lab_status}|#{session_id}|#{@lab_llm}|#{@lab_notification}"
+                        + "|#{@lab_progress_hook}|#{@lab_progress_alert}"
                     ),
                 ),
                 capture_output=True,
@@ -1883,6 +1884,14 @@ def _tmux_list(
             row['llm_controlled'] = marker != '0' if marker in ('0', '1', *lab_settings.VALID_AGENTS) else None
             if marker in lab_settings.VALID_AGENTS:
                 row['llm_provider'] = marker
+            hook = parts[offset + 7] if len(parts) > offset + 7 else ''
+            alert = parts[offset + 8] if len(parts) > offset + 8 else ''
+            row['terminal_progress'] = terminal_progress.view(row['terminal_status'],
+                terminal_progress.decode(hook), terminal_progress.decode(alert),
+                enabled=row['llm_controlled'] is not False)
+            if progress:
+                row.update(_progress_status_token=parts[offset + 3] if len(parts) > offset + 3 else '',
+                           _progress_hook_token=hook, _progress_alert_token=alert)
         lab_rows_by_socket[socket_name] = lab_count
 
     empty_draining = {

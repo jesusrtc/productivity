@@ -22,6 +22,12 @@ reply, execute `lab notifications finished "What was completed"`, or
 approval or review. A successful final status report is a prerequisite to replying;
 describing status in prose does not report it.
 
+During long work, report a meaningful progress checkpoint with
+`lab notifications working` at least every 20 minutes, including what changed,
+your current step and what comes next (or which long process you are waiting for).
+Lab alerts the user after 30 minutes without a report. Automatic activity does
+not reset this clock; only an explicit agent report does.
+
 If a sandbox blocks the tmux socket, retry the same command with the tool's
 normal permission mechanism. If reporting still fails, state that failure in
 the final reply. Check `TMUX`/`TMUX_PANE` before deciding you are outside Lab;

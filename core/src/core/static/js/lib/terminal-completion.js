@@ -49,7 +49,7 @@
   function latestNotification(session, entry) {
     // The session carries alerts emitted while this browser was closed. The
     // browser fallback also supports reports from older CLI installations.
-    return [session.terminal_notification, entry?.notification, entry?.report]
+    return [session.terminal_progress?.alert, session.terminal_notification, entry?.notification, entry?.report]
       .filter(report => report?.version === 1 && ['attention', 'finished'].includes(report.state)
         && typeof report.id === 'string' && Number.isSafeInteger(report.revision))
       .sort((a, b) => b.revision - a.revision)[0] || null;
@@ -59,17 +59,23 @@
     const pending = isLLM(session) ? entry?.pending : null;
     const reviewed = !pending && !!report && report.state === 'finished' && entry.seen === report.id;
     const notification = latestNotification(session, entry);
-    return {report:report || null, notification, pending:pending || null, llm_controlled:!!isLLM(session),
+    const progress = session.terminal_progress?.alert;
+    const progressAlert = progress?.active && (!report || report.id === session.terminal_status?.id)
+      && (progress.source === report?.id || progress.source?.startsWith('turn:')) ? progress : null;
+    return {report:report || null, notification, progress_alert:progressAlert, pending:pending || null, llm_controlled:!!isLLM(session),
       indicator:pending ? 'working' : report && !reviewed ? report.state : null,
       reviewed, reviewed_at:reviewed ? entry.seen_at || null : null,
       reason:pending ? 'user-submission' : !report ? 'no-report' : reviewed ? 'reviewed-by-click' : 'agent-report'};
   }
   function status(session) {
-    const {report, indicator, pending} = details(session);
+    const {report, indicator, pending, progress_alert} = details(session);
     if (!indicator) return null;
     if (pending) return {state:'working', label:pending.label};
     const label = {working:'Working', attention:'Needs your attention', finished:'Finished'}[report.state];
-    return {state:report.state, label:label + (report.message ? ' · ' + report.message : '')};
+    const age = Math.max(0, Math.floor((Date.now() / 1000 - report.updated_at) / 60));
+    const freshness = progress_alert ? (progress_alert.kind === 'stale'
+      ? ` · No progress update for ${age} min` : ' · Agent stopped without closing status') : '';
+    return {state:report.state, label:label + freshness + (report.message ? ' · ' + report.message : '')};
   }
   function meta(scope, session) {
     const current = status(session);

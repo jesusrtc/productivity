@@ -90,7 +90,14 @@ Inside a Lab tmux terminal, explicitly report your state with these commands:
 
 These only set the terminal's dot and hover text: steady yellow for working,
 pulsing red for attention, blinking green for finished. They send no pop-ups or
-external messages. Report transitions, not every tool call. The command resolves
+external messages. Report transitions and meaningful checkpoints, not every tool call.
+During long work, update `lab notifications working` at least every 20 minutes:
+say what you completed, what you are doing now and what comes next. If waiting
+for a long process, identify it and explain the wait. A timer or process heartbeat
+must never invent a progress report. Lab alerts the user after 30 minutes without
+a report; only a real report resolves it. Copilot launches include a checkpoint
+hook after tools and a final-status reminder; a blocking tool can delay delivery.
+The command resolves
 its own tmux session; never guess another terminal's name. A launch identifying
 your Lab terminal above confirms that reporting applies. Otherwise check whether
 TMUX/TMUX_PANE exist before skipping reporting; do not assume they are absent.

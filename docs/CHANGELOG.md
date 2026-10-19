@@ -5,6 +5,21 @@ guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 
 ## 2026-10-19
 
+### Remind agents to report progress and flag stale WIP
+
+- Require meaningful checkpoints at least every 20 minutes. Copilot launches
+  add a process-local hook plugin that reminds after tools and checks final
+  status once before allowing the turn to end, preserving existing user hooks.
+- A background supervisor checks all Lab sockets every minute and retains one
+  alert after 30 minutes without a report, including with the browser closed.
+  New reports resolve alerts; working status and the actual message stay intact.
+- Detect unclosed Copilot turns and verified local-agent exits, with unknown
+  process reads preserved and two minutes of startup/wake grace. Cards retain
+  native workspace/Objective labels, history, active markers and exact navigation.
+- Add `lab progress status` and supervisor status/check APIs. Existing Copilot
+  sessions need a relaunch/resume for hooks; other providers use instructions
+  plus the independent stale monitor.
+
 ### Slide neighbouring tabs during drag previews
 
 - Workspace and terminal tabs smoothly make room while a tab is held over its

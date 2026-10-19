@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [{"type": "command", "bash": "\"$LAB_PROGRESS_PYTHON\" -m lab progress hook start", "timeoutSec": 10}],
+    "userPromptSubmitted": [{"type": "command", "bash": "\"$LAB_PROGRESS_PYTHON\" -m lab progress hook prompt", "timeoutSec": 10}],
+    "postToolUse": [{"type": "command", "bash": "\"$LAB_PROGRESS_PYTHON\" -m lab progress hook post-tool", "timeoutSec": 10}],
+    "agentStop": [{"type": "command", "bash": "\"$LAB_PROGRESS_PYTHON\" -m lab progress hook stop", "timeoutSec": 10}],
+    "sessionEnd": [{"type": "command", "bash": "\"$LAB_PROGRESS_PYTHON\" -m lab progress hook end", "timeoutSec": 10}]
+  }
+}

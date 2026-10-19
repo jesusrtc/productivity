@@ -14,16 +14,20 @@
       const separator = scope.indexOf('::');
       for (const session of sessions) {
         const details = completion.details(session);
-        const report = history ? details.notification : details.report;
+        const report = history ? details.notification : details.progress_alert || details.report;
         if (!report || !['attention', 'finished'].includes(report.state)
-            || !history && !['attention', 'finished'].includes(details.indicator)) continue;
+            || !history && !details.progress_alert && !['attention', 'finished'].includes(details.indicator)) continue;
         const key = completion.key(session);
         const owner = {workspace_id:session.workspace_id || scope.slice(separator + 2),
           vault:session.vault || scope.slice(0, separator)};
-        const item = {key, session, owner, report_id:report.id, state:report.state,
+        const active = details.progress_alert?.id === report.id
+          || details.indicator === report.state && details.report?.id === report.id;
+        const age = Math.max(30, Math.floor((Date.now() / 1000 - (session.terminal_progress?.since || 0)) / 60));
+        const message = active && report.kind === 'stale'
+          ? `WIP · No progress update for ${age} min · Last report: ${session.terminal_progress.message || 'No report yet'}` : report.message;
+        const item = {key, session, owner, report_id:report.id, state:report.state, kind:report.kind,
           created_at:report.updated_at, revision:report.revision,
-          active:details.indicator === report.state && details.report?.id === report.id,
-          message:report.message || (report.state === 'attention' ? 'Needs your input' : 'Work finished')};
+          active, message:message || (report.state === 'attention' ? 'Needs your input' : 'Work finished')};
         // Prefer the native row over another workspace's shared view.
         if (!unique.has(key) || scope === `${owner.vault}::${owner.workspace_id}`) unique.set(key, item);
       }
@@ -74,7 +78,8 @@
       const icon = bridge?.icon?.(row) || '💻';
       const label = bridge?.label?.(row) || [row.session.notification_context?.workspace || row.owner.workspace_id,
         row.session.notification_context?.objective, row.session.label || row.session.logical_name || row.session.name].filter(Boolean).join(' / ');
-      const state = (row.state === 'attention' ? 'Needs input' : 'Finished') + (historyOpen && !row.active ? ' · History' : '');
+      const state = (row.kind ? row.kind === 'stale' ? 'Progress overdue' : 'Status not closed'
+        : row.state === 'attention' ? 'Needs input' : 'Finished') + (historyOpen && !row.active ? ' · History' : '');
       const date = new Date(row.created_at * 1000);
       const time = historyOpen && Number.isFinite(date.getTime())
         ? `<time class="term-notification-time" datetime="${date.toISOString()}">${escape(date.toLocaleString())}</time>` : '';

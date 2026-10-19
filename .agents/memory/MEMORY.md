@@ -1,5 +1,7 @@
 # Memory index
 
+- [Agent progress checkpoints](agent-progress-checkpoints.md) — 20-minute meaningful reports, independent 30-minute stale alerts, Copilot lifecycle reminders and explicit completion preserved.
+
 - [Managed rules refresh on client reload](managed-rules-refresh-on-client-reload.md) — shared template and safe writer for every installation; preserve custom instructions and capture the loaded scope.
 
 - [Terminal status is a final-response prerequisite](terminal-status-is-a-final-response-prerequisite.md) — execute working and finished/attention on every turn, including approvals; retry sandbox-blocked tmux access and disclose failure.

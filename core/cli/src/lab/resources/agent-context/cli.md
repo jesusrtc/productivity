@@ -9,6 +9,17 @@ This uses the same server handlers, validation, permissions and revision checks
 as the UI. New endpoints appear automatically; agents do not need to hand-edit
 managed JSON or duplicate UI business rules.
 
+Long-running agents report a progress checkpoint with `lab notifications working`
+at least every 20 minutes. `lab progress status` shows the calling terminal's
+last report, observed tool activity and current/historical progress alert.
+`lab api call GET /api/term/progress` reports supervisor health;
+`lab api call POST /api/term/progress/check` runs a check with the same grace
+period. These administrator APIs are also discoverable with `lab api routes`.
+The supervisor warns after 30 minutes without a report and never changes the
+agent's working/attention/finished state. Copilot launched through Lab includes
+post-tool reminders and a bounded final-status hook; existing conversations need
+a relaunch/resume to load them. See the user guide for scope and compatibility.
+
 ```bash
 lab api routes
 lab api routes --search terminal

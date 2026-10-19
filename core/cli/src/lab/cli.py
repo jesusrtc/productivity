@@ -22,6 +22,7 @@ _COMMANDS = {
     'task': ('task', 'task_group'),
     'terminal': ('terminal', 'terminal_group'),
     'notifications': ('notifications', 'notifications_cmd'),
+    'progress': ('progress', 'progress_group'),
     'pr': ('pr', 'pr_group'),
     'artifact': ('artifact', 'artifact_group'),
     'link': ('link', 'link_group'),

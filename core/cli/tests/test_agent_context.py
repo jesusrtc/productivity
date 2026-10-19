@@ -217,7 +217,9 @@ def test_claude_appends_context_and_preserves_resume(tmp_path, binaries):
 def test_copilot_preserves_existing_environment_and_args(tmp_path, binaries):
     original = {'PATH': str(binaries), 'COPILOT_CUSTOM_INSTRUCTIONS_DIRS': '/custom/one,/custom/two', 'COPILOT_HOME': '/custom/home'}
     argv, env = agent_context.prepare_launch('copilot', ['--resume', 'abc'], cwd=tmp_path, env=original)
-    assert argv[1:] == ['--resume', 'abc']
+    assert argv[1:3] == ['--plugin-dir', str(agent_context.GUIDE_DIR / 'copilot-progress')]
+    assert argv[3:] == ['--resume', 'abc']
+    assert env['LAB_PROGRESS_PYTHON'] == sys.executable
     assert env['COPILOT_HOME'] == '/custom/home'
     assert env['COPILOT_CUSTOM_INSTRUCTIONS_DIRS'] == '/custom/one,/custom/two,' + str(agent_context.GUIDE_DIR / 'bootstrap')
     assert original['COPILOT_CUSTOM_INSTRUCTIONS_DIRS'] == '/custom/one,/custom/two'
@@ -272,7 +274,8 @@ def test_manual_external_worktree_launch_pins_owning_scope(monorepo, seed_worksp
         '--workspace', 'client', '--objective', objective['id'], 'copilot', '--', '--resume', 'abc'])
     assert result.exit_code == 0, result.output
     argv, env = calls[0]
-    assert argv[1:] == ['--resume', 'abc']
+    assert argv[1:3] == ['--plugin-dir', str(agent_context.GUIDE_DIR / 'copilot-progress')]
+    assert argv[3:] == ['--resume', 'abc']
     assert env['LAB_CONTEXT_WORKSPACE'] == 'client' and env['LAB_CONTEXT_OBJECTIVE'] == objective['id']
     content = env['LAB_AGENT_CONTEXT']
     assert f'- Workspace root: `{workspace}`' in content and f'- Objective root: `{objective["path"]}`' in content
@@ -289,7 +292,8 @@ def test_run_execs_agent_with_pinned_vault_without_writing(monorepo, binaries, m
     monkeypatch.setattr(os, 'execvpe', lambda binary, argv, env: calls.append((binary, argv, env)))
     result = CliRunner().invoke(main, ['agents', 'run', '--vault', str(monorepo), 'copilot', '--', '--session-id', 'abc', '--autopilot'])
     assert result.exit_code == 0, result.output
-    assert calls[0][1][1:] == ['--session-id', 'abc', '--autopilot']
+    assert calls[0][1][1:3] == ['--plugin-dir', str(agent_context.GUIDE_DIR / 'copilot-progress')]
+    assert calls[0][1][3:] == ['--session-id', 'abc', '--autopilot']
     assert calls[0][2]['LAB_VAULT'] == str(monorepo.resolve())
     assert snapshot(monorepo) == before
 

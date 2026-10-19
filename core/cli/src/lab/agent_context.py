@@ -9,6 +9,7 @@ import re
 import selectors
 import shutil
 import subprocess
+import sys
 import time
 
 from lab import terminal_context
@@ -334,4 +335,8 @@ def prepare_launch(agent: str, args: list[str], *, cwd: Path | None = None,
         dirs.append(bootstrap_dir)
     child_env['COPILOT_CUSTOM_INSTRUCTIONS_DIRS'] = ','.join(dirs)
     child_env['LAB_AGENT_CONTEXT'] = current_context(cwd=cwd, env=child_env, version=version, bootstrap=True)
-    return [binary, *args], child_env
+    # A process-local plugin adds lifecycle hooks without editing user hooks,
+    # repository instructions, permissions, credentials or Copilot's home.
+    child_env['LAB_PROGRESS_PYTHON'] = sys.executable
+    plugin = str(GUIDE_DIR / 'copilot-progress')
+    return [binary, '--plugin-dir', plugin, *args], child_env

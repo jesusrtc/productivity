@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import os
 import re
+import shlex
 import subprocess
 
 
@@ -34,6 +35,21 @@ class TerminalContext:
 
     def set_option(self, name: str, value: str) -> None:
         tmux(self.socket, 'set-option', '-t', self.session_id, name, value)
+
+    def compare_set_option(self, name: str, value: str, expected: dict[str, str]) -> bool:
+        """Atomically preserve a newer report or lifecycle event during hooks."""
+        if (not re.fullmatch(r'@lab_[a-z_]+', name)
+                or not re.fullmatch(r'[A-Za-z0-9+/=]*', value)
+                or any(not re.fullmatch(r'@lab_[a-z_]+', key)
+                       or not re.fullmatch(r'[A-Za-z0-9+/=]*', token) for key, token in expected.items())):
+            raise TerminalContextError('Invalid progress option token')
+        condition = '1'
+        for key, token in expected.items():
+            condition = '#{&&:' + condition + ',#{==:#{' + key + '},' + token + '}}'
+        command = 'set-option -t ' + shlex.quote(self.session_id) + ' ' + name + ' ' + value
+        output = tmux(self.socket, 'if-shell', '-F', '-t', self.session_id + ':', condition,
+                      command, 'display-message -p lab-progress-skipped')
+        return 'lab-progress-skipped' not in output
 
 
 def current(env: dict[str, str] | None = None) -> TerminalContext:

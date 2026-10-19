@@ -453,6 +453,9 @@ async def lifespan(app: FastAPI):
     schedule_worker = asyncio.create_task(task_schedule.run(app)) if os.environ.get('LAB_TASK_SCHEDULER') != '0' else None
     from core import task_terminal_cleanup
     terminal_cleanup_worker = asyncio.create_task(task_terminal_cleanup.run(app)) if os.environ.get('LAB_TASK_TERMINAL_CLEANUP') != '0' else None
+    from core import terminal_progress
+    app.state.terminal_progress = terminal_progress.Supervisor()
+    progress_worker = asyncio.create_task(terminal_progress.run(app)) if os.environ.get('LAB_TERMINAL_PROGRESS') != '0' else None
 
     # Print useful URLs on boot (absorbed from gdiff's on_startup).
     try:
@@ -471,6 +474,12 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        if progress_worker:
+            progress_worker.cancel()
+            try:
+                await progress_worker
+            except asyncio.CancelledError:
+                pass
         if terminal_cleanup_worker:
             terminal_cleanup_worker.cancel()
             try:
@@ -560,6 +569,8 @@ def create_app() -> FastAPI:
     app.include_router(terminal_cleanup_route.router)
     from core.task_terminal_cleanup import router as task_terminal_cleanup_router
     app.include_router(task_terminal_cleanup_router)
+    from core.terminal_progress import router as terminal_progress_router
+    app.include_router(terminal_progress_router)
     app.include_router(workspace_documents_route.router)
     app.include_router(objectives_route.router)
     app.include_router(servers_route.router)

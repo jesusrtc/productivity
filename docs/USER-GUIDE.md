@@ -437,6 +437,50 @@ extra **main** prefixes are omitted, including on automation, task and merged
 tabs. Existing name/icon colors and folder details in hover tooltips remain.
 An unnamed worktree terminal can use its worktree as its fallback name.
 
+## Track progress during long agent tasks
+
+Agents update their working message when the phase changes and at least every
+20 minutes. A useful checkpoint says what was completed, what is happening now
+and what comes next; a long-running command can be reported as a named wait.
+The report clock and the last observed tool activity are independent. Automatic
+activity never refreshes the agent's message or implies completion.
+
+Lab's background supervisor checks once a minute, even without an open browser.
+After 30 minutes without a WIP report, a **Progress overdue** card appears with
+the owning workspace and Objective first, the report age and the last message.
+The terminal keeps its working dot and gains the overdue detail on hover.
+There is one alert per unreported interval. A new explicit report resolves it
+immediately; the last alert remains available in notification history until
+replaced. Opening its card keeps the bell switch on and never clears a WIP.
+Finished and attention reports are excluded, as are terminals marked with
+`lab terminal llm --off`. Startup and wake/resume receive two minutes of grace.
+
+Copilot started through `lab agents run copilot` loads Lab's bundled progress
+plugin for that launch. After a tool finishes, an overdue 20-minute checkpoint
+adds a reminder to the agent's context. A single blocking tool can delay this
+reminder, but the independent 30-minute check continues. The plugin also asks
+the agent to report finished or attention before ending a turn, allowing at most
+one forced continuation. If it still omits the report, Lab shows **Status not
+closed**. Subagents cannot overwrite the main agent's progress through these hooks.
+User hooks, permissions, Copilot home and repository files remain user-owned.
+
+Existing Copilot conversations need a relaunch/resume through Lab to load the
+plugin; `lab context update` refreshes instructions in existing agents. Copilot
+CLI must support `--plugin-dir` and lifecycle hooks. Other providers and manually
+started agents receive the checkpoint instructions and the independent stale
+monitor, but this automatic reminder/turn-close hook is currently Copilot-only.
+If a supported local agent disappears after being observed running, two
+consecutive successful process checks raise a missing-status alert. A failed
+process query is unknown, and silence never marks a task completed.
+
+Inspect the current terminal with `lab progress status`. Administrators can use
+`lab api call GET /api/term/progress` for supervisor health and
+`lab api call POST /api/term/progress/check` for an immediate check that respects
+the startup/resume grace period. Session listings and the attention batch expose
+`terminal_progress` alongside the original status. Set `LAB_TERMINAL_PROGRESS=0`
+on the server to disable background checks. Alerts persist in the owning tmux
+session, survive browser/backend restarts, and disappear with that incarnation.
+
 ## Report terminal status explicitly
 
 Lab agent launches mark their terminal **LLM-controlled** automatically. Agents
@@ -582,7 +626,7 @@ Clicking a notification activates its exact terminal and keeps **Show all** on,
 so you can check several cards in sequence. Status changes and refreshes also
 keep the list open. Clicking another area of Lab, turning the bell switch off,
 the close button, or Escape closes history. The normal stack then
-shows only current input requests and unreviewed finishes. Dismissing history
+shows current input requests, overdue/missing-status alerts and unreviewed finishes. Dismissing history
 does not review anything; clicking a current finish reviews that displayed
 report, while red requests remain active until answered or updated. Opening an
 older finish cannot clear a newer report or change a working terminal's status.
