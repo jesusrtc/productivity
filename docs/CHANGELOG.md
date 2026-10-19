@@ -5,6 +5,17 @@ guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 
 ## 2026-10-19
 
+### Keep notification history open while checking cards
+
+- The control beside **Lid Awake** now shows only a bell and switch, with an
+  accessible **Show all notifications** label. Clicking cards or receiving status
+  updates keeps it on; clicking elsewhere in Lab returns to active alerts.
+- Cards lead with the owning workspace and Objective. Active alerts have a
+  white vertical line, which clears automatically when resolved or reviewed.
+  Historical cards remain available while checking the rest of the list.
+- Existing red/green behavior, exact terminal navigation, review protection,
+  timestamps, pagination and fast terminal activation are retained.
+
 ### Browse the latest notification from every terminal
 
 - Added **🔔 Notifications** beside **Lid Awake**. The center includes reviewed

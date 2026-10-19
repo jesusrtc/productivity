@@ -2038,6 +2038,11 @@
   .term-notification-time { font-size: 10px; opacity: .8; }
   .repo-tab.notification-center-toggle { display: flex; align-items: center; gap: 6px; }
   .repo-tab.notification-center-toggle[aria-expanded="true"] { color: var(--accent); border-bottom-color: var(--accent); }
+  .notification-center-toggle .keep-alive-switch { flex: none; }
+  .notification-center-toggle[aria-checked="true"] .keep-alive-switch { background: var(--accent); }
+  .notification-center-toggle[aria-checked="true"] .keep-alive-switch::after { transform: translateX(10px); background: var(--bg-primary); }
+  .term-notification.active-alert { position: relative; }
+  .term-notification.active-alert::before { content: ''; position: absolute; left: 4px; top: 10px; bottom: 10px; width: 3px; border-radius: 2px; background: currentColor; pointer-events: none; }
   .term-notification { display: flex; flex: none; align-items: center; gap: 11px; width: 100%; box-sizing: border-box; padding: 13px 14px; border: 1px solid #42a477; border-radius: 8px; background: #1c6848; color: #fff; box-shadow: 0 3px 9px #0005; font: inherit; font-size: 13px; line-height: 1.4; text-align: left; cursor: pointer; pointer-events: auto; }
   .term-notification.attention { background: #9c3038; border-color: #dc6b74; }
   .term-notification:hover { filter: brightness(1.12); }
@@ -2045,7 +2050,7 @@
   .term-notification:disabled { cursor: progress; opacity: .65; }
   .term-notification-icon { display: grid; place-items: center; flex: none; width: 23px; height: 23px; border: 2px solid currentColor; border-radius: 50%; box-sizing: border-box; font: bold 15px/1 system-ui, sans-serif; }
   .term-notification-copy { display: flex; flex: 1; flex-direction: column; gap: 4px; min-width: 0; }
-  .term-notification-context { font-size: 11px; font-weight: 600; opacity: .85; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .term-notification-context { font-size: 11px; font-weight: 600; opacity: .85; overflow-wrap: anywhere; }
   .term-notification-message { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; overflow-wrap: anywhere; }
   .term-header .title { flex-shrink: 0; font-size: 12px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; }
   .term-active-session { display: none; align-items: center; gap: 5px; min-width: 0; flex: 1; margin-right: auto; padding-left: 7px; border-left: 1px solid var(--border); font-family: ui-monospace, monospace; }

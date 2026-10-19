@@ -16019,9 +16019,11 @@
     error:message => explorerToast(message, true),
     label:({session, owner}) => {
       const workspace = workspaceTabsAll.find(row => row.name === owner.workspace_id && _workspaceVaultId(row) === owner.vault);
+      const context = session.notification_context;
       const location = owner.workspace_id === '__self__' ? 'Home' : owner.workspace_id === '__assistant__' ? 'Assistant'
-        : [(_vaultById(owner.vault)?.name || owner.vault), workspace ? _workspaceDisplayName(workspace) : owner.workspace_id].filter(Boolean).join(' / ');
-      return location + ' / ' + (session.label || session.logical_name || session.name);
+        : context?.workspace || (workspace ? _workspaceDisplayName(workspace) : owner.workspace_id);
+      return [location, context?.objective, session.label || session.logical_name || session.name].filter(Boolean).join(' / ')
+        + (owner.workspace_id.startsWith('__') ? '' : ' · ' + (_vaultById(owner.vault)?.name || owner.vault));
     },
   });
   window.LabWorkspaceDocuments?.configure({

@@ -4,7 +4,7 @@ import {mkdtemp, readFile, rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 
-const [base, count] = process.argv.slice(2);
+const [base, count, history] = process.argv.slice(2);
 if (!process.env.LAB_PROBE_COOKIE || !['localhost', '127.0.0.1', '[::1]'].includes(new URL(base).hostname))
   throw Error('Run through lab_notification_latency.py');
 const profile = await mkdtemp(join(tmpdir(), 'lab-notification-'));
@@ -56,6 +56,7 @@ try {
     if (!ready) await sleep(100);
   }
   if (!ready) throw Error('A live Home notification and terminal are required for this probe');
+  if (history === 'true') await evaluate('LabTerminalNotifications.showHistory(true)');
   const rows=[];
   for (let i=0; i<Number(count); i++) {
     const setup = await evaluate(`(async()=>{
@@ -95,7 +96,8 @@ try {
           // rAF + task observes a paint opportunity after real terminal output.
           requestAnimationFrame(()=>setTimeout(()=>{
             clearTimeout(timeout);resolve({ms:performance.now()-probe.start,
-              focused:document.activeElement===xt.textarea,output:output(xt)});
+              focused:document.activeElement===xt.textarea,output:output(xt),
+              show_all:document.querySelector('[data-terminal-notification-center]')?.getAttribute('aria-checked')==='true'});
           },0));return;
         }
         if(performance.now()-probe.start<15000)setTimeout(check,5);

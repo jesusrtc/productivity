@@ -366,8 +366,9 @@ const assert=(ok,message)=>{if(!ok)throw Error(message)};
 const until=async fn=>{for(let i=0;i<100;i++){if(fn())return;await new Promise(r=>setTimeout(r,5));}throw Error('Timed out '+fn)};
 const sessions=Array.from({length:45},(_,i)=>({name:'terminal-'+i,created:1,tmux_socket:'owned',tmux_id:'$'+i,
  workspace_id:'demo',vault:'owner',llm_controlled:true,
+ notification_context:{workspace:'Workspace <Alpha>',objective:'Objective & Beta'},
  terminal_status:{version:1,state:i%2?'attention':'finished',revision:1,id:'r'+i,updated_at:1000+i,message:'Result '+i+' <literal>'}}));
-let opened=[],fail=false,release;
+let opened=[],fail=false,hold=false,release;
 '''
     checks = r'''
 (async()=>{try{
@@ -377,15 +378,22 @@ let opened=[],fail=false,release;
  document.getElementById('repoTabs').innerHTML='<button class="repo-tab lid-awake-toggle">Lid Awake</button>'+N.buttonHtml();
  const toggle=document.querySelector('[data-terminal-notification-center]');
  const cards=()=>[...host.querySelectorAll('.term-notification')];
- N.configure({open:async item=>{if(fail)return null;opened.push(item.session.name);return item.session;}});
+ N.configure({open:async item=>{if(fail)return null;if(hold)await new Promise(resolve=>release=resolve);opened.push(item.session.name);return item.session;}});
  N.update(snapshot);
  for(const s of sessions)if(s.terminal_status.state==='finished')C.acknowledge('',s);
  sessions[42].terminal_status={...sessions[42].terminal_status,state:'working',id:'working',revision:2};N.update(snapshot);
  assert(cards().length===22,'automatic stack has only current attention requests');
+ assert(toggle.textContent.trim()==='🔔'&&toggle.querySelector('.keep-alive-switch'),'control shows only a bell and switch, without text');
+ assert(toggle.getAttribute('role')==='switch'&&toggle.getAttribute('aria-checked')==='false'&&toggle.getAttribute('aria-label'),'switch has an accessible name and state');
+ assert(cards().every(card=>card.classList.contains('active-alert')),'active automatic alerts have the vertical marker');
  toggle.click();
  assert(toggle.getAttribute('aria-expanded')==='true'&&host.classList.contains('history-open'),'button opens the history view');
+ assert(toggle.getAttribute('aria-checked')==='true'&&getComputedStyle(toggle.querySelector('.keep-alive-switch'),'::after').transform!=='none','bell switch turns on visually');
  assert(cards().length===20&&cards()[0].textContent.includes('Result 44'),'history starts with newest 20 regardless of red/green');
  assert(cards()[2].textContent.includes('Result 42')&&cards()[2].textContent.includes('History'),'working terminal retains its last notification');
+ assert(!cards()[0].classList.contains('active-alert')&&cards()[1].classList.contains('active-alert'),'history and active requests are visibly distinct');
+ assert(getComputedStyle(cards()[1],'::before').width==='3px'&&getComputedStyle(cards()[1],'::before').backgroundColor==='rgb(255, 255, 255)','active requests have an actual visible vertical line');
+ assert(cards()[0].querySelector('.term-notification-context').textContent.startsWith('Workspace <Alpha> / Objective & Beta / terminal-44')&&!host.querySelector('alpha'),'workspace and Objective precede terminal and status as escaped text');
  assert(cards().every(card=>card.querySelector('time'))&&!host.querySelector('literal'),'creation dates and escaped messages are visible');
  assert(host.querySelector('[data-notification-more]'),'older notifications can be loaded');
  const same=cards()[0];N.update(snapshot);assert(cards()[0]===same,'unchanged poll retains DOM and pagination');
@@ -405,25 +413,51 @@ let opened=[],fail=false,release;
  assert(!host.classList.contains('history-open'),'close control returns to attention stack');
  toggle.click();fail=true;cards()[0].click();await new Promise(r=>setTimeout(r,0));
  assert(host.classList.contains('history-open'),'failed navigation keeps history open');fail=false;
- cards()[0].click();await until(()=>!host.classList.contains('history-open'));
+ cards()[0].click();await until(()=>!host.querySelector('.term-notification:disabled'));
+ assert(host.classList.contains('history-open')&&toggle.getAttribute('aria-checked')==='true','successful notification click keeps show-all open');
  assert(opened.at(-1)==='terminal-44'&&!C.status(sessions[44]),'reviewed history activates its terminal');
- toggle.click();cards()[1].click();await until(()=>!host.classList.contains('history-open'));
- assert(opened.at(-1)==='terminal-43'&&C.status(sessions[43]).state==='attention','red history opens exact terminal and stays active after closing');
+ cards()[1].click();await until(()=>!host.querySelector('.term-notification:disabled'));
+ assert(host.classList.contains('history-open')&&opened.at(-1)==='terminal-43'&&C.status(sessions[43]).state==='attention','another card can be checked without closing show-all or clearing red');
  sessions[44].terminal_status={...sessions[44].terminal_status,id:'new-finish',revision:2,updated_at:2000};N.update(snapshot);
- toggle.click();assert(cards()[0].dataset.reportId==='new-finish','new reports replace previous history and move to top');
+ assert(host.classList.contains('history-open')&&cards()[0].dataset.reportId==='new-finish'&&cards()[0].classList.contains('active-alert'),'new report updates the active marker without closing show-all');
  outside.click();assert(cards().length===23&&cards().some(card=>card.dataset.reportId==='new-finish'),'unreviewed finish returns after outside dismissal');
- toggle.click();cards()[0].click();await until(()=>!host.classList.contains('history-open'));
- assert(!C.status(sessions[44])&&!cards().some(card=>card.dataset.reportId==='new-finish'),'successful history click reviews only its current finish');
- N.update({});toggle.click();assert(!host.hidden&&host.textContent.includes('No notifications yet.'),'empty history is available');outside.click();assert(host.hidden,'empty automatic stack hides');
+ toggle.click();cards()[0].click();await until(()=>!host.querySelector('.term-notification:disabled'));
+ assert(host.classList.contains('history-open')&&!C.status(sessions[44])&&cards()[0].dataset.reportId==='new-finish'&&!cards()[0].classList.contains('active-alert'),'review turns off the marker while the card and list remain');
+ C.input(sessions[43],'yes\r');
+ assert(host.classList.contains('history-open')&&!cards().find(card=>card.dataset.key===C.key(sessions[43])).classList.contains('active-alert'),'responding updates the active marker while keeping show-all open');
+ N.update({});assert(!host.hidden&&host.textContent.includes('No notifications yet.'),'empty history is available');outside.click();assert(host.hidden,'empty automatic stack hides');
  N.update(snapshot);toggle.click();
  for(const width of [340,400]){host.style.width=width+'px';assert(host.scrollWidth<=width+2,'history fits narrow and wide layouts');}
  assert(getComputedStyle(host).overflowY==='auto'&&host.clientHeight<=480,'history scrolls in a bounded overlay');
+ hold=true;cards()[0].click();outside.click();release();
+ await until(()=>!host.querySelector('.term-notification:disabled'));
+ assert(!host.classList.contains('history-open')&&toggle.getAttribute('aria-checked')==='false','late navigation never reopens a list dismissed elsewhere');
+ toggle.click();
  document.body.dataset.result='pass';
 }catch(error){document.body.dataset.result='fail';document.body.append(String(error.stack||error));}})();
 '''
     css = (ROOT / 'core/src/core/static/css/lab-shell.css').read_text()
     html = '<!doctype html><meta charset="utf-8"><style>:root{--bg-primary:#0d1117;--bg-secondary:#161b22;--bg-tertiary:#21262d;--border:#30363d;--text-primary:#c9d1d9;--text-secondary:#8b949e;--accent:#58a6ff;}</style><style>'+css+'</style><body><nav id="repoTabs" class="repo-tabs"></nav><button id="outside" style="position:absolute;top:120px;left:20px">Outside</button><div id="termNotifications" class="term-notifications" role="region" aria-label="Terminal notifications"></div><script>'+setup+MODULE+NOTIFICATIONS+checks+'</script>'
     _check_project_html(tmp_path, html, focused=True, screenshot=True)
+
+
+def test_notification_labels_put_native_workspace_and_objective_before_terminal_and_vault():
+    label = _js_between('    label:({session, owner}) => {', '  window.LabWorkspaceDocuments?.configure(').split('\n  });', 1)[0]
+    result = _run_node(r'''
+const assert=(ok,message)=>{if(!ok)throw Error(message)};
+const workspaceTabsAll=[{name:'same-id',vault:'wrong',display_name:'Wrong workspace'},
+ {name:'same-id',vault:'owner',display_name:'Renamed workspace'}];
+const _workspaceVaultId=row=>row.vault,_workspaceDisplayName=row=>row.display_name;
+const _vaultById=()=>({name:'Vault name'});
+const bridge={''' + label + r'''};
+const session={name:'exact',label:'Agent terminal',notification_context:{workspace:'Owner workspace',objective:'Owner Objective'}};
+const owner={workspace_id:'same-id',vault:'owner'};
+assert(bridge.label({session,owner})==='Owner workspace / Owner Objective / Agent terminal · Vault name','native workspace and Objective come first even for an inactive view');
+assert(bridge.label({session:{name:'exact'},owner})==='Renamed workspace / exact · Vault name','fallback uses the exact owner vault');
+assert(bridge.label({session:{name:'exact'},owner:{workspace_id:'__self__',vault:'owner'}})==='Home / exact','Home keeps its own context');
+console.log(JSON.stringify({passed:true}));
+''')
+    assert result['passed']
 
 
 def test_notification_ui_commands_share_history_and_exact_report_navigation():

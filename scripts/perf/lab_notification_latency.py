@@ -17,6 +17,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--samples', type=int, default=8)
     parser.add_argument('--cold-runs', type=int, default=3)
+    parser.add_argument('--history', action='store_true', help='Keep Show all on while checking successive cards')
     parser.add_argument('--output', type=Path)
     args = parser.parse_args()
     if args.samples < 1 or args.cold_runs < 1:
@@ -29,7 +30,7 @@ def main():
     rows = []
     for run in range(args.cold_runs):
         completed = subprocess.run(
-            ['node', str(Path(__file__).with_suffix('.mjs')), base, str(args.samples)],
+            ['node', str(Path(__file__).with_suffix('.mjs')), base, str(args.samples), str(args.history).lower()],
             env={**os.environ, 'LAB_PROBE_COOKIE': auth.issue_session(owner)},
             text=True, capture_output=True, timeout=90, check=True,
         )
@@ -37,7 +38,8 @@ def main():
     timings = sorted(row['ms'] for row in rows)
     result = {'samples': rows, 'max_ms': max(timings),
               'p95_ms': timings[max(0, (len(timings)*95+99)//100-1)],
-              'under_200_ms': all(row['ms'] < 200 and row['focused'] and row['output'] for row in rows)}
+              'under_200_ms': all(row['ms'] < 200 and row['focused'] and row['output']
+                                  and (not args.history or row['show_all']) for row in rows)}
     rendered = json.dumps(result, indent=2) + '\n'
     if args.output:
         args.output.write_text(rendered)

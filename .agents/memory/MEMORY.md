@@ -1,5 +1,7 @@
 # Memory index
 
+- [Notification bell stays open while checking](notification-bell-stays-open-while-checking.md) — bell and switch only, card clicks preserve show-all, active vertical markers and workspace/Objective-first native labels.
+
 - [Notification center retains the latest alert per terminal](terminal-notification-center-history.md) — newest-first history beside Lid Awake, 20 per page, browser retention and dismissal back to active alerts.
 
 - [META skills fold after five minutes unseen](meta-skills-fold-after-five-minutes-unseen.md) — folded scope roots by default; retain expansion while visible, auto-fold after five minutes away, including hidden tabs and cached sidebars.

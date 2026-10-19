@@ -354,3 +354,67 @@ def test_assistant_documents_derive_from_saved_links_without_tmux(client, linked
     term._upsert_workspace_session(root, '__assistant__', {'name':'claude', 'linked_task':None})
     term._upsert_workspace_session(root, '__assistant__', {'name':'second', 'linked_task':None})
     assert client.get('/api/workspace-documents?workspace_id=__assistant__').json() == []
+
+
+def test_notification_context_uses_native_objective_and_inherited_parent_in_one_batch(
+        client, linked_workspace, monorepo, monkeypatch):
+    from core.routes import term
+    from core.routes import workspace_documents as route
+    from core import task_terminal_cleanup
+    from lab import objectives, objective_store
+
+    root, note, live, session = linked_workspace
+    parent = session(monorepo, 'demo', 'parent')
+    child = session(monorepo, 'demo', 'child')
+    saved = {row['name']: row for row in term._get_workspace_sessions(monorepo, 'demo')}
+    first = objectives.mutate(monorepo, 'demo', {'type':'create', 'name':'Owner Objective'})['objectives'][0]['id']
+    second_data = objectives.mutate(monorepo, 'demo', {'type':'create', 'name':'Other Objective'})
+    second = next(row['id'] for row in second_data['objectives'] if row['id'] != first)
+    objectives.mutate(monorepo, 'demo', {'type':'terminal', 'objective_id':first,
+                                       'session_id':saved['parent']['session_id']})
+    task_terminal_cleanup.save_parents(monorepo, 'demo', {'child':'parent'})
+    link_terminal(client, note, workspace='demo', vault='client', logical='child')
+    link_document(client, root, note, workspace='other')
+    for row in live:
+        row['terminal_status'] = {'version':1, 'state':'attention', 'message':'Review', 'id':row['name'], 'revision':1}
+    reads = []
+    read = objective_store.read
+    load = objectives.load
+    payload = objectives.payload
+    monkeypatch.setattr(objective_store, 'read', lambda folder:(reads.append(folder), read(folder))[1])
+    monkeypatch.setattr(objectives, 'payload', lambda *a:pytest.fail('Notification names must not load document bodies'))
+    monkeypatch.setattr(objectives, 'load', lambda *a, **kw:pytest.fail('Notification names must not refresh checklists'))
+    before = {file:file.read_bytes() for file in monorepo.rglob('*.json')}
+    result = client.get('/api/workspace-documents/attention')
+    assert result.status_code == 200, result.text
+    rows = {row['name']: row for row in result.json()['client::demo']}
+    assert rows[parent]['notification_context'] == {'workspace':'demo', 'objective':'Owner Objective'}
+    assert rows[child]['notification_context'] == rows[parent]['notification_context']
+    borrowed = result.json()['client::other'][0]
+    assert borrowed['name'] == child and borrowed['notification_context'] == rows[child]['notification_context']
+    assert borrowed['workspace_id'] == 'demo', 'Borrowing must not relabel a terminal with the destination Objective'
+    assert len(reads) == 1, 'Read owner metadata once, not per terminal or shared view'
+    assert all(file.read_bytes() == content for file, content in before.items()), 'Reading labels must not change managed metadata'
+    # An explicit child Objective takes precedence over its inherited parent.
+    monkeypatch.setattr(objectives, 'load', load)
+    monkeypatch.setattr(objectives, 'payload', payload)
+    objectives.mutate(monorepo, 'demo', {'type':'terminal', 'objective_id':second,
+                                       'session_id':saved['child']['session_id']})
+    contexts = route._notification_context(monorepo, 'demo', [rows[parent], rows[child]])
+    assert contexts[child]['objective'] == 'Other Objective'
+    assert contexts[parent]['objective'] == 'Owner Objective'
+
+
+def test_invalid_notification_context_does_not_hide_alerts(client, linked_workspace, monorepo, monkeypatch):
+    from core.routes import workspace_documents as route
+    _, _, live, session = linked_workspace
+    name = session(monorepo, 'demo', 'notify')
+    live[0]['terminal_status'] = {'version':1, 'state':'attention', 'message':'Keep this alert', 'id':'active', 'revision':1}
+    def unavailable(*args):
+        raise ValueError('Unavailable Objective metadata')
+    monkeypatch.setattr(route, '_notification_context', unavailable)
+    response = client.get('/api/workspace-documents/attention')
+    assert response.status_code == 200
+    row, = response.json()['client::demo']
+    assert row['name'] == name and row['terminal_status']['id'] == 'active'
+    assert 'notification_context' not in row

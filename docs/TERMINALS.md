@@ -64,7 +64,7 @@ including its owning workspace, Objective, task and linked asset. Each click
 still checks the live session incarnation before activation or green review.
 The destination tab scrolls into view and pulses; red requests remain visible.
 
-The **🔔 Notifications** button beside **Lid Awake** opens history in the same
+The **bell and switch** beside **Lid Awake** opens history in the same
 floating stack. It lists the latest observed red/green alert per running terminal,
 including reviewed and superseded alerts, by creation time descending. Start
 with 20 and use **Load more** for another 20. The latest alert is retained in
@@ -75,8 +75,16 @@ views and tied to the exact tmux incarnation. Recreated or stopped sessions do n
 inherit another session's history. Reports replaced before history retention
 was installed are unavailable.
 
-Successful notification navigation closes history; outside click, close and
-Escape also return to the active-alert stack. Dismissal never acknowledges a
+The control has no visible label and exposes **Show all notifications** to
+assistive technology. Workspace and Objective names lead each card, followed by
+the terminal and vault. The batch reads owner metadata once per workspace,
+including parent inheritance and shared terminals, without loading document
+bodies or transcripts. A white vertical line marks active alerts and turns off
+when their status resolves or a finish is reviewed.
+
+Notification navigation, status events and polling keep history and its bell
+switch open, allowing consecutive card checks. Outside click, the switch, close
+and Escape return to the active-alert stack. Dismissal never acknowledges a
 finish. A historical finish is reviewed only if it is still the exact current
 report; newer reports and working/attention indicators remain intact. The
 `terminal-notifications` UI command accepts `history: true`, and
@@ -98,6 +106,7 @@ all samples, including uncached first opens. It checks the exact session, visibl
 output and keyboard focus after a paint opportunity. It sends no terminal input,
 disables automatic session creation in its profiles and leaves the user's browser
 review state untouched. `--output /absolute/path/results.json` retains the timings.
+Add `--history` to check consecutive card clicks with **Show all** kept on.
 
 ## Terminal automations
 
@@ -382,8 +391,13 @@ links remain separate. See [OBJECTIVES.md](OBJECTIVES.md).
 Task retention runs automatically every minute across registered vaults, without
 an open browser. Completed, Won’t do and Undo/Not started tasks retain running
 terminals for one hour after their status changes; Paused retains them for three
-days. The default In progress bar hides them immediately. Explicit Show all
-remains available during that window. A return to In progress cancels cleanup;
+days. The default bar hides inactive task terminals except while their Paused
+task is selected. Leaving that task hides its terminals and inherited children
+immediately, even when its console was active. Selecting it reuses the existing
+terminal; the workspace task-terminal setting still controls missing-session
+creation. Notification navigation temporarily reveals only its exact destination
+without saving Show all. Explicit Show all remains available during that window.
+A return to In progress cancels cleanup;
 each different status starts a fresh window. Repeated saves of the same status
 do not extend it. Children inherit their saved parent’s task unless they have
 their own task assignment. Automation launches persist this relationship even
