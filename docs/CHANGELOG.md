@@ -5,6 +5,17 @@ guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 
 ## 2026-10-19
 
+### Keep terminal tabs in task-ordered blocks
+
+- Task and subtask order determines contiguous terminal blocks, including
+  inherited children, automation members and multiple direct task terminals.
+- Drag tasks above or below other tasks to move whole branches and terminal
+  blocks. Alt-drag retains nesting options. Individual tab drags stay inside
+  their task and never move or reassign a task.
+- Saved internal tab order survives task moves and reloads. Running sessions,
+  launch folders, conversations and inherited parent context are preserved.
+
+
 ### Refresh managed agent rules whenever a client reloads
 
 - Administrator client reloads apply the installed template to the captured

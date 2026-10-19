@@ -71,6 +71,8 @@ body.sidebar-drawer-enabled:not(.sidebar-drawer-open) [data-project-sidebar][dat
 .objective-switch-number { font-size:11px; color:var(--text-dim); }
 .objective-slot-empty { color:var(--text-dim); }
 .objective-drop-target { background:color-mix(in srgb,var(--accent) 15%,var(--bg-primary)); outline:1px dashed var(--accent); outline-offset:-2px; }
+.objective-drop-before { box-shadow:inset 0 2px var(--accent); }
+.objective-drop-after { box-shadow:inset 0 -2px var(--accent); }
 .objective-progress { margin-left:auto; flex-shrink:0; font-size:11px; font-variant-numeric:tabular-nums; }
 .objective-progress.track { color:var(--yellow,#e3b341); }.objective-progress.risk { color:#ffa657; }.objective-progress.overdue { color:var(--red,#ff7b72); }.objective-progress.complete { color:var(--green,#3fb950); }
 .objective-resources { display:grid; grid-template-columns:minmax(0,1fr); gap:4px; padding:0 12px; }

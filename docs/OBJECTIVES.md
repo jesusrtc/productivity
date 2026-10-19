@@ -499,19 +499,17 @@ and disclosure remain intact without shifting the icon column.
 The renewal (**↻**) button is shown beside visible terminal titles and hidden
 when titles are folded. Custom task icons and default emojis remain visible.
 
-Task terminals follow the sidebar hierarchy. Drag one ordinary terminal over
-another to choose **Move below**, **Make child** or **Cancel**. Children unfold
-on parent hover or keyboard focus. Children with their own In progress task
-association stay visible after leaving the rail or pressing the collapse key.
-Children without their own WIP task, including those with inherited WIP context,
-use parent disclosure. **+ New → Launch automation…** requires choosing an In
-progress task, assigns its first defined terminal as that task's primary and nests the remaining terminals beneath
-it. Pausing the chosen task hides the complete automation group. This primary follows the same own-WIP visibility rule; the other automation
-terminals inherit its task context. Selecting a child keeps its row, direct
-siblings and ancestor path visible. Other branches retain parent disclosure. An
-independent child opens its parent's task context without taking the parent's
-1:1 task assignment. Task and terminal navigation preserves the original
-process, checkout and agent conversation.
+Task terminals follow sidebar task/subtask order as invisible contiguous blocks.
+Drag a task title above or below another task to move its complete branch and
+terminal blocks. Alt-drag offers nesting options. Terminal tabs reorder only
+within their own task's block, individually, without changing task ownership or
+parent context. Saved internal order survives task moves and reloads. Task-bound
+terminals appear as individual rows, including inherited children and automation
+members; their context, process, checkout and agent conversation are preserved.
+Generic terminals retain **Move below**, **Make child**, **Cancel** and parent
+hover/focus disclosure. **+ New → Launch automation…** still requires an In
+progress task and assigns its first terminal as that task's primary. Pausing
+the chosen task hides the complete task block.
 
 Task completion records `completed_at` as Unix seconds in the Objective
 manifest. Pausing, reopening or declining clears it. **Clean up completed /
@@ -558,10 +556,11 @@ association. Ordinary workspace links and file/folder rows also support these
 reference pastes.
 
 Drag a task title or the focused task control onto a terminal name to link that
-terminal to the task. The reverse terminal-to-task-row drop also works in the left column. Clicking
-the terminal opens the task's details in Focus mode. Its launch folder, process
+terminal to the task if it has no existing task. The reverse terminal-to-task-row
+drop also works for unassigned terminals in the left column. Task-bound terminals
+keep their existing block. Clicking the terminal opens the task's details in Focus mode. Its launch folder, process
 and original Assistant ownership remain intact.
-Dropping a terminal onto a task or subtask also renames its display label to
+Assigning an unassigned terminal to a task or subtask also renames its display label to
 that task's current name. The label is saved on the terminal's original owner
 and remains after reload; later manual terminal renames are still available.
 

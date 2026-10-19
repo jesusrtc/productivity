@@ -66,6 +66,22 @@ applies to named worktree terminals and legacy merged tabs. Colored location
 markers retain full folder details in their tooltips. Unnamed worktree terminals
 can still use the worktree as their fallback name.
 
+Task terminals form invisible contiguous blocks in sidebar task/subtask order.
+All members of one task stay together, including directly assigned terminals,
+inherited children and automation members. Drag a task title above or below
+another task to move the whole branch and its terminal blocks. Alt-drag offers
+nesting options; the **Tasks** header promotes a dragged task to the top level.
+
+A terminal tab may move individually before or after another terminal in the
+same task's block. It cannot leave that block, move its task, or change task
+ownership through a drag. Cross-task, divider and empty-rail drops are rejected.
+Task-bound members render as individual rows so nested task terminals cannot
+split another task's block. Their real parent relationships remain available
+for context, appearance, recovery and primary selection. Generic terminals
+retain their existing child disclosure and placement menu. Saved order inside
+a task persists across task moves and reloads; identities, processes, launch
+folders and conversations are preserved.
+
 ## Notification navigation
 
 Red attention and green finished cards open the exact reporting terminal,
@@ -401,8 +417,8 @@ entering the separate worktree-browsing mode when a task is selected.
 **Unlink asset** restores the usual icon without stopping or restarting anything.
 New file links outside Objectives also activate in both directions without
 requiring **Sync linked**; existing links retain that preference until relinked.
-Task/Objective drops still explicitly assign terminal ownership, while asset
-links remain separate. See [OBJECTIVES.md](OBJECTIVES.md).
+Task/Objective drops can assign unassigned terminals. Task-bound terminals
+retain their membership; asset links remain separate. See [OBJECTIVES.md](OBJECTIVES.md).
 
 ## Inactive terminal cleanup
 

@@ -1,16 +1,21 @@
 # Moving and deleting Objective tasks
 
-Drag a task title or sidebar task onto another task to choose **Make subtask**,
-**Move above**, or **Move below**. Drop anywhere on the full-width **Tasks** header
-to make it a top-level task. The header highlights during a drag; dropping a
-primary task terminal there promotes its task while retaining that association.
-The whole branch moves together, including deeper subtasks. A primary terminal
-drag also updates its owning task when placed under, beside, or outside another
-task's terminal.
+Drag a task title or sidebar task onto the upper or lower half of another task
+to move its branch above or below that task. An insertion line marks the drop.
+Alt-drag opens **Make subtask**, **Move above**, **Move below**, and top-level
+placement options. Drop a task on the full-width **Tasks** header to make it a
+top-level task. The whole branch moves together, including deeper subtasks.
+
+Each task owns an invisible contiguous block of terminal tabs in canonical
+sidebar order. Moving the task moves its block and its subtasks' blocks. Tabs
+may reorder individually within their own block, including inherited children;
+terminal dragging cannot move, reparent or reassign a task. Saved order inside
+each block survives task moves and browser reloads. Parent relationships still
+supply inherited context and recovery without controlling block placement.
 
 Moves retain task IDs, Markdown subtab IDs, assets, terminal identities, working
-directories and running processes. Terminal rows follow the new task hierarchy;
-extra subterminals follow their existing parent. Cycles and incompatible repeat
+directories and running processes. Terminal blocks follow the new task hierarchy;
+extra subterminals retain their existing task context. Cycles and incompatible repeat
 schedules are rejected. Existing two-level task files need no migration.
 
 **Delete** is available on task rows, task detail headers, and the sidebar's

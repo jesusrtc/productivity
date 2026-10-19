@@ -252,7 +252,7 @@
     const status=taskStatus(task),done=status==='done',selected=focusedTask()?.id===task.id;
     const worktrees=taskWorktrees(task),iconColor=task.terminal_color||(worktrees.length===1?worktrees[0].color:null);
     const compactIcon=`<span class="objective-sidebar-task-compact-icon" aria-hidden="true"${iconColor?` style="color:${esc(iconColor)}"`:''}>${taskIcon(task)}</span>`;
-    return `<div class="objective-sidebar-task${parent?' child':''}${selected?' active':''}" style="--objective-task-depth:${depth}" data-task-id="${esc(task.id)}"><button type="button" class="objective-sidebar-task-status" data-task-status="${status}" data-task-icon="${esc(task.id)}" aria-label="Choose icon for ${esc(task.title)} · ${taskStatuses[status].label}" title="${taskStatuses[status].label} · Click to choose an icon · Secondary-click to change status">${compactIcon}</button><a class="objective-sidebar-task-title${done?' done':''}" data-open-task="${esc(task.id)}" href="${esc(taskHref(task))}" draggable="true" title="${esc(task.title)}">${taskNameHtml(task)}</a>${task.recurrence?'<span class="objective-task-recurring" aria-label="Recurring task" title="Recurring task">🔄</span>':''}<span class="objective-sidebar-task-count" title="${taskAssets(task).length} assets">${taskAssets(task).length}</span><button type="button" data-task-icon="${esc(task.id)}" aria-label="Icon for ${esc(task.title)}" title="${taskStatuses[status].label} · Choose a task icon · Or drop an asset here" draggable="true">${customTaskIcon(task)?taskStatuses[status].icon:''}</button></div>`;
+    return `<div class="objective-sidebar-task${parent?' child':''}${selected?' active':''}" style="--objective-task-depth:${depth}" data-task-id="${esc(task.id)}"><button type="button" class="objective-sidebar-task-status" data-task-status="${status}" data-task-icon="${esc(task.id)}" aria-label="Choose icon for ${esc(task.title)} · ${taskStatuses[status].label}" title="${taskStatuses[status].label} · Click to choose an icon · Secondary-click to change status">${compactIcon}</button><a class="objective-sidebar-task-title${done?' done':''}" data-open-task="${esc(task.id)}" href="${esc(taskHref(task))}" draggable="true" title="${esc(task.title)} · Drag to reorder; Alt-drag for placement options">${taskNameHtml(task)}</a>${task.recurrence?'<span class="objective-task-recurring" aria-label="Recurring task" title="Recurring task">🔄</span>':''}<span class="objective-sidebar-task-count" title="${taskAssets(task).length} assets">${taskAssets(task).length}</span><button type="button" data-task-icon="${esc(task.id)}" aria-label="Icon for ${esc(task.title)}" title="${taskStatuses[status].label} · Choose a task icon · Or drop an asset here" draggable="true">${customTaskIcon(task)?taskStatuses[status].icon:''}</button></div>`;
   }
   function bucketHtml(id,label,assets,add=false) {
     return `<section class="objective-bucket" data-objective-bucket="${id}" aria-label="${label}"><div class="sidebar-title objective-title">${id==='unassigned'?`<button type="button" class="objective-bucket-label" data-show-unassigned>${label}</button>`:`<span${id==='objective'?` data-drag-objective="${esc(objective().id)}" draggable="true" title="Drag ${esc(objective().name)} into a terminal to pass its whole context"`:''}>${label}</span>`}${add?'<button type="button" data-add-resource="document" aria-label="Add objective asset">+</button>':''}</div><div class="objective-resources">${assetListHtml(assets,'sidebar:'+id+(id==='task'?':'+(focusedTask()?.id||''):''))||`<p class="objective-bucket-empty">${{unassigned:'All assets are assigned.',objective:'Star an asset to share it across tasks.',task:'Select a task to see its assets.',archive:'Drop assets here to set them aside.'}[id]}</p>`}</div></section>`;
@@ -507,7 +507,7 @@
     host.innerHTML=`<div class="objective-sidebar-heading" style="--objective-color:${esc(o.color)}"><button type="button" data-select-objective="${esc(o.id)}" data-drag-objective="${esc(o.id)}" draggable="true" aria-pressed="${!task&&state().view==='objective'}" title="${esc(o.name)} · Drag into a terminal for the full context"><span class="objective-library-dot" aria-hidden="true"></span><span>${esc(o.name)}</span></button><button type="button" data-objective-settings aria-label="Objective settings">⚙</button></div>`+
       `<section class="objective-worktree-navigation" aria-label="Worktrees"><div class="sidebar-title objective-title"><button type="button" class="objective-bucket-label" data-fold-worktrees aria-expanded="${!!state().worktreesOpen}">${state().worktreesOpen?'▾':'▸'} Worktrees <small>${scopeRows(o).length}</small></button><button type="button" data-associate-worktree aria-label="Associate worktree">+</button></div><div class="objective-worktrees" ${state().worktreesOpen?'':'hidden'}>${worktreeNavigationHtml(o)}</div></section>`+
       ((o.shared_assets||[]).length?bucketHtml('objective','Objective · pinned',o.shared_assets.filter(a=>!isArchived(a,o))):'')+
-      `<section class="objective-bucket objective-sidebar-tasks" data-objective-bucket="tasks"><div class="sidebar-title objective-title objective-tasks-drop" data-objective-tasks-drop title="Drop a task or its terminal here to make it a top-level task"><button type="button" class="objective-bucket-label" data-open-objective-tasks draggable="true">Tasks</button>${badge(o)}<button type="button" data-new-objective-task aria-label="New objective task">+</button></div><div class="objective-sidebar-task-list" style="--objective-task-rows:${reservedTaskRows}">${sidebarRows.map(({task,parent,depth})=>sidebarTaskRow(task,parent,depth)).join('')||'<p class="objective-bucket-empty">No pending tasks.</p>'}</div></section>`+
+      `<section class="objective-bucket objective-sidebar-tasks" data-objective-bucket="tasks"><div class="sidebar-title objective-title objective-tasks-drop" data-objective-tasks-drop title="Drop a task here to make it a top-level task"><button type="button" class="objective-bucket-label" data-open-objective-tasks draggable="true">Tasks</button>${badge(o)}<button type="button" data-new-objective-task aria-label="New objective task">+</button></div><div class="objective-sidebar-task-list" style="--objective-task-rows:${reservedTaskRows}">${sidebarRows.map(({task,parent,depth})=>sidebarTaskRow(task,parent,depth)).join('')||'<p class="objective-bucket-empty">No pending tasks.</p>'}</div></section>`+
       bucketHtml('task','Task assets',selectedAssets.filter(a=>!worktreeAssetScope(a,o)))+
       (task?`<section class="objective-bucket objective-task-worktrees" data-task-id="${esc(task.id)}" aria-label="Worktrees for this task"><div class="sidebar-title objective-title">Worktrees</div><div class="objective-resources">${assetListHtml(selectedWorktrees,'sidebar:worktrees:'+task.id)||'<p class="objective-bucket-empty">No worktrees assigned to this task.</p>'}</div></section>`:'')+
       (overview?bucketHtml('unassigned','Unassigned',unassigned,true)+`<details class="objective-archive" ${state().archiveOpen?'open':''}><summary>Archive · ${(o.archived_assets||[]).length}</summary>${bucketHtml('archive','Archived assets',o.archived_assets||[])}</details>`:'');
@@ -585,7 +585,7 @@
   function showCenter(type) {releaseDraft();bridge.prepareCenter?.(type);openView={type,scope:key(context()),objective:objective()?.id};return document.getElementById('content');}
   function taskHref(task,item=null) {const url=new URL(location.pathname,location.origin);url.searchParams.set('workspace',context().path);url.searchParams.set('objective',objective().id);url.searchParams.set('objective_task',task.id);if(item){url.searchParams.set('objective_action_line',item.line);url.searchParams.set('objective_action_source',item.source);}return url.pathname+url.search;}
   function taskRow(task,parent=null,depth=parent?1:0) {
-    const done=parent?task.done:complete(task);return `<div class="objective-task-row${parent?' child':''}" style="--objective-task-depth:${depth}" data-task-id="${esc(task.id)}"><input type="checkbox" aria-label="Complete ${esc(task.title)}" data-task-done="${esc(task.id)}" ${done?'checked':''}><a class="objective-task-title${done?' done':''}" href="${esc(taskHref(task))}" data-open-task="${esc(task.id)}" draggable="true">${taskNameHtml(task)}${window.LabTaskSchedule?.badges(task)||''}</a><button type="button" data-task-assets="${esc(task.id)}" aria-label="Assets and icon for ${esc(task.title)}" title="${taskAssets(task).length} assets · drag an asset onto the sidebar task icon to change it">${taskIcon(task)}</button><span class="objective-task-schedule"><input type="date" aria-label="Due date for ${esc(task.title)}" data-task-due="${esc(task.id)}" value="${esc(task.due||'')}" title="${parent&&!task.due?'Inherits '+(parent.due||'parent deadline'):'Due date'}"><button type="button" data-schedule-task="${esc(task.id)}" aria-label="Schedule for ${esc(task.title)}" title="Repeat and reactivation window">↻</button></span><button type="button" data-add-subtask="${esc(task.id)}" aria-label="Add subtask to ${esc(task.title)}">+</button><button type="button" class="objective-task-delete" data-delete-objective-task="${esc(task.id)}" aria-label="Delete ${esc(task.title)}">Delete</button></div>`;
+    const done=parent?task.done:complete(task);return `<div class="objective-task-row${parent?' child':''}" style="--objective-task-depth:${depth}" data-task-id="${esc(task.id)}"><input type="checkbox" aria-label="Complete ${esc(task.title)}" data-task-done="${esc(task.id)}" ${done?'checked':''}><a class="objective-task-title${done?' done':''}" href="${esc(taskHref(task))}" data-open-task="${esc(task.id)}" draggable="true" title="Drag to reorder; Alt-drag for placement options">${taskNameHtml(task)}${window.LabTaskSchedule?.badges(task)||''}</a><button type="button" data-task-assets="${esc(task.id)}" aria-label="Assets and icon for ${esc(task.title)}" title="${taskAssets(task).length} assets · drag an asset onto the sidebar task icon to change it">${taskIcon(task)}</button><span class="objective-task-schedule"><input type="date" aria-label="Due date for ${esc(task.title)}" data-task-due="${esc(task.id)}" value="${esc(task.due||'')}" title="${parent&&!task.due?'Inherits '+(parent.due||'parent deadline'):'Due date'}"><button type="button" data-schedule-task="${esc(task.id)}" aria-label="Schedule for ${esc(task.title)}" title="Repeat and reactivation window">↻</button></span><button type="button" data-add-subtask="${esc(task.id)}" aria-label="Add subtask to ${esc(task.title)}">+</button><button type="button" class="objective-task-delete" data-delete-objective-task="${esc(task.id)}" aria-label="Delete ${esc(task.title)}">Delete</button></div>`;
   }
   function renderTasks() {
     const o=objective();if(!o)return;state().focus=null;state().view='objective';persistView();const host=showCenter('tasks'),p=progress(o);state().selected=null;
@@ -1080,9 +1080,10 @@
       },{submitLabel:'Continue'});
     }catch(error){notify(error.message,true);}
   }
-  function moveTaskDrop(source,targetId) {
+  function moveTaskDrop(source,targetId,placement) {
     const o=objective(),scope={...context()},task=tasks(o).find(t=>t.id===source.task_id),target=tasks(o).find(t=>t.id===targetId);
     if(source.scope!==key(scope)||source.objective_id!==o.id||!task)throw new Error('Move a task within this Objective.');
+    if(targetId&&!target)throw new Error('The destination task is no longer available.');
     if(target&&tasks({tasks:[task]}).some(t=>t.id===target.id))throw new Error('A task cannot be moved into itself or its descendants.');
     const move=async(parent,before=null)=>{
       const result=await change({type:'task-move',objective_id:o.id,task_id:task.id,parent_id:parent,before_id:before},{scope});
@@ -1091,6 +1092,10 @@
       bridge.refreshTerminals?.();notify('Task and its terminals moved.');return result;
     };
     if(!target){void move(null).catch(()=>{});return;}
+    if(placement==='before'||placement==='after'){
+      const parent=taskParent(target,o),siblings=(parent?parent.children:o.tasks).filter(t=>t.id!==task.id);
+      void move(parent?.id||null,placement==='before'?target.id:siblings[siblings.indexOf(target)+1]?.id||null).catch(()=>{});return;
+    }
     form('Move '+task.title,`<p>Move this task with its subtasks and terminals.</p><label>Placement<select name="placement"><option value="child">Make subtask of ${esc(target.title)}</option><option value="before">Move above ${esc(target.title)}</option><option value="after">Move below ${esc(target.title)}</option><option value="root">Make top-level task</option></select></label>`,values=>{
       const placement=values.get('placement'),parent=taskParent(target,o);
       if(placement==='child')return move(target.id);
@@ -1098,25 +1103,6 @@
       const siblings=(parent?parent.children:o.tasks).filter(t=>t.id!==task.id),next=siblings[siblings.indexOf(target)+1];
       return move(parent?.id||null,placement==='before'?target.id:next?.id||null);
     });
-  }
-  async function moveForTerminalDrop(source,destination,{relation,placeBefore}={}) {
-    if(!active(context()?.path))return false;
-    const binding=terminalTask(source);if(!binding||!binding.primary)return false;
-    const target=destination?terminalTask(destination):null;
-    if(target&&!target.primary&&!target.inherited)return false;
-    if(destination&&!target)return false;
-    if(target&&target.objective.id!==binding.objective.id)throw new Error('Move a task within its Objective.');
-    const o=binding.objective,task=binding.task,scope={...context()};
-    let parent=null,before=null;
-    if(target){
-      parent=relation==='child'||target.inherited?target.task:taskParent(target.task,o);
-      if(relation!=='child'&&!target.inherited){
-        const siblings=(parent?parent.children:o.tasks).filter(t=>t.id!==task.id);
-        before=placeBefore?target.task.id:siblings[siblings.indexOf(target.task)+1]?.id||null;
-      }
-    }
-    await change({type:'task-move',objective_id:o.id,task_id:task.id,parent_id:parent?.id||null,before_id:before},{scope});
-    if(key(context())===key(scope))bridge.refreshTerminals?.();return true;
   }
   function associate(row) {return change({type:'worktree',objective_id:objective().id,path:row.path,label:row.label||row.name||row.path.split('/').pop(),repo:row.projectPath||row.path,branch:row.branch,kind:row.kind||'worktree'}).then(d=>{const o=d.objectives.find(o=>o.id===objective().id);state().tree[o.id]=o.worktrees.at(-1).id;persistView();return o.worktrees.at(-1);});}
   function terminalIdentity(t) {return t.session_id||t.name;}
@@ -1202,6 +1188,11 @@
     return null;
   }
   function taskForTerminal(t) {const binding=terminalTask(t);return binding?{title:taskDisplayName(binding.task,binding.objective),icon:taskIcon(binding.task,binding.objective),assetIcon:customTaskIcon(binding.task,binding.objective),color:binding.task.terminal_color||null,inherited:binding.inherited,primary:binding.primary,status:taskStatus(binding.task),selected:state().focus?.pausedTerminal===true&&binding.objective.id===objective()?.id&&binding.task.id===focusedTask()?.id}:null;}
+  function terminalTaskBlock(t) {
+    if(!t||!active(context()?.path))return null;
+    const binding=terminalTask(t);
+    return binding?JSON.stringify([binding.objective.id,binding.task.id]):null;
+  }
   function findTaskTerminal(sessions,target) {
     const matches=sessions.filter(t=>{if(target.main==='workflow')return terminalMain(t)?.kind==='workflow';const link=terminalLink(t);return link?.objective_id===target.objective_id&&(target.task_id?link.task_id===target.task_id:terminalMain(t)?.kind==='objective');});
     return matches.find(t=>terminalLink(t)?.primary!==false)||matches[0];
@@ -1335,7 +1326,7 @@
   }
   function terminalHtml(sessions,pill,newButton,{arrange=rows=>rows,showAll=false}={}) {
     if(!active(context()?.path))return null;
-    const d=data(),current=objective()?.id,rows=sessions.filter(t=>{const main=terminalMain(t);return main?.kind!=='objective'||main.objective_id===current;}).map((t,index)=>({t,index,objective:terminalObjective(t)?.id}));
+    const d=data(),current=objective()?.id,rows=sessions.filter(t=>{const main=terminalMain(t);return main?.kind!=='objective'||main.objective_id===current;}).map((t,index)=>{const binding=terminalTask(t);return {t,index,task:binding?.task.id,objective:binding?.objective.id||terminalObjective(t)?.id};});
     let position=0;
     const workflowRows=rows.filter(row=>!row.objective).sort((a,b)=>Number(!!terminalMain(b.t))-Number(!!terminalMain(a.t))).map(row=>row.t);
     const workflow=arrange(workflowRows).map(t=>pill(t,position++)).join('');
@@ -1345,14 +1336,18 @@
       const order=new Map(tasks(o).map((task,index)=>[task.id,index+1]));
       const rank=row=>{
         const link=terminalLink(row.t);
-        if(order.has(link?.task_id))return order.get(link.task_id);
+        if(order.has(row.task))return order.get(row.task);
         return link&&!link.task_id&&!link.resource_id&&!link.file&&!link.folder?0:Infinity;
       };
       const main=rows.find(row=>row.objective===id&&terminalMain(row.t));
       const mainHtml=main?pill(main.t,position++):'';
       const ranked=rows.filter(row=>row.objective===id&&!terminalMain(row.t)).sort((a,b)=>rank(a)-rank(b)||a.index-b.index);
       const bySession=new Map(ranked.map(row=>[row.t,row]));
-      const ordered=arrange(ranked.map(row=>row.t)).map(session=>bySession.get(session)),groups=[];
+      // Saved tab positions apply only inside one task. Task order always
+      // comes from the Objective, including inherited terminal membership.
+      const blocks=[];
+      for(const row of ranked){const block=rank(row);if(blocks.at(-1)?.rank!==block)blocks.push({rank:block,rows:[]});blocks.at(-1).rows.push(row.t);}
+      const ordered=blocks.flatMap(block=>arrange(block.rows)).map(session=>bySession.get(session)),groups=[];
       // Task hierarchy takes precedence over checkout grouping. Keep spacing
       // only between consecutive runs of sessions from the same folder.
       for(const row of ordered){
@@ -1424,6 +1419,7 @@
     if(!t)throw new Error('Choose a terminal in this workspace');
     const asset=target?.resource_id||target?.file||target?.folder;
     if(!asset&&terminalMain(t))throw new Error('Main terminals have a fixed workflow or Objective context');
+    if(!asset&&terminalTaskBlock(t)&&terminalTaskBlock(t)!==JSON.stringify([o.id,target?.task_id]))throw new Error('Drag the task to move its terminal block.');
     return change({type:asset?'terminal-asset':'terminal',objective_id:o.id,session_id:terminalIdentity(t),source:t.document_source,...target},{scope}).then(()=>notify('Terminal linked.'));
   }
   function fileDropTarget(transfer) {
@@ -1651,21 +1647,25 @@
   });
   document.addEventListener('dragover',e=>{const slot=e.target.closest?.('[data-objective-slot]');if(slot&&e.dataTransfer.types.includes(objectiveMime)){e.preventDefault();e.dataTransfer.dropEffect='move';slot.classList.add('objective-drop-target');}},true);
   document.addEventListener('dragleave',e=>e.target.closest?.('[data-objective-slot]')?.classList.remove('objective-drop-target'));
-  document.addEventListener('dragend',()=>document.querySelectorAll('.objective-drop-target').forEach(n=>n.classList.remove('objective-drop-target')));
+  document.addEventListener('dragend',()=>document.querySelectorAll('.objective-drop-target,.objective-drop-before,.objective-drop-after').forEach(n=>n.classList.remove('objective-drop-target','objective-drop-before','objective-drop-after')));
   const linkDropSelector='[data-asset-group-header],[data-task-id],[data-task-icon],[data-objective-asset],[data-objective-resource],[data-objective-root],[data-objective-worktree],[data-objective-bucket],.objective-archive,[data-objectives-sidebar] [data-select-objective],[data-objective-tasks-drop],[data-objectives-sidebar] [data-open-objective-tasks],#sidebar [data-entry-kind],[data-open-file][data-filepath],#termSessionList .sess';
   const taskMoveTarget='.objective-sidebar-task,.objective-task-row,[data-open-objective-tasks]';
   document.addEventListener('dragover',event=>{
     if(!active(context()?.path)||!event.dataTransfer.types.includes(taskMoveMime))return;
     const target=event.target.closest?.('[data-objective-tasks-drop]')||event.target.closest?.(taskMoveTarget);if(!target)return;
-    event.preventDefault();event.stopImmediatePropagation();event.dataTransfer.dropEffect='move';target.classList.add('objective-drop-target');
+    event.preventDefault();event.stopImmediatePropagation();event.dataTransfer.dropEffect='move';
+    document.querySelectorAll('.objective-drop-before,.objective-drop-after').forEach(node=>node.classList.remove('objective-drop-before','objective-drop-after'));
+    target.classList.add('objective-drop-target');
+    if(target.dataset.taskId&&!event.altKey)target.classList.add(event.clientY<target.getBoundingClientRect().top+target.getBoundingClientRect().height/2?'objective-drop-before':'objective-drop-after');
   },true);
   document.addEventListener('drop',event=>{
     if(!active(context()?.path))return;const raw=event.dataTransfer.getData(taskMoveMime),target=event.target.closest?.('[data-objective-tasks-drop]')||event.target.closest?.(taskMoveTarget);if(!raw||!target)return;
-    event.preventDefault();event.stopImmediatePropagation();target.classList.remove('objective-drop-target');
-    try{moveTaskDrop(JSON.parse(raw),target.dataset.taskId);}catch(error){notify(error.message,true);}
+    event.preventDefault();event.stopImmediatePropagation();target.classList.remove('objective-drop-target','objective-drop-before','objective-drop-after');
+    const placement=target.dataset.taskId&&!event.altKey?(event.clientY<target.getBoundingClientRect().top+target.getBoundingClientRect().height/2?'before':'after'):undefined;
+    try{moveTaskDrop(JSON.parse(raw),target.dataset.taskId,placement);}catch(error){notify(error.message,true);}
   },true);
-  document.addEventListener('dragover',e=>{if(!active(context()?.path))return;const draft=taskDocumentDraft();if(e.target.closest?.('.objective-task-mode-head')&&draft&&!draftEditable(draft)){e.preventDefault();e.stopImmediatePropagation();e.dataTransfer.dropEffect='none';return;}const target=e.target.closest?.(linkDropSelector);if(e.dataTransfer.types.includes('application/x-lab-terminal')&&e.target.closest('#content,.assistant-inline-host')&&!e.target.closest('#sidebar')){e.preventDefault();e.stopImmediatePropagation();e.dataTransfer.dropEffect='none';return;}if(target&&[resourceMime,documentMime,'application/x-lab-file-path','application/x-lab-terminal',...(target.classList.contains('sess')?[objectiveMime]:[]),...(target.closest('[data-task-id],[data-objective-bucket]')?['text/uri-list','application/x-lab-reference']:[])].some(m=>e.dataTransfer.types.includes(m))){e.preventDefault();e.dataTransfer.dropEffect='link';const row=target.closest('[data-objective-tasks-drop]')||target;if(row.hasAttribute('data-task-id')||row.hasAttribute('data-objective-tasks-drop')||row.hasAttribute('data-asset-group-header'))row.classList.add('objective-drop-target');}},true);
-  document.addEventListener('dragleave',e=>{const row=e.target.closest?.('[data-asset-group-header],[data-task-id],[data-objective-tasks-drop]');if(row&&!row.contains(e.relatedTarget))row.classList.remove('objective-drop-target');});
+  document.addEventListener('dragover',e=>{if(!active(context()?.path))return;const draft=taskDocumentDraft();if(e.target.closest?.('.objective-task-mode-head')&&draft&&!draftEditable(draft)){e.preventDefault();e.stopImmediatePropagation();e.dataTransfer.dropEffect='none';return;}const target=e.target.closest?.(linkDropSelector);if(e.dataTransfer.types.includes('application/x-lab-terminal')&&target?.closest('[data-task-id],[data-objective-tasks-drop],[data-open-objective-tasks]')&&terminalTaskBlock(bridge.draggingTerminal?.())){e.preventDefault();e.stopImmediatePropagation();e.dataTransfer.dropEffect='none';return;}if(e.dataTransfer.types.includes('application/x-lab-terminal')&&e.target.closest('#content,.assistant-inline-host')&&!e.target.closest('#sidebar')){e.preventDefault();e.stopImmediatePropagation();e.dataTransfer.dropEffect='none';return;}if(target&&[resourceMime,documentMime,'application/x-lab-file-path','application/x-lab-terminal',...(target.classList.contains('sess')?[objectiveMime]:[]),...(target.closest('[data-task-id],[data-objective-bucket]')?['text/uri-list','application/x-lab-reference']:[])].some(m=>e.dataTransfer.types.includes(m))){e.preventDefault();e.dataTransfer.dropEffect='link';const row=target.closest('[data-objective-tasks-drop]')||target;if(row.hasAttribute('data-task-id')||row.hasAttribute('data-objective-tasks-drop')||row.hasAttribute('data-asset-group-header'))row.classList.add('objective-drop-target');}},true);
+  document.addEventListener('dragleave',e=>{const row=e.target.closest?.('[data-asset-group-header],[data-task-id],[data-objective-tasks-drop]');if(row&&!row.contains(e.relatedTarget))row.classList.remove('objective-drop-target','objective-drop-before','objective-drop-after');});
   document.addEventListener('drop',e=>{
     const draft=taskDocumentDraft();if(e.target.closest?.('.objective-task-mode-head')&&draft&&!draftEditable(draft)){e.preventDefault();e.stopImmediatePropagation();return;}
     const project=e.dataTransfer.getData(objectiveMime),slot=e.target.closest?.('[data-objective-slot]');
@@ -1692,7 +1692,8 @@
     if(terminal&&!target.closest('#sidebar')&&!target.classList.contains('sess'))return;
     if(terminal&&target.closest('[data-objective-tasks-drop]')){
       const session=bridge.session?.(terminal);
-      void moveForTerminalDrop(session,null).then(moved=>moved||linkTerminal(session,{view:'tasks'})).catch(error=>notify(error.message,true));return;
+      if(terminalTaskBlock(session)){notify('Drag the task to move its terminal block.',true);return;}
+      void linkTerminal(session,{view:'tasks'}).catch(error=>notify(error.message,true));return;
     }
     // A worktree remains a scope drop target even when its row lives in a bucket.
     const worktree=target.closest('[data-objective-worktree]');
@@ -1703,7 +1704,9 @@
     const bucket=target.closest('[data-objective-bucket]'),bucketId=bucket?.dataset.objectiveBucket;
     const taskNode=target.closest('[data-objective-asset],[data-objective-resource]')&&terminal?null:target.closest('[data-task-id]');
     if(taskNode||!terminal&&(bucket||target.closest('.objective-archive'))){taskNode?.classList.remove('objective-drop-target');const id=taskNode?.dataset.taskId||focusedTask()?.id;try{
-      if(terminal){void linkTerminal(bridge.session?.(terminal),{task_id:id,rename_to_task:true}).catch(()=>{});return;}
+      if(terminal){const session=bridge.session?.(terminal),block=terminalTaskBlock(session);
+        if(block){if(block!==JSON.stringify([objective().id,id]))notify('Drag the task to move its terminal block.',true);return;}
+        void linkTerminal(session,{task_id:id,rename_to_task:true}).catch(()=>{});return;}
       let item;if(raw){const {scope,...source}=JSON.parse(raw);if(scope!==key(context())||source.objective_id!==objective().id)throw new Error('Choose an asset in this objective');if(source.task_id||source.view)throw new Error('Drop a document, notebook, link or folder onto a task');item=source;}
       else if(assistant){const ref=JSON.parse(assistant);item={reference:{...ref,kind:'assistant',title:ref.title||'Assistant document'}};}
       else if(file){const source=fileDropTarget(e.dataTransfer),scope=scopeRows().find(t=>[t.path,t.resolved_path].includes(source.file?.root));item=source.folder?source:{reference:{kind:'file',title:source.file.path.split('/').pop(),file_root:source.file.root,path:source.file.path,worktree:scope&&!scope.fixed?scope.id:null}};}
@@ -1723,7 +1726,7 @@
   },true);
   window.LabObjectives={connect(adapter){bridge=adapter;startRefreshing();},load,active,sidebarHtml,paint,worktrees,tree,associate,terminalHtml,taskForTerminal,openForTerminal,collapse,progress,complete,change,selectObjective,openTask,renderTasks,tabsHtml,showAll,terminalLaunchContext,associateNewTerminal,
     instructionRoot(path){return active(path)?scopeRows().find(row=>row.id==='objective-root')?.path:null;},
-    terminalSessions,revealTerminal,terminalParents,terminalExpanded,terminalMain,terminalObjective,openMainTerminal,openTaskTerminal,terminalTaskNameHtml,terminalWorktreeColor,terminalColor,sidebarMode,recentScopes,moveForTerminalDrop,automationTasks,
+    terminalSessions,revealTerminal,terminalParents,terminalExpanded,terminalMain,terminalObjective,terminalTaskBlock,openMainTerminal,openTaskTerminal,terminalTaskNameHtml,terminalWorktreeColor,terminalColor,sidebarMode,recentScopes,automationTasks,
     terminalAsset,chooseTerminalAsset,unlinkTerminalAsset,linkTerminal,canMakeTerminalPrimary,makeTerminalPrimary,taskPrimaryForTerminal,
     activateFileTerminal(root,path){return active(context()?.path)&&activateAssetTerminal({file:{root,path}});},
     terminalsForFile(root,path){return active(context()?.path)?assetTerminals({file:{root,path}}):[];},

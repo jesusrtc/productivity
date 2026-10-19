@@ -13701,23 +13701,27 @@
 
   function _termSyncTaskHierarchy(data) {
     const state=_termReadGroupState(),hierarchy={},terminals={},reset=new Set();
+    const ancestry=value=>{try{return JSON.stringify(JSON.parse(value).map(part=>part.replace(/:\d+$/,'')));}catch{return value;}};
     const primary=new Map(Object.entries(data.terminal_links||{}).filter(([,link])=>link.task_id&&link.primary!==false)
       .map(([id,link])=>[link.objective_id+'/'+link.task_id,termSessions.find(s=>s.session_id===id)?.logical_name]));
     for(const objective of data.objectives||[]){
-      function visit(rows,path=[]){rows.forEach((task,index)=>{
-        const id=objective.id+'/'+task.id,lineage=[...path,task.id+':'+index];
+      function visit(rows,path=[]){rows.forEach(task=>{
+        const id=objective.id+'/'+task.id,lineage=[...path,task.id];
         hierarchy[id]=JSON.stringify(lineage);
         terminals[id]=[primary.get(id),'objective-terminal:'+objective.id+':'+task.id].filter(Boolean);
         visit(task.children||[],lineage);
       });}visit(objective.tasks||[]);
     }
     if(state.taskHierarchy)for(const id of new Set([...Object.keys(state.taskHierarchy),...Object.keys(hierarchy)])){
-      if(state.taskHierarchy[id]===hierarchy[id])continue;
+      // Legacy fingerprints included sibling positions. Only ancestry changes
+      // invalidate parent overrides; reordering tasks preserves tab preferences.
+      const previous=state.taskHierarchy[id];
+      if(previous===hierarchy[id]||previous&&ancestry(previous)===hierarchy[id])continue;
       for(const logical of [...(state.taskTerminals[id]||[]),...(terminals[id]||[])])reset.add(logical);
     }
     for(const logical of reset){delete state.tabParents[logical];delete state.tabMembership[logical];}
-    for(const field of ['tabAfter','tabDisplayMains'])for(const [child,parent] of Object.entries(state[field])){
-      if(reset.has(child)||reset.has(parent))delete state[field][child];
+    for(const [child,parent] of Object.entries(state.tabDisplayMains)){
+      if(reset.has(child)||reset.has(parent))delete state.tabDisplayMains[child];
     }
     state.tabRoots=state.tabRoots.filter(logical=>!reset.has(logical));
     if(JSON.stringify(state.taskHierarchy)!==JSON.stringify(hierarchy)||JSON.stringify(state.taskTerminals)!==JSON.stringify(terminals)||reset.size){
@@ -13797,6 +13801,11 @@
   }
 
   function _termArrangeSubtabRows(sessions, state) {
+    const block = sessions.length && window.LabObjectives?.terminalTaskBlock?.(sessions[0]);
+    if (block && sessions.every(session => window.LabObjectives.terminalTaskBlock(session) === block)) {
+      const order = new Map((state.order || []).map((token, index) => [token, index]));
+      sessions = [...sessions].sort((a, b) => (order.get('s:' + a.logical_name) ?? Infinity) - (order.get('s:' + b.logical_name) ?? Infinity));
+    }
     const live = new Map(sessions.map(session => [session.logical_name, session]));
     const after = Object.assign(Object.create(null), Object.fromEntries(Object.entries(state.tabAfter || {}).filter(([child, anchor]) => live.has(child) && live.has(anchor))));
     const result = [], seen = new Set();
@@ -13939,8 +13948,12 @@
   }
 
   function _termSubtabRenderer(state, sessions, pill) {
-    const parents = _termSubtabParents(state, sessions);
-    const mains = _termDisplayMains(state, sessions, parents);
+    const contextParents = _termSubtabParents(state, sessions);
+    const blocks = new Map(sessions.map(session => [session.logical_name, window.LabObjectives?.terminalTaskBlock?.(session)]));
+    // Task members render individually in task order. Keep real parent links
+    // for inherited context, appearance, recovery and explicit primary roles.
+    const parents = Object.fromEntries(Object.entries(contextParents).filter(([child, parent]) => !blocks.get(child) && !blocks.get(parent)));
+    const mains = new Map([..._termDisplayMains(state, sessions, contextParents)].filter(([parent, child]) => blocks.get(parent) === blocks.get(child)));
     const mergedInto = new Map([...mains].map(([parent, child]) => [child, parent]));
     const sessionsByLogical = new Map(sessions.map(session => [session.logical_name, session]));
     // The parent keeps its identity; its tab connects to the chosen child.
@@ -13964,13 +13977,13 @@
     let position = 0;
     const rows = new Map(sessions.map((session, index) => [session.logical_name, {session, index}]));
     const displayPill = (session, index) => {
-      const appearance=window.LabTerminalAutomations?.inheritedAppearance?.(session,sessionsByLogical,parents);
+      const appearance=window.LabTerminalAutomations?.inheritedAppearance?.(session,sessionsByLogical,contextParents);
       if(appearance&&appearance!==session.automation_appearance)session={...session,automation_appearance:appearance};
-      if (parents[session.logical_name]) session = {...session, terminal_child:true};
+      if (contextParents[session.logical_name]) session = {...session, terminal_child:true};
       if (!mains.has(session.logical_name)) return pill(session, index);
       const child = sessionsByLogical.get(mains.get(session.logical_name));
       let owner = session;
-      while (owner && !owner.linked_scope?.worktree) owner = sessionsByLogical.get(parents[owner.logical_name]);
+      while (owner && !owner.linked_scope?.worktree) owner = sessionsByLogical.get(contextParents[owner.logical_name]);
       const scope = owner?.linked_scope || session.linked_scope;
       const assignedColor = !owner && window.LabObjectives?.terminalWorktreeColor?.(session);
       const color = assignedColor || (scope && (typeof _termScopeColor === 'function' ? _termScopeColor(scope) : scope.color)) || window.LabObjectives?.terminalColor?.(session) || '#8b949e';
@@ -13999,7 +14012,7 @@
         .replace(/^(<[^>]+>)/, `$1<span class="term-subtab-caret" data-subtab-pin role="button" tabindex="0" aria-label="${toggleLabel}" title="${toggleLabel}" aria-pressed="${pinned}" aria-expanded="${expanded}">${expanded?'▾':'▸'}</span>`);
       return `<div class="term-subtab-node${expanded?' has-visible-child':''}" data-term-parent="${termSessEsc(logical)}"${labelOnly?' data-subtab-hover-parent':disclosure}>${parent}<div class="term-subtab-children" role="group" aria-label="Subtabs of ${termSessEsc(_termSessionDisplay(session))}"${expanded?'':' hidden'}>${childHtml}</div></div>`;
     };
-    return (session, index) => parents[session.logical_name] ? '' : render(session, index);
+    return (session, index) => parents[session.logical_name] || mergedInto.has(session.logical_name) ? '' : render(session, index);
   }
 
   function _termWireSubtabs(container, hovered = new Map()) {
@@ -15496,6 +15509,21 @@
     const source = srcToken.slice(2), destination = dstToken?.startsWith('s:') ? dstToken.slice(2) : null;
     if ([source, destination].some(logical => logical && window.LabObjectives?.terminalMain?.(
       termSessions.find(session => session.logical_name === logical)))) return null;
+    const blockFor = logical => window.LabObjectives?.terminalTaskBlock?.(termSessions.find(session => session.logical_name === logical));
+    const sourceBlock = srcToken.startsWith('s:') && blockFor(source), destinationBlock = destination && blockFor(destination);
+    if (sourceBlock || destinationBlock) {
+      if (!sourceBlock || sourceBlock !== destinationBlock || groupId) return null;
+      // Reorder exactly one member, preserving its task and parent context.
+      const members = _termArrangeSubtabRows(termSessions.filter(session => blockFor(session.logical_name) === sourceBlock), next)
+        .map(session => 's:' + session.logical_name).filter(token => token !== srcToken);
+      members.splice(members.indexOf(dstToken) + (placeBefore ? 0 : 1), 0, srcToken);
+      const memberSet = new Set(members);
+      let index = 0;
+      next.order = order.map(token => memberSet.has(token) ? members[index++] : token);
+      for (const token of members) delete next.tabAfter[token.slice(2)];
+      members.slice(1).forEach((token, index) => { next.tabAfter[token.slice(2)] = members[index].slice(2); });
+      return next;
+    }
     const parents=_termSubtabParents(next);
     const descendants = logical => {
       const all = new Set([logical]);
@@ -15504,6 +15532,7 @@
       return all;
     };
     const moving = srcToken.startsWith('s:') ? descendants(source) : new Set();
+    if ([...moving].some(logical => blockFor(logical))) return null;
     if (destination && moving.has(destination)) return null;
     if (relation === 'child' && (!destination || !(window.LabObjectives?.sameTerminalObjective?.(
       termSessions.find(session => session.logical_name === source), termSessions.find(session => session.logical_name === destination)) ?? true))) return null;
@@ -15561,7 +15590,7 @@
     const drag = _termDragState;
     if (!drag || drag.scope !== _termGroupScopeKey()) return;
     const plan = _termPlanItemMove(drag.state, _termDragLogical, target.token, target.before, target.groupId);
-    if (!plan) { _termClearDropPreview(); return; }
+    if (!plan) { _termClearDropPreview(); if(event.dataTransfer)event.dataTransfer.dropEffect='none'; return; }
     // Leaving the placeholder under the pointer in place avoids jitter as the
     // surrounding tabs make room. No storage or server writes happen here.
     const signature = JSON.stringify([target.token, target.before, target.groupId]);
@@ -15596,6 +15625,7 @@
     const label = session ? _termSessionDisplay(session) : 'Divider';
     hint.textContent = target.chooseRelation
       ? `${label} → Move below or make child`
+      : window.LabObjectives?.terminalTaskBlock?.(session) ? `${label} → ${target.before?'Before':'After'} this task’s terminal`
       : `${label} → ${group ? group.name : 'Ungrouped tabs'}`;
     document.body.appendChild(hint);
     hint.style.left = `${Math.max(8, Math.min(event.clientX + 16, window.innerWidth - hint.offsetWidth - 8))}px`;
@@ -15637,7 +15667,8 @@
         const before = termSessionOrientation === 'horizontal'
           ? (e.clientX - rect.left) < rect.width / 2
           : (e.clientY - rect.top) < rect.height / 2;
-        const chooseRelation = _termDragLogical.startsWith('s:') && item.dataset.orderToken.startsWith('s:');
+        const taskBlock = window.LabObjectives?.terminalTaskBlock?.(termSessions.find(session => 's:' + session.logical_name === _termDragLogical));
+        const chooseRelation = !taskBlock && _termDragLogical.startsWith('s:') && item.dataset.orderToken.startsWith('s:');
         const branch = item.closest('.term-subtab-node');
         const row = branch?.dataset.termParent === item.dataset.logical && branch.querySelector(':scope > .sess') === item ? branch : item;
         target = {token: item.dataset.orderToken, before: chooseRelation ? false : before, groupId, chooseRelation,
@@ -15717,14 +15748,6 @@
   async function termReorderItems(srcToken, dstToken, placeBefore, groupId, relation) {
     const groupState = _termPlanItemMove(_termReadGroupState(), srcToken, dstToken, placeBefore, groupId, relation);
     if (!groupState) { termRenderSessionList(); return false; }
-    if(srcToken.startsWith('s:')&&(!dstToken||dstToken.startsWith('s:'))){
-      try{
-        const source=termSessions.find(s=>s.logical_name===srcToken.slice(2)),destination=termSessions.find(s=>s.logical_name===dstToken?.slice(2));
-        if(await window.LabObjectives?.moveForTerminalDrop?.(source,destination,{relation,placeBefore})){
-          termRenderSessionList();return true;
-        }
-      }catch(error){explorerToast(error.message,true);termRenderSessionList();return false;}
-    }
     const current = groupState.order;
     _termWriteGroupState(groupState);
     window.labFeatureUsage?.(srcToken.startsWith('g:') ? 'Move terminal divider (drag and drop)' : 'Move terminal tab (drag and drop)');
@@ -15771,6 +15794,10 @@
     const association=window.LabObjectives?.childTerminalAssociation?.(parent)||undefined;
     const created=await termSpawnSession('terminal',{startFresh:true,launchChoice:{scope,association}});
     if(!created||scopeKey!==_termGroupScopeKey()||!termSessions.some(t=>(t.session_id||t.name)===identity))return;
+    // Explicit creation establishes inheritance before the ordering constraint
+    // applies. Dragging existing tabs cannot create or change a task block.
+    const state=_termReadGroupState();state.tabParents[created.logical_name]=parent.logical_name;
+    state.tabRoots=state.tabRoots.filter(logical=>logical!==created.logical_name);_termWriteGroupState(state);
     await termReorderItems(`s:${created.logical_name}`,`s:${parent.logical_name}`,false,undefined,'child');
     window.LabObjectives?.openForTerminal(created);
   }
@@ -22153,6 +22180,7 @@
     taskDeleted: ids => _termTaskDeleted(ids),
     activateLinkedTerminal: identities => _termActivateObjectiveTerminal(identities),
     sessions:()=>termSessions,
+    draggingTerminal:()=>_termDragState?.scope===_termGroupScopeKey()?termSessions.find(session=>'s:'+session.logical_name===_termDragLogical):null,
     workflowName:()=>_workspaceDisplayName(currentWorkspace),
     createWorkflowTerminal:launch=>termSpawnSession('claude',{startFresh:true,launchChoice:{
       scope:{base_root:launch.context.path,project_root:launch.context.path,root:launch.context.path,label:_workspaceDisplayName(currentWorkspace),color:'#8b949e',config_scope:_sidebarFileConfigScope},

@@ -305,10 +305,19 @@ with the current catalog revision. For long groups, give `lab api call` a
 sufficient `--timeout` (for example, `--timeout 180`); the response arrives after
 all launches and their intervening waits.
 
-When terminal names are visible, a small arrow beside any terminal with children
+Task terminal tabs follow the order of tasks and subtasks in the sidebar. Each
+task's terminals stay together as an invisible block, including inherited
+children and automation terminals. Drag a task title onto the upper or lower
+half of another task to move its whole branch above or below it. The insertion
+line shows the destination. Alt-drag opens placement options for nesting; dropping
+a task onto **Tasks** makes it top-level. Drag individual terminal tabs only
+within their own task's block; this preserves their task and parent context.
+The order within each block survives task moves and browser reloads. Sessions,
+working folders and conversations keep running unchanged.
+
+When terminal names are visible, a small arrow beside a generic terminal with children
 lets you **Keep child terminals expanded** or **Collapse child terminals**.
-This applies to automation groups and other nested terminals. Clicking saves
-the choice for that parent, workspace and vault in this browser, including
+Clicking the arrow saves the choice for that parent, workspace and vault, including
 across reloads. A highlighted arrow means the group is pinned open. Hovering
 still reveals children temporarily after one second and never changes the saved
 choice. Existing active-family and In progress visibility rules still apply.

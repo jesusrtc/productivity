@@ -882,3 +882,5 @@
 - [Floating terminal messages follow status](terminal-header-action-messages.md) — top-right toast cards, persistent red/green messages, exact cross-vault/task navigation with accessible task assets and a destination-tab pulse.
 
 - [Terminal clicks select tasks and open their linked assets](terminal-clicks-open-task-assets.md) — shared tab/notification navigation, asset-only task resolution, exact subtabs and preserved task assets without reassigning sessions.
+
+- [Task blocks control terminal tab dragging](terminal-task-blocks-control-tab-dragging.md) — tasks move whole invisible blocks; individual terminal drags stay within their task, preserving internal order across moves/reload.
