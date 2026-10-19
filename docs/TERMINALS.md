@@ -154,21 +154,24 @@ optional overrides. Use `{"builtin":"terminal"}`, `{"service":"github"}`,
 use `#RRGGBB`. A null step icon inherits and a null step color uses the default.
 Inspect or save them through the existing `lab api` automation endpoints.
 
-Choose **+ New → Launch automation…** to create a group for the active task.
+Choose **+ New → Launch automation…** and choose an **In progress task** to create
+a group. The picker lists WIP tasks across this workspace with their Objective
+names and preselects the current WIP task. Launch is disabled until a task is
+chosen; with no WIP tasks, set one to In progress and reopen the launcher.
 The first defined terminal becomes the task's primary automatically, and the
 remaining terminals become its children in definition order. No starter terminal
 is needed. If the task had a primary, its session keeps running while the new
-first terminal takes ownership. Without an active task, the group belongs to the
-selected Objective or workspace and its first terminal is the group's primary;
-fixed workspace and Objective mains retain their identities.
+first terminal takes ownership. Every new run requires a WIP task, including
+launches from the workspace or an existing generic terminal.
 
 The picker lists this workspace's saved groups and previews every command with
 its resolved directory before **Launch**, marking the first step **Primary**.
 Its **Configure automations** button opens the same workspace settings.
 Secondary-click a terminal, including a fixed workspace or Objective main, and
-choose **Launch automation…** to open every step as a child of that terminal.
+choose **Launch automation…** to choose a WIP task and nest the first automation
+row beneath that terminal, with the remaining steps beneath the first row.
 
-An empty directory uses the selected Objective's folder or the workspace folder.
+An empty directory uses the chosen task's Objective folder.
 When launched from a terminal, it uses that parent's fixed launch folder instead.
 Relative paths resolve against the same base folder for every step; absolute
 paths and `~/folder` are also supported.
@@ -246,9 +249,11 @@ the child's optional **Background service check**. This check runs in the origin
 working directory: exit 0 means running, exit 1 means stopped, and other failures
 or a timeout mean unknown. It is only used when no foreground process remains.
 
-Children inherit the parent task's Objective context without taking its primary
-task association. Children of a workspace main remain available under that main;
-children of an Objective main appear under the active Objective's main on hover.
+The automation's first row owns the chosen task; its children inherit that task
+even when launched beneath a generic workspace or Objective main. Existing parent
+ownership is preserved. Pausing the task hides the entire automation group and
+parks its console immediately. Explicitly select that paused task to inspect
+its terminals, then leave it to hide them again.
 Task children follow the usual WIP/selected-task filter and the same parent-hover
 disclosure. An automation primary with its own In progress task remains visible
 like other task primaries. The fixed main itself remains a root. A launch selects
@@ -258,10 +263,12 @@ Agents can use the same menu through `lab ui inspect` and `lab ui click`, or cal
 `lab api call POST /api/term/automations/launch --body-file /absolute/launch.json`.
 Inspect its schema with `lab api describe POST /api/term/automations/launch`.
 Both modes require `workspace_id`, `automation_id`, the saved catalog `revision`,
-and a fresh UUID `run_id` (plus `vault` when needed). To create a new group, omit
-`parent`, pass `objective_id` and `task_id` for task ownership, and optionally
+and a fresh UUID `run_id` (plus `vault` when needed). Both `objective_id` and
+`task_id` are required and must identify an In progress task. Preview and actual
+launch both validate this, including when a previewed task has since been paused.
+To create a new group, omit `parent` and optionally
 override the base folder with `cwd`. To add children to an existing terminal,
-pass its runtime `parent` name instead of these context fields. `preview: true`
+pass its runtime `parent` name alongside the task fields and omit `cwd`. `preview: true`
 checks all directories without starting sessions. Task ownership is persisted
 by the API; tab order and child nesting belong to the browser that launched it.
 The preview includes `launch_delay_seconds`. To configure it through the CLI,

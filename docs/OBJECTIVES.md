@@ -463,16 +463,23 @@ sessions remain ordinary terminals. Main roles are saved as
 `main: "workflow"` or `main: "objective"` in the workspace terminal links;
 workflow links have no Objective target.
 
-By default, task tabs include only In progress tasks, plus independent children
-that inherit those contexts. Selecting a Paused, Not started, Completed or Won’t
-do task opens its details without revealing, creating or activating its terminal.
+By default, task tabs include In progress tasks and an explicitly selected Paused task,
+plus children that inherit those contexts. Selecting a paused task reveals and
+reuses its terminals; selecting another task or returning to Tasks/overview hides
+them immediately. This also applies to `lab ui command task-open`. Selecting a
+Not started, Completed or Won’t do task opens details without revealing, creating
+or activating its terminal. Pausing the current working task hides its terminals
+and parks its console immediately; click the paused task to show them again.
 Active child families and merged tabs also respect this filter. Other sessions
 keep running while hidden. Objective headers and the dropdown expand the same
 current Objective. **Show all** beside the active Objective header reveals all
 of that Objective's terminals and task recommendations, without expanding other
-Objectives or changing the selected task. Toggle **Show WIP** to restore only In
-progress task terminals. This choice is saved separately per Objective
-in the browser. The compact rail uses a **☰** button with the same action.
+Objectives or changing the selected task. Toggle **Show WIP** to restore In
+progress and selected-paused task terminals. This choice is saved separately per
+Objective in the browser. Notification clicks reveal only the exact destination
+temporarily and never save Show all. Old overrides reset once because earlier
+notification navigation could save them; explicit new choices persist normally.
+The compact rail uses a **☰** button with the same action.
 **Show all terminals** in the **+ New** terminal menu reveals all statuses in the
 active Objective and adds headers for parked Objectives with saved sessions.
 Only the active Objective's terminals unfold in every filter mode. Clicking
@@ -500,9 +507,9 @@ another to choose **Move below**, **Make child** or **Cancel**. Children unfold
 on parent hover or keyboard focus. Children with their own In progress task
 association stay visible after leaving the rail or pressing the collapse key.
 Children without their own WIP task, including those with inherited WIP context,
-use parent disclosure. **+ New → Launch automation…** assigns its first defined
-terminal as the active task's primary and nests the remaining terminals beneath
-it. This primary follows the same own-WIP visibility rule; the other automation
+use parent disclosure. **+ New → Launch automation…** requires choosing an In
+progress task, assigns its first defined terminal as that task's primary and nests the remaining terminals beneath
+it. Pausing the chosen task hides the complete automation group. This primary follows the same own-WIP visibility rule; the other automation
 terminals inherit its task context. Selecting a child keeps its row, direct
 siblings and ancestor path visible. Other branches retain parent disclosure. An
 independent child opens its parent's task context without taking the parent's

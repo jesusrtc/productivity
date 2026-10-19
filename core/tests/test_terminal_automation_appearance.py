@@ -8,11 +8,11 @@ import pytest
 
 from core import terminal_automations
 from .test_term_routes import isolated_prefix  # noqa: F401
-from .test_terminal_automations import _save
+from .test_terminal_automations import _save, _wip_target
 
 
-def launch(catalog, folder, **patch):
-    return {'workspace_id': 'demo', 'cwd': str(folder), 'automation_id': 'dev',
+def launch(client, catalog, folder, **patch):
+    return {**_wip_target(client), 'workspace_id': 'demo', 'cwd': str(folder), 'automation_id': 'dev',
             'revision': catalog['revision'], 'run_id': str(uuid.uuid4()), **patch}
 
 
@@ -23,7 +23,7 @@ def test_defaults_and_overrides_reach_preview_live_saved_and_restore(client, see
         {'label': 'Child', 'command': 'printf child'},
         {'label': 'Custom', 'command': 'printf custom', 'icon': {'emoji': '🚀'}, 'color': '#58a6ff'},
     ], launch_delay_seconds=0, icon={'service': 'github'}, color='#3fb950')
-    body = launch(catalog, folder)
+    body = launch(client, catalog, folder)
     preview = client.post('/api/term/automations/launch', json={**body, 'preview': True}).json()
     expected = [{'icon': {'service': 'github'}, 'color': '#3fb950', 'role': 'main', 'inherit_icon': False},
                 {'icon': {'service': 'github'}, 'color': None, 'role': 'child', 'inherit_icon': True},
@@ -55,7 +55,7 @@ def test_existing_parent_keeps_name_and_children_inherit_its_recipe_icon(client,
     parent = client.post('/api/term/sessions', json={'workspace_id': 'demo', 'kind': 'terminal', 'name': 'parent', 'label': 'My main'}).json()
     catalog = _save(client, 'demo', [{'label': 'Logs', 'command': 'printf logs'}],
                     launch_delay_seconds=0, icon={'service': 'github'}, color='#ffa657')
-    body = launch(catalog, folder, parent=parent['name'])
+    body = launch(client, catalog, folder, parent=parent['name'])
     body.pop('cwd')
     result = client.post('/api/term/automations/launch', json=body)
     assert result.status_code == 200, result.text

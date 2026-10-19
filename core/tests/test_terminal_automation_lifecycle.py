@@ -107,7 +107,7 @@ def test_native_recovery_preserves_running_work_guidelines_identity_and_previous
         {'label': 'Stopped', 'command': "printf 'old log\\n'; printf x >> count; exit 7", 'guidelines': guides},
         {'label': 'Running', 'command': 'sleep 60'},
     ])
-    rows = client.post('/api/term/automations/launch', json=_launch(parent, catalog)).json()['sessions']
+    rows = client.post('/api/term/automations/launch', json=_launch(client, parent, catalog)).json()['sessions']
     stopped = _status(client, rows[0]['logical_name'], 'stopped')
     alive = _status(client, rows[1]['logical_name'], 'running')
     assert stopped['automation']['guidelines'] == guides
@@ -154,7 +154,7 @@ def test_native_nested_tmux_detach_reconnects_existing_inner_session(
     parent = client.post('/api/term/sessions', json={'workspace_id': 'demo', 'kind': 'terminal'}).json()
     command = f'TMUX= tmux -L {shlex.quote(socket)} attach-session -t inner'
     catalog = _save(client, 'demo', [{'label': 'Nested', 'command': command}])
-    row = client.post('/api/term/automations/launch', json=_launch(parent, catalog)).json()['sessions'][0]
+    row = client.post('/api/term/automations/launch', json=_launch(client, parent, catalog)).json()['sessions'][0]
     alive = _status(client, row['logical_name'], 'running')
     assert not _recover(client, [alive]).json()['sessions']
     run('detach-client', '-s', 'inner')
@@ -191,7 +191,7 @@ def test_native_explicit_renewal_reruns_running_and_stopped_children_but_keeps_p
         {'label': 'Stopped', 'command': "printf 'old stopped log\\n'; printf x >> stopped-count"},
         {'label': 'Running', 'command': "printf 'old running log\\n'; printf x >> running-count; sleep 60"},
     ])
-    rows = client.post('/api/term/automations/launch', json=_launch(parent, catalog)).json()['sessions']
+    rows = client.post('/api/term/automations/launch', json=_launch(client, parent, catalog)).json()['sessions']
     stopped = _status(client, rows[0]['logical_name'], 'stopped')
     alive = _status(client, rows[1]['logical_name'], 'running', restart_ready=True)
     assert alive['automation']['can_restart'] and stopped['automation']['can_restart']
@@ -232,7 +232,7 @@ def test_native_lost_registry_and_manual_work_prevent_stale_recovery(
     client = native_creation_client; folder = seed_workspace()
     parent = client.post('/api/term/sessions', json={'workspace_id': 'demo', 'kind': 'terminal'}).json()
     catalog = _save(client, 'demo', [{'label': 'Manual work', 'command': 'printf x >> count'}])
-    row = client.post('/api/term/automations/launch', json=_launch(parent, catalog)).json()['sessions'][0]
+    row = client.post('/api/term/automations/launch', json=_launch(client, parent, catalog)).json()['sessions'][0]
     stopped = _status(client, row['logical_name'], 'stopped')
     # A user can start work after the UI received a stopped status. Recovery
     # must check again, including when the runtime registry needs rebuilding.

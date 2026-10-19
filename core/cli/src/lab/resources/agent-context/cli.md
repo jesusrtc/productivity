@@ -23,9 +23,11 @@ workspace catalog with `GET /api/term/automations`, then submit `workspace_id`,
 `automation_id`, its `revision`, a fresh UUID `run_id`, and the active
 `objective_id` / `task_id` (plus `vault` when needed). Omit `parent`: the first
 defined terminal becomes the task primary. Optional `cwd` overrides the selected
-Objective or workspace folder; `preview: true` resolves all steps without
-starting commands. Supplying `parent` instead retains the existing child-terminal
-launch mode. Through `lab ui`, use **+ New → Launch automation…** to retain the
+Objective folder; `preview: true` resolves all steps without starting commands.
+Both task fields are required and the task must be In progress, for preview and
+actual launch. Supplying `parent` alongside those fields nests the automation
+under that terminal and uses its launch folder; omit `cwd` in that case.
+Through `lab ui`, use **+ New → Launch automation…**, choose a WIP task, and retain the
 browser's tab nesting as well as the server's primary assignment.
 Each automation's saved `launch_delay_seconds` defaults to 5 (0 disables it;
 maximum 300). Read and save the catalog through `/api/term/automations` with its
@@ -145,10 +147,11 @@ instructions to open Lab in Chrome, without launching the server's browser.
 
 `task-open` and `objective-select` refresh Objective data before navigating, so
 they see preceding API changes. `task-open` uses the same terminal policy as a
-normal task click: In progress tasks activate existing linked terminals; the
-workspace task-terminal setting controls creation of missing ones. Paused and
-other filtered tasks open details without activating a terminal. Explicit
-Show all still overrides the status filter.
+normal task click: In progress and selected Paused tasks activate existing linked
+terminals; the workspace task-terminal setting controls creation of missing ones.
+Leaving a paused task hides its terminals immediately. Other filtered tasks open
+details without activating a terminal. Explicit Show all still overrides the
+status filter; notification clicks reveal only their destination temporarily.
 
 For terminal text, prefer `lab ui paste TEXT --terminal NAME` or
 `lab ui paste --file PATH --terminal NAME`. Text is pasted through the existing

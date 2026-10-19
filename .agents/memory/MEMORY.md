@@ -1,5 +1,9 @@
 # Memory index
 
+- [Automations require a WIP task](automations-require-wip-task.md) — mandatory task picker and API validation, first row owns the task, inherited children hide with it on pause even beneath generic terminals.
+
+- [Paused terminals follow task selection](paused-terminals-follow-task-selection.md) — show the selected paused task only, hide on navigation, and reveal notification destinations temporarily without saving Show all.
+
 - [Notification bell stays open while checking](notification-bell-stays-open-while-checking.md) — bell and switch only, card clicks preserve show-all, active vertical markers and workspace/Objective-first native labels.
 
 - [Notification center retains the latest alert per terminal](terminal-notification-center-history.md) — newest-first history beside Lid Awake, 20 per page, browser retention and dismissal back to active alerts.

@@ -3638,10 +3638,10 @@ class AutomationLaunch(BaseModel):
     workspace_id: str
     vault: str | None = None
     parent: str | None = Field(default=None, min_length=1, max_length=512)
-    # Without a parent, the recipe creates its own primary terminal. Capture
-    # the selected task explicitly; browser navigation cannot retarget a run.
-    objective_id: str | None = Field(default=None, max_length=512)
-    task_id: str | None = Field(default=None, max_length=512)
+    # Every run belongs to an explicitly chosen In progress task. An optional
+    # parent controls placement and launch folder, not task ownership.
+    objective_id: str = Field(min_length=1, max_length=512, description="Objective owning the chosen In progress task")
+    task_id: str = Field(min_length=1, max_length=512, description="In progress task that owns this automation group")
     cwd: str | None = Field(default=None, min_length=1, max_length=4096)
     automation_id: str
     revision: str
@@ -3685,10 +3685,8 @@ def save_terminal_automations(body: AutomationSave, request: Request) -> dict:
 @router.post("/api/term/automations/launch")
 def launch_terminal_automation(body: AutomationLaunch, request: Request) -> dict:
     root, folder = _automation_folder(request, body.workspace_id, body.vault)
-    if body.parent and any([body.cwd, body.objective_id, body.task_id]):
-        raise HTTPException(400, "Choose an existing parent or a new automation context, not both")
-    if body.task_id and not body.objective_id:
-        raise HTTPException(400, "Choose the Objective that owns this task")
+    if body.parent and body.cwd:
+        raise HTTPException(400, "A parent automation uses the parent's working directory")
     # Serialize duplicate submissions. Session names include the run UUID, so
     # a repeated request adopts the same live children without replaying input.
     with terminal_automations.launch_lock(folder, body.run_id):
@@ -3699,6 +3697,16 @@ def launch_terminal_automation(body: AutomationLaunch, request: Request) -> dict
             row = next((row for row in catalog["automations"] if row["id"] == body.automation_id), None)
             if row is None:
                 raise HTTPException(404, "Automation not found")
+            from lab import objectives
+            data = objectives.load(root, body.workspace_id)
+            objective = next((o for o in data['objectives'] if o['id'] == body.objective_id), None)
+            if objective is None:
+                raise HTTPException(404, "Objective not found")
+            task = next((t for t in objectives._tasks(objective) if t['id'] == body.task_id), None)
+            if task is None:
+                raise HTTPException(404, "Task not found in this Objective")
+            if task.get('status') != 'in_progress':
+                raise HTTPException(409, "Choose an In progress task for this automation")
             if body.parent:
                 parent = _load_meta(root).get(body.parent)
                 if not parent or parent.get("workspace_id") != body.workspace_id:
@@ -3717,16 +3725,7 @@ def launch_terminal_automation(body: AutomationLaunch, request: Request) -> dict
                     saved = _workspace_session_by_name(root, body.workspace_id).get(parent["logical_name"], parent)
                     cwd = _session_launch_folder(root, body.workspace_id, saved)
             else:
-                cwd = folder
-                if body.objective_id:
-                    from lab import objectives
-                    data = objectives.load(root, body.workspace_id)
-                    objective = next((o for o in data['objectives'] if o['id'] == body.objective_id), None)
-                    if objective is None:
-                        raise HTTPException(404, "Objective not found")
-                    if body.task_id and not any(t['id'] == body.task_id for t in objectives._tasks(objective)):
-                        raise HTTPException(404, "Task not found in this Objective")
-                    cwd = objectives._objective_dir(folder, objective)
+                cwd = objectives._objective_dir(folder, objective)
                 if body.cwd:
                     cwd = Path(body.cwd).expanduser().resolve()
                 if not cwd.is_dir():
@@ -3762,13 +3761,13 @@ def launch_terminal_automation(body: AutomationLaunch, request: Request) -> dict
                     if body.parent or index:
                         from core.task_terminal_cleanup import save_parents
                         save_parents(root, body.workspace_id, {
-                            created[-1]['logical_name']: parent['logical_name'] if body.parent else created[0]['logical_name'],
+                            created[-1]['logical_name']: parent['logical_name'] if body.parent and index == 0 else created[0]['logical_name'],
                         })
-                    if not body.parent and body.objective_id:
+                    if body.objective_id:
                         # Commit ownership with the launch, including CLI launches
                         # and partial runs. Only the first defined step owns the task.
                         from lab import objectives
-                        target = ({'task_id': body.task_id} if body.task_id and index == 0
+                        target = ({'task_id': body.task_id, 'primary': not bool(body.parent)} if index == 0
                                   else {'view': 'tasks' if body.task_id else 'objective'})
                         objectives.mutate(root, body.workspace_id, {
                             'type': 'terminal', 'session_id': created[-1]['session_id'],

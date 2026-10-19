@@ -112,15 +112,19 @@
   }
 
   let active=null;
-  async function open({scope,parent,target,task,current,adopt,configure}) {
+  async function open({scope,parent,tasks=[],task,current,adopt,configure}) {
     if(active)return;
     const focus=document.activeElement,dialog=document.createElement('dialog');
     dialog.id='termAutomationLauncher';dialog.className='lab-settings-center term-automation-launcher';dialog.setAttribute('aria-labelledby','termAutomationTitle');
-    const description=parent?`Open child terminals under <strong>${esc(parent.label||parent.logical_name)}</strong> in ${esc(scope.label)}.`
-      :`Create terminals for <strong>${esc(task?.title||scope.label)}</strong>. The first defined terminal becomes ${task?'this task’s primary terminal':'the automation’s primary terminal'}; the remaining terminals open beneath it.`;
-    dialog.innerHTML=`<header><strong id="termAutomationTitle">Launch automation</strong><button type="button" data-close aria-label="Close automation launcher">×</button></header><div class="term-automation-body"><p>${description}</p><label class="term-automation-field"><span>Automation</span><select data-choice disabled><option>Loading…</option></select></label><p class="settings-hint" data-hint>Commands start in order and run independently. Exited commands keep their logs and open a shell.</p><div data-preview></div></div><footer><span role="status" aria-live="polite" data-status></span><div class="term-automation-actions"><button type="button" data-configure>Configure automations</button><button type="button" class="settings-save" data-launch disabled>Launch</button></div></footer>`;
+    const description=parent?`Open an automation group under <strong>${esc(parent.label||parent.logical_name)}</strong> in ${esc(scope.label)}.`
+      :'The first defined terminal becomes the chosen task’s primary terminal; the remaining terminals open beneath it.';
+    dialog.innerHTML=`<header><strong id="termAutomationTitle">Launch automation</strong><button type="button" data-close aria-label="Close automation launcher">×</button></header><div class="term-automation-body"><p>${description}</p><label class="term-automation-field"><span>In progress task</span><select data-task-choice required><option value="">Choose an In progress task…</option>${tasks.map((t,index)=>`<option value="${index}">${esc(t.objective_name)} / ${esc(t.title)}</option>`).join('')}</select></label><p class="settings-hint" data-task-summary></p><label class="term-automation-field"><span>Automation</span><select data-choice disabled><option>Loading…</option></select></label><p class="settings-hint" data-hint>Commands start in order and run independently. Exited commands keep their logs and open a shell.</p><div data-preview></div></div><footer><span role="status" aria-live="polite" data-status></span><div class="term-automation-actions"><button type="button" data-configure>Configure automations</button><button type="button" class="settings-save" data-launch disabled>Launch</button></div></footer>`;
     document.body.append(dialog);dialog.showModal();active=dialog;
     const status=dialog.querySelector('[data-status]'),choice=dialog.querySelector('[data-choice]'),launch=dialog.querySelector('[data-launch]'),preview=dialog.querySelector('[data-preview]');
+    const taskChoice=dialog.querySelector('[data-task-choice]');
+    const selectedIndex=tasks.findIndex(t=>t.id===task?.id&&t.objective_id===task?.objective_id);
+    if(selectedIndex>=0)taskChoice.value=String(selectedIndex);
+    const selectedTask=()=>taskChoice.value===''?null:tasks[Number(taskChoice.value)];
     let running=false,review=0,catalog,closed=false;
     const valid=()=>!closed&&active===dialog&&current();
     const message=(text,error=false)=>{if(!closed){status.textContent=text;status.classList.toggle('error',error);}};
@@ -129,10 +133,14 @@
     dialog.addEventListener('cancel',event=>{event.preventDefault();close();});
     dialog.addEventListener('click',event=>{if(event.target===dialog)close();});
     dialog.querySelector('[data-configure]').onclick=()=>{close();configure();};
-    const base=()=>({workspace_id:scope.id,vault:scope.vault,...(parent?{parent:parent.name}:target),automation_id:choice.value,revision:catalog.revision,run_id:crypto.randomUUID()});
+    const base=()=>({workspace_id:scope.id,vault:scope.vault,...(parent?{parent:parent.name}:{cwd:selectedTask().path}),objective_id:selectedTask().objective_id,task_id:selectedTask().id,automation_id:choice.value,revision:catalog.revision,run_id:crypto.randomUUID()});
     async function show() {
       const token=++review;launch.disabled=true;preview.replaceChildren();message('Checking working directories…');
       if(!valid()){message('The workspace or task context changed. Close and reopen this launcher.',true);return;}
+      const task=selectedTask();
+      dialog.querySelector('[data-task-summary]').textContent=task?`Attached to ${task.title}. Pausing this task hides the entire automation group.`:'';
+      if(!task){message(tasks.length?'Choose an In progress task before launching.':'No In progress tasks. Set a task to In progress, then reopen this launcher.',true);return;}
+      if(!catalog?.automations.length)return;
       try {
         const data=await api('/api/term/automations/launch',{...base(),preview:true});
         if(token!==review||closed)return;
@@ -144,10 +152,11 @@
       }catch(error){if(token===review)message(error.message,true);}
     }
     choice.onchange=()=>void show();
+    taskChoice.onchange=()=>void show();
     launch.onclick=async()=>{
       if(running||launch.disabled)return;
       if(!valid()){launch.disabled=true;message('The workspace or task context changed. Close and reopen this launcher.',true);return;}
-      running=true;launch.disabled=true;choice.disabled=true;dialog.querySelector('[data-configure]').disabled=true;dialog.querySelector('[data-close]').disabled=true;message('Starting terminals…');
+      running=true;launch.disabled=true;choice.disabled=true;taskChoice.disabled=true;dialog.querySelector('[data-configure]').disabled=true;dialog.querySelector('[data-close]').disabled=true;message('Starting terminals…');
       try {
         const data=await api('/api/term/automations/launch',base());
         await adopt(data.sessions||[]);

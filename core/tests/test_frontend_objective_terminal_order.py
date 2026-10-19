@@ -27,7 +27,7 @@ let current=first;
 const context=()=>({path:'/workspace'}),active=()=>registry.enabled,data=()=>registry,objective=()=>current;
 const state=()=>({terminalAll:{}});
 const tasks=o=>o?.tasks.flatMap(t=>[t,...t.children])||[],esc=value=>String(value),taskIcon=()=>'<icon>',taskDisplayName=t=>t.title;
-const bridge=null,taskStatus=()=> 'todo',customTaskIcon=()=>'<icon>';
+const bridge=null,taskStatus=()=> 'todo',customTaskIcon=()=>'<icon>',focusedTask=()=>null;
 const session=(name,cwd='/a',assignment)=>{
   const t={name,session_id:'uuid-'+name,logical_name:'logical-'+name,cwd,label:name,agent_session_id:'kept'};
   if(assignment)registry.terminal_links[t.session_id]={objective_id:'one',...assignment};
@@ -54,7 +54,7 @@ const names=()=>{
 assert.deepEqual(names(),['whole','tasks-view','parent-second','parent-first','child-one','child-two','next','free','asset','missing-task','other-task','other-free']);
 assert.equal(JSON.stringify(sessions),original,'sorting preserves session identity, launch folders and conversations');
 current=second;names();current=first;
-assert.deepEqual(taskForTerminal(sessions[1]),{title:'Second child',icon:'<icon>',assetIcon:'<icon>',status:'todo',color:null,inherited:false,primary:true});
+assert.deepEqual(taskForTerminal(sessions[1]),{title:'Second child',icon:'<icon>',assetIcon:'<icon>',status:'todo',color:null,inherited:false,primary:true,selected:false});
 first.tasks[0].children.reverse();
 assert.deepEqual(names().slice(0,7),['whole','tasks-view','parent-second','parent-first','child-two','child-one','next'],'new task ordering is reflected on every render');
 registry.terminal_links['uuid-free']={objective_id:'one',task_id:'child-one'};

@@ -229,6 +229,7 @@ const _termSessionContext=()=>({label:'Requests'}),_termSessionSummary=()=>'',_t
 const _sidebarFileConfigScope='fixture',_sidebarFileConfig={folderScopes:[]},_loadSidebarFileConfig=()=>({folderScopes:[]}),_termScopeColor=s=>s.color||'#8b949e';
 window.marked={};window.DOMPurify={};window.LabMarkdownEditor={create:(node,options)=>({value:options.body,destroy(){},focus(){}})};
 const _termActivateTab=async name=>{termCurrentSession=name;termRenderSessionList()};
+const termDetach=()=>{termCurrentSession=null;},termShowEmpty=()=>{};
 const renamed=[],termRenameSession=name=>renamed.push(name);
 const termToggleCollapse=()=>document.body.classList.toggle('term-collapsed'),_termRememberVisibility=()=>{},_termVisibilityKey=()=>workspace,termStartPeriodicRefresh=()=>{};
 const fixture={enabled:true,revision:'fixture',focused:['one','two','empty'],terminal_links:Object.fromEntries(termSessions.map(s=>[s.session_id,{objective_id:s.name==='other'?'two':'one',task_id:s.name}])),objectives:['one','two','empty'].map((id,i)=>({id,name:id,color:['#58a6ff','#bc8cff','#ffa657'][i],path:'/workspace/'+id,purpose:'',tasks:(id==='one'?['a','b','c']:id==='two'?['other']:[]).map(name=>({id:name,title:name,children:[],status:'in_progress',done:false})),resources:[],worktrees:[],shared_assets:[],unassigned_assets:[],archived_assets:[]}))};
@@ -444,13 +445,24 @@ const fs=require('node:fs');
   await evaluate(`(async()=>{const t=fixture.objectives[0].tasks.find(t=>t.id==='Not started');t.status=${JSON.stringify(status)};t.done=false;fixture.revision+='status';await LabObjectives.load(undefined,true);LabObjectives.renderTasks()})()`);
   assert(await evaluate(`!document.querySelector('.sess[data-name="new-Not started"]')`),'non-WIP terminals hidden by default');
   await evaluate(`LabObjectives.openTaskTerminal('Not started')`);await sleep(80);
-  assert(await evaluate(`termCurrentSession==='workflow-main'&&created.length===5&&!document.querySelector('.sess[data-name="new-Not started"]')&&LabObjectives.terminalLaunchContext().task.id==='Not started'`),'selecting '+label+' opens details without revealing or activating its terminal');
+  if(status==='paused'){
+   assert(await evaluate(`termCurrentSession==='new-Not started'&&created.length===5&&document.querySelector('.sess[data-name="new-Not started"].active')&&LabObjectives.terminalLaunchContext().task.id==='Not started'`),'selecting Paused reveals and reuses its existing terminal');
+   await click('.objective-sidebar-task [data-open-task="Needs terminal"]');
+   assert(await evaluate(`!document.querySelector('.sess[data-name="new-Not started"]')&&document.querySelector('.sess[data-name="new-Needs terminal"]')&&created.length===5`),'switching to another task removes the paused terminal');
+   await click('.sess[data-name=workflow-main]');
+  }else assert(await evaluate(`termCurrentSession==='workflow-main'&&created.length===5&&!document.querySelector('.sess[data-name="new-Not started"]')&&LabObjectives.terminalLaunchContext().task.id==='Not started'`),'selecting '+label+' opens details without revealing or activating its terminal');
  }
+ await evaluate(`(async()=>{const session=termSessions.find(s=>s.name==='new-Not started');LabObjectives.openForTerminal(session);await _termActivateTab(session.name);_termHighlightNotification(session)})()`);
+ assert(await evaluate(`document.querySelector('.sess[data-name="new-Not started"].term-notification-target')&&document.querySelector('[data-objective-terminals-all=one]').getAttribute('aria-pressed')==='false'&&!document.querySelector('.sess[data-name=a]')`),'notification reveals its exact filtered destination without switching the Objective to Show all');
+ await click('.objective-sidebar-task [data-open-task="Needs terminal"]');
+ assert(await evaluate(`!document.querySelector('.sess[data-name="new-Not started"]')&&!document.querySelector('.sess[data-name=a]')`),'leaving the notification task restores the default filter');
  await evaluate(`(async()=>{fixture.objectives[0].tasks.find(t=>t.id==='Not started').status='in_progress';fixture.revision+='resumed';await LabObjectives.load(undefined,true)})()`);
  await click('.objective-sidebar-task [data-open-task="Not started"]');await sleep(80);
  assert(await evaluate(`termCurrentSession==='new-Not started'&&document.querySelector('.sess[data-name="new-Not started"].active')&&created.length===5`),'resuming a task shows and reuses its existing terminal');
  await evaluate(`(async()=>{fixture.objectives[0].tasks.find(t=>t.id==='Not started').status='paused';fixture.revision+='paused-active';await LabObjectives.load(undefined,true)})()`);
- assert(await evaluate(`!document.querySelector('.sess[data-name="new-Not started"]')&&created.length===5`),'pausing the selected active task hides its terminal on refresh');
+ assert(await evaluate(`!document.querySelector('.sess[data-name="new-Not started"]')&&termCurrentSession===null&&created.length===5`),'pausing a working task immediately hides its terminal and parks its console');
+ await evaluate(`LabObjectives.renderTasks()`);
+ assert(await evaluate(`!document.querySelector('.sess[data-name="new-Not started"]')&&termCurrentSession===null&&created.length===5`),'returning to Tasks hides the paused terminal and parks its console immediately');
  await evaluate(`(async()=>{fixture.objectives[0].tasks.find(t=>t.id==='Not started').status='wont_do';fixture.revision+='declined';await LabObjectives.load(undefined,true)})()`);
  await click('[data-objective-terminals-all=one]');
  await evaluate(`(async()=>{

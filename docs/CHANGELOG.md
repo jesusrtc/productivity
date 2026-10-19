@@ -5,6 +5,26 @@ guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 
 ## 2026-10-19
 
+### Require a WIP task for every automation launch
+
+- The launcher requires an In progress task, lists available WIP tasks with
+  their Objective names and preselects the current one. Without a WIP task,
+  Launch stays disabled. API/CLI previews and launches enforce the same rule.
+- The first automation row owns the chosen task and its children inherit it,
+  including launches under generic workspace/Objective terminals. Pausing the
+  task hides the entire group and parks its console immediately. Explicitly
+  selecting the paused task reveals it until you leave.
+
+### Show paused-task terminals only while that task is selected
+
+- The default terminal rail includes In progress tasks, the selected paused
+  task, and generic workspace/Objective terminals. Leaving a paused task hides
+  its terminals immediately, including inherited children and active consoles.
+- Notification navigation reveals only its exact destination temporarily,
+  instead of saving Show all for the entire Objective. Legacy per-Objective
+  overrides reset once; newly explicit Show all choices remain saved.
+- Task clicks and `lab ui command task-open` share the same behavior.
+
 ### Keep notification history open while checking cards
 
 - The control beside **Lid Awake** now shows only a bell and switch, with an

@@ -32,8 +32,27 @@ def _save(client, workspace, steps, **options):
     return response.json()
 
 
-def _launch(parent, catalog, **patch):
-    return {'workspace_id': 'demo', 'parent': parent['name'], 'automation_id': 'dev',
+def _wip_target(client, workspace='demo'):
+    data = client.get('/api/objectives', params={'workspace_id': workspace}).json()
+    for objective in data['objectives']:
+        for task in objective['tasks']:
+            if task.get('status') == 'in_progress':
+                return {'objective_id': objective['id'], 'task_id': task['id']}
+    def action(value):
+        response = client.post('/api/objectives', json={'workspace_id': workspace, 'action': value})
+        assert response.status_code == 200, response.text
+        return response.json()
+    if not data['objectives']:
+        data = action({'type': 'create', 'name': 'Automation work'})
+    objective = data['objectives'][0]
+    data = action({'type': 'task', 'objective_id': objective['id'], 'title': 'Run automation'})
+    task = next(o for o in data['objectives'] if o['id'] == objective['id'])['tasks'][-1]
+    action({'type': 'task-update', 'objective_id': objective['id'], 'task_id': task['id'], 'status': 'in_progress'})
+    return {'objective_id': objective['id'], 'task_id': task['id']}
+
+
+def _launch(client, parent, catalog, **patch):
+    return {**_wip_target(client, patch.get('workspace_id', 'demo')), 'workspace_id': 'demo', 'parent': parent['name'], 'automation_id': 'dev',
             'revision': catalog['revision'], 'run_id': str(uuid.uuid4()), **patch}
 
 
@@ -78,7 +97,7 @@ def test_launch_delay_defaults_persists_and_only_waits_between_new_steps(
     assert catalog['automations'][0]['launch_delay_seconds'] == expected
     schema = client.get('/api/commands').json()['components']['schemas']['Automation']['properties']['launch_delay_seconds']
     assert schema['default'] == 5 and schema['minimum'] == 0 and schema['maximum'] == 300
-    body = _launch({'name': None}, catalog)
+    body = _launch(client, {'name': None}, catalog)
     preview = client.post('/api/term/automations/launch', json={**body, 'preview': True})
     assert preview.json()['launch_delay_seconds'] == expected
     assert launch_waits == []
@@ -116,7 +135,7 @@ def test_wait_keeps_settings_available_and_serializes_duplicate_run(
     seed_workspace()
     catalog = _save(client, 'demo', [{'label': 'One', 'command': 'printf one'},
                                      {'label': 'Two', 'command': 'printf two'}])
-    body = _launch({'name': None}, catalog)
+    body = _launch(client, {'name': None}, catalog)
     waiting, release, duplicate_started = threading.Event(), threading.Event(), threading.Event()
     def wait(seconds):
         assert seconds == 5
@@ -169,7 +188,7 @@ def test_recipes_are_workspace_owned_versioned_and_never_launch_on_save(client, 
     }).json()['automations'] == []
 
 
-def test_launch_preflights_every_path_uses_fixed_parent_folder_and_deduplicates(client, seed_workspace, isolated_prefix):
+def test_launch_preflights_every_path_uses_fixed_parent_folder_and_deduplicates(client, seed_workspace, monorepo, isolated_prefix):
     folder = seed_workspace()
     parent_folder = folder / "checkout with ' quotes"
     (parent_folder / 'frontend').mkdir(parents=True)
@@ -179,7 +198,7 @@ def test_launch_preflights_every_path_uses_fixed_parent_folder_and_deduplicates(
     steps = [{'label': 'Logs', 'command': "printf 'logs\\n'"},
              {'label': 'Frontend', 'command': 'npm run dev', 'cwd': 'frontend'}]
     catalog = _save(client, 'demo', steps)
-    body = _launch(parent, catalog)
+    body = _launch(client, parent, catalog)
     preview = client.post('/api/term/automations/launch', json={**body, 'preview': True})
     assert preview.status_code == 200, preview.text
     assert [row['cwd'] for row in preview.json()['steps']] == [str(parent_folder), str(parent_folder / 'frontend')]
@@ -188,6 +207,12 @@ def test_launch_preflights_every_path_uses_fixed_parent_folder_and_deduplicates(
     assert result.status_code == 200, result.text
     rows = result.json()['sessions']
     assert [row['label'] for row in rows] == ['Logs', 'Frontend']
+    links = client.get('/api/objectives?workspace_id=demo').json()['terminal_links']
+    assert links[rows[0]['session_id']]['task_id'] == body['task_id']
+    from core.routes import term
+    saved = term._workspace_session_by_name(monorepo, 'demo')
+    assert saved[rows[0]['logical_name']]['parent_terminal'] == parent['logical_name']
+    assert saved[rows[1]['logical_name']]['parent_terminal'] == rows[0]['logical_name']
     assert [row['cwd'] for row in rows] == [str(parent_folder), str(parent_folder / 'frontend')]
     assert all(row['kind'] == 'terminal' and row['name'] != parent['name'] for row in rows)
     repeated = client.post('/api/term/automations/launch', json=body).json()['sessions']
@@ -198,9 +223,9 @@ def test_launch_preflights_every_path_uses_fixed_parent_folder_and_deduplicates(
     assert all('startup_command' not in row for row in saved)
     assert all('cmd' not in row for row in saved)
     broken = _save(client, 'demo', [steps[0], {**steps[1], 'cwd': 'missing'}])
-    assert client.post('/api/term/automations/launch', json=_launch(parent, broken)).status_code == 400
+    assert client.post('/api/term/automations/launch', json=_launch(client, parent, broken)).status_code == 400
     assert len(client.get('/api/term/sessions?workspace_id=demo').json()) == 3
-    assert client.post('/api/term/automations/launch', json=_launch(parent, catalog)).status_code == 409
+    assert client.post('/api/term/automations/launch', json=_launch(client, parent, catalog)).status_code == 409
 
 
 def test_launch_rejects_cross_workspace_parent_and_reports_partial_failure(client, seed_workspace, isolated_prefix, monkeypatch):
@@ -209,7 +234,7 @@ def test_launch_rejects_cross_workspace_parent_and_reports_partial_failure(clien
     parent = client.post('/api/term/sessions', json={'workspace_id': 'demo', 'kind': 'terminal'}).json()
     catalog = _save(client, 'demo', [{'label': 'One', 'command': 'printf one'}, {'label': 'Two', 'command': 'printf two'}])
     other = _save(client, 'other', [{'label': 'Other', 'command': 'printf other'}])
-    assert client.post('/api/term/automations/launch', json=_launch(parent, other, workspace_id='other')).status_code == 404
+    assert client.post('/api/term/automations/launch', json=_launch(client, parent, other, workspace_id='other')).status_code == 404
     import core.routes.term as term
     original = term.create_session
     def fail_second(body, request):
@@ -217,7 +242,7 @@ def test_launch_rejects_cross_workspace_parent_and_reports_partial_failure(clien
             raise HTTPException(500, 'sample spawn failure')
         return original(body, request)
     monkeypatch.setattr(term, 'create_session', fail_second)
-    result = client.post('/api/term/automations/launch', json=_launch(parent, catalog)).json()
+    result = client.post('/api/term/automations/launch', json=_launch(client, parent, catalog)).json()
     assert len(result['sessions']) == 1 and result['sessions'][0]['label'] == 'One'
     assert result['error'] == 'Two: sample spawn failure'
     assert len(client.get('/api/term/sessions?workspace_id=demo').json()) == 2
@@ -232,6 +257,7 @@ def test_direct_launch_creates_its_own_task_primary_in_definition_order(client, 
     objective = action({'type':'create', 'name':'Build'})['objectives'][0]
     oid = objective['id']
     task = action({'type':'task', 'objective_id':oid, 'title':'Develop'})['objectives'][0]['tasks'][0]
+    action({'type':'task-update', 'objective_id':oid, 'task_id':task['id'], 'status':'in_progress'})
     cwd = folder / 'objectives' / oid
     (cwd / 'frontend').mkdir()
     catalog = _save(client, 'demo', [
@@ -265,17 +291,38 @@ def test_direct_launch_creates_its_own_task_primary_in_definition_order(client, 
     assert len(client.get('/api/term/sessions?workspace_id=demo').json()) == 4
 
 
+@pytest.mark.parametrize('parented', [False, True])
+def test_launch_requires_wip_task_and_rechecks_status_after_preview(client, seed_workspace, isolated_prefix, parented):
+    seed_workspace()
+    parent = client.post('/api/term/sessions', json={'workspace_id':'demo', 'kind':'terminal'}).json() if parented else {'name': None}
+    catalog = _save(client, 'demo', [{'label':'First', 'command':'printf ready'}])
+    body = _launch(client, parent, catalog)
+    before = client.get('/api/term/sessions?workspace_id=demo').json()
+    for fields in [{'task_id':None}, {'objective_id':None}]:
+        response = client.post('/api/term/automations/launch', json={**body, **fields})
+        assert response.status_code == 422
+    assert client.post('/api/term/automations/launch', json={**body, 'preview':True}).status_code == 200
+    for status in ['paused', 'todo', 'done', 'wont_do']:
+        changed = client.post('/api/objectives', json={'workspace_id':'demo', 'action':{
+            'type':'task-update', 'objective_id':body['objective_id'], 'task_id':body['task_id'], 'status':status}})
+        assert changed.status_code == 200, changed.text
+        response = client.post('/api/term/automations/launch', json=body)
+        assert response.status_code == 409 and 'In progress task' in response.text
+        assert client.get('/api/term/sessions?workspace_id=demo').json() == before
+
+
 def test_direct_launch_preflights_context_and_preserves_primary_on_partial_failure(client, seed_workspace, isolated_prefix, monkeypatch):
     seed_workspace()
     objective = client.post('/api/objectives', json={'workspace_id':'demo', 'action':{'type':'create','name':'Build'}}).json()['objectives'][0]
     oid = objective['id']
     task = client.post('/api/objectives', json={'workspace_id':'demo', 'action':{'type':'task','objective_id':oid,'title':'Develop'}}).json()['objectives'][0]['tasks'][0]
+    client.post('/api/objectives', json={'workspace_id':'demo', 'action':{'type':'task-update','objective_id':oid,'task_id':task['id'],'status':'in_progress'}})
     catalog = _save(client, 'demo', [{'label':'First', 'command':'printf first'}, {'label':'Second', 'command':'printf second'}])
     body = {'workspace_id':'demo', 'objective_id':oid, 'task_id':task['id'], 'automation_id':'dev',
             'revision':catalog['revision'], 'run_id':str(uuid.uuid4())}
-    for patch, status in [({'objective_id':None},400), ({'objective_id':'missing'},404),
+    for patch, status in [({'objective_id':None},422), ({'objective_id':'missing'},404),
                           ({'task_id':'missing'},404), ({'cwd':'/missing-automation-folder'},400),
-                          ({'parent':'unrelated'},400), ({'revision':'stale'},409)]:
+                          ({'parent':'unrelated'},404), ({'revision':'stale'},409)]:
         response = client.post('/api/term/automations/launch', json={**body, **patch})
         assert response.status_code == status, response.text
         assert client.get('/api/term/sessions?workspace_id=demo').json() == []
@@ -315,7 +362,7 @@ def test_explicitly_borrowed_document_parent_keeps_its_owner_and_folder(client, 
         **parent, 'logical_name': '@document:' + parent['name'],
         'document_source': {'workspace_id': 'other', 'logical_name': parent['logical_name']},
     }])
-    rows = client.post('/api/term/automations/launch', json=_launch(parent, catalog)).json()['sessions']
+    rows = client.post('/api/term/automations/launch', json=_launch(client, parent, catalog)).json()['sessions']
     assert len(rows) == 1 and rows[0]['cwd'] == str(other) and rows[0]['workspace_id'] == 'demo'
     assert client.get('/api/term/sessions?workspace_id=other').json()[0]['name'] == parent['name']
 
@@ -335,7 +382,7 @@ def test_launched_children_can_save_context_without_taking_primary_ownership(cli
     target = {'main':'workflow'} if owner == 'workflow' else {'objective_id':oid, **({'main':'objective'} if owner == 'objective' else {'task_id':task_id})}
     before = action({'type':'terminal', 'session_id':parent['session_id'], **target})
     catalog = _save(client, 'demo', [{'label':'Logs', 'command':'printf logs'}])
-    child = client.post('/api/term/automations/launch', json=_launch(parent, catalog)).json()['sessions'][0]
+    child = client.post('/api/term/automations/launch', json=_launch(client, parent, catalog)).json()['sessions'][0]
     association = {'view':'workflow'} if owner == 'workflow' else {'objective_id':oid, 'view':'tasks'}
     after = action({'type':'terminal', 'session_id':child['session_id'], **association})
     assert after['terminal_links'][parent['session_id']] == before['terminal_links'][parent['session_id']]
@@ -358,7 +405,7 @@ def test_native_launch_runs_once_in_tmux_and_keeps_exited_logs(native_creation_t
         {'label': 'Build', 'command': "printf 'build log\\n'; printf x >> count; exit 4"},
         {'label': 'Frontend', 'cwd': 'frontend', 'command': "printf 'frontend log\\n'; pwd"},
     ])
-    body = _launch(parent or {'name':None}, catalog)
+    body = _launch(client, parent or {'name':None}, catalog, **({} if parent else {'cwd':str(folder)}))
     # Exercise the actual server wait with real tmux launches, then ensure an
     # idempotent replay below never waits or re-executes the first command.
     waits = []

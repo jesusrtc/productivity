@@ -39,7 +39,7 @@ def test_native_workspace_automation_settings_picker_and_child_adoption(tmp_path
 localStorage.clear();
 window.LAB_IS_ADMIN=true;
 const scope={key:'/fixture/demo',id:'demo',path:'/fixture/demo',label:'Demo',vault:'one',kind:'workspace'};
-let activeWorkspace='demo',activeObjective='objective',activeTask='task';
+let activeWorkspace='demo',activeObjective='objective',activeTask='task',tasksAvailable=true;
 const _TERM_GROUPS_KEY='testGroups',_TERM_GROUP_COLORS=['#58a6ff'];let _termGroupMenuOutside=null;
 const _termSessionsKey=(id,vault)=>vault+'::'+id,_termActiveWorkspaceId=()=>activeWorkspace,_termVaultId=()=> 'one';
 const _termHomeSection=()=>null,_termSaveHomeAssociation=()=>{throw Error('not Home')};
@@ -50,11 +50,12 @@ const termSessEsc=v=>String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>
 const _termSessionDisplay=t=>t.label,_termSessionMeta=name=>termSessions.find(t=>t.name===name);
 const explorerToast=()=>{},_termInvalidateSessionReads=()=>{},_termSessionsCache=new Map();
 const termSetAutoSpawnEnabled=async(id,on,vault)=>assert(id==='demo'&&on&&vault==='one','captured restoration preference');
-let adopted=[],activated=[],directRequests=[],objectiveReloads=[],launchCalls=0,previewCalls=0,saved=0,failPreview=false,partial=false,hold=false,release;
+let adopted=[],activated=[],directRequests=[],launchRequests=[],objectiveReloads=[],launchCalls=0,previewCalls=0,saved=0,failPreview=false,partial=false,hold=false,release;
 window.LabObjectives={terminalMain:t=>t?.name==='main'?{kind:'workflow'}:null,
  sameTerminalObjective:()=>true,taskForTerminal:t=>({title:'Task'}),
  terminalLaunchContext:()=>activeObjective?({id:activeObjective,path:'/fixture/objective',context:{workspace_id:'demo',path:scope.path,vault:scope.vault},task:activeTask?{id:activeTask,title:'Active task'}:null}):null,
- load:async context=>objectiveReloads.push(context),
+ automationTasks:()=>tasksAvailable?[{id:'task',title:'Active task',objective_id:'objective',objective_name:'Objective',path:'/fixture/objective'},{id:'another-task',title:'Another WIP',objective_id:'objective',objective_name:'Objective',path:'/fixture/objective'}]:[],
+ load:async context=>{if(context)objectiveReloads.push(context)},
  childTerminalAssociation:()=>({context:{path:scope.path,workspace_id:scope.id,vault:scope.vault},objective_id:'objective',view:'tasks'}),
  associateNewTerminal:async(t,a)=>{adopted.push({t,a});},terminalExpanded:()=>undefined};
 const _termActivateTab=async name=>{activated.push(name);termCurrentSession=name;termRenderSessionList();};
@@ -73,13 +74,14 @@ window.fetch=async(url,options={})=>{
   data=catalogs[id];
  }else if(url==='/api/term/automations/launch'){
   assert(body.workspace_id==='demo'&&body.vault==='one','captured workspace scope');
+  assert(body.objective_id==='objective'&&['task','another-task'].includes(body.task_id),'every automation explicitly owns a WIP task');
   if(body.parent)assert(body.parent===parent.name,'captured parent');
   else {assert(body.cwd==='/fixture/objective'||body.cwd===scope.path,'direct launch uses its own captured folder');directRequests.push(body);}
   const recipe=catalogs.demo.automations.find(row=>row.id===body.automation_id);
   if(body.preview){previewCalls++;if(failPreview)return {ok:false,json:async()=>({detail:'Missing folder'})};
    data={name:recipe.name,launch_delay_seconds:recipe.launch_delay_seconds,steps:recipe.steps.map(row=>({...row,cwd:row.cwd?(body.cwd||'/fixture/checkout')+'/'+row.cwd:(body.cwd||'/fixture/checkout')}))};
   }else{
-   launchCalls++;if(hold)await new Promise(r=>release=r);
+   launchCalls++;launchRequests.push(body);if(hold)await new Promise(r=>release=r);
    data={sessions:recipe.steps.slice(0,partial?1:undefined).map((row,index)=>({name:'run-'+launchCalls+'-'+index,logical_name:'run-'+launchCalls+'-'+index,session_id:'uuid-'+launchCalls+'-'+index,label:row.label,cwd:row.cwd?(body.cwd||'/fixture/checkout')+'/'+row.cwd:(body.cwd||'/fixture/checkout'),workspace_id:'demo'})),...(partial?{error:'Frontend: spawn failed'}:{})};
   }
  }else throw Error('Unexpected request '+url);
@@ -141,9 +143,9 @@ const launchMenu=async()=>{q('[data-name="'+parent.name+'"]').dispatchEvent(new 
  await launchMenu();await until(()=>!q('[data-launch]').disabled);
  hold=true;q('[data-launch]').click();q('[data-launch]').click();await until(()=>!!release);assert(launchCalls===1,'double-click starts once');release();
  await until(()=>!q('#termAutomationLauncher'));hold=false;
- assert(termSessions.length===3&&adopted.length===2,'two created children adopted');
- assert(adopted.every(row=>!row.a.task_id&&row.a.objective_id==='objective'),'children inherit parent context without taking primary task ownership');
- let state=_termReadGroupState();assert(state.tabParents['run-1-0']==='parent'&&state.tabParents['run-1-1']==='parent','durable child hierarchy');
+ assert(termSessions.length===3&&adopted.length===0&&launchRequests[0].task_id==='task','server owns the selected task without browser reassignment');
+ assert(q('#termAutomationLauncher')===null,'successful task-bound launch closes the picker');
+ let state=_termReadGroupState();assert(state.tabParents['run-1-0']==='parent'&&state.tabParents['run-1-1']==='run-1-0','durable child hierarchy');
  assert(activated[0]==='run-1-0','first logs selected');termCurrentSession='parent';termRenderSessionList();
  assert(document.querySelectorAll('.term-subtab-children[hidden] .sess').length===2,'inactive children fold below parent');
  parent.name='main';parent.logical_name='main';termCurrentSession='main';termSessions=[parent];termRenderSessionList();
@@ -166,7 +168,7 @@ const launchMenu=async()=>{q('[data-name="'+parent.name+'"]').dispatchEvent(new 
  assert(!state.tabParents['run-4-0']&&state.tabParents['run-4-1']==='run-4-0','the first step owns the automation family');
  assert(state.order.indexOf('s:run-4-0')+1===state.order.indexOf('s:run-4-1'),'recipe order is preserved');
  assert(directRequests.every(row=>!row.parent&&row.objective_id==='objective'&&row.task_id==='task'),'API captures the exact primary task without a parent terminal');
- assert(objectiveReloads.length===1&&objectiveReloads[0].workspace_id==='demo','server-side primary assignment is refreshed');
+ assert(objectiveReloads.at(-1).workspace_id==='demo','server-side task assignment is refreshed');
  await directMenu();activeTask='another-task';q('[data-launch]').click();
  assert(launchCalls===4&&q('[data-launch]').disabled,'switching task cancels a pending direct launch');q('[data-close]').click();activeTask='task';
  // A navigation during creation keeps adoption in the captured workspace and
@@ -179,10 +181,14 @@ const launchMenu=async()=>{q('[data-name="'+parent.name+'"]').dispatchEvent(new 
  assert(activated.length===selectedBefore&&!termSessions.some(row=>row.name==='run-5-0'),'late launch cannot hijack another workspace');
  assert(directRequests.at(-1).task_id==='task','launch request keeps the original task');
  activeWorkspace='demo';activeTask='task';
- // No active task: the same menu still makes a standalone automation group.
- activeObjective=null;await directMenu();q('[data-launch]').click();await until(()=>!q('#termAutomationLauncher'));
- assert(!directRequests.at(-1).objective_id&&!directRequests.at(-1).task_id&&directRequests.at(-1).cwd===scope.path,'workspace-only launch uses its workspace root');
+ // Without a selected task, an explicit WIP choice is required.
+ activeObjective=null;q('#termNewAutomation').click();await until(()=>q('[data-choice]')?.disabled===false);
+ assert(q('[data-launch]').disabled&&q('[data-task-choice]').value===''&&q('[data-task-choice]').options.length===3,'workspace launch requires one of the available WIP tasks');
+ q('[data-task-choice]').value='1';q('[data-task-choice]').dispatchEvent(new Event('change'));await until(()=>!q('[data-launch]').disabled);
+ q('[data-launch]').click();await until(()=>!q('#termAutomationLauncher'));
+ assert(directRequests.at(-1).objective_id==='objective'&&directRequests.at(-1).task_id==='another-task'&&directRequests.at(-1).cwd==='/fixture/objective','chosen WIP task owns the workspace launch');
  assert(_termReadGroupState().tabParents['run-6-1']==='run-6-0','workspace-only automation also makes its own primary');
+ tasksAvailable=false;await _termLaunchAutomation();assert(q('[data-launch]').disabled&&q('[data-status]').textContent.includes('No In progress tasks')&&launchCalls===6,'no WIP tasks blocks launching');q('[data-close]').click();tasksAvailable=true;
  activeObjective='objective';termSessions=[parent];termCurrentSession=parent.name;termRenderSessionList();
  await launchMenu();await until(()=>!q('[data-launch]').disabled);q('[data-configure]').click();await until(()=>q('[data-remove-automation]'));document.querySelectorAll('[data-remove-automation]').forEach(button=>button.click());q('.settings-form').requestSubmit();await until(()=>q('[data-message]').textContent==='Saved');LabSettings.close();
  assert(catalogs.demo.automations.length===0,'remove saved automation');

@@ -32,7 +32,7 @@ const bridge={sessions:()=>sessions,refreshTerminals:()=>{},activateLinkedTermin
  openTask('missing',{activateTerminal:true});await Promise.resolve();
  registry.task_terminals=false;const disabled=terminalSessions(sessions);
  const blocked=[];
- for(const enabled of [false,true])for(const status of ['paused','todo','done','wont_do']){
+ for(const enabled of [false,true])for(const status of ['todo','done','wont_do']){
   registry.task_terminals=enabled;o.tasks.forEach(t=>t.status=status);
   openTask('existing',{activateTerminal:true});openTask('missing',{activateTerminal:true});await Promise.resolve();
   blocked.push(created.length===1&&activated.length===1&&opened.at(-1)[0]==='doc-missing');
@@ -45,7 +45,7 @@ const bridge={sessions:()=>sessions,refreshTerminals:()=>{},activateLinkedTermin
     assert result['createdByDefault'] == [] and result['created'] == ['missing']
     assert result['activated'] == [['existing']]
     assert result['opened'][:3] == [['doc-missing', 'missing'], ['doc-existing', 'existing'], ['doc-missing', 'missing']]
-    assert result['blocked'] == [True] * 8
+    assert result['blocked'] == [True] * 6
     assert result['unchanged']
 
 
@@ -67,21 +67,82 @@ let saves=0,repaints=0;const persistView=()=>saves++;bridge.refreshTerminals=()=
 ''' + helpers + r'''
 const original=JSON.stringify(sessions),filtered=terminalSessions(sessions),all=terminalSessions(sessions,{wipOnly:false});
 view.terminalAll.one=true;const objectiveAll=terminalSessions(sessions);view.terminalAll.one=false;
-selected='todo';const withTodo=terminalSessions(sessions);selected='done';const withDone=terminalSessions(sessions);selected='paused';const withPaused=terminalSessions(sessions);selected='wont_do';const withWontDo=terminalSessions(sessions);selected=null;
+selected='todo';const withTodo=terminalSessions(sessions);selected='done';const withDone=terminalSessions(sessions);selected='paused';view.focus={pausedTerminal:true};const withPaused=terminalSessions(sessions);selected='wont_do';const withWontDo=terminalSessions(sessions);selected=null;
+view.focus={task:'done'};
 revealTerminal(sessions.find(s=>s.name==='done'));const revealed=terminalSessions(sessions);revealTerminal(sessions.find(s=>s.name==='done'));
+const savedAll={...view.terminalAll};view.focus={task:'working'};const afterReveal=terminalSessions(sessions);
 view.terminalAll.one=false;
 links.working.task_id='done';const after=terminalSessions(sessions);
-console.log(JSON.stringify({saves,repaints,revealed:revealed.map(s=>s.task_id||s.name),withPaused:withPaused.map(s=>s.task_id||s.name),withWontDo:withWontDo.map(s=>s.task_id||s.name),objectiveAll:objectiveAll.map(s=>s.task_id||s.name),withTodo:withTodo.map(s=>s.task_id||s.name),withDone:withDone.map(s=>s.task_id||s.name),filtered:filtered.map(s=>s.task_id||s.name),all:all.map(s=>s.task_id||s.name),after:after.map(s=>s.task_id||s.name),unchanged:original===JSON.stringify(sessions)}));
+console.log(JSON.stringify({saves,repaints,savedAll,afterReveal:afterReveal.map(s=>s.task_id||s.name),revealed:revealed.map(s=>s.task_id||s.name),withPaused:withPaused.map(s=>s.task_id||s.name),withWontDo:withWontDo.map(s=>s.task_id||s.name),objectiveAll:objectiveAll.map(s=>s.task_id||s.name),withTodo:withTodo.map(s=>s.task_id||s.name),withDone:withDone.map(s=>s.task_id||s.name),filtered:filtered.map(s=>s.task_id||s.name),all:all.map(s=>s.task_id||s.name),after:after.map(s=>s.task_id||s.name),unchanged:original===JSON.stringify(sessions)}));
 ''')
     assert result['filtered'] == ['workflow-terminal:work:main', 'global', 'working', 'recommended', 'extra', 'grandchild']
     assert set(result['all']) == {'workflow-terminal:work:main','global','working','todo','done','paused','wont_do','recommended','extra','grandchild','unassigned'}
     assert result['objectiveAll'] == result['all']
-    assert result['revealed'] == result['all']
-    assert result['saves'] == result['repaints'] == 1
+    assert set(result['revealed']) == set(result['filtered']) | {'done'}
+    assert result['saves'] == 0 and result['repaints'] == 1
+    assert result['savedAll'] == {'one': False}
+    assert result['afterReveal'] == result['filtered']
     assert result['withTodo'] == result['filtered']
-    assert result['withDone'] == result['withPaused'] == result['withWontDo'] == result['filtered']
+    assert result['withDone'] == result['withWontDo'] == result['filtered']
+    assert set(result['withPaused']) == set(result['filtered']) | {'paused'}
     assert result['after'] == ['workflow-terminal:work:main', 'global', 'working', 'recommended']  # WIP primary is now recommended.
     assert result['unchanged']
+
+
+def test_selected_paused_task_reuses_members_and_filters_them_after_navigation():
+    source = OBJECTIVES.read_text()
+    helpers = source[source.index('  function terminalIdentity('):source.index('  function sidebarTarget(')]
+    helpers += source[source.index('  function openTask(id,'):source.index('  function openTaskAssets(')]
+    result = _run_node(r'''
+const makeTask=(id,status)=>({id,title:id,status,children:[],document_id:'doc',tab_id:id});
+const paused=makeTask('paused','paused'),working=makeTask('working','in_progress');
+const o={id:'one',tasks:[paused,working,makeTask('other-paused','paused')],worktrees:[]};
+const foreign={id:'two',tasks:[makeTask('paused','paused')],worktrees:[]};
+const sessions=['main','paused','secondary','child','other-paused','working','foreign'].map(name=>({name,session_id:name,logical_name:name}));
+const registry={enabled:true,task_terminals:false,focused:['one','two'],objectives:[o,foreign],terminal_links:{
+ main:{objective_id:'one',main:'objective'},paused:{objective_id:'one',task_id:'paused'},secondary:{objective_id:'one',task_id:'paused',primary:false},
+ child:{objective_id:'one',view:'tasks'},'other-paused':{objective_id:'one',task_id:'other-paused'},working:{objective_id:'one',task_id:'working'},foreign:{objective_id:'two',task_id:'paused'}}};
+const view={terminalAll:{}},state=()=>view,context=()=>({workspace_id:'work',path:'/workspace'}),key=s=>s.workspace_id;
+const data=()=>registry,active=()=>true,objective=()=>o,tasks=o=>o?.tasks||[],focusedTask=()=>o.tasks.find(t=>t.id===view.focus?.task);
+const taskStatus=t=>t.status,taskDisplayName=t=>t.title,taskIcon=()=>'',customTaskIcon=()=>'';
+const activated=[],created=[],resetWorktreeBrowse=()=>{},persistView=()=>{},openResource=()=>{},terminalLaunchContext=()=>({id:o.id,context:context()});
+const bridge={sessions:()=>sessions,refreshTerminals:()=>{},parentTerminal:t=>t.name==='child'?sessions.find(s=>s.name==='paused'):null,
+ activateLinkedTerminal:ids=>activated.push(ids),createTaskTerminal:async(_,t)=>{created.push(t.id);return null;}};
+''' + helpers + r'''
+(async()=>{
+ const names=()=>terminalSessions(sessions).map(s=>s.logical_name);
+ const initial=names();openTask('paused',{activateTerminal:true});const selected=names();
+ openTask('working',{activateTerminal:true});const left=names();
+ registry.task_terminals=true;openTask('paused',{activateTerminal:true});const enabled=names();
+ sessions.splice(sessions.findIndex(s=>s.name==='paused'),1);sessions.splice(sessions.findIndex(s=>s.name==='secondary'),1);
+ openTask('paused',{activateTerminal:true});await Promise.resolve();
+ console.log(JSON.stringify({choices:automationTasks().map(t=>[t.objective_id,t.id]),initial,selected,left,enabled,activated,created,terminalAll:view.terminalAll}));
+})().catch(e=>{console.error(e);process.exit(1)});
+''')
+    assert result['initial'] == result['left']
+    assert set(result['selected']) == set(result['enabled']) == set(result['initial']) | {'paused', 'secondary', 'child'}
+    assert 'foreign' not in result['selected'] and 'other-paused' not in result['selected']
+    assert result['activated'] == [['paused'], ['working'], ['paused']]
+    assert result['created'] == ['paused'] and result['terminalAll'] == {}
+    assert result['choices'] == [['one', 'working']]
+
+
+def test_legacy_notification_show_all_resets_once_and_explicit_choice_survives_reload():
+    source = OBJECTIVES.read_text()
+    helpers = source[source.index('  function state('):source.index('  function objective(')]
+    result = _run_node(r'''
+const views=new Map(),scope={workspace_id:'work'},context=()=>scope,key=s=>s.workspace_id;
+let saved={objective:'one',focus:{objective:'one',task:'paused'},tree:{one:'folder'},terminalAll:{one:true}};
+const localStorage={getItem:()=>JSON.stringify(saved),setItem:(_,value)=>saved=JSON.parse(value)};
+''' + helpers + r'''
+const first=structuredClone(state());persistView();views.clear();const second=structuredClone(state());
+state().terminalAll.one=true;persistView();views.clear();const explicit=structuredClone(state());
+console.log(JSON.stringify({first,second,explicit}));
+''')
+    assert result['first']['terminalAll'] == result['second']['terminalAll'] == {}
+    assert result['first']['focus'] == {'objective': 'one', 'task': 'paused'}
+    assert result['first']['tree'] == {'one': 'folder'}
+    assert result['explicit']['terminalAll'] == {'one': True}
 
 
 def test_worktree_click_assignments_restore_task_and_union_recent_files_in_chrome(tmp_path):

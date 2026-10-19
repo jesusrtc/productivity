@@ -242,8 +242,11 @@ The existing primary keeps running and task clicks still open it. **Make primary
 on another independent task terminal changes that default without nesting either
 terminal. Use **New subterminal** when you explicitly want a child terminal.
 
-Choose **+ New → Launch automation…** to start a saved automation in the active
-task without creating a terminal first. The first terminal in the automation's
+Choose **+ New → Launch automation…** and pick an **In progress task** to start
+a saved automation without creating a terminal first. The current WIP task is
+preselected; other WIP tasks in this workspace are available with their Objective
+names. A task choice is required, and no WIP tasks means Launch stays disabled.
+The server checks its status again when launching. The first terminal in the automation's
 definition becomes the task's primary and opens immediately; the remaining
 terminals open beneath it in definition order. A previous primary keeps running.
 The preview identifies **Primary** and shows every command and resolved folder.
@@ -253,11 +256,13 @@ automations**. Each automation has **Seconds between launches**, defaulting to
 immediately; Lab waits the configured interval before starting each next terminal.
 Choose 0 to disable the delay, or any value up to 300 seconds. The preview shows
 the saved interval. Commands still run independently; this delay does not wait
-for a previous command to finish. Empty or relative folders use the selected
-Objective's folder, or the workspace folder when no Objective is selected. Without an active task,
-the first terminal is the automation's primary within that Objective or workspace.
-Secondary-clicking an existing terminal → **Launch automation…** still opens all
-steps as that terminal's children. See [Terminals](TERMINALS.md#terminal-automations).
+for a previous command to finish. Empty or relative folders use the chosen task's
+Objective folder. Secondary-clicking an existing terminal → **Launch automation…**
+also requires a WIP task: the automation's first row nests beneath that terminal,
+with the remaining steps beneath its first row, using the parent's launch folder.
+The chosen task owns the whole automation group. Pausing it hides the group and
+parks its console immediately; click the paused task to inspect it again.
+See [Terminals](TERMINALS.md#terminal-automations).
 
 Open **Icon and text color** in an automation to choose its terminal-outline,
 service (such as GitHub), emoji or uploaded PNG icon. Main tabs default to green
@@ -274,7 +279,9 @@ or `lab api call POST /api/term/automations/launch --body-file /absolute/launch.
 Use `lab api describe POST /api/term/automations/launch` for the request schema.
 Omit `parent` and supply the workspace, automation ID, catalog revision, a fresh
 run UUID, and the active `objective_id` / `task_id`; the server assigns the first
-terminal as primary. Set `preview: true` to check the recipe without starting it.
+terminal as primary. Both `objective_id` and `task_id` are required and the task
+must be In progress. Supplying `parent` retains these task fields and uses the
+parent's folder; omit `cwd` in that case. Set `preview: true` to check the recipe without starting it.
 Save `launch_delay_seconds` on the automation through `POST /api/term/automations`
 with the current catalog revision. For long groups, give `lab api call` a
 sufficient `--timeout` (for example, `--timeout 180`); the response arrives after
@@ -350,10 +357,13 @@ explicit tab or green-dot click. Submitting an LLM message immediately shows
 yellow; the next agent report supplies the actual work status. Task-status dots
 remain omitted.
 
-Objective task terminal tabs appear by default only while the task is **In
-progress**. Paused, Not started, Completed and Won’t do tasks stay hidden even
-when selected, including child terminals that inherit their status. Selecting
-one of those tasks opens its details without creating or activating a terminal.
+Objective task terminal tabs appear by default while the task is **In
+progress**, or after explicitly selecting a **Paused** task. Pausing the current
+working task hides its terminals and parks its console immediately. Selecting that paused task
+reveals and reuses its terminals; leaving it for another task, Tasks or the
+Objective overview hides them immediately, including inherited child terminals.
+Not started, Completed and Won’t do tasks stay hidden even when selected.
+Selecting one of those tasks opens its details without creating or activating a terminal.
 Changing it back to In progress makes its terminal available again. Hidden
 sessions keep running during their retention window: **Completed**, **Won’t do**
 and **Undo / Not started** get **1 hour** after the status change; **Paused** gets
@@ -368,7 +378,11 @@ needed. Older tasks without a recorded status-change time receive a full window
 from their first background observation, retained across server restarts.
 Use **Show all** on an Objective or **Show all terminals**
 in the terminal menu to inspect them explicitly; **Show WIP** restores the
-In progress filter. Workflow and current Objective main terminals remain available.
+In progress and selected-paused filter. Workflow and current Objective main
+terminals remain available. Notification navigation temporarily reveals only its
+destination, without enabling or saving Show all. Older per-Objective Show all
+overrides reset once because previous notification clicks could save them;
+explicit choices made afterward remain saved.
 
 Inspect retention with `lab api call get /api/term/task-cleanup`; run a check now
 with `lab api call post /api/term/task-cleanup`. Assistant task links use the same
@@ -497,8 +511,9 @@ terminal status; they do not expire, including across page reloads.
 Clicking one opens that terminal and reviews the displayed finish, clearing its
 message and green indicators together. Clicking either color scrolls the
 destination tab into view and pulses its background and outline three times.
-Lab expands its tab group or shows the selected Objective's full terminal list
-when needed to reveal it. Reduced-motion settings use a brief steady highlight.
+Lab expands its tab group or temporarily reveals that exact terminal when needed,
+without changing Show all. Leaving its task/Objective clears that temporary
+reveal. Reduced-motion settings use a brief steady highlight.
 Shared document terminals appear once in
 the stack. Home, Assistant and workspace dots prioritize red, then yellow,
 then green. No desktop notifications or separate popup windows are sent.
@@ -575,9 +590,9 @@ unique selectors. Use `click`, `contextmenu`, `fill`, `key`, `hover`, `scroll`,
 
 Named `task-open` and `objective-select` actions refresh Objective data before
 navigating, so they see preceding API changes immediately. Opening a task by
-CLI follows the same terminal policy as clicking it: eligible In progress tasks
-activate their linked terminal, while paused tasks open details with their
-terminals hidden under the default filter.
+CLI follows the same terminal policy as clicking it: In progress and selected
+paused tasks activate their linked terminal. Leaving the paused task hides its
+terminals under the default filter.
 
 ```bash
 lab workspace open demo --vault my-vault --client VIEW_ID

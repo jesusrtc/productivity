@@ -13913,7 +13913,7 @@
       const task = window.LabObjectives?.taskForTerminal?.(session);
       // Inherited context does not give an independent child its own WIP task.
       // An automation primary owns its task just like any other task terminal.
-      if (task?.status === 'in_progress' && !task.inherited) workingRows.add(session.logical_name);
+      if (!task?.inherited && (task?.status === 'in_progress' || task?.status === 'paused' && task.selected)) workingRows.add(session.logical_name);
     }
     const visibleRows = new Set(workingRows);
     for (const logical of _termActiveSubtabFamily(sessions, parents)) visibleRows.add(mergedInto.get(logical) || logical);
@@ -15256,6 +15256,12 @@
     window.LabObjectives?.syncTerminalHierarchy?.();
     const groupState = _termReadGroupState();
     const viewSessions=_termIncludeVisibleSubtabs(window.LabObjectives?.terminalSessions?.(termSessions||[],{wipOnly:termWipOnly})||termSessions,termSessions,groupState);
+    const current=termCurrentWorkspaceId===_termActiveWorkspaceId()&&termSessions.find(session=>session.name===termCurrentSession);
+    if(current&&window.LabObjectives?.taskForTerminal?.(current)?.status==='paused'
+        &&!viewSessions.some(session=>session.name===current.name)){
+      // Park its console as well as its tab when leaving the paused task.
+      termDetach(true);termShowEmpty();
+    }
     const pill=(session,index)=>session.objective_placeholder?_termTaskPlaceholderHtml(session):_termSessionPillHtml(session,index);
     _termSyncTabSelection();
     _termRenderActiveSessionHeader();
@@ -15736,24 +15742,27 @@
     if(!window.LabTerminalAutomations)return;
     const scope={...LabSettingsBridge.currentScope()},scopeKey=_termGroupScopeKey();
     if(!scope.id)return;
+    await window.LabObjectives?.load(undefined,true);
+    if(scopeKey!==_termGroupScopeKey())return;
     const launch=window.LabObjectives?.terminalLaunchContext?.();
-    const target=parent?null:{cwd:launch?.path||scope.path,...(launch?{objective_id:launch.id,...(launch.task?{task_id:launch.task.id}:{})}:{})};
-    const identity=parent&&(parent.session_id||parent.name),association=parent&&window.LabObjectives?.childTerminalAssociation?.(parent);
+    const tasks=window.LabObjectives?.automationTasks?.()||[];
+    const identity=parent&&(parent.session_id||parent.name);
     const selection=()=>JSON.stringify([window.LabObjectives?.terminalLaunchContext?.()?.id,window.LabObjectives?.terminalLaunchContext?.()?.task?.id]);
     const selected=selection(),homeSection=_termHomeSection();
     const current=()=>scopeKey===_termGroupScopeKey()&&selected===selection()&&homeSection===_termHomeSection()
       &&(!parent||termSessions.some(t=>(t.session_id||t.name)===identity));
-    await window.LabTerminalAutomations.open({scope,parent,target,task:launch?.task,current,
+    await window.LabTerminalAutomations.open({scope,parent,tasks,task:tasks.find(t=>t.objective_id===launch?.id&&t.id===launch?.task?.id),current,
       configure:()=>window.LabSettings?.open({scope,section:'automations'}),
       async adopt(rows) {
         if(!rows.length)return;
         const state=_termReadGroupState(scopeKey),logicals=rows.map(t=>t.logical_name);
         if(!state.order.length&&scopeKey===_termGroupScopeKey())state.order=termSessions.map(t=>'s:'+t.logical_name);
-        const primary=parent||rows[0],children=parent?rows:rows.slice(1),parentToken='s:'+primary.logical_name;
+        const primary=rows[0],children=rows.slice(1),parentToken='s:'+primary.logical_name;
         state.order=state.order.filter(token=>!logicals.some(id=>token==='s:'+id));
         if(!state.order.includes(parentToken))state.order.push(parentToken);
         state.order.splice(state.order.indexOf(parentToken)+1,0,...children.map(row=>'s:'+row.logical_name));
-        if(!parent){delete state.tabParents[primary.logical_name];delete state.tabAfter[primary.logical_name];}
+        if(parent)state.tabParents[primary.logical_name]=parent.logical_name;
+        else {delete state.tabParents[primary.logical_name];delete state.tabAfter[primary.logical_name];}
         for(const row of children){
           state.tabParents[row.logical_name]=primary.logical_name;
           delete state.tabAfter[row.logical_name];
@@ -15764,12 +15773,11 @@
         if(rows.length)await termSetAutoSpawnEnabled(scope.id,true,scope.vault);
         const failures=[];
         for(const row of rows){
-          if(association)try{await window.LabObjectives.associateNewTerminal(row,association);}catch(error){failures.push(error.message);}
           if(homeSection)_termSaveHomeAssociation(row.logical_name,homeSection);
         }
-        // Parentless launches save the task primary in the API, so CLI launches
-        // share that ownership and navigation during a request cannot change it.
-        if(!parent&&launch)try{await window.LabObjectives.load(launch.context,true);}catch(error){failures.push(error.message);}
+        // The API owns task assignment for both launch modes. Refresh it without
+        // overwriting the chosen task with an existing parent's context.
+        try{await window.LabObjectives.load({workspace_id:scope.id,vault:scope.vault,path:scope.path},true);}catch(error){failures.push(error.message);}
         _termInvalidateSessionReads(scopeKey);
         _termSessionsCache.delete(scopeKey);
         if(scopeKey===_termGroupScopeKey()){

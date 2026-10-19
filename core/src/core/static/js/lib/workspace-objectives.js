@@ -23,11 +23,13 @@
     const id = key(scope);
     if (!views.has(id)) {
       let saved;try {saved = JSON.parse(localStorage.getItem('lab.objectives.view.v1:' + id));} catch {}
-      views.set(id, {objective:saved?.objective || null, view:saved?.view || 'all', focus:saved?.focus || null, tree:saved?.tree || {}, pins:saved?.pins || {}, overview:saved?.overview || {}, terminalAll:saved?.terminalAll || {}, revealed:new Set(), selected:null});
+      // Older notification navigation saved Show all as though it was a user choice.
+      const terminalAll=saved?.terminalFilterVersion===2?saved.terminalAll||{}:{};
+      views.set(id, {objective:saved?.objective || null, view:saved?.view || 'all', focus:saved?.focus || null, tree:saved?.tree || {}, pins:saved?.pins || {}, overview:saved?.overview || {}, terminalAll, revealed:new Set(), selected:null});
     }
     return views.get(id);
   }
-  function persistView() {const s=state();try{localStorage.setItem('lab.objectives.view.v1:'+key(context()),JSON.stringify({objective:s.objective,view:s.view,focus:s.focus,tree:s.tree,pins:s.pins,overview:s.overview,terminalAll:s.terminalAll}));}catch{}}
+  function persistView() {const s=state();try{localStorage.setItem('lab.objectives.view.v1:'+key(context()),JSON.stringify({objective:s.objective,view:s.view,focus:s.focus,tree:s.tree,pins:s.pins,overview:s.overview,terminalAll:s.terminalAll,terminalFilterVersion:2}));}catch{}}
   function objective() {const d=data(),s=state();return d?.objectives.find(o=>o.id===s.objective)||d?.objectives.find(o=>d.focused.includes(o.id));}
   function active(path) {return context()?.path===path&&data()?.enabled===true;}
   function taskStatus(task) {
@@ -45,6 +47,7 @@
   function complete(task) {return taskStatus(task)==='done';}
   function patchTaskStatus(o,id,status) {
     const task=tasks(o).find(t=>t.id===id);if(!task)return;
+    if(state().focus?.objective===o.id&&(state().focus.task===id||status!=='in_progress'&&tasks({tasks:task.children}).some(t=>t.id===state().focus.task)))delete state().focus.pausedTerminal;
     const set=(t,s)=>Object.assign(t,{status:s,done:s==='done'});
     set(task,status);if(status!=='in_progress')tasks({tasks:task.children}).forEach(c=>set(c,status));
     taskAncestors(task,o).reverse().forEach(parent=>set(parent,childrenStatus(parent.children)));
@@ -117,6 +120,12 @@
       if(background&&(queues.has(id)||previous!==before))return previous;
       if(d.enabled&&!background)await Promise.all([bridge.readyContent?.(),scope.path&&bridge.warmWorktrees?.([{path:scope.path},...d.objectives.filter(o=>d.focused.includes(o.id)).flatMap(o=>[{path:o.path||scope.path+'/objectives/'+o.id},...o.worktrees])],scope)]);
       for(const overlay of overlays.get(id)||[])overlay.apply(d);
+      const focus=state(scope).focus;
+      if(previous&&focus?.pausedTerminal){
+        const selected=registry=>tasks(registry?.objectives.find(o=>o.id===focus.objective)||{tasks:[]}).find(t=>t.id===focus.task);
+        const oldTask=selected(previous),newTask=selected(d);
+        if(!oldTask||!newTask||taskStatus(oldTask)!=='paused'||taskStatus(newTask)!=='paused')delete focus.pausedTerminal;
+      }
       const changed=JSON.stringify(previous)!==JSON.stringify(d);cache.set(id,d);loadedAt.set(id,Date.now());
       if(key(context())===id)bridge.syncTaskHierarchy?.(d);
       if(key(context())===id){if(changed||!background)paint();if(changed){bridge.refreshSidebar?.();bridge.refreshTerminals?.();if(openView?.type==='all')paintLibrary();else if(openView?.type==='overview')renderOverview();else if(openView?.type==='tasks')renderTasks();}if(!previous)bridge.openDefault?.();}return d;
@@ -586,6 +595,7 @@
     host.innerHTML=`<section class="objective-working"><header><h2 data-open-objective-tasks title="Drop a task here to make it a top-level task">Tasks</h2><button type="button" data-new-objective-task>+ Task</button></header><p class="objective-purpose">${esc(o.name)} · ${esc(o.purpose)}</p>${state().worktreeBrowse?`<p class="objective-worktree-assignment-help">Drag ${esc(tree()?.label)} from Worktrees onto any task below. Repeat to assign it to multiple tasks. Fold Worktrees to return to task assets.</p>`:''}<div class="objective-task-progress">${badge(o)}<span>${esc(p.label)}</span></div>${dueDashboard(o)}<div class="objective-task-display-options"><label><input type="checkbox" data-show-finished-tasks ${state().showFinished?'checked':''}> Show completed / discarded</label><p>Add a deadline to an action item: <code>- [ ] [YYYY-MM-DD HH:mm] Action item</code> · local time</p></div><div class="objective-task-list">${rows.map(({task,parent,depth})=>taskWithActions(task,parent,depth)).join('')||'<p>No pending tasks.</p>'}</div></section>`;
     host.querySelector('[data-show-finished-tasks]').onchange=event=>{state().showFinished=event.target.checked;renderTasks();};
     paint();
+    bridge.refreshTerminals?.();
   }
 
   function overviewAssets(label,assets) {
@@ -636,7 +646,7 @@
     const host=showCenter('overview');
     const s=overviewState();
     host.innerHTML=`<section class="objective-working objective-overview"><header><h2>${esc(o.name)}</h2><button type="button" data-objective-settings>Objective settings</button></header><p class="objective-purpose">${esc(o.purpose)}</p><div class="objective-overview-toolbar"><label>Search tasks and assets<input type="search" data-objective-overview-search placeholder="Task, asset name or path…" value="${esc(s.query)}"></label><label>View<select data-objective-overview-mode><option value="assets">Tasks with assets</option><option value="tasks">Tasks only</option><option value="unassigned">Unassigned assets</option><option value="archive">Archive · ${(o.archived_assets||[]).length}</option></select></label></div><div data-objective-overview-results aria-live="polite"></div></section>`;
-    host.querySelector('[data-objective-overview-mode]').value=s.mode;paintOverviewResults();paint();
+    host.querySelector('[data-objective-overview-mode]').value=s.mode;paintOverviewResults();paint();bridge.refreshTerminals?.();
   }
   function selectScope(row) {
     if(!row)return;collapse();const s=state();
@@ -649,7 +659,7 @@
     const o=objective(),task=tasks(o).find(t=>t.id===id);if(!task)return;
     actionTarget=actionItem?{scope:key(context()),task:id,item:actionItem}:null;
     resetWorktreeBrowse();
-    state().focus={objective:o.id,task:id};
+    state().focus={objective:o.id,task:id,...(taskStatus(task)==='paused'?{pausedTerminal:true}:{})};
     state().view='objective';persistView();openResource(task.document_id,task.tab_id);
     bridge.refreshTerminals?.();
     if(activateTerminal&&taskTerminalVisible(task,o)){
@@ -1156,8 +1166,14 @@
     if(!choices.length){node.querySelector('[type=submit]').disabled=true;node.querySelector('select').innerHTML='<option>No assets in this Objective</option>';}
   }
   function taskTerminalsEnabled() {return data()?.task_terminals===true;}
+  function automationTasks() {
+    return (data()?.objectives||[]).flatMap(o=>tasks(o).filter(task=>taskStatus(task)==='in_progress').map(task=>({
+      id:task.id,title:taskDisplayName(task,o),objective_id:o.id,objective_name:o.name,path:o.path||context().path+'/objectives/'+o.id,
+    })));
+  }
   function taskTerminalVisible(task,o,wipOnly=bridge?.terminalWipOnly?.()??true) {
-    return taskStatus(task)==='in_progress'||!wipOnly||o.id===objective()?.id&&state().terminalAll?.[o.id]===true;
+    const status=taskStatus(task),selected=state().focus?.pausedTerminal===true&&o.id===objective()?.id&&focusedTask()?.id===task.id;
+    return status==='in_progress'||status==='paused'&&selected||!wipOnly||o.id===objective()?.id&&state().terminalAll?.[o.id]===true;
   }
   function terminalMain(t) {
     if(!t||!active(context()?.path))return null;
@@ -1187,7 +1203,7 @@
     }
     return null;
   }
-  function taskForTerminal(t) {const binding=terminalTask(t);return binding?{title:taskDisplayName(binding.task,binding.objective),icon:taskIcon(binding.task,binding.objective),assetIcon:customTaskIcon(binding.task,binding.objective),color:binding.task.terminal_color||null,inherited:binding.inherited,primary:binding.primary,status:taskStatus(binding.task)}:null;}
+  function taskForTerminal(t) {const binding=terminalTask(t);return binding?{title:taskDisplayName(binding.task,binding.objective),icon:taskIcon(binding.task,binding.objective),assetIcon:customTaskIcon(binding.task,binding.objective),color:binding.task.terminal_color||null,inherited:binding.inherited,primary:binding.primary,status:taskStatus(binding.task),selected:state().focus?.pausedTerminal===true&&binding.objective.id===objective()?.id&&binding.task.id===focusedTask()?.id}:null;}
   function findTaskTerminal(sessions,target) {
     const matches=sessions.filter(t=>{if(target.main==='workflow')return terminalMain(t)?.kind==='workflow';const link=terminalLink(t);return link?.objective_id===target.objective_id&&(target.task_id?link.task_id===target.task_id:terminalMain(t)?.kind==='objective');});
     return matches.find(t=>terminalLink(t)?.primary!==false)||matches[0];
@@ -1242,10 +1258,13 @@
     const all=[...result,...sessions.filter(t=>!seen.has(t))];
     const selectedObjective=objective()?.id;
     const showObjective=state().terminalAll?.[selectedObjective]===true;
+    const s=state(),reveal=s.terminalReveal;
+    if(reveal&&(reveal.objective!==selectedObjective||reveal.focus!==s.focus||reveal.view!==s.view))delete s.terminalReveal;
     return all.filter(t=>{
       const main=terminalMain(t);
       if(main)return main.kind==='workflow'||main.objective_id===selectedObjective;
       if(!wipOnly||showObjective&&terminalObjective(t)?.id===selectedObjective)return true;
+      if(s.terminalReveal?.identity===terminalIdentity(t))return true;
       const binding=terminalTask(t);
       if(binding)return taskTerminalVisible(binding.task,binding.objective,wipOnly);
       const link=terminalLink(t);
@@ -1255,8 +1274,10 @@
   }
   function revealTerminal(t) {
     const o=terminalObjective(t),s=state();
-    if(!o||o.id!==objective()?.id||s.terminalAll?.[o.id])return;
-    s.terminalAll||={};s.terminalAll[o.id]=true;persistView();bridge.refreshTerminals?.();
+    if(!o||o.id!==objective()?.id||s.terminalReveal?.identity===terminalIdentity(t)&&s.terminalReveal.focus===s.focus)return;
+    // Reveal only this notification's destination until navigation changes.
+    s.terminalReveal={identity:terminalIdentity(t),objective:o.id,focus:s.focus,view:s.view};
+    bridge.refreshTerminals?.();
   }
   function terminalParents(sessions,explicit={}) {
     const parents={...explicit};
@@ -1713,7 +1734,7 @@
   },true);
   window.LabObjectives={connect(adapter){bridge=adapter;startRefreshing();},load,active,sidebarHtml,paint,worktrees,tree,associate,terminalHtml,taskForTerminal,openForTerminal,collapse,progress,complete,change,selectObjective,openTask,renderTasks,tabsHtml,showAll,terminalLaunchContext,associateNewTerminal,
     instructionRoot(path){return active(path)?scopeRows().find(row=>row.id==='objective-root')?.path:null;},
-    terminalSessions,revealTerminal,terminalParents,terminalExpanded,terminalMain,terminalObjective,openMainTerminal,openTaskTerminal,terminalTaskNameHtml,terminalWorktreeColor,terminalColor,sidebarMode,recentScopes,moveForTerminalDrop,
+    terminalSessions,revealTerminal,terminalParents,terminalExpanded,terminalMain,terminalObjective,openMainTerminal,openTaskTerminal,terminalTaskNameHtml,terminalWorktreeColor,terminalColor,sidebarMode,recentScopes,moveForTerminalDrop,automationTasks,
     terminalAsset,chooseTerminalAsset,unlinkTerminalAsset,linkTerminal,canMakeTerminalPrimary,makeTerminalPrimary,taskPrimaryForTerminal,
     activateFileTerminal(root,path){return active(context()?.path)&&activateAssetTerminal({file:{root,path}});},
     terminalsForFile(root,path){return active(context()?.path)?assetTerminals({file:{root,path}}):[];},
