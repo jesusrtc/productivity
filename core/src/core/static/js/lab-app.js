@@ -12046,6 +12046,7 @@
     if (enabled) enabled.checked = termRecentEnabled;
     const wip = document.getElementById('termWipOnly');
     if (wip) wip.checked = termWipOnly;
+    _termUpdateAllButton();
     if (btn) btn.title = `Recent terminal highlight: ${windowLabel}`;
     if (label) label.textContent = windowLabel;
     if (select && String(select.value) !== String(termRecentMinutes)) select.value = String(termRecentMinutes);
@@ -12065,7 +12066,7 @@
 
   function _termUpdateAllButton() {
     const button=document.getElementById('termShowAllBtn');
-    if(button){button.textContent=termWipOnly?'Show all terminals':'Show In progress task terminals';button.setAttribute('aria-pressed',String(!termWipOnly));}
+    if(button){button.setAttribute('aria-checked',String(!termWipOnly));button.title=termWipOnly?'Show all task statuses':'Show In progress and explicitly selected paused tasks';}
   }
 
   function termToggleAllTerminals() {
@@ -15242,6 +15243,7 @@
   }
 
   function termRenderSessionList() {
+    _termUpdateAllButton();
     _termSyncTaskParents(_termReadGroupState());
     if (typeof _sidebarPinTerminalScope === 'function') {
       for (const session of termSessions || []) _sidebarPinTerminalScope(session.linked_scope, session.logical_name || session.name);

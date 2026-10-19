@@ -472,20 +472,17 @@ or activating its terminal. Pausing the current working task hides its terminals
 and parks its console immediately; click the paused task to show them again.
 Active child families and merged tabs also respect this filter. Other sessions
 keep running while hidden. Objective headers and the dropdown expand the same
-current Objective. **Show all** beside the active Objective header reveals all
-of that Objective's terminals and task recommendations, without expanding other
-Objectives or changing the selected task. Toggle **Show WIP** to restore In
-progress and selected-paused task terminals. This choice is saved separately per
-Objective in the browser. Notification clicks reveal only the exact destination
-temporarily and never save Show all. Old overrides reset once because earlier
-notification navigation could save them; explicit new choices persist normally.
-The compact rail uses a **☰** button with the same action.
-**Show all terminals** in the **+ New** terminal menu reveals all statuses in the
-active Objective and adds headers for parked Objectives with saved sessions.
+current Objective. The **Show all** switch beside **Terminal** in the top panel
+header reveals every task status in the active Objective and adds headers for
+parked Objectives with saved sessions. Turn it off to restore In progress and
+explicitly selected paused tasks. It remains visible when terminal names fold,
+keeps keyboard focus and saves its setting in the browser. There is one shared
+filter: separate Objective Show all / All shown buttons and their saved overrides
+are removed. Notification clicks reveal only their exact destination temporarily
+without turning the switch on.
 Only the active Objective's terminals unfold in every filter mode. Clicking
 another terminal Objective header selects that Objective, opens its terminals
-and folds the previous group. Toggle Show all again to restore the saved task
-filter. The same choice is available in Terminal settings.
+and folds the previous group. Terminal settings control the same shared filter.
 
 Task terminals show a left icon beside their title. A task with exactly one
 assigned worktree uses that worktree's colored marker and name, including on

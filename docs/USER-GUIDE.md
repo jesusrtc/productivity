@@ -376,13 +376,15 @@ terminals are excluded. Conversation IDs and saved links remain available;
 expired processes do not return on browser reload. Reopen them explicitly when
 needed. Older tasks without a recorded status-change time receive a full window
 from their first background observation, retained across server restarts.
-Use **Show all** on an Objective or **Show all terminals**
-in the terminal menu to inspect them explicitly; **Show WIP** restores the
-In progress and selected-paused filter. Workflow and current Objective main
-terminals remain available. Notification navigation temporarily reveals only its
-destination, without enabling or saving Show all. Older per-Objective Show all
-overrides reset once because previous notification clicks could save them;
-explicit choices made afterward remain saved.
+Use the **Show all** switch beside **Terminal** in the panel's top header.
+Turn it on to inspect every task status; turn it off to restore In progress and
+explicitly selected paused tasks. It stays visible when terminal names are
+folded and works with mouse, Space or Enter. The choice is saved in this browser
+and stays in sync with Terminal settings. Objective names no longer have separate
+Show all / All shown buttons; older per-Objective overrides are ignored, so off
+always restores the filter. Workflow and current Objective main terminals remain
+available. Notification navigation temporarily reveals only its destination,
+without changing the switch.
 
 Inspect retention with `lab api call get /api/term/task-cleanup`; run a check now
 with `lab api call post /api/term/task-cleanup`. Assistant task links use the same

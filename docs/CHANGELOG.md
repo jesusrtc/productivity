@@ -5,6 +5,15 @@ guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 
 ## 2026-10-19
 
+### Put Show all terminals in the panel header
+
+- Added a **Show all** on/off switch beside **Terminal**, visible even when
+  terminal names are folded. It saves the existing browser setting, supports
+  keyboard use and stays in sync with Terminal settings.
+- Removed the separate Objective **Show all / All shown** buttons and their
+  saved overrides. Off consistently restores In progress and explicitly selected
+  paused tasks; on reveals all statuses while retaining one expanded Objective.
+
 ### Require a WIP task for every automation launch
 
 - The launcher requires an In progress task, lists available WIP tasks with

@@ -40,6 +40,9 @@ def test_terminal_actions_live_in_settings_and_context_menus() -> None:
     html = INDEX_HTML.read_text(encoding="utf-8")
     source = LAB_APP.read_text(encoding="utf-8")
     header = html.split('<div class="term-header">')[1].split('<div class="term-stage">')[0]
+    assert 'id="termShowAllBtn"' in header and 'role="switch"' in header
+    assert 'aria-label="Show all terminals"' in header and 'aria-checked="false"' in header
+    assert html.count('id="termShowAllBtn"') == 1
     assert 'id="termSettingsBtn"' in header
     for old in ('termKillBtn', 'termKillAllBtn', 'termNewBtn', 'termCreateDividerBtn', 'termRecentSettingsBtn'):
         assert old not in header

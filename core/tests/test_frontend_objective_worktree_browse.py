@@ -77,7 +77,7 @@ console.log(JSON.stringify({saves,repaints,savedAll,afterReveal:afterReveal.map(
 ''')
     assert result['filtered'] == ['workflow-terminal:work:main', 'global', 'working', 'recommended', 'extra', 'grandchild']
     assert set(result['all']) == {'workflow-terminal:work:main','global','working','todo','done','paused','wont_do','recommended','extra','grandchild','unassigned'}
-    assert result['objectiveAll'] == result['all']
+    assert result['objectiveAll'] == result['filtered']
     assert set(result['revealed']) == set(result['filtered']) | {'done'}
     assert result['saves'] == 0 and result['repaints'] == 1
     assert result['savedAll'] == {'one': False}
@@ -127,22 +127,21 @@ const bridge={sessions:()=>sessions,refreshTerminals:()=>{},parentTerminal:t=>t.
     assert result['choices'] == [['one', 'working']]
 
 
-def test_legacy_notification_show_all_resets_once_and_explicit_choice_survives_reload():
+def test_legacy_objective_filters_are_ignored_and_not_saved_with_navigation():
     source = OBJECTIVES.read_text()
     helpers = source[source.index('  function state('):source.index('  function objective(')]
     result = _run_node(r'''
 const views=new Map(),scope={workspace_id:'work'},context=()=>scope,key=s=>s.workspace_id;
-let saved={objective:'one',focus:{objective:'one',task:'paused'},tree:{one:'folder'},terminalAll:{one:true}};
+let saved={objective:'one',focus:{objective:'one',task:'paused'},tree:{one:'folder'},terminalAll:{one:true},terminalFilterVersion:2};
 const localStorage={getItem:()=>JSON.stringify(saved),setItem:(_,value)=>saved=JSON.parse(value)};
 ''' + helpers + r'''
 const first=structuredClone(state());persistView();views.clear();const second=structuredClone(state());
-state().terminalAll.one=true;persistView();views.clear();const explicit=structuredClone(state());
-console.log(JSON.stringify({first,second,explicit}));
+console.log(JSON.stringify({first,second,saved}));
 ''')
-    assert result['first']['terminalAll'] == result['second']['terminalAll'] == {}
+    assert 'terminalAll' not in result['first'] and 'terminalAll' not in result['second']
+    assert 'terminalAll' not in result['saved']
     assert result['first']['focus'] == {'objective': 'one', 'task': 'paused'}
     assert result['first']['tree'] == {'one': 'folder'}
-    assert result['explicit']['terminalAll'] == {'one': True}
 
 
 def test_worktree_click_assignments_restore_task_and_union_recent_files_in_chrome(tmp_path):

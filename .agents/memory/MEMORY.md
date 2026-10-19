@@ -1,5 +1,7 @@
 # Memory index
 
+- [Show all terminals is a header switch](show-all-terminals-header-switch.md) — one saved on/off switch beside Terminal, visible with folded names; no separate Objective overrides or All shown buttons.
+
 - [Automations require a WIP task](automations-require-wip-task.md) — mandatory task picker and API validation, first row owns the task, inherited children hide with it on pause even beneath generic terminals.
 
 - [Paused terminals follow task selection](paused-terminals-follow-task-selection.md) — show the selected paused task only, hide on navigation, and reveal notification destinations temporarily without saving Show all.

@@ -307,6 +307,7 @@ window.ensureLiveMarkdownEditor = (function () {
   <div class="term-resizer" id="termResizer" title="Drag to resize"></div>
   <div class="term-header">
     <span class="title">Terminal</span>
+    <button id="termShowAllBtn" class="term-all-switch" type="button" role="switch" aria-checked="false" aria-label="Show all terminals" title="Show all task statuses" onclick="termToggleAllTerminals()"><span>Show all</span><span class="term-all-switch-track" aria-hidden="true"></span></button>
     <span class="term-active-session" id="termActiveSession" aria-live="polite" tabindex="0" onpointerenter="_termShowSessionTooltip(this)" onpointerleave="_termScheduleSessionTooltipHide()" onfocus="_termShowSessionTooltip(this)" onblur="_termScheduleSessionTooltipHide()" ondblclick="termRenameCurrent()"></span>
     <button id="termCopyAttachBtn" onclick="termCopyAttachCmd()" title="Copy read-only tmux attach command">&#x1F4CB;</button>
     <button id="termSettingsBtn" onclick="termOpenSettings()" title="Terminal settings" aria-label="Terminal settings">&#x2699;</button>
@@ -392,7 +393,6 @@ window.ensureLiveMarkdownEditor = (function () {
         <button id="termNewAutomation" type="button" onclick="document.getElementById('termNewPicker').classList.remove('open');_termLaunchAutomation()" title="Create automation terminals for the active task; the first defined terminal becomes primary">Launch automation&hellip;</button>
         <button data-term-option="attach" class="term-attach-open" type="button" onclick="termOpenAttachModal(event)" title="Choose from live tmux sessions without stopping the original session">Attach tmux session&hellip;</button>
         <button id="termNewOptionsEmpty" hidden onclick="termOpenSettings()">Choose available terminals in Settings…</button>
-        <button id="termShowAllBtn" type="button" aria-pressed="false" onclick="termToggleAllTerminals()">Show all terminals</button>
         <button type="button" onclick="document.getElementById('termNewPicker').classList.remove('open');LabTerminalCleanup.open()">Clean up completed / inactive terminals…</button>
       </div>
 

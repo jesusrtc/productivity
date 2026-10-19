@@ -10,7 +10,7 @@ import time
 
 import pytest
 
-from .test_frontend_terminal_ui import _js_between, _run_node, LAB_APP, LAB_SHELL_CSS
+from .test_frontend_terminal_ui import _js_between, _run_node, LAB_APP, LAB_SHELL_CSS, INDEX_HTML
 
 
 GROUPS = _js_between('  function _termGroupScopeKey()', '  function _termSessionDisplay(s)')
@@ -212,7 +212,7 @@ def test_native_terminal_drop_choice_hover_reload_and_objective_folding(tmp_path
     shutil.copytree(LAB_SHELL_CSS.parents[1] / 'img/link-icons', tmp_path / 'img/link-icons')
     setup = r'''
 let vault='fixture',workspace='demo',termCurrentSession='a',termCurrentWorkspaceId='demo';
-let termSessionOrientation=ORIENTATION,termWipOnly=true;
+let termSessionOrientation=ORIENTATION,termWipOnly=localStorage.getItem('labTermWipOnly')!=='false';
 let termSessions=['a','b','c','other'].map(name=>({name,logical_name:name,session_id:'uuid-'+name,cwd:'/workspace',kind:'terminal'}));
 if(localStorage.getItem('displayMainFixture'))termSessions=JSON.parse(localStorage.getItem('displayMainFixture'));
 const originalSessions=JSON.stringify(termSessions),mutations=[];
@@ -249,8 +249,9 @@ LabObjectives.connect({context:()=>({workspace_id:workspace,vault,path:'/workspa
  termSessions.push(session);fixture.terminal_links[session.session_id]={objective_id:launch.id,...(task?{task_id:task.id}:{})};fixture.revision+='!';await LabObjectives.load(undefined,true);await _termActivateTab(name);return session;}});
 (async()=>{await LabObjectives.load();LabObjectives.openCurrent();termRenderSessionList();document.body.dataset.ready='true'})();
 '''.replace('ORIENTATION', repr(orientation))
+    header_toggle = next(line.strip() for line in INDEX_HTML.read_text().splitlines() if 'id="termShowAllBtn"' in line)
     css = LAB_SHELL_CSS.read_text() + (LAB_SHELL_CSS.parent / 'workspace-objectives.css').read_text()
-    page = '<!doctype html><meta charset="utf-8"><style>'+css+' .term-panel{width:680px}.term-tabs-open{--term-sessions-width:230px}#sidebar{position:fixed;left:0;top:40px;width:230px;height:calc(100vh - 40px);overflow:auto}#content{margin-left:240px;width:calc(100vw - 920px)}</style><body class="term-open"><button id="outside">Outside</button><button id="termShowAllBtn" onclick="termToggleAllTerminals()">Show all terminals</button><div class="repo-tabs"></div><aside id="sidebar"><section data-objectives-sidebar></section></aside><main id="content"></main><section class="term-panel term-sessions-full '+('term-sessions-horizontal' if orientation=='horizontal' else '')+'"><div class="term-stage"><div class="term-session-switcher term-tabs-open"><div class="term-sessions" id="termSessionList"></div></div></div></section><div id="termGroupMenu" class="term-group-menu" hidden></div><script>'+OBJECTIVES.read_text()+AUTOMATIONS+COMPLETION+'</script><script>'+GROUPS+MOVES+RENDER+ASSOCIATION+PILL+ALL_TOGGLE+OBJECTIVE_ACTIVATE+FILE_ICON+setup+'</script>'
+    page = '<!doctype html><meta charset="utf-8"><style>'+css+' .term-panel{width:680px}.term-tabs-open{--term-sessions-width:230px}#sidebar{position:fixed;left:0;top:40px;width:230px;height:calc(100vh - 40px);overflow:auto}#content{margin-left:240px;width:calc(100vw - 920px)}</style><body class="term-open"><button id="outside">Outside</button><div class="repo-tabs"></div><aside id="sidebar"><section data-objectives-sidebar></section></aside><main id="content"></main><section class="term-panel term-sessions-full '+('term-sessions-horizontal' if orientation=='horizontal' else '')+'"><div class="term-header"><span class="title">Terminal</span>'+header_toggle+'</div><div class="term-stage"><div class="term-session-switcher term-tabs-open"><div class="term-sessions" id="termSessionList"></div></div></div></section><div id="termGroupMenu" class="term-group-menu" hidden></div><script>'+OBJECTIVES.read_text()+AUTOMATIONS+COMPLETION+'</script><script>'+GROUPS+MOVES+RENDER+ASSOCIATION+PILL+ALL_TOGGLE+OBJECTIVE_ACTIVATE+FILE_ICON+setup+'</script>'
     (tmp_path / 'fixture.html').write_text(page)
     class Handler(SimpleHTTPRequestHandler):
         def log_message(self, *args): pass
@@ -332,13 +333,13 @@ const fs=require('node:fs');
  assert(await evaluate(`document.querySelector('.sess[data-name=a]').getClientRects().length>0&&!document.querySelector('.sess[data-name=other]').getClientRects().length`),'dropdown switches same expanded group');
  await click('.objective-terminal-heading[data-select-objective=empty]');assert(await evaluate(`![...document.querySelectorAll('.sess[data-name]')].some(n=>n.getClientRects().length)&&document.querySelector('.term-task-placeholder').getClientRects().length>0&&document.querySelector('.term-new-tab').getClientRects().length>0`),'empty Objective offers its global terminal and folds other sessions');
  await click('.objective-terminal-heading[data-select-objective=one]');
- await click('[data-objective-terminals-all=one]');
+ await click('#termShowAllBtn');
  await click('[data-term-parent=a] > .sess [data-subtab-pin]');await click('#outside');
- await evaluate('document.body.dataset.ready="false"');await send('Page.reload');await waitReady();assert(await evaluate(`_termReadGroupState().tabParents.b==='a'&&_termReadGroupState().tabExpanded.a===true&&document.querySelector('[data-term-parent=a] [data-subtab-pin]').getAttribute('aria-pressed')==='true'&&document.querySelector('[data-term-parent=a] .sess[data-name=b]')&&document.querySelector('[data-objective-terminals-all=one]').getAttribute('aria-pressed')==='true'`),'reload restores child expansion, subtab relationship and Objective filter preference');
+ await evaluate('document.body.dataset.ready="false"');await send('Page.reload');await waitReady();assert(await evaluate(`_termReadGroupState().tabParents.b==='a'&&_termReadGroupState().tabExpanded.a===true&&document.querySelector('[data-term-parent=a] [data-subtab-pin]').getAttribute('aria-pressed')==='true'&&document.querySelector('[data-term-parent=a] .sess[data-name=b]')&&document.querySelector('#termShowAllBtn').getAttribute('aria-checked')==='true'`),'reload restores child expansion, subtab relationship and header switch setting');
  await click('[data-term-parent=a] > .sess [data-subtab-pin]');await click('#outside');
- await evaluate(`document.querySelector('.term-session-switcher').classList.remove('term-tabs-open');document.querySelector('[data-objective-terminals-all=one]').focus()`);
+ await evaluate(`document.querySelector('.term-session-switcher').classList.remove('term-tabs-open');document.querySelector('#termShowAllBtn').focus()`);
  await send('Input.dispatchKeyEvent',{type:'keyDown',key:' ',code:'Space',windowsVirtualKeyCode:32});await send('Input.dispatchKeyEvent',{type:'keyUp',key:' ',code:'Space',windowsVirtualKeyCode:32});
- assert(await evaluate(`document.querySelector('[data-objective-terminals-all=one]').getAttribute('aria-pressed')==='false'&&document.activeElement===document.querySelector('[data-objective-terminals-all=one]')&&(termSessionOrientation==='horizontal'||document.activeElement.getBoundingClientRect().right<=document.querySelector('.term-session-switcher').getBoundingClientRect().right)`),'Objective filter is reachable by keyboard, keeps focus and fits inside the compact vertical rail');
+ assert(await evaluate(`document.querySelector('#termShowAllBtn').getAttribute('aria-checked')==='false'&&document.activeElement===document.querySelector('#termShowAllBtn')&&document.activeElement.closest('.term-header')&&document.activeElement.getBoundingClientRect().right<=document.querySelector('.term-panel').getBoundingClientRect().right`),'header switch remains visible and keyboard accessible while the terminal rail is collapsed');
  await evaluate(`document.querySelector('.term-session-switcher').classList.add('term-tabs-open')`);
  await hover(tab('a'));await drag(tab('b'),tab('a'));await click('[data-action=below]');await sleep(60);
  assert(await evaluate(`!_termReadGroupState().tabParents.b&&_termReadGroupState().tabAfter.b==='a'&&!document.querySelector('[data-term-parent=a]')&&JSON.stringify(termSessions.map(s=>s.name))===JSON.stringify(['a','b','c','other'])`),'Move below makes child a sibling');
@@ -410,26 +411,26 @@ const fs=require('node:fs');
  assert(await evaluate(`created.length===4&&termCurrentSession==='new-Not started'`),'subsequent task click reuses automatically created terminal');
  await evaluate(`termWipOnly=true;termRenderSessionList()`);
  await evaluate(`window.focusedTaskBeforeAll=LabObjectives.terminalLaunchContext().task.id;window.focusedCenterBeforeAll=document.querySelector('#content').innerHTML`);
- await click('[data-objective-terminals-all=one]');
- assert(await evaluate(`LabObjectives.terminalLaunchContext().task.id===focusedTaskBeforeAll&&termCurrentSession==='new-Not started'&&document.querySelector('#content').innerHTML===focusedCenterBeforeAll&&document.querySelector('.sess[data-name=a]')&&created.length===4`),'Objective Show all keeps the selected task and its terminal active');
- await click('[data-objective-terminals-all=one]');
+ await click('#termShowAllBtn');
+ assert(await evaluate(`LabObjectives.terminalLaunchContext().task.id===focusedTaskBeforeAll&&termCurrentSession==='new-Not started'&&document.querySelector('#content').innerHTML===focusedCenterBeforeAll&&document.querySelector('.sess[data-name=a]')&&created.length===4`),'Header Show all keeps the selected task and its terminal active');
+ await click('#termShowAllBtn');
  assert(await evaluate(`!document.querySelector('.sess[data-name="new-Not started"]')&&!document.querySelector('.sess[data-name=a]')&&LabObjectives.terminalLaunchContext().task.id===focusedTaskBeforeAll`),'restoring WIP hides the selected Todo task terminal');
  await evaluate(`const count=created.length;LabObjectives.openForTerminal(termSessions.find(s=>s.name==='new-Not started'));window.creationsBeforePassive=count;LabObjectives.renderTasks()`);
  assert(await evaluate(`created.length===creationsBeforePassive&&!document.querySelector('.sess[data-name="new-Not started"],.sess[data-name="new-Completed without terminal"]')&&document.querySelector('.sess[data-name="new-Needs terminal"]')&&errors.length===0`),'leaving task focus restores WIP tabs and passive terminal navigation never creates another session');
 
  await evaluate(`window.taskBeforeAll=LabObjectives.terminalLaunchContext().task;window.sessionBeforeAll=termCurrentSession;window.centerBeforeAll=document.querySelector('#content').innerHTML`);
- await click('[data-objective-terminals-all=one]');
- assert(await evaluate(`termWipOnly&&document.querySelector('[data-objective-terminals-all=one]').getAttribute('aria-pressed')==='true'&&document.querySelector('.sess[data-name=a]')&&document.querySelector('.sess[data-name=b]')&&document.querySelector('.sess[data-name=c]')&&document.querySelector('.sess[data-name="new-Not started"]')&&document.querySelector('.sess[data-name="new-Completed without terminal"]')&&document.querySelectorAll('.objective-terminal-rows:not([hidden])').length===1&&!document.querySelector('.sess[data-name=other]').getClientRects().length&&document.querySelectorAll('[data-terminal-main]').length===2&&created.length===4&&termCurrentSession===sessionBeforeAll&&LabObjectives.terminalLaunchContext().task===taskBeforeAll&&document.querySelector('#content').innerHTML===centerBeforeAll`),'Objective Show all reveals every status and child without opening other groups, creating sessions or changing task focus');
- assert(await evaluate(`JSON.parse(localStorage.getItem('lab.objectives.view.v1:fixture::demo')).terminalAll.one===true`),'Objective filter preference persists per workspace');
+ await click('#termShowAllBtn');
+ assert(await evaluate(`!termWipOnly&&document.querySelector('#termShowAllBtn').getAttribute('aria-checked')==='true'&&document.querySelector('.sess[data-name=a]')&&document.querySelector('.sess[data-name=b]')&&document.querySelector('.sess[data-name=c]')&&document.querySelector('.sess[data-name="new-Not started"]')&&document.querySelector('.sess[data-name="new-Completed without terminal"]')&&document.querySelectorAll('.objective-terminal-rows:not([hidden])').length===1&&!document.querySelector('.sess[data-name=other]').getClientRects().length&&document.querySelectorAll('[data-terminal-main]').length===2&&created.length===4&&termCurrentSession===sessionBeforeAll&&LabObjectives.terminalLaunchContext().task===taskBeforeAll&&document.querySelector('#content').innerHTML===centerBeforeAll`),'Header Show all reveals every status and child without opening other groups, creating sessions or changing task focus');
+ assert(await evaluate(`localStorage.getItem(_TERM_WIP_ONLY_KEY)==='false'&&!('terminalAll' in JSON.parse(localStorage.getItem('lab.objectives.view.v1:fixture::demo')))`),'header toggle is the only saved status filter');
  await click('.objective-terminal-heading[data-select-objective=two]');
- assert(await evaluate(`document.querySelector('[data-terminal-main=workflow]')&&document.querySelector('[data-terminal-main=objective][data-terminal-objective=two]')&&!document.querySelector('[data-terminal-main=objective][data-terminal-objective=one]')&&!document.querySelector('[data-objective-terminals-all=one]')&&document.querySelector('[data-objective-terminals-all=two]').getAttribute('aria-pressed')==='false'&&!document.querySelector('.sess[data-name=a]')&&document.querySelectorAll('.objective-terminal-rows:not([hidden])').length===1`),'switching Objective preserves the workspace main and shows only the current Objective main and its own filter');
+ assert(await evaluate(`document.querySelector('[data-terminal-main=workflow]')&&document.querySelector('[data-terminal-main=objective][data-terminal-objective=two]')&&!document.querySelector('[data-terminal-main=objective][data-terminal-objective=one]')&&document.querySelector('#termShowAllBtn').getAttribute('aria-checked')==='true'&&!document.querySelector('.objective-terminal-filter')&&!document.querySelector('.sess[data-name=a]').getClientRects().length&&document.querySelectorAll('.objective-terminal-rows:not([hidden])').length===1`),'switching Objective keeps the header toggle on and only the active Objective unfolded');
  await click('.objective-terminal-heading[data-select-objective=one]');
- assert(await evaluate(`document.querySelector('[data-objective-terminals-all=one]').getAttribute('aria-pressed')==='true'&&document.querySelector('.sess[data-name=a]')`),'returning to an Objective restores its Show all preference');
- await click('[data-objective-terminals-all=one]');
- assert(await evaluate(`termWipOnly&&!document.querySelector('.sess[data-name=a],.sess[data-name="new-Not started"]')&&document.querySelector('.sess[data-name="new-Needs terminal"]')&&document.querySelector('[data-objective-terminals-all=one]').getAttribute('aria-pressed')==='false'&&created.length===4`),'Objective toggle restores only In progress task terminals');
+ assert(await evaluate(`document.querySelector('#termShowAllBtn').getAttribute('aria-checked')==='true'&&document.querySelector('.sess[data-name=a]')`),'returning to an Objective retains the shared Show all setting');
+ await click('#termShowAllBtn');
+ assert(await evaluate(`termWipOnly&&!document.querySelector('.sess[data-name=a],.sess[data-name="new-Not started"]')&&document.querySelector('.sess[data-name="new-Needs terminal"]')&&document.querySelector('#termShowAllBtn').getAttribute('aria-checked')==='false'&&created.length===4`),'Header toggle restores only In progress task terminals');
 
  await click('#termShowAllBtn');
- assert(await evaluate(`!termWipOnly&&localStorage.getItem(_TERM_WIP_ONLY_KEY)==='false'&&document.querySelectorAll('.objective-terminal-rows:not([hidden])').length===1&&document.querySelector('.sess[data-name=a]').getClientRects().length>0&&!document.querySelector('.sess[data-name=other]').getClientRects().length&&document.getElementById('termShowAllBtn').getAttribute('aria-pressed')==='true'&&document.querySelectorAll('[data-terminal-main]').length===2&&document.querySelector('[data-objective-terminals-all=one]').disabled`),'global Show all reveals every status only in the active Objective');
+ assert(await evaluate(`!termWipOnly&&localStorage.getItem(_TERM_WIP_ONLY_KEY)==='false'&&document.querySelectorAll('.objective-terminal-rows:not([hidden])').length===1&&document.querySelector('.sess[data-name=a]').getClientRects().length>0&&!document.querySelector('.sess[data-name=other]').getClientRects().length&&document.getElementById('termShowAllBtn').getAttribute('aria-checked')==='true'&&document.querySelectorAll('[data-terminal-main]').length===2&&!document.querySelector('.objective-terminal-filter')`),'global Show all reveals every status only in the active Objective');
  await click('.objective-terminal-heading[data-select-objective=two]');
  assert(await evaluate(`LabObjectives.terminalLaunchContext().id==='two'&&document.querySelectorAll('.objective-terminal-heading').length===3&&document.querySelectorAll('.objective-terminal-rows:not([hidden])').length===1&&document.querySelector('.sess[data-name=other]').getClientRects().length>0&&!document.querySelector('.sess[data-name=a]').getClientRects().length&&!document.querySelector('.objective-terminal-heading[data-select-objective=one]').matches('[aria-expanded=true]')&&document.querySelector('[data-terminal-main=objective] .sess-label').textContent==='Main'`),'terminal header switches Objective and folds the previous terminals even in global Show all');
  await evaluate('LabObjectives.load(undefined,true);termRenderSessionList()');
@@ -453,7 +454,7 @@ const fs=require('node:fs');
   }else assert(await evaluate(`termCurrentSession==='workflow-main'&&created.length===5&&!document.querySelector('.sess[data-name="new-Not started"]')&&LabObjectives.terminalLaunchContext().task.id==='Not started'`),'selecting '+label+' opens details without revealing or activating its terminal');
  }
  await evaluate(`(async()=>{const session=termSessions.find(s=>s.name==='new-Not started');LabObjectives.openForTerminal(session);await _termActivateTab(session.name);_termHighlightNotification(session)})()`);
- assert(await evaluate(`document.querySelector('.sess[data-name="new-Not started"].term-notification-target')&&document.querySelector('[data-objective-terminals-all=one]').getAttribute('aria-pressed')==='false'&&!document.querySelector('.sess[data-name=a]')`),'notification reveals its exact filtered destination without switching the Objective to Show all');
+ assert(await evaluate(`document.querySelector('.sess[data-name="new-Not started"].term-notification-target')&&document.querySelector('#termShowAllBtn').getAttribute('aria-checked')==='false'&&!document.querySelector('.sess[data-name=a]')`),'notification reveals its exact filtered destination without switching the Objective to Show all');
  await click('.objective-sidebar-task [data-open-task="Needs terminal"]');
  assert(await evaluate(`!document.querySelector('.sess[data-name="new-Not started"]')&&!document.querySelector('.sess[data-name=a]')`),'leaving the notification task restores the default filter');
  await evaluate(`(async()=>{fixture.objectives[0].tasks.find(t=>t.id==='Not started').status='in_progress';fixture.revision+='resumed';await LabObjectives.load(undefined,true)})()`);
@@ -464,7 +465,7 @@ const fs=require('node:fs');
  await evaluate(`LabObjectives.renderTasks()`);
  assert(await evaluate(`!document.querySelector('.sess[data-name="new-Not started"]')&&termCurrentSession===null&&created.length===5`),'returning to Tasks hides the paused terminal and parks its console immediately');
  await evaluate(`(async()=>{fixture.objectives[0].tasks.find(t=>t.id==='Not started').status='wont_do';fixture.revision+='declined';await LabObjectives.load(undefined,true)})()`);
- await click('[data-objective-terminals-all=one]');
+ await click('#termShowAllBtn');
  await evaluate(`(async()=>{
  const o=fixture.objectives[0];o.worktrees=[{id:'ui',label:'sdui/jcortes/tel',path:'/trees/ui',repo:'/workspace',kind:'worktree',color:'#ff7b72'},{id:'checkpoint',label:'checkpoint/jco',path:'/trees/checkpoint',repo:'/workspace',kind:'worktree',color:'#58a6ff'}];
  o.tasks.find(t=>t.id==='Not started').assets=[{id:'ui-asset',folder:{root:'/trees/ui',path:'.'}},{id:'checkpoint-asset',folder:{root:'/trees/checkpoint',path:'.'}}];
@@ -500,7 +501,7 @@ const fs=require('node:fs');
  o.tasks.push({id:'Second parent',title:'Second parent',status:'todo',done:false,assets:[],children:[{id:'Second WIP',title:'Second WIP',status:'in_progress',done:false,children:[],assets:[]},{id:'Second Todo',title:'Second Todo',status:'todo',done:false,children:[],assets:[]}]});
  const name='automation-'+('a'.repeat(32))+'-1';termSessions.push({name,logical_name:name,session_id:'uuid-'+name,kind:'terminal',cwd:'/workspace'});fixture.terminal_links['uuid-'+name]={objective_id:'one',view:'tasks'};const group=_termReadGroupState();group.tabParents[name]='a';_termWriteGroupState(group);window.automationName=name;
  fixture.revision+='persistent-wip';termWipOnly=true;await LabObjectives.load(undefined,true);LabObjectives.renderTasks();await _termActivateTab('workflow-main');
- const filter=document.querySelector('[data-objective-terminals-all=one]');if(filter.getAttribute('aria-pressed')==='true')filter.click();
+ const filter=document.querySelector('#termShowAllBtn');if(filter.getAttribute('aria-checked')==='true')filter.click();
  })()`);
  await move(await point('#outside'));await evaluate('document.activeElement?.blur()');
  assert(await evaluate(`['Subtask','Second WIP','Second Todo'].every(id=>document.querySelector('.objective-sidebar-task[data-task-id="'+id+'"]').getClientRects().length>0)`),'WIP subtasks under multiple parents remain in Tasks without selection');
@@ -703,15 +704,15 @@ const parents=terminalParents(all,{main:'done',done:'main'});
 ''')
     assert result['defaults'] == ['workflow-terminal:work:main', 'main']
     assert result['switched'] == ['workflow-terminal:work:main', 'two-main']
-    assert result['objectiveAll'] == ['workflow-terminal:work:main', 'main', 'done', 'duplicate']
+    assert result['objectiveAll'] == result['defaults']
     assert dict(result['roles']) == {'duplicate':None,'done':None,'main':'objective','two-main':'objective','parked':None,'workflow':'workflow'}
     # A main stays a root, but can host automation children.
     assert result['parents'] == {'done': 'main'}
     assert result['html'].startswith('<tab data-name="workflow-terminal:work:main"')
     assert '</div><tab data-name="main" data-main="objective"></tab><div class="objective-terminal-rows">' in result['html']
     assert 'data-select-objective="two"' in result['html'] and 'data-name="objective-terminal:two:global"' not in result['html']
-    assert result['html'].count('data-objective-terminals-all=') == 1
-    assert 'Show all terminals in this Objective' in result['html']
+    assert 'data-objective-terminals-all=' not in result['html']
+    assert 'All shown' not in result['html']
     assert result['allHtml'].count('class="objective-terminal-rows">') == 1
     assert result['allHtml'].count('class="objective-terminal-rows" hidden>') == 2
     assert 'data-name="done"' in result['allHtml']

@@ -45,6 +45,15 @@ the workspace-root and pinned-folder chooser.
 
 ## Objective sections
 
+The **Show all** switch sits beside **Terminal** in the top panel header, above
+the terminal tabs. On reveals every task status; off shows In progress tasks and
+explicitly selected paused tasks, along with generic workspace/Objective
+terminals. It stays visible when terminal names fold. Mouse, Space and Enter
+toggle it, with its current on/off state exposed to assistive technology.
+The setting is saved in the browser and synchronized with Terminal settings.
+Separate per-Objective Show all / All shown buttons and their saved overrides
+are removed. The switch does not select a task or start or stop any session.
+
 Only the active Objective's terminal section unfolds. Other Objective headers
 remain available as navigation: click one to select it, show its terminals and
 fold the previous section. This also applies while **Show all terminals** is
