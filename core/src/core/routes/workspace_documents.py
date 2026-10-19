@@ -93,7 +93,7 @@ def attention(request: Request):
     # Keep the original owner on borrowed rows so a header message opens the
     # exact terminal, even across vaults. No transcript/capture reads are needed.
     fields = ('name', 'session_id', 'created', 'created_at', 'tmux_socket', 'tmux_id',
-              'terminal_status', 'workspace_id', 'vault', 'logical_name', 'label',
+              'terminal_status', 'terminal_notification', 'workspace_id', 'vault', 'logical_name', 'label',
               'llm_controlled')
     return {scope: [{key: row[key] for key in fields if key in row} for row in sessions]
             for scope, sessions in result.items()}

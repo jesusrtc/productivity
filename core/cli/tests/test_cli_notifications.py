@@ -26,6 +26,11 @@ def test_report_targets_own_pane_and_socket_with_literal_message(monkeypatch, st
     report = terminal_status.decode(calls[1][7])
     assert report['state'] == expected and report['message'] == message
     assert '|' not in calls[1][7] and '\n' not in calls[1][7]
+    if expected in ('attention', 'finished'):
+        assert calls[2][:7] == ['tmux','-S','/tmp/own,socket','set-option','-t','$7','@lab_notification']
+        assert terminal_status.decode(calls[2][7]) == report
+    else:
+        assert len(calls) == 2, 'working must preserve the last notification'
 
 
 def test_report_without_tmux_never_guesses_current_session(monkeypatch):

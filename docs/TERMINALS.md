@@ -64,6 +64,24 @@ including its owning workspace, Objective, task and linked asset. Each click
 still checks the live session incarnation before activation or green review.
 The destination tab scrolls into view and pulses; red requests remain visible.
 
+The **🔔 Notifications** button beside **Lid Awake** opens history in the same
+floating stack. It lists the latest observed red/green alert per running terminal,
+including reviewed and superseded alerts, by creation time descending. Start
+with 20 and use **Load more** for another 20. The latest alert is retained in
+the session-local `@lab_notification` option and travels in the existing batched
+listing, including when the browser was closed. Browser storage also retains
+observed alerts from older CLI versions. Alerts are deduplicated across shared
+views and tied to the exact tmux incarnation. Recreated or stopped sessions do not
+inherit another session's history. Reports replaced before history retention
+was installed are unavailable.
+
+Successful notification navigation closes history; outside click, close and
+Escape also return to the active-alert stack. Dismissal never acknowledges a
+finish. A historical finish is reviewed only if it is still the exact current
+report; newer reports and working/attention indicators remain intact. The
+`terminal-notifications` UI command accepts `history: true`, and
+`terminal-notification-center` accepts `open: true|false` through `lab ui`.
+
 For notification arrivals, the terminal connects at its fitted size and paints
 output using its DOM renderer first. Graphics atlas and shader initialization
 run after the first output paint in browser idle time, so they do not block

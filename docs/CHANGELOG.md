@@ -3,6 +3,21 @@
 User-facing changes to Lab are recorded here alongside updates to the user
 guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 
+## 2026-10-19
+
+### Browse the latest notification from every terminal
+
+- Added **🔔 Notifications** beside **Lid Awake**. The center includes reviewed
+  and superseded alerts, keeps only the latest notification per running terminal,
+  sorts by creation time newest first, and offers 20 entries plus **Load more**.
+- Clicking an alert activates its exact terminal and closes history. Clicking
+  outside, close or Escape restores only active requests and unreviewed finishes,
+  without acknowledging them. Current finishes still review on a successful click;
+  red requests persist and historical clicks cannot clear newer reports.
+- The last alert survives working status and is retained with its terminal even
+  while the browser is closed, with browser retention for older CLI versions.
+  History and center controls are available through `lab ui`.
+
 ## 2026-10-16
 
 ### Keep META skill trees folded until needed

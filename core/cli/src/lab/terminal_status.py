@@ -7,6 +7,7 @@ import json
 import math
 
 OPTION = '@lab_status'
+NOTIFICATION_OPTION = '@lab_notification'
 LLM_OPTION = '@lab_llm'
 STATES = ('working', 'attention', 'finished')
 MAX_MESSAGE = 500

@@ -28,6 +28,8 @@ def notifications_cmd(state: str, message: str) -> None:
     try:
         terminal = terminal_context.current()
         terminal.set_option(terminal_status.OPTION, terminal_status.encode(report))
+        if state in ('attention', 'finished'):
+            terminal.set_option(terminal_status.NOTIFICATION_OPTION, terminal_status.encode(report))
     except terminal_context.TerminalContextError as exc:
         raise click.ClickException(str(exc)) from exc
     click.echo(f'{state}: {terminal.name}' + (f' · {report["message"]}' if report['message'] else ''))

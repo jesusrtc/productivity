@@ -7968,6 +7968,8 @@
       html += `<button class="repo-tab lid-awake-toggle${lidAwakeOn ? ' active' : ''}${_lidAwakeBusy ? ' busy' : ''}" data-testid="lid-awake-toggle" onclick="toggleLidAwakeMenu(event)" aria-haspopup="dialog" aria-expanded="${_lidAwakeMenuOpen}" aria-label="${lidAwakeOn ? `${_lidAwakeLabel()}; choose a new time or cancel` : 'Start Lid Awake timer'}" title="${lidAwakeTitle}"${!_lidAwakeSupported ? ' disabled' : ''}><span class="lid-awake-label">${_lidAwakeLabel()}</span></button>`;
     }
 
+    html += window.LabTerminalNotifications?.buttonHtml() || '';
+
     if (_workspaceDeleteIsVisible()) {
       html += `<button class="repo-tab workspace-delete-button" onclick="deleteCurrentWorkspace()"${_workspaceDeleteBusy ? ' disabled' : ''}>${_workspaceDeleteBusy ? 'DELETING…' : 'DELETE WORKSPACE'}</button>`;
     }
@@ -22213,9 +22215,10 @@
         for(const row of sessions){const server=latest.find(s=>s.name===row.name);row.server_present=!!server;row.server_report=server?.terminal_status||null;row.in_sync=row.browser_report?.id===row.server_report?.id;}
         return {workspace,vault,sessions};
       },
-      'terminal-notifications':async()=>{await window.LabWorkspaceDocuments.poll(true);return window.LabTerminalNotifications.items();},
+      'terminal-notifications':async(p={})=>{await window.LabWorkspaceDocuments.poll(true);return window.LabTerminalNotifications.items({history:p.history===true});},
+      'terminal-notification-center':(p={})=>window.LabTerminalNotifications.showHistory(p.open!==false),
       'terminal-notification-open':async p=>{
-        const rows=window.LabTerminalNotifications.items().filter(row=>row.session.name===p.name||row.key===p.key);
+        const rows=window.LabTerminalNotifications.items({history:true}).filter(row=>row.session.name===p.name||row.key===p.key);
         if(rows.length!==1)throw Error('Choose an exact terminal message from terminal-notifications.');
         return {opened:await window.LabTerminalNotifications.open(rows[0].key,p.report_id||rows[0].report_id)};
       },

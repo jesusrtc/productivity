@@ -1,5 +1,7 @@
 # Memory index
 
+- [Notification center retains the latest alert per terminal](terminal-notification-center-history.md) — newest-first history beside Lid Awake, 20 per page, browser retention and dismissal back to active alerts.
+
 - [META skills fold after five minutes unseen](meta-skills-fold-after-five-minutes-unseen.md) — folded scope roots by default; retain expansion while visible, auto-fold after five minutes away, including hidden tabs and cached sidebars.
 
 - [Automation icons and colors](automation-icons-and-colors.md) — outlined terminal/service/emoji/PNG choices, highlighted main, inherited child icons and white child text with independent overrides.

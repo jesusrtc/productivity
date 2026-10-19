@@ -503,10 +503,31 @@ Shared document terminals appear once in
 the stack. Home, Assistant and workspace dots prioritize red, then yellow,
 then green. No desktop notifications or separate popup windows are sent.
 
+Click **🔔 Notifications**, next to **Lid Awake**, to open the notification
+center. It shows each running terminal's latest red or green notification,
+including reviewed finishes and alerts replaced by working status, newest
+creation first across all workspaces and vaults. The first 20 appear initially;
+**Load more** reveals 20 more. Shared terminal views count once. Past alerts
+are labeled **History** and show their creation time. The latest alert is saved
+with its terminal session, including when the browser is closed. Browser storage
+also retains observed alerts from older CLI versions. Alerts already replaced
+before this feature was installed cannot be recovered.
+
+Click a notification to activate its exact terminal and close history. Clicking
+outside, the close button, or Escape also closes history. The normal stack then
+shows only current input requests and unreviewed finishes. Dismissing history
+does not review anything; clicking a current finish reviews that displayed
+report, while red requests remain active until answered or updated. Opening an
+older finish cannot clear a newer report or change a working terminal's status.
+
 Agents can inspect the same messages with
 `lab ui --client VIEW_ID command terminal-notifications`, then open one using
 `lab ui --client VIEW_ID command terminal-notification-open --json '{"name":"TMUX_SESSION","report_id":"REPORT_ID"}'`.
 Use the exact session and report returned by the first command.
+Add `--json '{"history":true}'` to `terminal-notifications` to list history.
+`lab ui --client VIEW_ID command terminal-notification-center` opens the same
+center; `--json '{"open":false}'` closes it. **Load more** and the close button
+are also available through `lab ui inspect` and `lab ui click`.
 
 ## Change metadata through Lab
 

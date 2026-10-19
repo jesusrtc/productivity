@@ -42,7 +42,8 @@ def test_native_agent_reports_follow_exact_pane_and_survive_backend_reads(
         assert row['terminal_status'] is None, 'marking LLM control is not a work report'
         assert run('show-options','-qv','-t','lab-owned-unrelated','@lab_llm').stdout == ''
     message = 'Review | <preview> ; #{session_name}\n¿Listo?'
-    for state in ('working','attention','finished'):
+    latest_notification = None
+    for state in ('working','attention','finished','working'):
         result = CliRunner().invoke(main,['notifications',state,message])
         assert result.exit_code == 0, result.output
         listing = client.get('/api/term/sessions',params={'workspace_id':'demo'})
@@ -50,22 +51,28 @@ def test_native_agent_reports_follow_exact_pane_and_survive_backend_reads(
         row, = listing.json()
         assert row['terminal_status']['state'] == state
         assert row['terminal_status']['message'] == message
+        if state in ('attention', 'finished'):
+            latest_notification = row['terminal_status']
+        assert row['terminal_notification'] == latest_notification, 'last alert survives working without a browser'
         assert row['tmux_socket'] == socket and row['tmux_id'].startswith('$')
         assert 'output_activity' not in row
         messages = client.get('/api/workspace-documents/attention').json()
         reported = next(item for rows in messages.values() for item in rows if item['name'] == name)
         assert reported['workspace_id'] == 'demo' and reported['logical_name']
         assert reported['terminal_status'] == row['terminal_status']
+        assert reported['terminal_notification'] == latest_notification
         assert reported['tmux_id'] == row['tmux_id']
         again = client.get('/api/term/sessions',params={'workspace_id':'demo'}).json()[0]
         assert again['terminal_status'] == row['terminal_status'], 'ordinary reads do not change a report'
         assert run('show-options','-qv','-t','lab-owned-unrelated','@lab_status').stdout == ''
+        assert run('show-options','-qv','-t','lab-owned-unrelated','@lab_notification').stdout == ''
     old_id = row['tmux_id']
     run('kill-session','-t',name)
     run('new-session','-d','-s',name,'/bin/sleep 60')
     replacement = client.get('/api/term/sessions',params={'workspace_id':'demo'}).json()[0]
     assert replacement['tmux_id'] != old_id
     assert replacement['terminal_status'] is None, 'a new session cannot inherit the old report'
+    assert replacement['terminal_notification'] is None, 'history belongs to the exact terminal incarnation'
     assert replacement['llm_controlled'] is None, 'LLM control belongs to the session incarnation'
 
 

@@ -313,3 +313,142 @@ window.addEventListener('error',e=>errors.push(e.message));window.addEventListen
     tabs = "function mountTab(s){const host=document.getElementById('terminalRail');host.innerHTML='<button data-name=\"'+s.name+'\">'+s.name+'</button>';const node=host.firstElementChild,completionDot=null;"+tab_click+"}"
     html = '<!doctype html><meta charset="utf-8"><style>'+css+'</style><body><div id="tabs" class="repo-tabs"></div><aside id="sidebar"><section data-objectives-sidebar></section></aside><main id="content"></main><div id="terminalRail"></div><div id="termNotifications" class="term-notifications"></div><script>'+setup+navigation_setup+objectives+MODULE+NOTIFICATIONS+NAVIGATION+tabs+checks+'</script>'
     _check_project_html(tmp_path, html, focused=True)
+
+
+def test_notification_history_survives_working_review_reload_and_stale_clicks():
+    result = _run_node(CLOCK + r'''
+document.getElementById=()=>null;
+''' + MODULE + NOTIFICATIONS + r'''
+(async()=>{
+let C=window.LabTerminalCompletion,N=window.LabTerminalNotifications;
+const s={...session('finished'),workspace_id:'demo',vault:'owner',llm_controlled:true};
+const snapshot={'owner::demo':[s],'borrower::demo':[s]};
+N.update(snapshot);const key=C.key(s);
+assert(C.acknowledge('',s),'review current finish');
+assert(!N.items().length&&N.items({history:true}).length===1,'reviewed finish is available in history once');
+s.terminal_status=report('working',2);N.update(snapshot);
+assert(!N.items().length&&N.items({history:true})[0].report_id==='event-1','working retains previous alert');
+''' + MODULE + NOTIFICATIONS + r'''
+C=window.LabTerminalCompletion;N=window.LabTerminalNotifications;
+N.update(snapshot);
+assert(N.items({history:true})[0].report_id==='event-1','retained alert survives reload during working');
+N.configure({open:async()=>s});
+assert(await N.open(key,'event-1')&&C.status(s).state==='working','opening historical finish never changes working');
+for(let i=3;i<=12;i++){s.terminal_status=report(i===12?'attention':'finished',i);N.update(snapshot);}
+assert(N.items({history:true}).length===1&&N.items({history:true})[0].report_id==='event-12','ten alerts leave only the latest per terminal');
+assert(!await N.open(key,'event-11'),'an obsolete history click is rejected');
+C.input({...s,llm_controlled:true},'yes\r');
+assert(!N.items().length&&N.items({history:true})[0].report_id==='event-12','submitted response hides red but retains it in history');
+s.terminal_status=report('finished',13);N.update(snapshot);
+let release;N.configure({open:()=>new Promise(resolve=>release=resolve)});
+const pending=N.open(key,'event-13');
+s.terminal_status=report('finished',14);N.update(snapshot);release(s);await pending;
+assert(C.status(s).state==='finished'&&N.items()[0].report_id==='event-14','historical navigation cannot acknowledge a newer finish');
+const newest={...s,name:'newest',tmux_id:'$2',terminal_status:{...report('finished',1),updated_at:1000}};
+N.update({'owner::demo':[s,newest]});
+assert(N.items({history:true})[0].session.name==='newest','history sorts by creation time across independent terminal revisions');
+N.update({'owner::demo':[{...s,tmux_id:'$99',terminal_status:null}]});
+assert(!N.items({history:true}).length,'history cannot leak into a recreated terminal with the same name');
+const unseen={...s,name:'offline',tmux_id:'$3',terminal_status:report('working',20),terminal_notification:report('finished',19,'Emitted while browser closed')};
+N.update({'owner::demo':[unseen]});
+assert(!N.items().length&&N.items({history:true})[0].report_id==='event-19','history recovers session alerts this browser never observed');
+N.configure({open:async item=>item.session});
+assert(await N.open(C.key(unseen),'event-19')&&C.status(unseen).state==='working','unseen historical finish does not change current status');
+console.log(JSON.stringify({passed:true}));
+})();
+''')
+    assert result['passed']
+
+
+def test_notification_center_pagination_dismissal_and_review_in_chrome(tmp_path):
+    setup = r'''
+const assert=(ok,message)=>{if(!ok)throw Error(message)};
+const until=async fn=>{for(let i=0;i<100;i++){if(fn())return;await new Promise(r=>setTimeout(r,5));}throw Error('Timed out '+fn)};
+const sessions=Array.from({length:45},(_,i)=>({name:'terminal-'+i,created:1,tmux_socket:'owned',tmux_id:'$'+i,
+ workspace_id:'demo',vault:'owner',llm_controlled:true,
+ terminal_status:{version:1,state:i%2?'attention':'finished',revision:1,id:'r'+i,updated_at:1000+i,message:'Result '+i+' <literal>'}}));
+let opened=[],fail=false,release;
+'''
+    checks = r'''
+(async()=>{try{
+ const N=LabTerminalNotifications,C=LabTerminalCompletion;
+ const snapshot={'owner::demo':sessions,'borrower::demo':sessions};
+ const host=document.getElementById('termNotifications'),outside=document.getElementById('outside');
+ document.getElementById('repoTabs').innerHTML='<button class="repo-tab lid-awake-toggle">Lid Awake</button>'+N.buttonHtml();
+ const toggle=document.querySelector('[data-terminal-notification-center]');
+ const cards=()=>[...host.querySelectorAll('.term-notification')];
+ N.configure({open:async item=>{if(fail)return null;opened.push(item.session.name);return item.session;}});
+ N.update(snapshot);
+ for(const s of sessions)if(s.terminal_status.state==='finished')C.acknowledge('',s);
+ sessions[42].terminal_status={...sessions[42].terminal_status,state:'working',id:'working',revision:2};N.update(snapshot);
+ assert(cards().length===22,'automatic stack has only current attention requests');
+ toggle.click();
+ assert(toggle.getAttribute('aria-expanded')==='true'&&host.classList.contains('history-open'),'button opens the history view');
+ assert(cards().length===20&&cards()[0].textContent.includes('Result 44'),'history starts with newest 20 regardless of red/green');
+ assert(cards()[2].textContent.includes('Result 42')&&cards()[2].textContent.includes('History'),'working terminal retains its last notification');
+ assert(cards().every(card=>card.querySelector('time'))&&!host.querySelector('literal'),'creation dates and escaped messages are visible');
+ assert(host.querySelector('[data-notification-more]'),'older notifications can be loaded');
+ const same=cards()[0];N.update(snapshot);assert(cards()[0]===same,'unchanged poll retains DOM and pagination');
+ host.querySelector('[data-notification-more]').click();
+ assert(cards().length===40&&document.activeElement===cards()[20],'load more reveals the next 20 with accessible focus');
+ N.update(snapshot);assert(cards().length===40,'polling preserves expanded page');
+ host.querySelector('[data-notification-more]').click();
+ assert(cards().length===45&&!host.querySelector('[data-notification-more]'),'last page has all unique terminals and no extra load control');
+ const redBefore=C.status(sessions[43]);
+ outside.click();
+ assert(!host.classList.contains('history-open')&&toggle.getAttribute('aria-expanded')==='false','outside click closes history');
+ assert(cards().length===22&&C.status(sessions[43]).state===redBefore.state,'outside dismissal preserves actual requests');
+ toggle.click();assert(cards().length===20,'reopening resets to the first 20');
+ document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}));
+ assert(!host.classList.contains('history-open')&&document.activeElement===toggle,'Escape closes and returns focus');
+ toggle.click();host.querySelector('[data-notification-close]').click();
+ assert(!host.classList.contains('history-open'),'close control returns to attention stack');
+ toggle.click();fail=true;cards()[0].click();await new Promise(r=>setTimeout(r,0));
+ assert(host.classList.contains('history-open'),'failed navigation keeps history open');fail=false;
+ cards()[0].click();await until(()=>!host.classList.contains('history-open'));
+ assert(opened.at(-1)==='terminal-44'&&!C.status(sessions[44]),'reviewed history activates its terminal');
+ toggle.click();cards()[1].click();await until(()=>!host.classList.contains('history-open'));
+ assert(opened.at(-1)==='terminal-43'&&C.status(sessions[43]).state==='attention','red history opens exact terminal and stays active after closing');
+ sessions[44].terminal_status={...sessions[44].terminal_status,id:'new-finish',revision:2,updated_at:2000};N.update(snapshot);
+ toggle.click();assert(cards()[0].dataset.reportId==='new-finish','new reports replace previous history and move to top');
+ outside.click();assert(cards().length===23&&cards().some(card=>card.dataset.reportId==='new-finish'),'unreviewed finish returns after outside dismissal');
+ toggle.click();cards()[0].click();await until(()=>!host.classList.contains('history-open'));
+ assert(!C.status(sessions[44])&&!cards().some(card=>card.dataset.reportId==='new-finish'),'successful history click reviews only its current finish');
+ N.update({});toggle.click();assert(!host.hidden&&host.textContent.includes('No notifications yet.'),'empty history is available');outside.click();assert(host.hidden,'empty automatic stack hides');
+ N.update(snapshot);toggle.click();
+ for(const width of [340,400]){host.style.width=width+'px';assert(host.scrollWidth<=width+2,'history fits narrow and wide layouts');}
+ assert(getComputedStyle(host).overflowY==='auto'&&host.clientHeight<=480,'history scrolls in a bounded overlay');
+ document.body.dataset.result='pass';
+}catch(error){document.body.dataset.result='fail';document.body.append(String(error.stack||error));}})();
+'''
+    css = (ROOT / 'core/src/core/static/css/lab-shell.css').read_text()
+    html = '<!doctype html><meta charset="utf-8"><style>:root{--bg-primary:#0d1117;--bg-secondary:#161b22;--bg-tertiary:#21262d;--border:#30363d;--text-primary:#c9d1d9;--text-secondary:#8b949e;--accent:#58a6ff;}</style><style>'+css+'</style><body><nav id="repoTabs" class="repo-tabs"></nav><button id="outside" style="position:absolute;top:120px;left:20px">Outside</button><div id="termNotifications" class="term-notifications" role="region" aria-label="Terminal notifications"></div><script>'+setup+MODULE+NOTIFICATIONS+checks+'</script>'
+    _check_project_html(tmp_path, html, focused=True, screenshot=True)
+
+
+def test_notification_ui_commands_share_history_and_exact_report_navigation():
+    commands = _js_between("      'terminal-notifications':", "      'workspace-open':")
+    result = _run_node(CLOCK + r'''
+document.getElementById=()=>null;
+''' + MODULE + NOTIFICATIONS + 'const commands={'+commands+'};' + r'''
+(async()=>{
+const N=window.LabTerminalNotifications,C=window.LabTerminalCompletion;
+const s={...session('finished'),workspace_id:'demo',vault:'owner'};
+let polls=0,opened=0;
+window.LabWorkspaceDocuments={poll:async()=>{polls++;N.update({'owner::demo':[s]});}};
+N.configure({open:async item=>{assert(item.session===s,'command uses exact item');opened++;return s;}});
+let rows=await commands['terminal-notifications']();
+assert(rows.length===1&&polls===1,'default CLI list refreshes active messages');
+C.acknowledge('',s);
+assert(!(await commands['terminal-notifications']()).length,'reviewed messages are absent from default CLI list');
+rows=await commands['terminal-notifications']({history:true});
+assert(rows.length===1&&!rows[0].active,'CLI history includes reviewed messages');
+assert(commands['terminal-notification-center']().open,'CLI can open center');
+assert(!commands['terminal-notification-center']({open:false}).open,'CLI can close center');
+assert((await commands['terminal-notification-open']({key:rows[0].key,report_id:rows[0].report_id})).opened&&opened===1,'CLI can reopen reviewed history');
+s.terminal_status=report('finished',2);N.update({'owner::demo':[s]});
+assert(!(await commands['terminal-notification-open']({name:s.name,report_id:rows[0].report_id})).opened&&C.status(s),'stale CLI history does not review the new report');
+console.log(JSON.stringify({passed:true}));
+})();
+''')
+    assert result['passed']

@@ -31,7 +31,11 @@
         && report.revision > (previous?.report?.revision || 0)) {
       reload(); // Merge another window only when a report actually changes.
       if (report.revision > (reports[id]?.report?.revision || 0)) {
-        reports[id] = {report};
+        const previous = reports[id];
+        // Retain the last actual alert when a terminal starts working again.
+        const notification = ['attention', 'finished'].includes(report.state) ? report
+          : previous?.notification || (['attention', 'finished'].includes(previous?.report?.state) ? previous.report : null);
+        reports[id] = {report, ...(notification ? {notification} : {})};
         save();
       }
     }
@@ -42,11 +46,20 @@
     }
     return reports[id];
   }
+  function latestNotification(session, entry) {
+    // The session carries alerts emitted while this browser was closed. The
+    // browser fallback also supports reports from older CLI installations.
+    return [session.terminal_notification, entry?.notification, entry?.report]
+      .filter(report => report?.version === 1 && ['attention', 'finished'].includes(report.state)
+        && typeof report.id === 'string' && Number.isSafeInteger(report.revision))
+      .sort((a, b) => b.revision - a.revision)[0] || null;
+  }
   function details(session) {
     const entry = record(session), report = entry?.report;
     const pending = isLLM(session) ? entry?.pending : null;
     const reviewed = !pending && !!report && report.state === 'finished' && entry.seen === report.id;
-    return {report:report || null, pending:pending || null, llm_controlled:!!isLLM(session),
+    const notification = latestNotification(session, entry);
+    return {report:report || null, notification, pending:pending || null, llm_controlled:!!isLLM(session),
       indicator:pending ? 'working' : report && !reviewed ? report.state : null,
       reviewed, reviewed_at:reviewed ? entry.seen_at || null : null,
       reason:pending ? 'user-submission' : !report ? 'no-report' : reviewed ? 'reviewed-by-click' : 'agent-report'};

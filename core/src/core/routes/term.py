@@ -1814,7 +1814,7 @@ def _tmux_list(
                         + ("|#{session_activity}|#{session_last_attached}|#{@lab_last_access}|#{session_id}" if activity else "")
                         + "|#{pane_id}|#{pane_dead}|#{window_panes}|#{window_activity}"
                         + "|#{pane_width}|#{pane_height}"
-                        + "|#{@lab_status}|#{session_id}|#{@lab_llm}"
+                        + "|#{@lab_status}|#{session_id}|#{@lab_llm}|#{@lab_notification}"
                     ),
                 ),
                 capture_output=True,
@@ -1875,6 +1875,8 @@ def _tmux_list(
             # existing batch; silence, output and provider events never set it.
             offset = 13 if activity else 9
             row['terminal_status'] = terminal_status.decode(parts[offset + 3]) if len(parts) > offset + 3 else None
+            notification = terminal_status.decode(parts[offset + 6]) if len(parts) > offset + 6 else None
+            row['terminal_notification'] = notification if notification and notification['state'] in ('attention', 'finished') else None
             if len(parts) > offset + 4:
                 row['tmux_id'] = parts[offset + 4]
             marker = parts[offset + 5] if len(parts) > offset + 5 else ''
