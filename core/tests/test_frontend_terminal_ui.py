@@ -2736,7 +2736,7 @@ def test_drag_preview_plan_matches_order_and_group_without_writing(destination, 
     normalize = _js_between('  function _termNormalizeGroupState(raw)', '  function _termReadGroupState(')
     parents = _js_between('  function _termSubtabParents(', '  function _termArrangeSubtabRows(')
     reconcile = _js_between('  function _termReconcileGroupOrder(state)', '  function termCreateDivider(')
-    plan = _js_between('  function _termPlanItemMove(', '  function _termClearDropPreview()')
+    plan = _js_between('  function _termPlanItemMove(', '  function _termClearDropPreview(')
     result = _run_node(r'''
 const _TERM_GROUP_COLORS = ['#58a6ff'];
 const termSessions = ['a','b','c'].map(logical_name => ({logical_name}));

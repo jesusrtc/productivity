@@ -29,14 +29,17 @@ const workspaceTabsOpenIds = () => workspaceTabsAll.filter(w=>w.tab_open).map(w=
 function node(attrs) {
   const flags = new Set();
   return {
-    attrs, events:{}, getAttribute:key=>attrs[key],
+    attrs, events:{}, style:{}, getAttribute:key=>attrs[key],
+    get attributes(){return Object.keys(attrs).map(name=>({name}));},
+    removeAttribute:key=>delete attrs[key],setAttribute:(key,value)=>attrs[key]=value,
+    cloneNode:()=>node({...attrs}),remove(){},querySelectorAll:()=>[],closest(selector){return selector==='.workspace-drop-preview'&&!flags.has('workspace-drop-preview')?null:this;},
     addEventListener(type, fn) {this.events[type]=fn;},
     classList:{add:flag=>flags.add(flag), remove:(...names)=>names.forEach(n=>flags.delete(n))},
-    getBoundingClientRect:()=>({left:0,width:100}),
+    getBoundingClientRect:()=>({left:0,right:100,top:0,bottom:30,width:100,height:30}),
   };
 }
 const el = {
-  nodes:[], markup:'',
+  nodes:[], markup:'',insertBefore(){},getBoundingClientRect:()=>({left:0,right:600,top:0,bottom:40}),
   set innerHTML(html) {
     paints++; this.markup=html;
     this.nodes = [...html.matchAll(/<div class="workspace-tab[^>]+>/g)].map(match=>
@@ -52,7 +55,7 @@ const document = {getElementById:()=>el, body:{classList:{contains:key=>classes.
 const keys = () => el.nodes.map(n=>n.attrs['data-key']);
 const expect = paths => assert.deepEqual(keys(), [SELF_WORKSPACE_ID, ASSISTANT_WORKSPACE_ID, ...paths]);
 const tab = path => el.nodes.find(n=>n.attrs['data-key']===path);
-const event = x => ({clientX:x, preventDefault(){}, dataTransfer:{setData(){}}});
+const event = (x,target) => ({target,clientX:x, preventDefault(){}, dataTransfer:{setData(){}}});
 ''' + _js_between('  function workspaceTabsLoadOrder()', '  async function workspaceTabsClose(') + r'''
 (async()=>{
   workspaceTabsRender(); assert.equal(paints,0); // Wait for saved order, avoiding a startup shuffle.
@@ -75,15 +78,15 @@ const event = x => ({clientX:x, preventDefault(){}, dataTransfer:{setData(){}}})
   assert.equal(tab(b.path).attrs.draggable,'true');
   const dragged=tab(b.path);
   dragged.events.dragstart(event(0));
-  tab(a.path).events.dragover(event(90));
+  el.ondragover(event(90,tab(a.path)));
   await workspaceTabsRefresh(); assert.equal(tab(b.path),dragged);
   expect([c.path,b.path,a.path,d.path]);
   dragged.events.dragend(); expect([c.path,b.path,a.path,d.path]); // Cancel preserves order.
   dragged.events.dragstart(event(0));
-  await tab(a.path).events.drop(event(90));
+  el.ondragover(event(90,tab(a.path)));await el.ondrop(event(90,tab(a.path)));
   expect([c.path,a.path,b.path,d.path]); // Same names in different vaults move independently.
   tab(d.path).events.dragstart(event(0));
-  await tab(c.path).events.drop(event(10));
+  el.ondragover(event(10,tab(c.path)));await el.ondrop(event(10,tab(c.path)));
   expect([d.path,c.path,a.path,b.path]);
   currentWorkspace=b; workspaceTabsRender(); expect([d.path,c.path,a.path,b.path]);
   await workspaceTabsOrderSave;

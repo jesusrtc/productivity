@@ -178,17 +178,23 @@ const fs=require('node:fs');
  async function evaluate(expression){const r=await send('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:true});if(r.exceptionDetails)throw Error(r.exceptionDetails.exception?.description||'Browser exception');return r.result.value;}
  const ready=async()=>{for(let i=0;i<150;i++){if(await evaluate('document.body?.dataset.ready==="true"'))return;await sleep(20)}throw Error('Startup: '+await evaluate('errors.join("\\n")'))};
  const names=()=>evaluate(`[...document.querySelectorAll('#termSessionList .sess')].map(n=>n.dataset.name).join(',')`);
- async function drag(source,target,before=false){
+ async function drag(source,target,before=false,cancel=false){
   const point=async(selector,destination=false)=>evaluate(`(()=>{const n=document.querySelector(${JSON.stringify(selector)});if(!n)throw Error('Missing '+${JSON.stringify(selector)});n.scrollIntoView({block:'nearest'});const r=n.getBoundingClientRect(),fraction=${before?'.2':'.8'};return {x:r.x+r.width*(termSessionOrientation==='horizontal'&&${destination} ?fraction:.5),y:r.y+r.height*(termSessionOrientation!=='horizontal'||!${JSON.stringify(target)}.startsWith('.sess')?fraction:.5)}})()`);
   const a=await point(source),b=await point(target,true);dragData=null;await send('Input.setInterceptDrags',{enabled:true});
   await send('Input.dispatchMouseEvent',{type:'mouseMoved',...a});await send('Input.dispatchMouseEvent',{type:'mousePressed',...a,button:'left',buttons:1,clickCount:1});
   await send('Input.dispatchMouseEvent',{type:'mouseMoved',x:a.x+25,y:a.y+3,button:'left',buttons:1});for(let i=0;i<100&&!dragData;i++)await sleep(10);assert(dragData,'trusted drag starts');
   const count=await evaluate('writes.length');for(const type of ['dragEnter','dragOver','dragOver'])await send('Input.dispatchDragEvent',{type,...b,data:dragData});
-  assert(await evaluate('writes.length')===count,'preview does not write');await send('Input.dispatchDragEvent',{type:'drop',...b,data:dragData});
+  assert(await evaluate('writes.length')===count,'preview does not write');
+  if(source==='.sess[data-name=a1]'&&target==='.sess[data-name=a2]'){
+   assert(await evaluate(`document.querySelectorAll('.term-drop-preview').length===1&&[...document.querySelectorAll('#termSessionList [data-order-token]')].some(n=>n.getAnimations().some(a=>a.id==='lab-tab-drag-shift'))`),'held terminal drag animates neighbouring tabs');
+   await sleep(70);assert(await evaluate('writes.length')===count,'animated hover never saves order');
+  }
+  await send('Input.dispatchDragEvent',{type:cancel?'dragCancel':'drop',...b,data:dragData});
   await send('Input.dispatchMouseEvent',{type:'mouseReleased',...b,button:'left',clickCount:1});await send('Input.setInterceptDrags',{enabled:false});await sleep(60);
  }
  await send('Emulation.setDeviceMetricsOverride',{width:1500,height:1000,deviceScaleFactor:1,mobile:false});await send('Page.navigate',{url:process.argv[2]});await ready();
  assert(await names()==='a1,a2,inherited,child,b1,b2','initial blocks ignore stale cross-block positions');
+ await drag('.sess[data-name=a1]','.sess[data-name=a2]',false,true);await sleep(200);assert(await names()==='a1,a2,inherited,child,b1,b2'&&await evaluate(`!document.querySelector('.term-drop-preview')&&!writes.some(w=>w.url==='/api/term/sessions/order')`),'cancelled animated drag restores the rail without saving');
  await drag('.sess[data-name=a1]','.sess[data-name=a2]');assert(await names()==='a2,a1,inherited,child,b1,b2','same-block drop swaps one terminal directly');
  assert(await evaluate(`document.getElementById('termGroupMenu').hidden&&registry.objectives[0].tasks[0].id==='a'`),'tab swap opens no chooser and moves no task');
  const saved=await evaluate('JSON.stringify({stored:localStorage.getItem(_TERM_GROUPS_KEY),writes:writes.length})');
@@ -201,6 +207,7 @@ const fs=require('node:fs');
  await evaluate(`document.body.dataset.ready='false'`);await send('Page.reload');await ready();
  assert(await names()==='b1,b2,inherited,a2,a1,child','task and internal tab orders survive a full reload');
  assert(await evaluate(`termSessions.every(t=>JSON.stringify(t)===JSON.stringify(JSON.parse(identities)[t.name]))&&_termReadGroupState().tabParents.inherited==='a1'&&errors.length===0`),'sessions, conversations, status and inheritance stay intact');
+ await send('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'reduce'}]});await drag('.sess[data-name=inherited]','.sess[data-name=a2]',true,true);assert(await evaluate(`[...document.querySelectorAll('#termSessionList .sess')].every(n=>!n.getAnimations().some(a=>a.id==='lab-tab-drag-shift'))`),'reduced motion keeps terminal placement previews without sliding');
  fs.writeFileSync(process.argv[1]+'/../task-blocks.png',Buffer.from((await send('Page.captureScreenshot',{format:'png'})).data,'base64'));ws.close();console.log('PASS');
 })().catch(e=>{console.error(e.stack);process.exit(1)});
 '''

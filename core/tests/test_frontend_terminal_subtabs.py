@@ -14,7 +14,8 @@ from .test_frontend_terminal_ui import _js_between, _run_node, LAB_APP, LAB_SHEL
 
 
 GROUPS = _js_between('  function _termGroupScopeKey()', '  function _termSessionDisplay(s)')
-MOVES = _js_between('  function _termPlanItemMove(', '  function termReorderSessions(')
+MOTION = (LAB_APP.parent / 'lib/tab-drag-preview.js').read_text()
+MOVES = MOTION + _js_between('  function _termPlanItemMove(', '  function termReorderSessions(')
 RENDER = _js_between('  function _termTaskPlaceholderHtml(', '  // One move plan')
 RENDER += _js_between('  let _termNotificationHighlight =', '  async function _termOpenNotification(')
 PILL = _js_between('  function _termTaskStatusLabel(', '  function _termTaskPlaceholderHtml(')

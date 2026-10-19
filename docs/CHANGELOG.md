@@ -5,6 +5,16 @@ guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 
 ## 2026-10-19
 
+### Slide neighbouring tabs during drag previews
+
+- Workspace and terminal tabs smoothly make room while a tab is held over its
+  prospective position, including vertical and horizontal terminal layouts.
+- Rapid reversals continue from the current visible position. Cancelling or
+  leaving restores the strip; only dropping saves the final order. Workspace
+  Home/Assistant tabs and terminal task boundaries retain their restrictions.
+- Reduced motion keeps placement previews without sliding animations.
+
+
 ### Keep terminal tabs in task-ordered blocks
 
 - Task and subtask order determines contiguous terminal blocks, including

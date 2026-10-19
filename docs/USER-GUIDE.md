@@ -315,6 +315,13 @@ within their own task's block; this preserves their task and parent context.
 The order within each block survives task moves and browser reloads. Sessions,
 working folders and conversations keep running unchanged.
 
+Dragging a workspace or terminal tab opens a placement gap and smoothly slides
+neighbouring tabs into their prospective positions, in either terminal layout.
+Rapid direction changes keep the movement continuous. The order is saved only
+when you drop; leaving the strip or cancelling restores the previous layout.
+Home and Assistant stay fixed, and task terminal tabs remain inside their task's
+block. With reduced motion enabled, the gap updates without sliding animations.
+
 When terminal names are visible, a small arrow beside a generic terminal with children
 lets you **Keep child terminals expanded** or **Collapse child terminals**.
 Clicking the arrow saves the choice for that parent, workspace and vault, including

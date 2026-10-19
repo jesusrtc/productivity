@@ -12821,45 +12821,78 @@
   }
 
   function workspaceTabsWireDnD(container) {
+    let drag = null;
+    const selector = '.workspace-tab[data-kind="workspace"]';
+    const clearPreview = (animate = true) => {
+      if (!drag) return;
+      const motion = window.LabTabDragPreview;
+      const positions = animate && drag.preview && motion?.capture(container, selector);
+      drag.preview?.remove(); drag.preview = null; drag.target = null;
+      drag.source.classList.remove('workspace-drag-source');
+      if (positions) motion.play(container, positions);
+    };
+    const finish = (render = true) => {
+      if (!drag) return;
+      clearPreview(); drag.source.classList.remove('dragging');
+      drag = null; workspaceTabsDragId = null;
+      if (render) workspaceTabsRender();
+    };
     container.querySelectorAll('.workspace-tab[data-kind="workspace"]').forEach(tab => {
       tab.addEventListener('dragstart', (e) => {
+        finish(false);
         workspaceTabsDragId = tab.getAttribute('data-key');
+        drag = {source:tab, size:tab.getBoundingClientRect(), target:null, preview:null};
         tab.classList.add('dragging');
         if (e.dataTransfer) {
           e.dataTransfer.effectAllowed = 'move';
           e.dataTransfer.setData('text/plain', workspaceTabsDragId);
         }
       });
-      tab.addEventListener('dragend', () => {
-        tab.classList.remove('dragging');
-        container.querySelectorAll('.workspace-tab.drop-before, .workspace-tab.drop-after')
-          .forEach(t => t.classList.remove('drop-before', 'drop-after'));
-        workspaceTabsDragId = null;
-        workspaceTabsRender();
-      });
-      tab.addEventListener('dragover', (e) => {
-        if (!workspaceTabsDragId) return;
-        e.preventDefault();  // allow drop
-        if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
-        container.querySelectorAll('.workspace-tab.drop-before, .workspace-tab.drop-after')
-          .forEach(t => t.classList.remove('drop-before', 'drop-after'));
-        const rect = tab.getBoundingClientRect();
-        const before = (e.clientX - rect.left) < rect.width / 2;
-        tab.classList.add(before ? 'drop-before' : 'drop-after');
-      });
-      tab.addEventListener('drop', async (e) => {
-        e.preventDefault();
-        const src = workspaceTabsDragId;
-        const dst = tab.getAttribute('data-key');
-        workspaceTabsDragId = null;
-        container.querySelectorAll('.workspace-tab.drop-before, .workspace-tab.drop-after')
-          .forEach(t => t.classList.remove('drop-before', 'drop-after'));
-        if (!src || !dst || src === dst) return;
-        const rect = tab.getBoundingClientRect();
-        const before = (e.clientX - rect.left) < rect.width / 2;
-        await workspaceTabsReorder(src, dst, before);
-      });
+      tab.addEventListener('dragend', () => finish());
     });
+    container.ondragover = event => {
+      if (!drag || !workspaceTabsDragId) return;
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+      if (event.target.closest('.workspace-drop-preview')) return;
+      const tab = event.target.closest(selector);
+      if (!tab || tab === drag.source) {
+        clearPreview(); if (event.dataTransfer) event.dataTransfer.dropEffect = 'none'; return;
+      }
+      const motion = window.LabTabDragPreview, rect = motion?.rect(tab) || tab.getBoundingClientRect();
+      const target = {key:tab.getAttribute('data-key'), before:event.clientX < rect.left + rect.width / 2};
+      if (drag.target?.key !== target.key || drag.target.before !== target.before) {
+        const positions = motion?.capture(container, selector);
+        // Reuse the same placeholder so rapid direction changes remain stable.
+        if (!drag.preview) {
+          const preview = drag.source.cloneNode(true);
+          for (const attribute of [...preview.attributes]) if (attribute.name.startsWith('data-') || attribute.name === 'id') preview.removeAttribute(attribute.name);
+          preview.classList.remove('dragging', 'active'); preview.classList.add('workspace-drop-preview');
+          preview.setAttribute('draggable', 'false'); preview.setAttribute('aria-hidden', 'true'); preview.setAttribute('tabindex', '-1');
+          preview.querySelectorAll('button').forEach(button => { button.disabled = true; });
+          Object.assign(preview.style, {boxSizing:'border-box', width:drag.size.width+'px', maxWidth:'none', flex:'0 0 '+drag.size.width+'px'});
+          drag.preview = preview;
+        }
+        container.insertBefore(drag.preview, target.before ? tab : tab.nextSibling);
+        drag.source.classList.add('workspace-drag-source'); drag.target = target;
+        motion?.play(container, positions);
+      }
+      const bounds = container.getBoundingClientRect();
+      if (event.clientX < bounds.left + 24) container.scrollLeft -= 12;
+      else if (event.clientX > bounds.right - 24) container.scrollLeft += 12;
+    };
+    container.ondragleave = event => {
+      const rect = container.getBoundingClientRect();
+      if (event.clientX < rect.left || event.clientX >= rect.right || event.clientY < rect.top || event.clientY >= rect.bottom) clearPreview();
+    };
+    container.ondrop = async event => {
+      if (!drag) return;
+      event.preventDefault();
+      const source = workspaceTabsDragId, target = drag.target;
+      finish(false);
+      if (target) await workspaceTabsReorder(source, target.key, target.before);
+      else workspaceTabsRender();
+    };
   }
 
   async function workspaceTabsReorder(srcPath, dstPath, placeBefore) {
@@ -15565,9 +15598,11 @@
     return next;
   }
 
-  function _termClearDropPreview() {
+  function _termClearDropPreview(animate = true) {
     const drag = _termDragState;
     if (!drag) return;
+    const motion = window.LabTabDragPreview;
+    const positions = animate && drag.preview && motion?.capture(drag.container, '[data-order-token]');
     drag.preview?.remove();
     drag.hint?.remove();
     drag.source.classList.remove('term-drag-source');
@@ -15575,6 +15610,7 @@
     drag.expanded?.setAttribute('hidden', '');
     drag.expanded = null;
     drag.target = null;
+    if (positions) motion.play(drag.container, positions);
   }
 
   function _termFinishDrag(render = true) {
@@ -15595,7 +15631,9 @@
     // surrounding tabs make room. No storage or server writes happen here.
     const signature = JSON.stringify([target.token, target.before, target.groupId]);
     if (drag.target?.signature === signature) return;
-    _termClearDropPreview();
+    const motion = window.LabTabDragPreview, positions = motion?.capture(drag.container, '[data-order-token]');
+    const beforeNode = target.beforeNode === drag.preview ? drag.preview.nextSibling : target.beforeNode;
+    _termClearDropPreview(false);
     drag.target = {...target, signature};
     const group = drag.state.tabGroups.find(item => item.id === target.groupId);
     const groupNode = target.parent.closest('.term-tab-group');
@@ -15614,10 +15652,12 @@
     preview.setAttribute('draggable', 'false');
     preview.setAttribute('aria-hidden', 'true');
     preview.setAttribute('tabindex', '-1');
+    Object.assign(preview.style, {boxSizing:'border-box', width:drag.size.width+'px', height:drag.size.height+'px', flexShrink:'0'});
     preview.style.setProperty('--term-drop-color', group?.color || 'var(--accent)');
-    target.parent.insertBefore(preview, target.beforeNode);
+    target.parent.insertBefore(preview, beforeNode);
     drag.preview = preview;
     drag.source.classList.add('term-drag-source');
+    motion?.play(drag.container, positions);
     const hint = document.createElement('div');
     hint.className = 'term-drag-hint';
     hint.setAttribute('role', 'status');
@@ -15640,7 +15680,7 @@
         _termHideSessionTooltip();
         termCloseGroupMenu();
         _termDragLogical = item.getAttribute('data-order-token');
-        _termDragState = {source: item, container, scope: _termGroupScopeKey(), state: _termReadGroupState()};
+        _termDragState = {source: item, container, scope: _termGroupScopeKey(), state: _termReadGroupState(), size:item.getBoundingClientRect()};
         item.classList.add('dragging');
         if (event.dataTransfer) {
           event.dataTransfer.effectAllowed = 'all';
@@ -15662,7 +15702,7 @@
       const groupId = groupNode?.querySelector('[data-tab-group]')?.dataset.tabGroup || '';
       let target;
       if (item && item !== drag.source) {
-        const rect = item.getBoundingClientRect();
+        const rect = window.LabTabDragPreview?.rect(item) || item.getBoundingClientRect();
         const e = event;
         const before = termSessionOrientation === 'horizontal'
           ? (e.clientX - rect.left) < rect.width / 2

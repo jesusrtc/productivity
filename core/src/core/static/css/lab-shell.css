@@ -82,8 +82,7 @@
   .workspace-tab .x { border: none; background: transparent; color: var(--text-dim); cursor: pointer; padding: 0 4px; font-size: 14px; line-height: 1; border-radius: 3px; }
   .workspace-tab .x:hover { background: rgba(248,81,73,0.15); color: var(--red); }
   .workspace-tab.dragging { opacity: 0.45; cursor: grabbing; }
-  .workspace-tab.drop-before { box-shadow: -2px 0 0 var(--accent); }
-  .workspace-tab.drop-after { box-shadow: 2px 0 0 var(--accent); }
+  .workspace-tab.workspace-drop-preview { border:1px dashed var(--accent); background:color-mix(in srgb,var(--accent) 15%,var(--bg-tertiary)); opacity:.65; }
 
   /* Small "which vault does this belong to" badge — dashboard rows and
      workspace tabs both use it. */
@@ -2928,7 +2927,7 @@
 }
 
   /* Native drag keeps its source node mounted while a copy previews the drop. */
-  .term-sessions .term-drag-source { position: absolute !important; width: 1px !important; height: 1px !important; padding: 0 !important; overflow: hidden; opacity: 0 !important; pointer-events: none; }
+  .term-sessions .term-drag-source, .workspace-tabs .workspace-drag-source { position: absolute !important; width: 1px !important; height: 1px !important; padding: 0 !important; overflow: hidden; opacity: 0 !important; pointer-events: none; }
   .term-sessions .sess.term-drop-preview { border: 2px dashed var(--term-drop-color, var(--accent)); background: color-mix(in srgb, var(--term-drop-color, var(--accent)) 18%, var(--bg-secondary)); color: var(--text-primary); opacity: .85; }
   .term-sessions .term-divider.term-drop-preview { outline: 2px dashed var(--accent); }
   .term-drop-group { outline: 2px solid var(--term-group-color); outline-offset: 3px; border-radius: 4px; }

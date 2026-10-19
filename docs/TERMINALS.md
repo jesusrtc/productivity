@@ -82,6 +82,14 @@ retain their existing child disclosure and placement menu. Saved order inside
 a task persists across task moves and reloads; identities, processes, launch
 folders and conversations are preserved.
 
+During a tab drag, neighbours slide smoothly around a preview matching the
+dragged tab's size. The same feedback appears in the workspace tab bar and in
+vertical or horizontal terminal lists. Moving back and forth retargets the
+animation from the current visible position. Hover never saves tab order or
+changes task ownership; dropping applies the final valid preview, while leaving
+or cancelling restores the original layout. Invalid task-block targets show no
+placement gap. Reduced-motion preferences keep the gap and omit the sliding.
+
 ## Notification navigation
 
 Red attention and green finished cards open the exact reporting terminal,

@@ -194,7 +194,7 @@ const _termLinkDropContext=target=>LabDocumentTerminal.dropContext(target);
 document.addEventListener('dragstart',event=>{window.nativeDragTrusted=event.isTrusted});
 document.addEventListener('drop',event=>{window.nativeDropTrusted=event.isTrusted});
 '''
-    drag_setup+=section('  function _termClearDropPreview()', '  function _termPreviewDrop(')
+    drag_setup+=section('  function _termClearDropPreview(', '  function _termPreviewDrop(')
     drag_setup+=section('  function termWireSessionDnD(', '  async function termReorderItems(')
     drag_setup+=section('  async function termLinkTarget(', '  async function termUnlinkTarget(')
     drag_setup+=section('  let _termLinkDropElement = null;', "  document.addEventListener('contextmenu', event => {\n    const ctx = _termLinkDropContext")
