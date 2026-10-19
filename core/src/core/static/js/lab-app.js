@@ -106,6 +106,41 @@
   }
   window.labRefreshAgentInstructions = labRefreshAgentInstructions;
 
+  async function _labRefreshAgentInstructionsOnLoad() {
+    if (!LAB_IS_ADMIN || UI_CHECK) return;
+    // Capture the reload destination before catalog/Objective reads can yield
+    // to navigation. Never refresh a different vault because the user moved.
+    const params = new URLSearchParams(location.search);
+    const workspacePath = params.get('workspace'), repoPath = params.get('repo');
+    const requestedVault = params.get('vault'), requestedObjective = params.get('objective');
+    try {
+      const catalog = await fetchVaultCatalog();
+      const vaults = catalog.vaults || [];
+      const owner = vaults.find(vault => (vault.workspace_rows || []).some(workspace =>
+        workspacePath ? workspace.path === workspacePath : repoPath && (workspace.repos || []).some(repo => repo.path === repoPath)));
+      const workspace = owner?.workspace_rows.find(row => workspacePath ? row.path === workspacePath
+        : (row.repos || []).some(repo => repo.path === repoPath));
+      const scope = {vault:owner?.id || (requestedVault && !requestedVault.startsWith('__') ? requestedVault : catalog.active), include_framework:true};
+      if (workspace?.is_workspace && !String(workspace.name).startsWith('__')) {
+        scope.workspace_id = workspace.name;
+        let saved;
+        try { saved = JSON.parse(localStorage.getItem('lab.objectives.view.v1:' + owner.id + '::' + workspace.name)); } catch {}
+        const data = await window.LabObjectives?.load({workspace_id:workspace.name,vault:owner.id,path:workspace.path}, false, {background:true});
+        const objectives = data?.objectives || [];
+        const objective = objectives.find(row => row.id === requestedObjective)
+          || objectives.find(row => row.id === saved?.objective)
+          || objectives.find(row => data.focused?.includes(row.id));
+        if (objective) scope.objective_id = objective.id;
+      }
+      await labRefreshAgentInstructions(scope);
+      // File contents and new META shortcuts must reflect the refreshed files.
+      const sidebar = document.getElementById('sidebar');
+      if (sidebar) await _populateAgentContextMeta(sidebar);
+    } catch (error) {
+      explorerToast('Could not refresh Lab managed instructions: ' + (error.message || error), true);
+    }
+  }
+
   let currentDiffTab = 'uncommitted';
   let viewMode = 'split';
   let diffCache = { uncommitted: null, branch: null };
@@ -22060,6 +22095,7 @@
   if (!UI_CHECK) afterPageQuiet(() => setInterval(refreshDiff, 5000), 1000);
   // Workspace tab strip: initial render + periodic refresh.
   afterPageQuiet(vaultRefresh, 250);
+  afterPageQuiet(_labRefreshAgentInstructionsOnLoad);
   afterPageQuiet(workspaceTabsRefresh);
   if (!UI_CHECK) afterPageQuiet(workspaceTabsStartPolling, 1000);
 

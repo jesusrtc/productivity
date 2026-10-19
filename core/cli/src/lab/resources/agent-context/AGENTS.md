@@ -33,6 +33,9 @@ Immediately before your final reply, run
 `lab notifications attention "What you need from the user"` if input, approval,
 or review is needed to continue. Execute these commands; mentioning them in prose
 does not report a status. The CLI does not infer these transitions for you.
+Treat the final status report as a prerequisite to replying: confirm that the
+command succeeded. If socket access is blocked, use the normal permission retry
+described below; if that also fails, disclose the reporting failure in your reply.
 
 Lab provides documents, live notebooks, workspace/task metadata, terminals and
 managed local servers. Explicit user requests and vault/workspace-owned
@@ -61,10 +64,13 @@ instead of guessing a diff. These commands also work in installed packages.
 
 Use `lab --help` to discover commands. Use `lab` for managed metadata; never
 hand-edit workspace.json, tasks.json or .index.json. Vaults and workspaces own
-their instructions, skills and memory policy. When the user requests an agent
-instruction refresh, `lab agents refresh` manages only the marked top section
-of AGENTS.md in the selected vault/workspace/Objective. Keep custom rules outside
-that section. Otherwise do not create, rewrite or symlink agent instruction,
+their instructions, skills and memory policy. Client reloads automatically
+refresh Lab's marked AGENTS.md section in the loaded vault/workspace/Objective
+and an existing framework checkout instruction file. The installed template
+owns this section for every client. `lab agents refresh` exposes the same scoped
+writer manually. Keep custom rules outside that section, and change shared Lab
+rules in the packaged template instead of hand-editing a client's AGENTS.md.
+Otherwise do not create, rewrite or symlink agent instruction,
 skill or memory files merely to integrate with Lab.
 
 ## Report terminal status

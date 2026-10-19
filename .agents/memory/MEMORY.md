@@ -1,5 +1,9 @@
 # Memory index
 
+- [Managed rules refresh on client reload](managed-rules-refresh-on-client-reload.md) — shared template and safe writer for every installation; preserve custom instructions and capture the loaded scope.
+
+- [Terminal status is a final-response prerequisite](terminal-status-is-a-final-response-prerequisite.md) — execute working and finished/attention on every turn, including approvals; retry sandbox-blocked tmux access and disclose failure.
+
 - [Notification cards show terminal icons](notification-cards-show-terminal-icons.md) — terminal icon before workspace/Objective, using native task, asset and automation choices while keeping the status symbol.
 
 - [Show all terminals is a header switch](show-all-terminals-header-switch.md) — one saved on/off switch beside Terminal, visible with folded names; no separate Objective overrides or All shown buttons.

@@ -20,6 +20,8 @@ def test_refresh_preserves_user_bytes_and_is_idempotent(tmp_path, original):
     assert updated[len(bom):].startswith(instructions.START)
     assert updated.endswith(original[len(bom):])
     assert b'Important: On startup, run `lab context llm`, read its full output' in updated
+    for state in ('working', 'attention', 'finished'):
+        assert f'lab notifications {state}'.encode() in updated
     assert updated.count(instructions.START) == 1
     assert target.stat().st_mode & 0o777 == 0o640
     before = target.stat()

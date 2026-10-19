@@ -161,11 +161,12 @@ class AgentInstructionsRefresh(BaseModel):
     vault: str | None = None
     workspace_id: str | None = None
     objective_id: str | None = None
+    include_framework: bool = False
 
 
 @router.post('/api/agents/context/refresh')
 def refresh_agent_instructions(body: AgentInstructionsRefresh, request: Request) -> dict:
-    """Explicitly refresh the managed section in the selected owning scopes."""
+    """Refresh installed managed instructions for the captured client scope."""
     from lab import agent_instructions
     from core import workspace_documents
     from core.routes.mutation import _root_for_vault
@@ -173,8 +174,21 @@ def refresh_agent_instructions(body: AgentInstructionsRefresh, request: Request)
     root = (workspace_documents.workspace(request, body.workspace_id, body.vault)
             if body.workspace_id else _root_for_vault(request, body.vault))
     try:
-        return fsguard.guarded(root, lambda: agent_instructions.refresh(
+        report = fsguard.guarded(root, lambda: agent_instructions.refresh(
             root, workspace_id=body.workspace_id, objective_id=body.objective_id))
+        if body.include_framework:
+            from lab import paths
+            try:
+                framework = paths.find_framework_root()
+            except paths.MonorepoNotFound:
+                framework = None
+            # Installed packages need no writable checkout. A source checkout's
+            # existing instruction file uses the same managed template.
+            if framework and framework.resolve() != root.resolve() and ((framework / 'AGENTS.md').exists() or (framework / 'AGENTS.md').is_symlink()):
+                extra = fsguard.guarded(framework, lambda: agent_instructions.refresh(framework))
+                report['files'].extend({**row, 'scope':'framework'} for row in extra['files'])
+                report['ok'] = report['ok'] and extra['ok']
+        return report
     except (ValueError, OSError) as exc:
         raise HTTPException(400, str(exc)) from exc
 

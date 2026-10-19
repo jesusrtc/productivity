@@ -499,6 +499,58 @@ process.stdout.write(JSON.stringify(results));
                       {'vault': 'active'}, {'vault': 'owner', 'workspace_id': 'real'}]
 
 
+@pytest.mark.parametrize('view,expected', [
+    ('?view=productivity', {'vault':'active','include_framework':True}),
+    ('?view=vault&vault=other', {'vault':'other','include_framework':True}),
+    ('?workspace=/other/demo&objective=explicit', {'vault':'other','workspace_id':'demo','objective_id':'explicit','include_framework':True}),
+    ('?workspace=/other/demo', {'vault':'other','workspace_id':'demo','objective_id':'saved','include_framework':True}),
+    ('?repo=/other/repo', {'vault':'other','workspace_id':'demo','objective_id':'saved','include_framework':True}),
+])
+def test_client_reload_refreshes_installed_rules_in_captured_scope(view, expected):
+    source = (Path(__file__).resolve().parents[2] / 'core/src/core/static/js/lab-app.js').read_text()
+    helper = source[source.index('  async function labRefreshAgentInstructions('):source.index('  let currentDiffTab')]
+    result = _run_node('const view='+json.dumps(view)+';\n'+r'''
+let LAB_IS_ADMIN=true,UI_CHECK=false,version=1,reads=0,meta=0;
+const calls=[],errors=[],location={search:view};
+let release;
+const catalog={active:'active',vaults:[{id:'other',workspace_rows:[{name:'demo',path:'/other/demo',is_workspace:true,repos:[{path:'/other/repo'}]}]}]};
+const fetchVaultCatalog=()=>new Promise(resolve=>release=()=>resolve(catalog));
+const localStorage={getItem:()=>JSON.stringify({objective:'saved'})};
+const window={LabObjectives:{load:async scope=>{if(scope.vault!=='other'||scope.workspace_id!=='demo')throw Error('Wrong Objective owner');return {objectives:[{id:'explicit'},{id:'saved'}],focused:['explicit']};}}};
+const document={getElementById:()=>({})},_populateAgentContextMeta=async()=>meta++;
+const explorerToast=message=>errors.push(message);
+const fetch=async(path,options)=>{calls.push({path,scope:JSON.parse(options.body),version});return {ok:true,json:async()=>({ok:true,files:[]})};};
+'''+helper+r'''
+(async()=>{
+ const first=_labRefreshAgentInstructionsOnLoad();location.search='?workspace=/wrong/changed';release();await first;
+ // Another client reload must use the latest installed template, without a
+ // browser-local version cache suppressing the server's managed writer.
+ version=2;location.search=view;const second=_labRefreshAgentInstructionsOnLoad();release();await second;
+ LAB_IS_ADMIN=false;await _labRefreshAgentInstructionsOnLoad();
+ LAB_IS_ADMIN=true;UI_CHECK=true;await _labRefreshAgentInstructionsOnLoad();
+ process.stdout.write(JSON.stringify({calls,meta,errors}));
+})().catch(error=>{console.error(error);process.exit(1)});
+''')
+    assert result == {'calls':[
+        {'path':'/api/agents/context/refresh','scope':expected,'version':1},
+        {'path':'/api/agents/context/refresh','scope':expected,'version':2}], 'meta':2, 'errors':[]}
+    assert 'afterPageQuiet(_labRefreshAgentInstructionsOnLoad)' in source
+
+
+def test_client_reload_reports_refresh_errors_without_blocking_the_view():
+    source = (Path(__file__).resolve().parents[2] / 'core/src/core/static/js/lab-app.js').read_text()
+    helper = source[source.index('  async function labRefreshAgentInstructions('):source.index('  let currentDiffTab')]
+    result = _run_node(r'''
+const LAB_IS_ADMIN=true,UI_CHECK=false,location={search:'?view=productivity'},window={};
+const errors=[],fetchVaultCatalog=async()=>({active:'owner',vaults:[]});
+const explorerToast=message=>errors.push(message);
+const fetch=async()=>({ok:true,json:async()=>({ok:false,files:[{path:'/vault/AGENTS.md',detail:'Unclosed section'}]})});
+'''+helper+r'''
+(async()=>{await _labRefreshAgentInstructionsOnLoad();process.stdout.write(JSON.stringify(errors));})();
+''')
+    assert len(result) == 1 and '/vault/AGENTS.md: Unclosed section' in result[0]
+
+
 @pytest.mark.parametrize("file", ["errors.log", "backend.log", "frontend.log"])
 def test_admin_logs_copy_current_text_and_flush_selected_file(file: str) -> None:
     root = Path(__file__).resolve().parents[2]

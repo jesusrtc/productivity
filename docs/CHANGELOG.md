@@ -5,6 +5,24 @@ guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 
 ## 2026-10-19
 
+### Refresh managed agent rules whenever a client reloads
+
+- Administrator client reloads apply the installed template to the captured
+  vault/workspace/Objective and an existing framework instruction file. This
+  uses the same managed writer in every installation and preserves custom bytes.
+- Restored Objective selection and cross-vault ownership are respected.
+  Read-only clients do not write; malformed sections and symlinks are preserved
+  with visible errors. No unrelated workspace or Objective is scanned.
+
+### Require a status report before every final reply
+
+- Put the working/attention/finished commands in the shared managed template,
+  provider startup instructions and generated Lab managed sections,
+  including short answers and approval follow-ups.
+- Require a successful final status command before replying, with a normal
+  permission retry for sandbox-blocked tmux access and an explicit failure
+  explanation if the retry also fails. Existing status semantics are unchanged.
+
 ### Show terminal icons in notification cards
 
 - Each active and historical notification shows its terminal's icon before

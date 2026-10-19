@@ -79,20 +79,35 @@ loaded.
 
 ## Read the installed documentation
 
-The top-bar **↻ Update and restart Lab** button refreshes the **Lab managed**
-section at the top of `AGENTS.md` in the current vault, workspace and selected
-Objective. It captures that scope when clicked and applies the newly installed
-template after the server restarts. Missing files are created. Existing user
+Every administrator client reload automatically refreshes the **Lab managed**
+section at the top of `AGENTS.md` in its loaded vault, workspace and selected
+Objective, using the installed Lab template. An existing framework checkout's
+instruction file uses the same writer. This works across Lab installations;
+there is no hand-maintained client-specific copy of these rules. The destination
+is captured before asynchronous reads, so navigation cannot retarget the refresh.
+Read-only clients do not change instruction files.
+
+The top-bar **↻ Update and restart Lab** button also refreshes the captured
+scope after updating and restarting Lab. Missing scoped files are created. Existing user
 instructions stay below the marked section, unchanged; future refreshes replace
 only that section, move it back to the top and remove duplicate managed sections.
-Current files are not rewritten. Creating or opening a scope alone does not
-write instructions.
+Current files are not rewritten. Symlinks and malformed sections stay untouched;
+refresh failures appear in the client. Reloading refreshes only its loaded scope,
+without scanning other workspaces or Objectives.
 
-The managed section contains just this startup instruction:
+The managed section leads with this startup instruction:
 
 ```md
 Important: On startup, run `lab context llm`, read its full output and follow its instructions before working.
 ```
+
+It also states the every-turn context check and working/attention/finished
+commands directly, including short answers and approval follow-ups. The compact
+launch instructions for Codex, Claude and Copilot repeat the same lifecycle so
+status reporting is visible before an agent opens the full guide. A successful
+finished or attention report is required before the final reply. A blocked tmux
+socket requires the normal tool permission retry; if reporting still fails, the
+agent must state the failure instead of silently omitting the report.
 
 Refresh the same files without updating or restarting Lab with:
 
@@ -107,6 +122,9 @@ linked checkouts. Symlinks and malformed managed sections are left untouched
 and reported. Keep custom rules outside the `lab:managed-context` markers.
 Refreshing files does not send input to running agents; their next
 `lab context update` reads changed framework context.
+Change shared Lab rules in `resources/agent-context/managed-section.md` and the
+packaged launcher/context instructions. Apply them with the managed writer;
+do not hand-edit those rules into client-owned AGENTS.md content.
 
 For a single instruction in your own `AGENTS.md`, use:
 
@@ -445,6 +463,11 @@ is included in the launch context and `lab context`. The launch context identifi
 the actual Lab terminal and pane when available. Execute the reporting commands;
 describing a status in prose does not set the dot. Existing sessions need to
 run `lab context update`, or receive it via **Drag context to terminal**.
+Before replying, agents must confirm their finished/attention command succeeded.
+If the sandbox blocks tmux socket access, retry that same command with the tool's
+normal permission mechanism. If it still fails, mention the reporting failure in
+the final reply. The LLM-controlled marker and an automatic yellow submission
+indicator do not replace these explicit reports.
 
 Status follows the latest explicit report, with immediate yellow feedback for
 submitted LLM input. Quiet output, elapsed time, terminal redraws and provider

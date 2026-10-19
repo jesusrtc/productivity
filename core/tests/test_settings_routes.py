@@ -148,12 +148,18 @@ def test_agent_refresh_uses_latest_template_and_preserves_selected_scope_content
     objective = response.json()['objectives'][0]
     custom = b'# Workspace instructions\r\n\r\nPreserve this exact content.\r\n'
     (workspace / 'AGENTS.md').write_bytes(custom)
-    body = {'vault': 'other', 'workspace_id': 'new-workflow', 'objective_id': objective['id']}
+    framework = tmp_path / 'framework'
+    framework.mkdir()
+    framework_custom = b'# Framework-owned custom instructions\n'
+    (framework / 'AGENTS.md').write_bytes(framework_custom)
+    monkeypatch.setattr(paths, 'find_framework_root', lambda:framework)
+    body = {'vault': 'other', 'workspace_id': 'new-workflow', 'objective_id': objective['id'], 'include_framework':True}
     response = client.post('/api/agents/context/refresh', json=body)
     assert response.status_code == 200 and response.json()['ok'], response.text
-    roots = [other, workspace, Path(objective['path'])]
-    assert [row['status'] for row in response.json()['files']] == ['created', 'updated', 'created']
+    roots = [other, workspace, Path(objective['path']), framework]
+    assert [row['status'] for row in response.json()['files']] == ['created', 'updated', 'created', 'updated']
     assert (workspace / 'AGENTS.md').read_bytes().endswith(custom)
+    assert (framework / 'AGENTS.md').read_bytes().endswith(framework_custom)
     assert not (monorepo / 'AGENTS.md').exists()
     assert paths.read_vault_registry()['active'] == 'main'
     guide = client.get('/api/agents/context/guide', params={'vault': 'other', 'path': str(other)})
@@ -178,3 +184,14 @@ def test_agent_refresh_rejects_unknown_scope_without_parent_edits(client, monore
         response = client.post('/api/agents/context/refresh', json=body)
         assert response.status_code in {400, 404}, response.text
     assert not (monorepo / 'AGENTS.md').exists() and not (workspace / 'AGENTS.md').exists()
+
+
+def test_client_refresh_works_without_a_framework_source_checkout(client, monorepo, monkeypatch):
+    from lab import paths, agent_instructions
+    def unavailable():
+        raise paths.MonorepoNotFound('Installed CLI without a checkout')
+    monkeypatch.setattr(paths, 'find_framework_root', unavailable)
+    response = client.post('/api/agents/context/refresh', json={'include_framework':True})
+    assert response.status_code == 200 and response.json()['ok'], response.text
+    assert len(response.json()['files']) == 1
+    assert (monorepo / 'AGENTS.md').read_bytes() == agent_instructions.render(b'')

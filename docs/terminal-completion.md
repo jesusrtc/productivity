@@ -40,6 +40,17 @@ instructions once with `lab context llm` or the context reader's drag-to-termina
 older loaded instructions cannot trigger a check they do not yet describe.
 Outside a Lab tmux terminal, skip reporting; never choose another session by guess.
 
+The shared managed template, compact provider startup instructions and
+generated Lab managed sections state these commands directly. Client reloads
+refresh the applicable managed sections from the installed template; shared
+reporting rules must not be added to custom client-owned instructions. Short answers,
+acknowledgements and approval follow-ups have the same requirement. Before a
+final reply, confirm that the finished/attention command succeeded. If the sandbox
+blocks the tmux socket, retry the same command with the tool's normal permission
+mechanism. If that retry fails, disclose the reporting failure in the final reply.
+An LLM-controlled marker or automatic yellow submission indicator does not count
+as the agent's explicit report.
+
 Working and attention remain until replaced by an agent report or submitted LLM
 input (yellow). Silence, output,
 clicks, focus changes, lost connections and interrupted turns do not clear them.

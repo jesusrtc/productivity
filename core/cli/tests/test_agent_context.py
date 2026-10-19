@@ -31,7 +31,7 @@ def test_context_reads_packaged_topics_without_workspace(tmp_path, monkeypatch):
         assert result.exit_code == 0, result.output
         assert len(result.output) > 100
     overview = agent_context.read_context()
-    assert 'take precedence' in overview and 'lab context user-guide' in overview
+    assert 'take precedence' in overview and 'lab context llm' in overview
     assert 'lab notifications working' in overview
     assert 'lab notifications attention' in overview
     assert 'lab notifications finished' in overview
@@ -240,7 +240,10 @@ def test_launch_paths_follow_pinned_vault_objective_and_codex_cd(monorepo, seed_
         content = json.loads(argv[2].split('=', 1)[1]) if agent == 'codex' else argv[2] if agent == 'claude' else child['LAB_AGENT_CONTEXT']
         assert 'run `lab context llm` before other tools' in content
         assert 'context compaction' in content
-        assert len(content) < 8000 and 'lab notifications finished' not in content
+        assert len(content) < 8000
+        for state in ('working', 'attention', 'finished'):
+            assert f'lab notifications {state}' in content
+        assert 'normal permission mechanism' in content
         for label, root in [('Vault', monorepo), ('Workspace', workspace), ('Objective', objective)]:
             assert f'- {label} root: `{root}`; instructions: `{root / "AGENTS.md"}`' in content
         assert f'Source folder: `{objective}`' in content
@@ -327,6 +330,8 @@ def test_launch_preserves_last_context_version_and_rolls_back_failed_exec(
         assert marker['@lab_llm'] == agent
         assert 'You are in Lab terminal `neurona-owned`, pane `%42`' in guide
         assert 'run `lab context llm` before other tools' in guide
+        for state in ('working', 'attention', 'finished'):
+            assert f'lab notifications {state}' in guide
     monkeypatch.setattr(os, 'execvpe', execute)
     result = CliRunner().invoke(main, ['agents', 'run', agent])
     assert result.exit_code == 0, result.output

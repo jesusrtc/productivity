@@ -12,6 +12,21 @@ the calling Lab terminal as LLM-controlled. An unchanged version in tmux does
 not mean this conversation has read those instructions. On subsequent turns,
 run `lab context update` before other tools and follow any changed context.
 
+## Required terminal status on every turn
+
+Inside a Lab tmux terminal, after reading context, execute
+`lab notifications working "Short description"` before work. This includes
+short answers, acknowledgements, approvals and resumed work. Before every final
+reply, execute `lab notifications finished "What was completed"`, or
+`lab notifications attention "What is needed"` when yielding for required input,
+approval or review. A successful final status report is a prerequisite to replying;
+describing status in prose does not report it.
+
+If a sandbox blocks the tmux socket, retry the same command with the tool's
+normal permission mechanism. If reporting still fails, state that failure in
+the final reply. Check `TMUX`/`TMUX_PANE` before deciding you are outside Lab;
+never assume status reporting does not apply.
+
 User requests and owning vault/workspace instructions take precedence over Lab
 defaults. Opening a terminal alone does not authorize work. Lab does not create
 or rewrite user instruction files as part of this bootstrap.

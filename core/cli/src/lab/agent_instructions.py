@@ -1,4 +1,4 @@
-"""Explicit refresh of Lab's section; all other instruction bytes are user-owned."""
+"""Template-managed Lab sections; all other instruction bytes are user-owned."""
 from __future__ import annotations
 
 import fcntl
