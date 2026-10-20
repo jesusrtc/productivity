@@ -14675,6 +14675,8 @@
     const manual = String(s.label || '').trim();
     const scope = s.linked_scope;
     const fileName = String(s.linked_file?.path || '').split('/').pop();
+    const linkedName = String(window.LabObjectives?.terminalAsset?.(s)?.title || (s.linked_file?.activate ? fileName : '')).trim();
+    if (linkedName) return linkedName;
     if (manual) return manual;
     if (s.linked_task?.title) return s.linked_task.title;
     if (fileName) return fileName;
@@ -15251,7 +15253,8 @@
     const appearance=identity.automation_appearance;
     const automationIcon=appearance&&window.LabTerminalAutomations?.iconHtml?.(appearance.icon);
     const objectiveTask = window.LabObjectives?.taskForTerminal(identity);
-    const assetIcon=window.LabObjectives?.terminalAsset?.(identity)?.icon;
+    const asset=window.LabObjectives?.terminalAsset?.(identity),assetIcon=asset?.icon;
+    const linkedName=String(asset?.title||(identity.linked_file?.activate?String(identity.linked_file.path||'').split('/').pop():'')).trim();
     const taskIconClass = automationIcon || assetIcon || !main && objectiveTask?.assetIcon ? ' sess-task-icon' : '';
     const taskOwn=objectiveTask&&!objectiveTask.inherited&&objectiveTask.primary!==false;
     const textColor=appearance?(appearance.color||'var(--text-primary)'):objectiveTask?.color;
@@ -15261,7 +15264,7 @@
     const iconColor=appearance?textColor:objectiveTask?.color||(taskOwn?window.LabObjectives?.terminalWorktreeColor?.(identity):!main&&identity.linked_scope?.worktree?_termScopeColor(identity.linked_scope):null);
     const iconColorAttrs=iconColor?` style="color:${termSessEsc(iconColor)}"`:'';
     const fallbackIcon=child?'⏺':'💻';
-    const display = main?.label || ((s.display_main||!automation)&&taskOwn?objectiveTask.title:_termSessionDisplay(identity));
+    const display = linkedName || main?.label || ((s.display_main||!automation)&&taskOwn?objectiveTask.title:_termSessionDisplay(identity));
     // Compact/full visibility is CSS-controlled so switching detail never
     // rebuilds or reconnects a terminal. The active header always carries
     // the complete identity, even in compact mode.
@@ -15288,8 +15291,8 @@
     const tooltip = _termSessionTooltipPayload(s, [statusTitle, completion?.label, recentTitle].filter(Boolean).join(' · '));
     if (s.display_main) {
       const icon=automationIcon || assetIcon || main?.icon || objectiveTask?.assetIcon || (child||objectiveTask?fallbackIcon:visual.icon);
-      const worktreeName=!main&&!objectiveTask&&!identity.label&&identity.linked_scope?.worktree&&!identity.linked_file?.path;
-      const nameHtml=taskOwn?(window.LabObjectives?.terminalTaskNameHtml?.(identity)||termSessEsc(display)):worktreeName?_termSessionAssociationHtml(identity,{showName:true}):termSessEsc(display);
+      const worktreeName=!linkedName&&!main&&!objectiveTask&&!identity.label&&identity.linked_scope?.worktree&&!identity.linked_file?.path;
+      const nameHtml=!linkedName&&taskOwn?(window.LabObjectives?.terminalTaskNameHtml?.(identity)||termSessEsc(display)):worktreeName?_termSessionAssociationHtml(identity,{showName:true}):termSessEsc(display);
       return `<span class="sess ${visual.kind} term-display-main${main?' term-main-terminal':''}${active}${dead}" style="--term-display-main-color:${termSessEsc(s.display_main.color)}" role="tab" aria-label="${termSessEsc(ariaLabel+' · Merged with '+_termSessionDisplay(s)+' · Parent '+s.display_main.parent)}" aria-selected="${active ? 'true' : 'false'}" tabindex="${active ? '0' : '-1'}" draggable="false"${main?` data-terminal-main="${main.kind}"`:''}${childAttrs} data-name="${termSessEsc(s.name)}" data-logical="${termSessEsc(logical)}" data-display-main-parent="${termSessEsc(s.display_main.parent)}" data-tooltip="${termSessEsc(tooltip)}"><span class="sess-icon${taskIconClass}" aria-hidden="true"${iconColorAttrs}>${icon}</span>${activityHtml}<span class="sess-label custom"${taskColorAttrs}>${nameHtml}</span>${_termAutomationRelaunchHtml(s)}</span>`;
     }
     if (automation) {
@@ -15297,9 +15300,9 @@
     }
     const linked = String(s.linked_file && s.linked_file.path || '').trim();
     const scope = s.linked_scope;
-    const worktreeOnly = !main && !objectiveTask && !s.label && scope?.worktree && !linked;
+    const worktreeOnly = !linkedName && !main && !objectiveTask && !s.label && scope?.worktree && !linked;
     const icon = automationIcon || assetIcon || main?.icon || objectiveTask?.assetIcon || (child||objectiveTask?fallbackIcon:visual.icon);
-    const nameHtml = taskOwn ? (window.LabObjectives?.terminalTaskNameHtml?.(s)||termSessEsc(display)) : termSessEsc(display);
+    const nameHtml = !linkedName && taskOwn ? (window.LabObjectives?.terminalTaskNameHtml?.(s)||termSessEsc(display)) : termSessEsc(display);
     const labelHtml = worktreeOnly ? _termSessionAssociationHtml(s,{showName:true}) : nameHtml;
     const scopeAttrs = scope ? ` style="--term-scope-color:${termSessEsc(_termScopeColor(scope))}" data-linked-scope="${termSessEsc(scope.root)}"` : '';
     return `<span${scopeAttrs} class="sess ${visual.kind}${main?' term-main-terminal':''}${objectiveTask?' objective-task-terminal':''}${active}${recent}${dead}" role="tab" aria-label="${termSessEsc(ariaLabel)}" aria-selected="${active ? 'true' : 'false'}" tabindex="${active ? '0' : '-1'}" ${main?`draggable="false" data-terminal-main="${main.kind}" title="${termSessEsc(main.kind+' main terminal · Fixed')}"`:`draggable="true" data-order-token="${termSessEsc(`s:${logical}`)}"`}${objectiveTask?` title="${termSessEsc(_termTaskStatusLabel(objectiveTask.status))}"`:''}${childAttrs} data-name="${termSessEsc(s.name)}" data-logical="${termSessEsc(logical)}" data-tooltip="${termSessEsc(tooltip)}">

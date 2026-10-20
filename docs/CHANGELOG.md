@@ -5,6 +5,14 @@ guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 
 ## 2026-10-20
 
+### Name linked terminal tabs after their files
+
+- Linked terminal tabs and active headers show the linked file/asset's displayed
+  name alongside its icon, taking precedence over the task or terminal name.
+- Keep exact document-tab and sublink titles, reflect asset renames on refresh,
+  and restore normal naming on unlink. Saved labels, task ownership, folders and
+  running sessions are preserved, including automation and merged tabs.
+
 ### Check remote automation mains every 30 minutes
 
 - Monitor existing SSH/tmux connections and remote processes launched by

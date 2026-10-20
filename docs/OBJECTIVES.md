@@ -447,7 +447,8 @@ choices with simulated terminals. See [TERMINALS.md](TERMINALS.md#new-terminal-l
 The terminal selector always shows one fixed **🏠 workspace (workflow) main** at the top.
 The fixed **🎯 Objective main** appears immediately after the active Objective's
 divider and is labeled **Main**; inactive Objective mains stay hidden, including
-in Show all mode. Named terminal rows show only their saved name, without extra
+in Show all mode. Asset-linked terminals show the linked asset's displayed name;
+other named terminal rows show only their saved name, without extra
 workspace, Objective, folder or **main** labels. Location markers keep their
 color and full folder tooltip. Unnamed worktree terminals can use their worktree
 as the fallback name.
@@ -542,8 +543,12 @@ also work with fixed main terminals. Asset drops use the same independent link.
 The terminal keeps its primary role, task visibility and launch folder. Clicking
 the asset activates its terminal, and clicking the terminal opens that exact
 asset, including document subtabs and URL sublinks. Its tab and active header
-adopt the asset's icon before task/default icons. **Unlink asset** clears only
-the asset association. Task and whole-Objective drops still assign ownership.
+adopt the asset's icon before task/default icons and show the asset's displayed
+name, taking precedence over task, saved terminal and fixed-main names. Exact
+document tabs and URL sublinks retain their full asset titles, and asset renames
+update the visible name on refresh. **Unlink asset** clears only the asset
+association and restores normal naming. The saved terminal label and identity
+are preserved. Task and whole-Objective drops still assign ownership.
 
 Drop an object **inside the console** to paste its reference without submitting
 input. Local objects use their captured absolute source path, external links

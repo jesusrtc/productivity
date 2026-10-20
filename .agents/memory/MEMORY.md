@@ -896,3 +896,5 @@
 - [Progress reminders support snooze only](progress-reminders-snooze-only.md) — only Snooze 30 min; remove permanent dismissal and ignore legacy dismissals while preserving timed snoozes and agent status.
 
 - [Remote automation check-ins belong to the main](remote-automation-main-checkins.md) — yellow 30-minute SSH/tmux check-ins on the closest main only, owned liveness, retained history and full snooze without inventing remote health or agent status.
+
+- [Linked terminal tabs use their asset names](linked-terminal-tabs-use-asset-names.md) — linked file/asset title before task or saved labels, including main/automation/merged tabs; refresh renames and restore normal names on unlink.

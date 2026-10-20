@@ -362,7 +362,11 @@ active terminal**, or a terminal → **Link to asset…**. You can also drag an 
 onto a terminal tab, or an ordinary terminal onto a sidebar asset. Clicking the
 asset activates its terminal; clicking the terminal opens that asset, including
 the exact document subtab or URL sublink. The terminal adopts the asset's icon
-(notebook, GitHub, etc.) in its tab and active header, keeping its name and origin.
+(notebook, GitHub, etc.) and displayed name in its tab and active header. A task
+terminal linked to a file shows that file's name instead of the task or saved
+terminal name. Document subtabs and URL sublinks use the same full title shown
+for the linked asset. Renaming the asset updates this display automatically;
+the terminal's saved name and origin are preserved.
 This works for task primaries, automation terminals and fixed main terminals.
 Terminal clicks first select the owning task/subtask and keep **Task assets**
 visible while opening the linked asset within that context. Without an explicit
@@ -370,7 +374,7 @@ or inherited task link, an asset assigned to exactly one task selects that task;
 an exact document subtab assignment takes priority over a whole-document one.
 Shared assets keep an already selected matching task, otherwise open without
 choosing an arbitrary task. Navigation does not change terminal ownership.
-**Unlink asset** removes only that navigation link and restores the usual icon.
+**Unlink asset** removes only that navigation link and restores the usual name and icon.
 New file links outside Objectives also activate in both directions; older file
 links retain their existing **Sync linked** preference until relinked.
 

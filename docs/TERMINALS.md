@@ -60,7 +60,8 @@ fold the previous section. This also applies while **Show all terminals** is
 enabled; that setting reveals task statuses without expanding other Objectives.
 Folding preserves running sessions and their saved child-terminal layouts.
 
-The Objective main is labeled **Main**. Named terminal tabs display the saved
+Linked terminal tabs display their linked file/asset name. Otherwise the Objective
+main is labeled **Main** and named terminal tabs display the saved
 name alone, without workspace, folder or **main** text beside it. This also
 applies to named worktree terminals and legacy merged tabs. Colored location
 markers retain full folder details in their tooltips. Unnamed worktree terminals
@@ -265,7 +266,8 @@ starts immediately, with no extra wait after the last. The launch preview shows
 the saved delay. Commands run independently. For dependent operations,
 combine them in one command, for example `npm run build && npm run dev`.
 An exited command prints its exit code and leaves an interactive shell with the
-logs retained. Automation tabs show their saved names with the configured icon,
+logs retained. Automation tabs show their saved names, or a linked asset's name,
+with the configured icon,
 inherited by default by their children. Older running sessions without appearance
 metadata keep their task/default icons until a new configured launch. Ordinary
 task terminals use 💻. A single centered status dot
@@ -461,14 +463,18 @@ active terminal**, or drag an ordinary terminal onto a left-column asset.
 Clicking either side activates the other: notebooks/files open their normal
 viewer, document subtabs retain their IDs, and URL links open their exact
 destination through the usual browser action. The tab and active header use the
-asset's shared icon, ahead of task/default icons; the terminal name stays intact.
+asset's shared icon, ahead of task/default icons, and its displayed name. This
+name takes precedence over a task title, fixed-main label or saved terminal label,
+including automation and merged tabs. File links use the filename; document tabs
+and URL sublinks use the asset's full displayed title. Asset renames update the
+name on refresh without rewriting the terminal's saved label or session identity.
 When the terminal has no explicit or inherited task, the linked asset's unique
 task assignment supplies its navigation context without reassigning the session.
 Exact subtab/sublink assignments take priority over whole-resource assignments.
 If several tasks share the asset, retain an already selected matching task;
 otherwise open the asset without guessing a task. Linked folders open without
 entering the separate worktree-browsing mode when a task is selected.
-**Unlink asset** restores the usual icon without stopping or restarting anything.
+**Unlink asset** restores the usual name and icon without stopping or restarting anything.
 New file links outside Objectives also activate in both directions without
 requiring **Sync linked**; existing links retain that preference until relinked.
 Task/Objective drops can assign unassigned terminals. Task-bound terminals

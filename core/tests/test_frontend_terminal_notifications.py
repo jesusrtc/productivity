@@ -200,6 +200,7 @@ const termUpdateTabGroup=()=>{groupCollapsed=false;termRenderSessionList();};
 
 def test_notification_selects_owning_task_and_keeps_assets_accessible_in_chrome(tmp_path):
     objectives = (ROOT / 'core/src/core/static/js/lib/workspace-objectives.js').read_text()
+    display = _js_between('  function _termSessionDisplay(s)', '  function _termSessionRequests(')
     activation = _js_between('  async function _termActivateTab(', '  function _termHomeAssociationHtml(')
     navigation_setup = NAV_SETUP.replace("const _termActivateTab=async(name,options)=>{calls.push(['activate',name,options]);termCurrentSession=name;if(typeof termRenderSessionList==='function')termRenderSessionList();};", activation)
     tab_click = _js_between("      node.addEventListener('click', (event) => {\n        _termHideSessionTooltip();", "    el.querySelectorAll('[data-divider-options]')").rsplit('\n    });', 1)[0]
@@ -267,7 +268,7 @@ window.addEventListener('error',e=>errors.push(e.message));window.addEventListen
  await O.load(undefined,true);checkTask();
 
  // Exercise the real terminal-rail click listener, not just the navigation helper.
- const clickTab=async s=>{mountTab(s);document.querySelector('#terminalRail [data-name]').click();await until(()=>termCurrentSession===s.name);assert(!calls.filter(row=>row[0]==='attach').at(-1)?.[2].deferWebgl,'ordinary tab keeps its renderer policy');};
+ const clickTab=async s=>{mountTab(s);document.querySelector('#terminalRail [data-name]').click();await until(()=>termCurrentSession===s.name);assert(!calls.filter(row=>row[0]==='attach').at(-1)?.[2].deferWebgl,'ordinary tab keeps its renderer policy');const asset=O.terminalAsset(s);if(asset)assert(document.querySelector('#terminalRail [data-name]').textContent===asset.title,'tab uses the linked file or exact subtab/sublink name');};
  const owner=fixture.objectives[1];
  owner.resources.push({id:'analysis',kind:'notebook',title:'Analysis notebook',path:'owning/analysis.ipynb'},
   {id:'notes',kind:'document',title:'Notes',path:'owning/notes.md',content:{tabs:[{id:'result',title:'Results',body:'Exact linked results'},{id:'other',title:'Other',body:'Wrong tab'}]}},
@@ -280,6 +281,8 @@ window.addEventListener('error',e=>errors.push(e.message));window.addEventListen
  await clickTab(target);checkTask();
  assert(opened.at(-1)?.[0]==='notebook'&&opened.at(-1)[1].id==='analysis','asset-only notebook terminal opens the notebook in its owning task');
  assert(JSON.stringify(fixture.terminal_links)===saved,'navigation never changes stored terminal ownership');
+ owner.resources.find(r=>r.id==='analysis').title='Renamed analysis';fixture.revision+='rename';await O.load(undefined,true);mountTab(target);
+ assert(document.querySelector('#terminalRail [data-name]').textContent==='Renamed analysis'&&target.logical_name==='secondary','renaming the linked file updates the visible name without renaming its session');
  O.selectObjective('other',{activateTerminal:false});await open(target);checkTask();
  assert(opened.at(-1)?.[0]==='notebook','notification follows the same task and linked notebook navigation');
  await relink({file:{root:'/workspace',path:'/workspace/owning/./analysis.ipynb'}});
@@ -310,8 +313,8 @@ window.addEventListener('error',e=>errors.push(e.message));window.addEventListen
 }catch(error){document.body.dataset.result='fail';document.body.append(String(error.stack||error));}})();
 '''
     css = (ROOT / 'core/src/core/static/css/lab-shell.css').read_text() + (ROOT / 'core/src/core/static/css/workspace-objectives.css').read_text()
-    tabs = "function mountTab(s){const host=document.getElementById('terminalRail');host.innerHTML='<button data-name=\"'+s.name+'\">'+s.name+'</button>';const node=host.firstElementChild,completionDot=null;"+tab_click+"}"
-    html = '<!doctype html><meta charset="utf-8"><style>'+css+'</style><body><div id="tabs" class="repo-tabs"></div><aside id="sidebar"><section data-objectives-sidebar></section></aside><main id="content"></main><div id="terminalRail"></div><div id="termNotifications" class="term-notifications"></div><script>'+setup+navigation_setup+objectives+MODULE+NOTIFICATIONS+NAVIGATION+tabs+checks+'</script>'
+    tabs = "function mountTab(s){const host=document.getElementById('terminalRail'),node=document.createElement('button'),completionDot=null;node.dataset.name=s.name;node.textContent=_termSessionDisplay(s);host.replaceChildren(node);"+tab_click+"}"
+    html = '<!doctype html><meta charset="utf-8"><style>'+css+'</style><body><div id="tabs" class="repo-tabs"></div><aside id="sidebar"><section data-objectives-sidebar></section></aside><main id="content"></main><div id="terminalRail"></div><div id="termNotifications" class="term-notifications"></div><script>'+setup+navigation_setup+objectives+display+MODULE+NOTIFICATIONS+NAVIGATION+tabs+checks+'</script>'
     _check_project_html(tmp_path, html, focused=True)
 
 

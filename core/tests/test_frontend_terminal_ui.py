@@ -859,6 +859,41 @@ console.log(JSON.stringify({name:_termSessionDisplay(session),manual:_termSessio
                       'branch':'', 'project':'', 'keepsPath':True}
 
 
+def test_linked_asset_names_override_task_main_automation_and_merged_tab_names():
+    helpers = (_js_between('  function _termSessionDisplay(s)', '  function _termSessionRequests(')
+               + _js_between('  function _termSessionPillHtml(s, index)', '  function _termTaskPlaceholderHtml('))
+    result = _run_node(r'''
+const termDeadSessions=new Set(),termCurrentSession='primary',termCurrentWorkspaceId='demo';
+const _termActiveWorkspaceId=()=> 'demo',_termSessionRecentMeta=()=>null,_termSessionIsWorking=()=>false;
+const _termSessionContext=()=>({label:'Requests'}),_termSessionSummary=()=>'',_termSessionTooltipPayload=()=>'';
+const _termSessionVisual=()=>({kind:'terminal',badge:'terminal',icon:'💻'}),_termAutomationRelaunchHtml=()=>'';
+const _termTaskStatusLabel=()=> 'In progress',_termScopeColor=()=> '#123abc',_termSessionAssociationHtml=()=> 'Worktree';
+const termSessEsc=value=>String(value).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('"','&quot;');
+let title='Analysis <review>.ipynb';
+window.LabObjectives={terminalAsset:()=>title?{title,icon:'▦'}:null,
+ terminalMain:s=>s.fixed?{kind:'workflow',label:'Main',icon:'🏠'}:null,
+ taskForTerminal:s=>s.fixed||s.worktree?null:{title:'Owning task',primary:true,status:'in_progress'},
+ terminalTaskNameHtml:()=>'<b>Owning task</b>'};
+''' + helpers + r'''
+const session={name:'primary',logical_name:'codex-1',label:'Saved agent'},before=JSON.stringify(session);
+const variants=[session,{...session,fixed:true},
+ {...session,logical_name:'automation-'+ 'a'.repeat(32)+'-1'},
+ {name:'merged',display_main:{identity:session,color:'#123abc',parent:'parent'}},
+ {...session,label:null,worktree:true,linked_scope:{root:'/tree',worktree:'/tree'}}];
+const linked=variants.map((s,i)=>_termSessionPillHtml(s,i));
+title='Renamed analysis';const renamed=_termSessionPillHtml(session,0),name=_termSessionDisplay(session);
+title='';const unlinked=_termSessionPillHtml(session,0),savedName=_termSessionDisplay(session);
+const direct=_termSessionDisplay({...session,linked_file:{path:'docs/direct.md',activate:true}});
+const legacy=_termSessionDisplay({...session,linked_file:{path:'docs/legacy.md',activate:false}});
+console.log(JSON.stringify({linked,renamed,name,unlinked,savedName,direct,legacy,preserved:JSON.stringify(session)===before}));
+''')
+    assert all('>Analysis &lt;review>.ipynb</span>' in html for html in result['linked'])
+    assert result['name'] == 'Renamed analysis' and '>Renamed analysis</span>' in result['renamed']
+    assert '<b>Owning task</b>' in result['unlinked'] and result['savedName'] == 'Saved agent'
+    assert result['direct'] == 'direct.md' and result['legacy'] == 'Saved agent'
+    assert result['preserved']
+
+
 def test_terminal_hover_shows_only_latest_request_even_with_an_objective() -> None:
     title_helpers = _js_between(
         "function _termSessionDisplay(s)",
