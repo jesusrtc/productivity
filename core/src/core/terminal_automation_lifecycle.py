@@ -124,7 +124,8 @@ def connection_kind(command: str) -> str:
 
 
 def status(run: dict, live: dict | None, listing_known: bool,
-           snapshot: dict[int, dict] | None) -> dict:
+           snapshot: dict[int, dict] | None, *, now: float | None = None) -> dict:
+    now = time.time() if now is None else now
     kind = connection_kind(run["command"])
     result = {"state": "unknown", "kind": kind, "can_relaunch": False, "can_restart": False,
               "launch_id": run["launch_id"], "reason": "Status unavailable"}
@@ -134,7 +135,7 @@ def status(run: dict, live: dict | None, listing_known: bool,
         return {**result, "reason": "Terminal has multiple panes or windows"}
     # Explicit merged-tab renewal can rerun an owned running command. Keep
     # the launch cooldown and single-pane ownership guard for that action too.
-    result["can_restart"] = time.time() - run.get("updated_at", 0) >= 2
+    result["can_restart"] = now - run.get("updated_at", 0) >= 2
     stopped = live is None or live.get("pane_dead") is True
     if live and not stopped:
         if snapshot is None:
@@ -157,7 +158,7 @@ def status(run: dict, live: dict | None, listing_known: bool,
             return {**result, "state": "running", "reason": "Running"}
     # A shell may be observed just before the new program forks. Never offer
     # recovery during that initial window or after a concurrently accepted click.
-    if time.time() - run.get("updated_at", 0) < 2:
+    if now - run.get("updated_at", 0) < 2:
         return {**result, "state": "starting", "reason": "Starting"}
     if run.get("health_command"):
         try:

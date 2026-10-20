@@ -98,10 +98,13 @@ still checks the live session incarnation before activation or green review.
 The destination tab scrolls into view and pulses; red requests remain visible.
 
 The **bell and switch** beside **Lid Awake** opens history in the same
-floating stack. It lists the latest observed red/green alert per running terminal,
-including reviewed and superseded alerts, by creation time descending. Start
+floating stack. It lists the latest observed input request, finish or yellow
+automation check-in per running terminal, including reviewed and superseded alerts,
+by creation time descending. Start
 with 20 and use **Load more** for another 20. The latest alert is retained in
-the session-local `@lab_notification` option and travels in the existing batched
+the session-local `@lab_notification` option; progress reminders use
+`@lab_progress_alert` and automation check-ins use `@lab_automation_alert`.
+All travel in the existing batched
 listing, including when the browser was closed. Browser storage also retains
 observed alerts from older CLI versions. Alerts are deduplicated across shared
 views and tied to the exact tmux incarnation. Recreated or stopped sessions do not
@@ -130,6 +133,26 @@ and alert ID. They cannot mute another terminal, a later progress interval, an
 actual input request or a finish. History labels the choice and clears its active
 marker. Legacy permanent dismissals are ignored, so they no longer hide reminders
 after reload. Agents can use the same control through `lab ui inspect` and `lab ui click`.
+
+SSH and nested tmux automation groups also receive recurring yellow **Check
+automation status** cards, including ordinary shell terminals without a local
+LLM marker. Scripts/Make targets that start SSH, tmux or mosh are detected from
+their owned process tree. Local-only automations do not alert. Only the closest
+automation main receives a card; child connections are monitored together, and
+an existing owned parent used for Launch automation receives it instead of its children.
+Groups whose main ownership cannot be resolved are skipped instead of notifying a child.
+The first check-in is due 30 minutes after the group's latest launch or renewal,
+then every 30 minutes while at least one remote connection is known running.
+The shared background supervisor checks once a minute, with its existing two-minute
+startup/wake grace, and saves the latest reminder on the main tmux incarnation.
+
+Clicking a yellow card navigates to the exact main without changing its reported
+status. **Snooze 30 min** lasts the full interval across recurring check-ins;
+a different launch generation starts fresh. Red input requests take priority.
+Known ended connections resolve the card, retaining history; unknown reads do
+not imply health or completion. No recipe, health command or new SSH probe runs
+as part of these checks. `GET /api/term/progress` reports the interval and last
+monitor counts; its existing check endpoint runs both progress and automation checks.
 
 The control has no visible label and exposes **Show all notifications** to
 assistive technology. The terminal icon precedes workspace and Objective names

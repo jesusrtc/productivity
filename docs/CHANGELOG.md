@@ -5,6 +5,16 @@ guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 
 ## 2026-10-20
 
+### Check remote automation mains every 30 minutes
+
+- Monitor existing SSH/tmux connections and remote processes launched by
+  automation scripts. Show a recurring yellow **Check automation status** card
+  on the group's main terminal only; local-only automations do not alert.
+- Start a fresh window on launch/renewal, retain reminders across backend/browser
+  restarts and resolve known ended connections. Unknown reads never imply success.
+- Keep exact main navigation, history, actual agent status and snooze-only controls.
+  A full 30-minute snooze spans recurring check-ins for the same launch.
+
 ### Snooze progress reminders without permanent dismissal
 
 - Keep **Snooze 30 min** as the only progress-reminder control. An unresolved

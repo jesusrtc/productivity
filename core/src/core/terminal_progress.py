@@ -12,7 +12,7 @@ import time
 
 from fastapi import APIRouter, HTTPException, Request
 
-from core import auth, terminal_llm
+from core import auth, terminal_llm, automation_reminders
 from core.routes import term, terminal_cleanup
 from lab import terminal_progress as progress, terminal_status
 
@@ -126,7 +126,11 @@ class Supervisor:
                 except (OSError, RuntimeError, subprocess.TimeoutExpired):
                     warnings.append(row['name'])
                     log.warning('Progress check failed for %s', row['name'], exc_info=True)
+            automation = (automation_reminders.check(roots, rows, now=now) if now >= self.grace_until
+                          else {'monitored': 0, 'changed': 0, 'warnings': []})
+            warnings.extend(automation['warnings'])
             self.last_result = {'checked_at': now, 'monitored': monitored, 'new_alerts': changed,
+                                'automation_monitored': automation['monitored'], 'automation_reminders': automation['changed'],
                                 'grace_until': self.grace_until, 'warnings': warnings}
             return self.last_result
 
@@ -137,7 +141,7 @@ def status(request: Request):
     supervisor = getattr(request.app.state, 'terminal_progress', None)
     return {'enabled': os.environ.get('LAB_TERMINAL_PROGRESS') != '0', 'interval_seconds': INTERVAL,
             'remind_after_seconds': progress.REMIND_SECONDS, 'stale_after_seconds': progress.STALE_SECONDS,
-            'resume_grace_seconds': RESUME_GRACE,
+            'resume_grace_seconds': RESUME_GRACE, 'automation_check_seconds': automation_reminders.PERIOD,
             'last_run': supervisor.last_result if supervisor else {}}
 
 

@@ -894,3 +894,5 @@
 - [Floating alerts stay at the top and progress reminders can be silenced](floating-alerts-top-progress-mutes.md) — top-right active alerts, bottom-right history, per-reminder dismiss and 30-minute snooze without changing agent status.
 
 - [Progress reminders support snooze only](progress-reminders-snooze-only.md) — only Snooze 30 min; remove permanent dismissal and ignore legacy dismissals while preserving timed snoozes and agent status.
+
+- [Remote automation check-ins belong to the main](remote-automation-main-checkins.md) — yellow 30-minute SSH/tmux check-ins on the closest main only, owned liveness, retained history and full snooze without inventing remote health or agent status.

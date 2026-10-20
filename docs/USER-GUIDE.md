@@ -463,6 +463,21 @@ in the same browser profile. The reminder remains in searchable history, labeled
 **Snoozed until**. Permanent dismissal is no longer supported; previously saved
 dismissals no longer hide reminders after reload.
 
+SSH, nested tmux and detected remote-connection processes in an automation get
+a yellow **Check automation status** reminder every 30 minutes. Only the group's
+main terminal receives it, including when remote steps run in child terminals.
+The first reminder is due 30 minutes after the group's latest launch or renewal;
+the background supervisor checks once a minute and retains reminders with the
+main session, even while the browser is closed. Startup and wake grace still apply.
+Local-only automation processes do not produce these check-ins.
+
+Click the card to inspect that main terminal, or use **Snooze 30 min** for a full
+quiet period, including across recurring check-ins. A new launch starts a fresh
+reminder window. Known ended connections resolve the card; unknown process reads
+preserve the existing reminder. This checks local connection/process liveness,
+not the remote application's health or completion. It never runs remote probes,
+replays a command, or changes the terminal's actual agent-reported status.
+
 Copilot started through `lab agents run copilot` loads Lab's bundled progress
 plugin for that launch. After a tool finishes, an overdue 20-minute checkpoint
 adds a reminder to the agent's context. A single blocking tool can delay this
@@ -585,7 +600,7 @@ status changes; clicking one opens its owning workspace, Objective and exact
 terminal without dismissing the request. Submitting a response turns the
 terminal yellow and removes the red message immediately.
 
-Clicking either color follows the same task-and-asset navigation as clicking the
+Clicking a card follows the same task-and-asset navigation as clicking the
 terminal tab: select its task/subtask, then open its linked asset, or its task
 details when no asset is linked. This includes asset-only links, additional task
 terminals and children that inherit a parent's task. **Task assets** stay
@@ -613,8 +628,9 @@ then green. No desktop notifications or separate popup windows are sent.
 
 Use the **bell and switch** next to **Lid Awake** to show all notifications.
 The control has no visible text; its tooltip and accessible name are **Show all
-notifications**. It shows each running terminal's latest red or green notification,
-including reviewed finishes and alerts replaced by working status, newest
+notifications**. It shows each running terminal's latest input request, finish or
+yellow automation check-in, including reviewed finishes and alerts replaced by
+working status, newest
 creation first across all workspaces and vaults. The first 20 appear initially;
 **Load more** reveals 20 more. Shared terminal views count once. Past alerts
 are labeled **History** and show their creation time. The latest alert is saved

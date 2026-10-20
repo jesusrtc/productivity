@@ -23,7 +23,10 @@
   }
   function muted(key, report) {
     const mute = report.kind && mutes[key];
-    return mute?.report_id === report.id && mute.until > Date.now() / 1000 ? mute : null;
+    // Recurring automation check-ins share one launch source. A new cycle
+    // cannot interrupt a full 30-minute snooze; a new launch can still alert.
+    return mute && (mute.report_id === report.id || report.kind === 'automation' && mute.source === report.source)
+      && mute.until > Date.now() / 1000 ? mute : null;
   }
   function scheduleWake() {
     clearTimeout(wakeTimer);
@@ -37,7 +40,8 @@
     const item = items({history:true}).find(row => row.key === key && row.report_id === reportId);
     if (!item?.kind || !item.active) return false;
     reloadMutes();
-    mutes[key] = {report_id:reportId, until:Date.now() / 1000 + 30 * 60, updated_at:Date.now() / 1000};
+    mutes[key] = {report_id:reportId, ...(item.kind === 'automation' ? {source:item.source} : {}),
+      until:Date.now() / 1000 + 30 * 60, updated_at:Date.now() / 1000};
     mutes = Object.fromEntries(Object.entries(mutes).sort((a, b) => b[1].updated_at - a[1].updated_at).slice(0, 2000));
     try { localStorage.setItem(muteStorageKey, JSON.stringify(mutes)); } catch {}
     render();
@@ -51,28 +55,29 @@
       const separator = scope.indexOf('::');
       for (const session of sessions) {
         const details = completion.details(session);
-        const report = history ? details.notification : details.progress_alert || details.report;
+        const direct = ['attention', 'finished'].includes(details.indicator) ? details.report : null;
+        const report = history ? details.notification : details.progress_alert || direct || details.automation_alert || details.report;
         if (!report || !['attention', 'finished'].includes(report.state)
-            || !history && !details.progress_alert && !['attention', 'finished'].includes(details.indicator)) continue;
+            || !history && !details.progress_alert && !details.automation_alert && !direct) continue;
         const key = completion.key(session);
         const mute = muted(key, report);
         if (!history && mute) continue;
         const owner = {workspace_id:session.workspace_id || scope.slice(separator + 2),
           vault:session.vault || scope.slice(0, separator)};
-        const active = !mute && (details.progress_alert?.id === report.id
+        const active = !mute && (details.progress_alert?.id === report.id || details.automation_alert?.id === report.id
           || details.indicator === report.state && details.report?.id === report.id);
         const age = Math.max(30, Math.floor((Date.now() / 1000 - (session.terminal_progress?.since || 0)) / 60));
         const message = active && report.kind === 'stale'
           ? `WIP · No progress update for ${age} min · Last report: ${session.terminal_progress.message || 'No report yet'}` : report.message;
-        const item = {key, session, owner, report_id:report.id, state:report.state, kind:report.kind,
+        const item = {key, session, owner, report_id:report.id, state:report.state, kind:report.kind, source:report.source,
           created_at:report.updated_at, revision:report.revision,
           active, mute, message:message || (report.state === 'attention' ? 'Needs your input' : 'Work finished')};
         // Prefer the native row over another workspace's shared view.
         if (!unique.has(key) || scope === `${owner.vault}::${owner.workspace_id}`) unique.set(key, item);
       }
     }
-    return [...unique.values()].sort((a, b) => (history ? 0
-      : (a.state === 'attention' ? 0 : 1) - (b.state === 'attention' ? 0 : 1))
+    const priority = row => row.kind === 'automation' ? 1 : row.state === 'attention' ? 0 : 2;
+    return [...unique.values()].sort((a, b) => (history ? 0 : priority(a) - priority(b))
       || (b.created_at || 0) - (a.created_at || 0) || b.revision - a.revision);
   }
 
@@ -111,7 +116,7 @@
       row.session.notification_context?.objective, row.session.label || row.session.logical_name || row.session.name].filter(Boolean).join(' / ');
   }
   function stateFor(row) {
-    return (row.kind ? row.kind === 'stale' ? 'Progress overdue' : 'Status not closed'
+    return (row.kind ? row.kind === 'automation' ? 'Check automation status' : row.kind === 'stale' ? 'Progress overdue' : 'Status not closed'
       : row.state === 'attention' ? 'Needs input' : 'Finished') + (historyOpen && !row.active ? ' · History' : '')
       + (row.mute ? ' · Snoozed until ' + new Date(row.mute.until * 1000).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}) : '');
   }
@@ -170,8 +175,8 @@
       const {label, status:state, date} = row;
       const time = historyOpen && Number.isFinite(date.getTime())
         ? `<time class="term-notification-time" datetime="${date.toISOString()}">${escape(date.toLocaleString())}</time>` : '';
-      const card = `<button type="button" class="term-notification ${row.state}${row.active ? ' active-alert' : ''}" data-active="${row.active}" data-key="${escape(row.key)}" data-report-id="${escape(row.report_id)}"${opening.has(row.key) ? ' disabled' : ''} title="${escape(label + ' · ' + state + ' · ' + row.message)}"><span class="term-notification-icon" aria-hidden="true">${row.state === 'attention' ? '!' : '✓'}</span><span class="term-notification-copy"><span class="term-notification-heading"><span class="term-notification-terminal-icon" aria-hidden="true">${icon}</span><span class="term-notification-context">${escape(label + ' · ' + state)}</span></span><span class="term-notification-message">${escape(row.message)}</span>${time}</span><span aria-hidden="true">↗</span></button>`;
-      return row.kind && row.active ? `<div class="term-notification-group">${card}<div class="term-notification-actions"><button type="button" data-notification-snooze aria-label="Snooze progress alert for 30 minutes">Snooze 30 min</button></div></div>` : card;
+      const card = `<button type="button" class="term-notification ${row.state}${row.kind === 'automation' ? ' automation-reminder' : ''}${row.active ? ' active-alert' : ''}" data-active="${row.active}" data-key="${escape(row.key)}" data-report-id="${escape(row.report_id)}"${opening.has(row.key) ? ' disabled' : ''} title="${escape(label + ' · ' + state + ' · ' + row.message)}"><span class="term-notification-icon" aria-hidden="true">${row.kind === 'automation' ? '?' : row.state === 'attention' ? '!' : '✓'}</span><span class="term-notification-copy"><span class="term-notification-heading"><span class="term-notification-terminal-icon" aria-hidden="true">${icon}</span><span class="term-notification-context">${escape(label + ' · ' + state)}</span></span><span class="term-notification-message">${escape(row.message)}</span>${time}</span><span aria-hidden="true">↗</span></button>`;
+      return row.kind && row.active ? `<div class="term-notification-group">${card}<div class="term-notification-actions"><button type="button" data-notification-snooze aria-label="Snooze reminder for 30 minutes">Snooze 30 min</button></div></div>` : card;
     }).join('');
     if (historyOpen && !rows.length) html += '<p class="term-notification-empty">' + (all.length ? 'No matching notifications.' : 'No notifications yet.') + '</p>';
     if (historyOpen && filtered.length > rows.length) html += '<button type="button" class="term-notification-more" data-notification-more>Load more</button>';

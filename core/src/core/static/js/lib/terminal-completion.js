@@ -49,7 +49,7 @@
   function latestNotification(session, entry) {
     // The session carries alerts emitted while this browser was closed. The
     // browser fallback also supports reports from older CLI installations.
-    return [session.terminal_progress?.alert, session.terminal_notification, entry?.notification, entry?.report]
+    return [session.terminal_automation_alert, session.terminal_progress?.alert, session.terminal_notification, entry?.notification, entry?.report]
       .filter(report => report?.version === 1 && ['attention', 'finished'].includes(report.state)
         && typeof report.id === 'string' && Number.isSafeInteger(report.revision))
       .sort((a, b) => b.revision - a.revision)[0] || null;
@@ -62,7 +62,9 @@
     const progress = session.terminal_progress?.alert;
     const progressAlert = progress?.active && (!report || report.id === session.terminal_status?.id)
       && (progress.source === report?.id || progress.source?.startsWith('turn:')) ? progress : null;
-    return {report:report || null, notification, progress_alert:progressAlert, pending:pending || null, llm_controlled:!!isLLM(session),
+    const automation = session.terminal_automation_alert;
+    const automationAlert = automation?.kind === 'automation' && automation.active ? automation : null;
+    return {report:report || null, notification, progress_alert:progressAlert, automation_alert:automationAlert, pending:pending || null, llm_controlled:!!isLLM(session),
       indicator:pending ? 'working' : report && !reviewed ? report.state : null,
       reviewed, reviewed_at:reviewed ? entry.seen_at || null : null,
       reason:pending ? 'user-submission' : !report ? 'no-report' : reviewed ? 'reviewed-by-click' : 'agent-report'};

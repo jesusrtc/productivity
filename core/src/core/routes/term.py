@@ -1815,7 +1815,7 @@ def _tmux_list(
                         + "|#{pane_id}|#{pane_dead}|#{window_panes}|#{window_activity}"
                         + "|#{pane_width}|#{pane_height}"
                         + "|#{@lab_status}|#{session_id}|#{@lab_llm}|#{@lab_notification}"
-                        + "|#{@lab_progress_hook}|#{@lab_progress_alert}"
+                        + "|#{@lab_progress_hook}|#{@lab_progress_alert}|#{@lab_automation_alert}"
                     ),
                 ),
                 capture_output=True,
@@ -1889,9 +1889,14 @@ def _tmux_list(
             row['terminal_progress'] = terminal_progress.view(row['terminal_status'],
                 terminal_progress.decode(hook), terminal_progress.decode(alert),
                 enabled=row['llm_controlled'] is not False)
+            from core import automation_reminders
+            automation_token = parts[offset + 9] if len(parts) > offset + 9 else ''
+            row['terminal_automation_alert'] = automation_reminders.decode(automation_token)
+            if row['terminal_automation_alert'] and row['pane_dead']:
+                row['terminal_automation_alert']['active'] = False
             if progress:
                 row.update(_progress_status_token=parts[offset + 3] if len(parts) > offset + 3 else '',
-                           _progress_hook_token=hook, _progress_alert_token=alert)
+                           _progress_hook_token=hook, _progress_alert_token=alert, _automation_alert_token=automation_token)
         lab_rows_by_socket[socket_name] = lab_count
 
     empty_draining = {

@@ -115,3 +115,48 @@ assert(N.items()[0].state==='finished'&&!N.snooze(key,'event-60'),'finishes stil
 console.log(JSON.stringify({passed:true}));
 ''')
     assert result['passed']
+
+
+def test_remote_automation_checkin_is_yellow_snoozable_and_keeps_actual_status_in_chrome(tmp_path):
+    setup = r'''
+const assert=(ok,message)=>{if(!ok)throw Error(message)};
+let now=2000000;Date.now=()=>now;
+const main={name:'remote-main',logical_name:'Remote main',workspace_id:'demo',vault:'owner',created:1,
+ tmux_socket:'owned',tmux_id:'$1',llm_controlled:false,terminal_status:null,
+ notification_context:{workspace:'Science',objective:'Remote automation'},
+ terminal_automation_alert:{version:1,state:'attention',kind:'automation',active:true,source:'automation:launch',
+ id:'check-1',revision:10,updated_at:1900,message:'30-minute check-in · Check this automation’s status in its main terminal.'}};
+const child={...main,name:'remote-child',tmux_id:'$2',terminal_automation_alert:null};
+const red={...child,name:'agent',tmux_id:'$3',terminal_status:{version:1,state:'attention',id:'input',revision:11,updated_at:1901,message:'Choose a branch'}};
+const snapshot={'owner::demo':[main,child,red],'borrower::demo':[main]};
+'''
+    checks = r'''
+(async()=>{try{
+ const N=LabTerminalNotifications,C=LabTerminalCompletion,host=document.getElementById('termNotifications');
+ let opened;N.configure({open:async item=>{opened=item.session;return item.session}});
+ document.getElementById('toolbar').innerHTML=N.buttonHtml();N.update(snapshot);
+ assert(N.items().length===2&&N.items()[0].session===red,'real input requests precede one deduplicated main reminder');
+ const yellow=()=>host.querySelector('.automation-reminder');
+ assert(yellow()?.textContent.includes('Check automation status')&&getComputedStyle(yellow()).backgroundColor==='rgb(106, 85, 23)','check-in has a yellow card and distinct label');
+ assert(!C.status(main)&&main.terminal_status===null,'check-in does not invent a terminal status');
+ const key=C.key(main);assert(await N.open(key,'check-1')&&opened===main&&N.items().length===2,'click opens exact main without reviewing or completing it');
+ yellow().closest('.term-notification-group').querySelector('[data-notification-snooze]').click();
+ assert(!yellow()&&N.items().length===1,'only the reminder is snoozed');
+ now+=5*60*1000;main.terminal_automation_alert={...main.terminal_automation_alert,id:'check-2',revision:12,updated_at:now/1000};N.update(snapshot);
+ assert(!yellow(),'a recurring check-in cannot interrupt the full snooze');
+ N.showHistory(true);assert(yellow().textContent.includes('Snoozed until')&&!yellow().classList.contains('active-alert'),'snoozed yellow reminder stays in searchable history');
+ N.showHistory(false);now+=25*60*1000;N.render();
+ assert(yellow()?.dataset.reportId==='check-2'&&!N.snooze(key,'check-1'),'snooze expiry shows the latest check-in and stale actions are rejected');
+ assert(N.snooze(key,'check-2'),'returned check-in can be snoozed again');
+ main.terminal_automation_alert={...main.terminal_automation_alert,id:'check-3',revision:13,source:'automation:renewed'};N.update(snapshot);
+ assert(yellow(),'a new automation launch does not inherit the old generation snooze');
+ main.terminal_automation_alert.active=false;N.update(snapshot);
+ assert(!yellow()&&!C.status(main),'known ended connections resolve the card without changing terminal status');
+ N.showHistory(true);assert(yellow()&&!yellow().classList.contains('active-alert'),'resolved reminder remains in history');N.showHistory(false);
+ main.terminal_automation_alert.active=true;N.update({'owner::demo':[main,child]});
+ document.body.dataset.result='pass';
+}catch(error){document.body.dataset.result='fail';document.body.append(String(error.stack||error));}})();
+'''
+    css = (ROOT / 'core/src/core/static/css/lab-shell.css').read_text()
+    html = '<!doctype html><meta charset="utf-8"><style>:root{--bg-primary:#0d1117;--bg-secondary:#161b22;--bg-tertiary:#21262d;--border:#30363d;--text-primary:#c9d1d9;--text-secondary:#8b949e;--accent:#58a6ff;}body{background:#0d1117;color:#c9d1d9}</style><style>' + css + '</style><body><nav id="toolbar"></nav><div id="termNotifications" class="term-notifications"></div><script>' + setup + MODULE + NOTIFICATIONS + checks + '</script>'
+    _check_project_html(tmp_path, html, focused=True, screenshot=True)
