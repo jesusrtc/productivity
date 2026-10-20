@@ -135,7 +135,7 @@ const termUpdateTabGroup=()=>{groupCollapsed=false;termRenderSessionList();};
  await W.poll(true);
  const host=document.getElementById('termNotifications');
  assert(!host.closest('.term-panel')&&getComputedStyle(host).position==='fixed','cards float independently of terminal panel');
- assert(Math.abs(innerHeight-host.getBoundingClientRect().bottom-12)<1&&Math.abs(innerWidth-host.getBoundingClientRect().right-12)<1,'stack sits at the bottom right');
+ assert(Math.abs(host.getBoundingClientRect().top-96)<1&&Math.abs(innerWidth-host.getBoundingClientRect().right-12)<1,'floating alerts sit at the top right');
  document.body.classList.add('term-open');
  const consoleHeight=document.querySelector('.term-stage').getBoundingClientRect().height;
  host.hidden=true;

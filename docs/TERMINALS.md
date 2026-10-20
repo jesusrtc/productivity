@@ -108,8 +108,9 @@ views and tied to the exact tmux incarnation. Recreated or stopped sessions do n
 inherit another session's history. Reports replaced before history retention
 was installed are unavailable.
 
-The stack and center are anchored to the bottom right without reserving console
-space. The center's search field stays at the top while results scroll. Search
+Floating alerts appear at the top right below navigation; the searchable history
+center opens at the bottom right. Neither reserves console space.
+The center's search field stays at the top while results scroll. Search
 matches all entered keywords across workspace, Objective, terminal, vault,
 status, creation time and message, ignoring case and diacritics. It filters the
 complete history before the 20-item pagination, including reviewed alerts.
@@ -118,6 +119,16 @@ The result count and no-match message update as you type. **Clear search** reset
 the page and keeps focus in the field. Closing clears the filter and restores
 the unfiltered active-alert stack. Use `lab ui inspect` and `lab ui fill` on the
 **Search notifications** field to search through the same UI.
+
+Active **Progress overdue** and **Status not closed** reminders have **Dismiss**
+and **Snooze 30 min** controls. Dismiss hides only that reminder for its current
+unreported interval. Snooze brings it back after 30 minutes if it remains active,
+without requiring a refresh. Both retain history and the agent's actual report,
+working dot and overdue hover details. Choices survive reloads and sync between
+windows in the same browser profile, scoped to the exact terminal incarnation
+and alert ID. They cannot mute another terminal, a later progress interval, an
+actual input request or a finish. History labels the choice and clears its active
+marker. Agents can use the same controls through `lab ui inspect` and `lab ui click`.
 
 The control has no visible label and exposes **Show all notifications** to
 assistive technology. The terminal icon precedes workspace and Objective names
@@ -237,7 +248,7 @@ task terminals use 💻. A single centered status dot
 sits between icon and name; location dots and Home/main badges are omitted.
 Agent-reported status uses steady yellow for working, pulsing red
 for attention and blinking green for finished; task-status dots remain omitted.
-Floating cards at the bottom right show red input requests until status changes
+Floating cards at the top right show red input requests until status changes
 and green finished messages until reviewed by click or replaced by a newer status.
 Clicking a message opens the owning workspace, Objective and exact terminal,
 scrolls its tab into view and pulses it three times (a steady highlight with

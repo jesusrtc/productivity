@@ -455,6 +455,14 @@ replaced. Opening its card keeps the bell switch on and never clears a WIP.
 Finished and attention reports are excluded, as are terminals marked with
 `lab terminal llm --off`. Startup and wake/resume receive two minutes of grace.
 
+Progress reminder cards offer **Snooze 30 min** and **Dismiss**. Snooze hides
+that reminder for 30 minutes, then shows it again if the agent still has not
+reported. Dismiss hides it for the current unreported interval; a future
+reporting interval can alert again. These choices silence the card without
+recording progress or changing the terminal's working status. They survive
+reloads and sync between Lab windows in the same browser profile. The reminder
+remains in searchable history, labeled **Snoozed until** or **Dismissed**.
+
 Copilot started through `lab agents run copilot` loads Lab's bundled progress
 plugin for that launch. After a tool finishes, an overdue 20-minute checkpoint
 adds a reminder to the agent's context. A single blocking tool can delay this
@@ -569,7 +577,7 @@ reviews its finished terminals and cannot clear working or attention.
 Status does not complete tasks or checklist requirements. If an agent cannot
 report, Lab retains its last reported state rather than inventing a finish.
 
-Floating notification cards appear at the bottom right, above the screen edge,
+Floating notification cards appear at the top right, below the navigation bars,
 for terminals across workspaces and vaults. They overlay the interface without
 resizing the console and remain visible when the terminal panel is closed.
 Red **Needs input** cards come first and remain until the terminal's
@@ -614,9 +622,10 @@ with its terminal session, including when the browser is closed. Browser storage
 also retains observed alerts from older CLI versions. Alerts already replaced
 before this feature was installed cannot be recovered.
 
-The notification center has a **Search notifications** field at the top. Type
-keywords to filter the full history by workspace, Objective, terminal, vault,
-status or message. Every keyword must match; case and accents are ignored.
+The notification center opens at the bottom right. Its **Search notifications**
+field at the top filters the full history by workspace, Objective, terminal,
+vault, status or message as you type. Every keyword must match; case and accents
+are ignored.
 Search includes older entries beyond the first page, and **Load more** pages
 through the matching results. The field stays visible while you scroll and
 keeps your typing position during background updates and card reviews.

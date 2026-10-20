@@ -890,3 +890,5 @@
 - [Tab drag previews slide neighbours](tab-drag-neighbours-slide.md) — Chrome-like displacement for workspace and terminal tabs, smooth reversals, visual-only hover, cancellation and reduced motion.
 
 - [Notification center searches at the bottom](notification-center-searches-at-bottom.md) — bottom-right overlay, sticky keyword search across full history, stable input/caret and unfiltered active alerts on close.
+
+- [Floating alerts stay at the top and progress reminders can be silenced](floating-alerts-top-progress-mutes.md) — top-right active alerts, bottom-right history, per-reminder dismiss and 30-minute snooze without changing agent status.

@@ -3,9 +3,46 @@
   let scopes = {}, bridge;
   const pageSize = 20;
   let historyOpen = false, visibleCount = pageSize, searchQuery = '';
+  const muteStorageKey = 'labTerminalNotificationMutes-v1';
+  let mutes = {}, wakeTimer;
   const opening = new Set();
   const escape = value => String(value || '').replace(/[&<>"']/g,
     ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+
+  function reloadMutes() {
+    mutes = {};
+    try {
+      const value = JSON.parse(localStorage.getItem(muteStorageKey) || '{}');
+      if (value && typeof value === 'object' && !Array.isArray(value)) {
+        for (const [key, mute] of Object.entries(value)) {
+          if (mute && typeof mute.report_id === 'string' &&
+              (mute.until === null || Number.isFinite(mute.until) && mute.until > 0)) mutes[key] = mute;
+        }
+      }
+    } catch {}
+  }
+  function muted(key, report) {
+    const mute = report.kind && mutes[key];
+    return mute?.report_id === report.id && (mute.until === null || mute.until > Date.now() / 1000) ? mute : null;
+  }
+  function scheduleWake() {
+    clearTimeout(wakeTimer);
+    const now = Date.now() / 1000;
+    const times = Object.values(mutes).map(mute => mute.until).filter(until => until > now);
+    if (times.length) wakeTimer = setTimeout(render, Math.min(2147483647, Math.ceil(Math.min(...times) * 1000 - Date.now())));
+  }
+  function muteAlert(key, reportId, until) {
+    // Match the displayed report and incarnation; an old control cannot mute
+    // a replacement alert or alter the agent's working/attention/finished state.
+    const item = items({history:true}).find(row => row.key === key && row.report_id === reportId);
+    if (!item?.kind || !item.active) return false;
+    reloadMutes();
+    mutes[key] = {report_id:reportId, until, updated_at:Date.now() / 1000};
+    mutes = Object.fromEntries(Object.entries(mutes).sort((a, b) => b[1].updated_at - a[1].updated_at).slice(0, 2000));
+    try { localStorage.setItem(muteStorageKey, JSON.stringify(mutes)); } catch {}
+    render();
+    return true;
+  }
 
   function items({history = false} = {}) {
     const completion = window.LabTerminalCompletion, unique = new Map();
@@ -18,16 +55,18 @@
         if (!report || !['attention', 'finished'].includes(report.state)
             || !history && !details.progress_alert && !['attention', 'finished'].includes(details.indicator)) continue;
         const key = completion.key(session);
+        const mute = muted(key, report);
+        if (!history && mute) continue;
         const owner = {workspace_id:session.workspace_id || scope.slice(separator + 2),
           vault:session.vault || scope.slice(0, separator)};
-        const active = details.progress_alert?.id === report.id
-          || details.indicator === report.state && details.report?.id === report.id;
+        const active = !mute && (details.progress_alert?.id === report.id
+          || details.indicator === report.state && details.report?.id === report.id);
         const age = Math.max(30, Math.floor((Date.now() / 1000 - (session.terminal_progress?.since || 0)) / 60));
         const message = active && report.kind === 'stale'
           ? `WIP · No progress update for ${age} min · Last report: ${session.terminal_progress.message || 'No report yet'}` : report.message;
         const item = {key, session, owner, report_id:report.id, state:report.state, kind:report.kind,
           created_at:report.updated_at, revision:report.revision,
-          active, message:message || (report.state === 'attention' ? 'Needs your input' : 'Work finished')};
+          active, mute, message:message || (report.state === 'attention' ? 'Needs your input' : 'Work finished')};
         // Prefer the native row over another workspace's shared view.
         if (!unique.has(key) || scope === `${owner.vault}::${owner.workspace_id}`) unique.set(key, item);
       }
@@ -73,7 +112,9 @@
   }
   function stateFor(row) {
     return (row.kind ? row.kind === 'stale' ? 'Progress overdue' : 'Status not closed'
-      : row.state === 'attention' ? 'Needs input' : 'Finished') + (historyOpen && !row.active ? ' · History' : '');
+      : row.state === 'attention' ? 'Needs input' : 'Finished') + (historyOpen && !row.active ? ' · History' : '')
+      + (row.mute ? row.mute.until === null ? ' · Dismissed'
+        : ' · Snoozed until ' + new Date(row.mute.until * 1000).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}) : '');
   }
   const normalize = value => String(value || '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
   function setSearch(value) {
@@ -84,6 +125,7 @@
   }
 
   function render() {
+    scheduleWake();
     document.querySelectorAll?.('[data-terminal-notification-center]').forEach(button => {
       button.setAttribute('aria-expanded', String(historyOpen));
       button.setAttribute('aria-checked', String(historyOpen));
@@ -129,7 +171,8 @@
       const {label, status:state, date} = row;
       const time = historyOpen && Number.isFinite(date.getTime())
         ? `<time class="term-notification-time" datetime="${date.toISOString()}">${escape(date.toLocaleString())}</time>` : '';
-      return `<button type="button" class="term-notification ${row.state}${row.active ? ' active-alert' : ''}" data-active="${row.active}" data-key="${escape(row.key)}" data-report-id="${escape(row.report_id)}"${opening.has(row.key) ? ' disabled' : ''} title="${escape(label + ' · ' + state + ' · ' + row.message)}"><span class="term-notification-icon" aria-hidden="true">${row.state === 'attention' ? '!' : '✓'}</span><span class="term-notification-copy"><span class="term-notification-heading"><span class="term-notification-terminal-icon" aria-hidden="true">${icon}</span><span class="term-notification-context">${escape(label + ' · ' + state)}</span></span><span class="term-notification-message">${escape(row.message)}</span>${time}</span><span aria-hidden="true">↗</span></button>`;
+      const card = `<button type="button" class="term-notification ${row.state}${row.active ? ' active-alert' : ''}" data-active="${row.active}" data-key="${escape(row.key)}" data-report-id="${escape(row.report_id)}"${opening.has(row.key) ? ' disabled' : ''} title="${escape(label + ' · ' + state + ' · ' + row.message)}"><span class="term-notification-icon" aria-hidden="true">${row.state === 'attention' ? '!' : '✓'}</span><span class="term-notification-copy"><span class="term-notification-heading"><span class="term-notification-terminal-icon" aria-hidden="true">${icon}</span><span class="term-notification-context">${escape(label + ' · ' + state)}</span></span><span class="term-notification-message">${escape(row.message)}</span>${time}</span><span aria-hidden="true">↗</span></button>`;
+      return row.kind && row.active ? `<div class="term-notification-group">${card}<div class="term-notification-actions"><button type="button" data-notification-dismiss aria-label="Dismiss progress alert">Dismiss</button><button type="button" data-notification-snooze aria-label="Snooze progress alert for 30 minutes">Snooze 30 min</button></div></div>` : card;
     }).join('');
     if (historyOpen && !rows.length) html += '<p class="term-notification-empty">' + (all.length ? 'No matching notifications.' : 'No notifications yet.') + '</p>';
     if (historyOpen && filtered.length > rows.length) html += '<button type="button" class="term-notification-more" data-notification-more>Load more</button>';
@@ -141,6 +184,15 @@
     host.querySelectorAll('.term-notification').forEach(button => {
       button.onclick = () => void open(button.dataset.key, button.dataset.reportId)
         .catch(error => bridge?.error(error.message || 'Could not open terminal.'));
+    });
+    host.querySelectorAll('[data-notification-dismiss], [data-notification-snooze]').forEach(button => {
+      button.onclick = () => {
+        const card = button.closest('.term-notification-group').querySelector('.term-notification');
+        muteAlert(card.dataset.key, card.dataset.reportId, button.hasAttribute('data-notification-dismiss') ? null : Date.now() / 1000 + 30 * 60);
+        // Muting a floating card removes its focused control. Keep keyboard
+        // focus in the center when open, otherwise return to the bell.
+        (host.querySelector('[data-notification-search]') || document.querySelector('[data-terminal-notification-center]'))?.focus({preventScroll:true});
+      };
     });
     host.querySelector('[data-notification-more]')?.addEventListener('click', () => {
       const previous = visibleCount; visibleCount += pageSize; render();
@@ -156,8 +208,15 @@
     document.querySelector('[data-terminal-notification-center]')?.focus();
   });
   window.addEventListener('lab-terminal-completion-change', render);
+  window.addEventListener('storage', event => {
+    if (event.key !== muteStorageKey && event.key !== null) return;
+    reloadMutes(); render();
+  });
   document.addEventListener('visibilitychange', render);
+  reloadMutes();
   window.LabTerminalNotifications = {items, open, render, buttonHtml, showHistory,
+    dismiss(key, reportId) { return muteAlert(key, reportId, null); },
+    snooze(key, reportId) { return muteAlert(key, reportId, Date.now() / 1000 + 30 * 60); },
     toggleHistory() { return showHistory(!historyOpen); },
     update(value) { scopes = value; render(); },
     configure(value) { bridge = value; render(); }};

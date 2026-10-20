@@ -2027,9 +2027,14 @@
   body.term-resizing { cursor: ew-resize !important; user-select: none; }
   body.term-resizing * { cursor: ew-resize !important; user-select: none !important; }
   .term-header { display: flex; align-items: center; gap: 6px; padding: 6px 10px; background: var(--bg-secondary); border-bottom: 1px solid var(--border); flex-shrink: 0; }
-  .term-notifications { position: fixed; bottom: max(12px, env(safe-area-inset-bottom)); right: 12px; z-index: 170; display: flex; flex-direction: column; gap: 10px; width: min(400px, calc(100vw - 24px)); max-height: min(480px, calc(100dvh - 112px)); box-sizing: border-box; padding: 4px; overflow-y: auto; pointer-events: none; }
+  .term-notifications { position: fixed; top: 96px; right: 12px; z-index: 170; display: flex; flex-direction: column; gap: 10px; width: min(400px, calc(100vw - 24px)); max-height: min(480px, calc(100dvh - 112px)); box-sizing: border-box; padding: 4px; overflow-y: auto; pointer-events: none; }
   .term-notifications[hidden] { display: none; }
-  .term-notifications.history-open { pointer-events: auto; padding: 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-secondary); box-shadow: 0 8px 28px #0006; }
+  .term-notifications.history-open { top:auto; bottom:max(12px, env(safe-area-inset-bottom)); pointer-events: auto; padding: 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-secondary); box-shadow: 0 8px 28px #0006; }
+  .term-notification-group { flex:none; min-width:0; }
+  .term-notification-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:6px; margin-top:5px; pointer-events:auto; }
+  .term-notification-actions button { padding:6px 9px; border:1px solid var(--border); border-radius:5px; background:var(--bg-secondary); color:var(--text-primary); font:inherit; font-size:12px; cursor:pointer; }
+  .term-notification-actions button:hover { border-color:var(--accent); }
+  .term-notification-actions button:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
   .term-notification-toolbar { position:sticky; top:0; z-index:1; flex:none; padding-bottom:6px; background:var(--bg-secondary); }
   .term-notification-list { display:flex; flex-direction:column; gap:10px; flex:none; min-width:0; }
   .term-notification-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 2px 2px 6px; color: var(--text-primary); font-size: 13px; }

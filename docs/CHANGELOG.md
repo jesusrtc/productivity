@@ -3,6 +3,18 @@
 User-facing changes to Lab are recorded here alongside updates to the user
 guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 
+## 2026-10-20
+
+### Restore top alerts and silence progress reminders
+
+- Return floating alerts to the top right, below navigation. The searchable
+  history center continues to open at the bottom right.
+- Add **Dismiss** and **Snooze 30 min** to progress reminders. Snooze returns an
+  unresolved reminder after 30 minutes; dismiss hides its current interval.
+- Save choices across reloads and Lab windows in the same browser profile,
+  scoped to the exact terminal and alert. Keep history, actual agent reports
+  and working status intact; future reminders and input requests remain eligible.
+
 ## 2026-10-19
 
 ### Search notifications from a bottom-anchored center
