@@ -455,13 +455,13 @@ replaced. Opening its card keeps the bell switch on and never clears a WIP.
 Finished and attention reports are excluded, as are terminals marked with
 `lab terminal llm --off`. Startup and wake/resume receive two minutes of grace.
 
-Progress reminder cards offer **Snooze 30 min** and **Dismiss**. Snooze hides
-that reminder for 30 minutes, then shows it again if the agent still has not
-reported. Dismiss hides it for the current unreported interval; a future
-reporting interval can alert again. These choices silence the card without
-recording progress or changing the terminal's working status. They survive
-reloads and sync between Lab windows in the same browser profile. The reminder
-remains in searchable history, labeled **Snoozed until** or **Dismissed**.
+Progress reminder cards offer only **Snooze 30 min**. It hides that reminder
+for 30 minutes, then shows it again if the agent still has not reported; you
+can snooze it again when it returns. Snooze does not record progress or change
+the terminal's working status. It survives reloads and syncs between Lab windows
+in the same browser profile. The reminder remains in searchable history, labeled
+**Snoozed until**. Permanent dismissal is no longer supported; previously saved
+dismissals no longer hide reminders after reload.
 
 Copilot started through `lab agents run copilot` loads Lab's bundled progress
 plugin for that launch. After a tool finishes, an overdue 20-minute checkpoint

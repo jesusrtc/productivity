@@ -120,15 +120,16 @@ the page and keeps focus in the field. Closing clears the filter and restores
 the unfiltered active-alert stack. Use `lab ui inspect` and `lab ui fill` on the
 **Search notifications** field to search through the same UI.
 
-Active **Progress overdue** and **Status not closed** reminders have **Dismiss**
-and **Snooze 30 min** controls. Dismiss hides only that reminder for its current
-unreported interval. Snooze brings it back after 30 minutes if it remains active,
-without requiring a refresh. Both retain history and the agent's actual report,
-working dot and overdue hover details. Choices survive reloads and sync between
+Active **Progress overdue** and **Status not closed** reminders offer only
+**Snooze 30 min**. It brings the reminder back after 30 minutes if it remains
+active, without requiring a refresh, and can be used again when it returns.
+Snooze retains history and the agent's actual report, working dot and overdue
+hover details. Choices survive reloads and sync between
 windows in the same browser profile, scoped to the exact terminal incarnation
 and alert ID. They cannot mute another terminal, a later progress interval, an
 actual input request or a finish. History labels the choice and clears its active
-marker. Agents can use the same controls through `lab ui inspect` and `lab ui click`.
+marker. Legacy permanent dismissals are ignored, so they no longer hide reminders
+after reload. Agents can use the same control through `lab ui inspect` and `lab ui click`.
 
 The control has no visible label and exposes **Show all notifications** to
 assistive technology. The terminal icon precedes workspace and Objective names

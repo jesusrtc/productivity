@@ -5,6 +5,13 @@ guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 
 ## 2026-10-20
 
+### Snooze progress reminders without permanent dismissal
+
+- Keep **Snooze 30 min** as the only progress-reminder control. An unresolved
+  reminder returns after 30 minutes and can be snoozed again.
+- Remove permanent dismissal and ignore previously saved dismissals. Keep
+  timed snoozes, history, agent status and exact-alert protection.
+
 ### Restore top alerts and silence progress reminders
 
 - Return floating alerts to the top right, below navigation. The searchable

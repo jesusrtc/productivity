@@ -15,15 +15,15 @@
       const value = JSON.parse(localStorage.getItem(muteStorageKey) || '{}');
       if (value && typeof value === 'object' && !Array.isArray(value)) {
         for (const [key, mute] of Object.entries(value)) {
-          if (mute && typeof mute.report_id === 'string' &&
-              (mute.until === null || Number.isFinite(mute.until) && mute.until > 0)) mutes[key] = mute;
+          // Only timed snoozes are supported; ignore legacy permanent dismissals.
+          if (mute && typeof mute.report_id === 'string' && Number.isFinite(mute.until) && mute.until > 0) mutes[key] = mute;
         }
       }
     } catch {}
   }
   function muted(key, report) {
     const mute = report.kind && mutes[key];
-    return mute?.report_id === report.id && (mute.until === null || mute.until > Date.now() / 1000) ? mute : null;
+    return mute?.report_id === report.id && mute.until > Date.now() / 1000 ? mute : null;
   }
   function scheduleWake() {
     clearTimeout(wakeTimer);
@@ -31,13 +31,13 @@
     const times = Object.values(mutes).map(mute => mute.until).filter(until => until > now);
     if (times.length) wakeTimer = setTimeout(render, Math.min(2147483647, Math.ceil(Math.min(...times) * 1000 - Date.now())));
   }
-  function muteAlert(key, reportId, until) {
+  function snoozeAlert(key, reportId) {
     // Match the displayed report and incarnation; an old control cannot mute
     // a replacement alert or alter the agent's working/attention/finished state.
     const item = items({history:true}).find(row => row.key === key && row.report_id === reportId);
     if (!item?.kind || !item.active) return false;
     reloadMutes();
-    mutes[key] = {report_id:reportId, until, updated_at:Date.now() / 1000};
+    mutes[key] = {report_id:reportId, until:Date.now() / 1000 + 30 * 60, updated_at:Date.now() / 1000};
     mutes = Object.fromEntries(Object.entries(mutes).sort((a, b) => b[1].updated_at - a[1].updated_at).slice(0, 2000));
     try { localStorage.setItem(muteStorageKey, JSON.stringify(mutes)); } catch {}
     render();
@@ -113,8 +113,7 @@
   function stateFor(row) {
     return (row.kind ? row.kind === 'stale' ? 'Progress overdue' : 'Status not closed'
       : row.state === 'attention' ? 'Needs input' : 'Finished') + (historyOpen && !row.active ? ' · History' : '')
-      + (row.mute ? row.mute.until === null ? ' · Dismissed'
-        : ' · Snoozed until ' + new Date(row.mute.until * 1000).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}) : '');
+      + (row.mute ? ' · Snoozed until ' + new Date(row.mute.until * 1000).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}) : '');
   }
   const normalize = value => String(value || '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
   function setSearch(value) {
@@ -172,7 +171,7 @@
       const time = historyOpen && Number.isFinite(date.getTime())
         ? `<time class="term-notification-time" datetime="${date.toISOString()}">${escape(date.toLocaleString())}</time>` : '';
       const card = `<button type="button" class="term-notification ${row.state}${row.active ? ' active-alert' : ''}" data-active="${row.active}" data-key="${escape(row.key)}" data-report-id="${escape(row.report_id)}"${opening.has(row.key) ? ' disabled' : ''} title="${escape(label + ' · ' + state + ' · ' + row.message)}"><span class="term-notification-icon" aria-hidden="true">${row.state === 'attention' ? '!' : '✓'}</span><span class="term-notification-copy"><span class="term-notification-heading"><span class="term-notification-terminal-icon" aria-hidden="true">${icon}</span><span class="term-notification-context">${escape(label + ' · ' + state)}</span></span><span class="term-notification-message">${escape(row.message)}</span>${time}</span><span aria-hidden="true">↗</span></button>`;
-      return row.kind && row.active ? `<div class="term-notification-group">${card}<div class="term-notification-actions"><button type="button" data-notification-dismiss aria-label="Dismiss progress alert">Dismiss</button><button type="button" data-notification-snooze aria-label="Snooze progress alert for 30 minutes">Snooze 30 min</button></div></div>` : card;
+      return row.kind && row.active ? `<div class="term-notification-group">${card}<div class="term-notification-actions"><button type="button" data-notification-snooze aria-label="Snooze progress alert for 30 minutes">Snooze 30 min</button></div></div>` : card;
     }).join('');
     if (historyOpen && !rows.length) html += '<p class="term-notification-empty">' + (all.length ? 'No matching notifications.' : 'No notifications yet.') + '</p>';
     if (historyOpen && filtered.length > rows.length) html += '<button type="button" class="term-notification-more" data-notification-more>Load more</button>';
@@ -185,10 +184,10 @@
       button.onclick = () => void open(button.dataset.key, button.dataset.reportId)
         .catch(error => bridge?.error(error.message || 'Could not open terminal.'));
     });
-    host.querySelectorAll('[data-notification-dismiss], [data-notification-snooze]').forEach(button => {
+    host.querySelectorAll('[data-notification-snooze]').forEach(button => {
       button.onclick = () => {
         const card = button.closest('.term-notification-group').querySelector('.term-notification');
-        muteAlert(card.dataset.key, card.dataset.reportId, button.hasAttribute('data-notification-dismiss') ? null : Date.now() / 1000 + 30 * 60);
+        snoozeAlert(card.dataset.key, card.dataset.reportId);
         // Muting a floating card removes its focused control. Keep keyboard
         // focus in the center when open, otherwise return to the bell.
         (host.querySelector('[data-notification-search]') || document.querySelector('[data-terminal-notification-center]'))?.focus({preventScroll:true});
@@ -215,8 +214,7 @@
   document.addEventListener('visibilitychange', render);
   reloadMutes();
   window.LabTerminalNotifications = {items, open, render, buttonHtml, showHistory,
-    dismiss(key, reportId) { return muteAlert(key, reportId, null); },
-    snooze(key, reportId) { return muteAlert(key, reportId, Date.now() / 1000 + 30 * 60); },
+    snooze(key, reportId) { return snoozeAlert(key, reportId); },
     toggleHistory() { return showHistory(!historyOpen); },
     update(value) { scopes = value; render(); },
     configure(value) { bridge = value; render(); }};

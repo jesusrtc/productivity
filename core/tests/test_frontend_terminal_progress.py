@@ -26,6 +26,7 @@ const snapshot={'owner::science':[session]};
  assert(host.textContent.includes('Science / Validate migration / Copilot'),'owner context leads');
  assert(host.textContent.includes('31 min')&&host.textContent.includes('Checking permissions'),'age and actual report');
  assert(host.querySelector('.active-alert'),'active marker');
+ assert(!host.querySelector('[data-notification-dismiss]')&&typeof N.dismiss==='undefined','progress reminders support snooze only');
  assert(Math.abs(host.getBoundingClientRect().top-96)<1,'floating progress alert is at the top');
  for(const width of [280,340,400]){host.style.width=width+'px';assert(host.scrollWidth<=width+2,'progress controls fit narrow layouts');}
  const snooze=host.querySelector('[data-notification-snooze]'),box=snooze.getBoundingClientRect();
@@ -36,13 +37,13 @@ const snapshot={'owner::science':[session]};
  assert(JSON.stringify(session.terminal_status)===before&&C.status(session).state==='working','snooze never changes the agent report');
  toggle.click();assert(host.textContent.includes('Snoozed until')&&!host.querySelector('.active-alert'),'snoozed reminder stays in searchable history');
  document.getElementById('outside').click();now+=30*60*1000;N.render();
- assert(!host.hidden&&host.querySelector('[data-notification-dismiss]'),'reminder returns after 30 minutes');
+ assert(!host.hidden&&host.querySelector('[data-notification-snooze]'),'reminder returns after 30 minutes');
  toggle.click();const row=N.items()[0];await N.open(row.key,row.report_id);
  assert(opened===1&&toggle.getAttribute('aria-checked')==='true'&&N.items().length===1,'click keeps alert and show-all');
- host.querySelector('[data-notification-dismiss]').focus();host.querySelector('[data-notification-dismiss]').click();
- assert(!N.items().length&&host.textContent.includes('Dismissed')&&!host.querySelector('.active-alert'),'dismiss hides this reminder but keeps its history');
- assert(document.activeElement===host.querySelector('[data-notification-search]')&&opened===1,'dismiss keeps keyboard focus without opening the terminal');
- assert(JSON.stringify(session.terminal_status)===before&&C.status(session).state==='working','dismiss never reports completion');
+ host.querySelector('[data-notification-snooze]').focus();host.querySelector('[data-notification-snooze]').click();
+ assert(!N.items().length&&host.textContent.includes('Snoozed until')&&!host.querySelector('.active-alert'),'reminder can be snoozed for another 30 minutes in history');
+ assert(document.activeElement===host.querySelector('[data-notification-search]')&&opened===1,'snooze keeps keyboard focus without opening the terminal');
+ assert(JSON.stringify(session.terminal_status)===before&&C.status(session).state==='working','snooze never reports completion');
  session.terminal_status={...session.terminal_status,id:'new-work',revision:30,updated_at:2000,message:'Permissions checked; running tests'};
  // Even an outdated server progress flag cannot override a newer report.
  N.update(snapshot);
@@ -88,23 +89,27 @@ assert(!N.items().length&&N.items({history:true}).length===1,'snooze survives a 
 assert(C.status(s).state==='working'&&s.terminal_status.updated_at===1,'no fake progress or completion report');
 now+=1800000-1;N.render();assert(!N.items().length&&delay===1,'snooze lasts the full interval');
 now++;wake();assert(N.items().length===1,'timer restores the reminder without a server refresh');
-assert(N.dismiss(key,'overdue')&&!N.items().length,'dismiss current reminder');
+assert(N.snooze(key,'overdue')&&!N.items().length,'returned reminder can be snoozed again');
 ''' + NOTIFICATIONS + r'''
-N=window.LabTerminalNotifications;N.update(snapshot);now+=86400000;N.render();
-assert(!N.items().length&&N.items({history:true})[0].mute.until===null,'dismiss persists across reload and time');
+N=window.LabTerminalNotifications;N.update(snapshot);
+assert(!N.items().length&&N.items({history:true})[0].mute.until===now/1000+1800,'repeated snooze persists with a finite expiry');
 // Another browser window can clear or replace this profile's saved choice.
 const stored=values['labTerminalNotificationMutes-v1'];values['labTerminalNotificationMutes-v1']='{}';
 windowEvents.storage({key:'labTerminalNotificationMutes-v1'});assert(N.items().length===1,'storage updates sync other windows');
 values['labTerminalNotificationMutes-v1']=stored;windowEvents.storage({key:'labTerminalNotificationMutes-v1'});
-assert(!N.items().length,'another window dismissal applies');
+assert(!N.items().length,'another window snooze applies');
+values['labTerminalNotificationMutes-v1']=JSON.stringify({[key]:{report_id:'overdue',until:null}});
+''' + NOTIFICATIONS + r'''
+N=window.LabTerminalNotifications;N.update(snapshot);
+assert(N.items().length===1&&typeof N.dismiss==='undefined','legacy permanent dismissals no longer hide alerts after reload');
 N.update({'owner::demo':[{...s,tmux_id:'$2'}]});
 assert(N.items().length===1,'a recreated terminal does not inherit the old mute');
 N.update(snapshot);s.terminal_status=report('working',30);
 s.terminal_progress={since:30,alert:{...s.terminal_progress.alert,id:'next-overdue',source:'event-30',revision:40}};
 N.update(snapshot);
-assert(N.items().length===1&&!N.dismiss(key,'overdue')&&!N.snooze(key,'overdue'),'an old control cannot mute a new reporting interval');
+assert(N.items().length===1&&!N.snooze(key,'overdue'),'an old control cannot mute a new reporting interval');
 s.terminal_status=report('attention',50);N.update(snapshot);
-assert(N.items()[0].state==='attention'&&!N.dismiss(key,'event-50'),'actual input requests cannot be dismissed as reminders');
+assert(N.items()[0].state==='attention'&&!N.snooze(key,'event-50'),'actual input requests cannot be snoozed as reminders');
 s.terminal_status=report('finished',60);N.update(snapshot);
 assert(N.items()[0].state==='finished'&&!N.snooze(key,'event-60'),'finishes still use normal review');
 console.log(JSON.stringify({passed:true}));
