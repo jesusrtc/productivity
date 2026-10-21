@@ -124,6 +124,36 @@ the page and keeps focus in the field. Closing clears the filter and restores
 the unfiltered active-alert stack. Use `lab ui inspect` and `lab ui fill` on the
 **Search notifications** field to search through the same UI.
 
+Secondary-click any live terminal tab → **Watch / remind…**. **Pin latest
+notification** displays its latest alert immediately. The other choices schedule
+one reminder in 10/30 minutes, 1/2/6 hours, or tomorrow at 9 AM in the browser's
+local timezone. The submenu shows the current deadline and a cancellation action.
+Fixed main and shared document terminals use the same controls.
+
+Once pinned or due, the card follows the latest alert and stays visible through
+working transitions, terminal navigation and green acknowledgements. Without an
+alert, it shows a yellow manual-check message. Its separate corner **×** stops
+watching and hides exactly that displayed alert while keeping history and the
+actual agent status. A new alert can still appear. Only these explicitly watched
+cards have a close control; ordinary progress/automation reminders keep snoozing.
+The close request checks both the watch ID and latest report ID, so an obsolete
+control cannot close a replacement notification.
+
+Session-local `@lab_watch` stores the mode, absolute deadline and fallback report.
+The existing batched listing exposes `terminal_watch` to every client; the browser
+wakes the card at its deadline and rechecks on visibility changes. If the browser
+was closed, the due card appears on next open. No desktop notification is sent.
+Watches survive backend/browser restarts and remain scoped to the tmux socket,
+session ID and creation time; new incarnations do not inherit them.
+
+`POST /api/term/watch` is discoverable through `lab api routes` / `lab api describe`.
+Use the exact `name`, `tmux_socket`, `tmux_id` and `created` from
+`GET /api/term/sessions`. Set `mode` to `pin`, or `remind` with `due_at` as Unix
+seconds within the next seven days. `cancel` requires `watch_id`; `close` also
+requires `report_id`. Changes require administrator/workspace access and use an
+atomic tmux comparison to reject stale session, watch or report writes. The same
+menu is operable through `lab ui contextmenu`, `inspect` and `click`.
+
 Active **Progress overdue** and **Status not closed** reminders offer only
 **Snooze 30 min**. It brings the reminder back after 30 minutes if it remains
 active, without requiring a refresh, and can be used again when it returns.
@@ -279,7 +309,7 @@ and green finished messages until reviewed by click or replaced by a newer statu
 Clicking a message opens the owning workspace, Objective and exact terminal,
 scrolls its tab into view and pulses it three times (a steady highlight with
 reduced motion). Collapsed groups and the selected Objective's task filter open
-when needed to reveal that tab. Only a green click reviews and clears status.
+when needed to reveal that tab. Only a green click reviews and clears status; a watched card stays until its corner × is clicked.
 Notification and terminal-tab clicks both select the owning task/subtask and
 open its linked asset within that task, or its details when no asset is linked.
 Task assets stay accessible, including for secondary and inherited child

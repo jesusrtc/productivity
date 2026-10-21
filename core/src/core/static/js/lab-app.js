@@ -14398,6 +14398,29 @@
     termRenderSessionList();
   }
 
+  function termOpenWatchMenu(session, anchor) {
+    if (!session || session.automation_missing) return;
+    const watch = session.terminal_watch;
+    const choices = [['pin','Pin latest notification'], ['600','Remind in 10 minutes'],
+      ['1800','Remind in 30 minutes'], ['3600','Remind in 1 hour'], ['7200','Remind in 2 hours'],
+      ['21600','Remind in 6 hours'], ['tomorrow','Tomorrow at 9 AM']];
+    if (watch && watch.mode !== 'closed') choices.push(['cancel','Stop watching / cancel reminder']);
+    const due = watch?.mode === 'remind' ? 'Reminder: ' + new Date(watch.due_at * 1000).toLocaleString()
+      : watch?.mode === 'pin' ? 'Latest notification pinned' : 'Watch terminal';
+    _termShowGroupMenu(anchor, '<div class="term-group-menu-title">'+termSessEsc(due)+'</div>'
+      + choices.map(([value,label]) => '<button role="menuitem" class="term-group-menu-row" data-action="watch:'+value+'">'+label+'</button>').join(''), action => {
+        termCloseGroupMenu();
+        const choice = action.slice(6), notifications = window.LabTerminalNotifications;
+        const mode = ['pin','cancel'].includes(choice) ? choice : 'remind';
+        const options = mode === 'remind' ? {due_at:notifications.reminderTime(choice)}
+          : mode === 'cancel' ? {watch_id:watch.id} : {};
+        void notifications.setWatch(session, mode, options).then(saved => {
+          if (saved) explorerToast(mode === 'pin' ? 'Latest notification pinned' : mode === 'cancel' ? 'Terminal watch cancelled'
+            : 'Reminder set for ' + new Date(options.due_at * 1000).toLocaleString());
+        }).catch(error => explorerToast(error.message, true));
+      });
+  }
+
   function termOpenTabMenu(sessionName, anchor) {
     _termSelectTab(sessionName, false, true);
     const names = [..._termTabSelection()];
@@ -14441,13 +14464,20 @@
       }
       return true;
     };
+    const watchMenu = session && !session.automation_missing
+      ? '<button role="menuitem" class="term-group-menu-row" data-action="watch">Watch / remind…</button>' : '';
+    const chooseWatch = action => {
+      if (action !== 'watch') return false;
+      if (menuScope === _termGroupScopeKey()) termOpenWatchMenu(session, anchor);
+      return true;
+    };
     if(window.LabObjectives?.terminalMain?.(parentSession || session)){
-      _termShowGroupMenu(anchor,'<div class="term-group-menu-title">Fixed main terminal</div>'+mainChoice+assetMenu+'<button role="menuitem" class="term-group-menu-row" data-action="automation">Launch automation…</button><button role="menuitem" class="term-group-menu-row" data-action="all">'+(termWipOnly?'Show all terminals':'Show In progress task terminals')+'</button>',action=>{termCloseGroupMenu();if(chooseMain(action)||chooseAsset(action))return;if(action==='automation')void _termLaunchAutomation(parentSession || session);else termToggleAllTerminals();});return;
+      _termShowGroupMenu(anchor,'<div class="term-group-menu-title">Fixed main terminal</div>'+mainChoice+assetMenu+watchMenu+'<button role="menuitem" class="term-group-menu-row" data-action="automation">Launch automation…</button><button role="menuitem" class="term-group-menu-row" data-action="all">'+(termWipOnly?'Show all terminals':'Show In progress task terminals')+'</button>',action=>{termCloseGroupMenu();if(chooseMain(action)||chooseAsset(action)||chooseWatch(action))return;if(action==='automation')void _termLaunchAutomation(parentSession || session);else termToggleAllTerminals();});return;
     }
     if (session?.document_source) {
-      _termShowGroupMenu(anchor, mainChoice+assetMenu+'<button role="menuitem" class="term-group-menu-row" data-action="automation">Launch automation…</button><button role="menuitem" class="term-group-menu-row" data-action="open">Open document</button><button role="menuitem" class="term-group-menu-row" data-action="unlink">Unlink from document…</button>', action => {
+      _termShowGroupMenu(anchor, mainChoice+assetMenu+watchMenu+'<button role="menuitem" class="term-group-menu-row" data-action="automation">Launch automation…</button><button role="menuitem" class="term-group-menu-row" data-action="open">Open document</button><button role="menuitem" class="term-group-menu-row" data-action="unlink">Unlink from document…</button>', action => {
         termCloseGroupMenu();
-        if(chooseMain(action)||chooseAsset(action))return;
+        if(chooseMain(action)||chooseAsset(action)||chooseWatch(action))return;
         if(action==='automation')void _termLaunchAutomation(parentSession || session);
         else if (action === 'open') void window.AssistantView.openLinkedTask(session.linked_task);
         else void window.LabWorkspaceDocuments.unlink(session).catch(error => explorerToast(error.message,true));
@@ -14459,7 +14489,7 @@
       row('rename', 'Rename tab…') +
       row('new-child', 'New subterminal') +
       mainChoice +
-      assetMenu +
+      assetMenu + watchMenu +
       row('automation', 'Launch automation…') +
       (window.LabObjectives?.taskForTerminal(session)?row('task-context','Paste task context'):'') +
       (_termActiveWorkspaceId() === '__self__' ? '<hr><div class="term-group-menu-title">Associate with</div>' +
@@ -14474,7 +14504,7 @@
       row('before', `Add divider ${horizontal ? 'before' : 'above'}`) + row('after', `Add divider ${horizontal ? 'after' : 'below'}`) + '<hr>' +
       row('close', 'Close tab', true) + (membership ? row('close-group', 'Close group…', true) : ''), action => {
         termCloseGroupMenu();
-        if(chooseMain(action)||chooseAsset(action))return;
+        if(chooseMain(action)||chooseAsset(action)||chooseWatch(action))return;
         if (action === 'rename') termRenameSession(parentSession?.name || sessionName);
         else if(action==='new-child')void _termCreateSubterminal(parentSession || session);
         else if(action==='automation')void _termLaunchAutomation(parentSession || session);
@@ -16153,6 +16183,11 @@
   }
   window.LabTerminalNotifications?.configure({
     open:_termOpenNotification,
+    changed:async () => {
+      await window.LabWorkspaceDocuments?.poll(true);
+      const workspaceId = _termActiveWorkspaceId();
+      if (workspaceId) await _termRefreshSessionsForWorkspaceId(workspaceId);
+    },
     highlight:_termHighlightNotification,
     error:message => explorerToast(message, true),
     icon:_termNotificationIcon,

@@ -898,3 +898,5 @@
 - [Remote automation check-ins belong to the main](remote-automation-main-checkins.md) — yellow 30-minute SSH/tmux check-ins on the closest main only, owned liveness, retained history and full snooze without inventing remote health or agent status.
 
 - [Linked terminal tabs use their asset names](linked-terminal-tabs-use-asset-names.md) — linked file/asset title before task or saved labels, including main/automation/merged tabs; refresh renames and restore normal names on unlink.
+
+- [Watched terminal notifications stay until corner close](terminal-watch-stays-until-corner-close.md) — terminal context-menu pin/reminder presets, persistent latest cards, exact × close, local tomorrow and shared API access.

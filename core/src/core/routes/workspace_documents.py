@@ -200,7 +200,7 @@ def attention(request: Request):
         root = roots.get(vault_id)
         if not root or workspace_id.startswith('__') or not any(
                 row.get('terminal_notification') or row.get('terminal_status')
-                or row.get('terminal_progress', {}).get('alert') or row.get('terminal_automation_alert') for row in sessions):
+                or row.get('terminal_progress', {}).get('alert') or row.get('terminal_automation_alert') or row.get('terminal_watch') for row in sessions):
             continue
         try:
             contexts = term.fsguard.guarded(root, _notification_context, root, workspace_id, sessions)
@@ -229,7 +229,7 @@ def attention(request: Request):
     # Keep the original owner on borrowed rows so a header message opens the
     # exact terminal, even across vaults. No transcript/capture reads are needed.
     fields = ('name', 'session_id', 'created', 'created_at', 'tmux_socket', 'tmux_id',
-              'terminal_status', 'terminal_notification', 'terminal_progress', 'terminal_automation_alert', 'workspace_id', 'vault', 'logical_name', 'label',
+              'terminal_status', 'terminal_notification', 'terminal_progress', 'terminal_automation_alert', 'terminal_watch', 'workspace_id', 'vault', 'logical_name', 'label',
               'llm_controlled', 'notification_context', 'kind', 'agent', 'linked_file', 'linked_task', 'automation_appearance')
     return {scope: [{key: row[key] for key in fields if key in row} for row in sessions]
             for scope, sessions in result.items()}

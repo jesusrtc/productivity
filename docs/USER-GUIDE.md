@@ -630,6 +630,30 @@ Shared document terminals appear once in
 the stack. Home, Assistant and workspace dots prioritize red, then yellow,
 then green. No desktop notifications or separate popup windows are sent.
 
+Secondary-click a terminal tab → **Watch / remind…**. Choose **Pin latest
+notification** to show its latest alert now, or **Remind in 10 minutes**, **30
+minutes**, **1 hour**, **2 hours**, **6 hours**, or **Tomorrow at 9 AM**. Tomorrow
+uses the browser's local date and time. The menu shows the saved reminder time
+and offers **Stop watching / cancel reminder**.
+
+A pinned or due reminder keeps the terminal's latest notification visible at
+the top right, even after opening the terminal, reviewing a finish or receiving
+a working status. New alerts replace its contents. A terminal without an alert
+gets a yellow **Check terminal** card. Use the card's corner **×** to close that
+watch and hide the displayed alert; it remains in notification history, and a
+newer alert can appear normally. Closing leaves the agent's reported status
+unchanged. These controls apply to the selected terminal, including fixed mains
+and shared document tabs. Ordinary progress/automation reminders retain their
+**Snooze 30 min** control unless explicitly watched.
+
+Watches and reminder deadlines are saved with the exact running terminal and
+shared across Lab clients. They survive browser/backend reloads. If Lab was
+closed or the computer asleep at the deadline, the reminder appears on the next
+open/wake. Recreated sessions start without the old watch. Agents can operate
+the same menu through `lab ui contextmenu` and its visible controls, or use
+`lab api describe POST /api/term/watch` and `lab api call` with the session's
+exact `name`, `tmux_socket`, `tmux_id` and `created` from the session listing.
+
 Use the **bell and switch** next to **Lid Awake** to show all notifications.
 The control has no visible text; its tooltip and accessible name are **Show all
 notifications**. It shows each running terminal's latest input request, finish or

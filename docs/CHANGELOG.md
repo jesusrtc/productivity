@@ -3,6 +3,19 @@
 User-facing changes to Lab are recorded here alongside updates to the user
 guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 
+## 2026-10-21
+
+### Watch terminal notifications and schedule reminders
+
+- Add **Watch / remind…** to terminal-tab secondary-click menus, with pinning,
+  10/30-minute, 1/2/6-hour and tomorrow-at-9-AM choices plus cancellation.
+- Keep the latest watched notification visible until its corner × is clicked,
+  through navigation, review and working transitions. Preserve history and agent
+  status; newer alerts remain available after closing.
+- Persist watches per running session across clients and reloads, display due
+  reminders on wake/open and expose the same controls through the shared API/CLI.
+  Reject obsolete session/watch/report writes atomically.
+
 ## 2026-10-20
 
 ### Name linked terminal tabs after their files

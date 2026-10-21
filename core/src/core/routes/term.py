@@ -63,6 +63,7 @@ import uuid
 from contextlib import closing
 from datetime import datetime, timezone
 from functools import wraps
+from typing import Literal
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
@@ -74,7 +75,7 @@ from lab import settings as lab_settings
 from lab import tmux_sockets, terminal_status, terminal_progress
 
 from core import auth, copilot_identity, fsguard, terminal_automations, terminal_automation_lifecycle
-from core import vault_config
+from core import vault_config, terminal_watch
 
 
 router = APIRouter()
@@ -1815,7 +1816,7 @@ def _tmux_list(
                         + "|#{pane_id}|#{pane_dead}|#{window_panes}|#{window_activity}"
                         + "|#{pane_width}|#{pane_height}"
                         + "|#{@lab_status}|#{session_id}|#{@lab_llm}|#{@lab_notification}"
-                        + "|#{@lab_progress_hook}|#{@lab_progress_alert}|#{@lab_automation_alert}"
+                        + "|#{@lab_progress_hook}|#{@lab_progress_alert}|#{@lab_automation_alert}|#{@lab_watch}"
                     ),
                 ),
                 capture_output=True,
@@ -1894,8 +1895,11 @@ def _tmux_list(
             row['terminal_automation_alert'] = automation_reminders.decode(automation_token)
             if row['terminal_automation_alert'] and row['pane_dead']:
                 row['terminal_automation_alert']['active'] = False
+            watch_token = parts[offset + 10] if len(parts) > offset + 10 else ''
+            row['terminal_watch'] = terminal_watch.view(terminal_watch.decode(watch_token), row)
             if progress:
-                row.update(_progress_status_token=parts[offset + 3] if len(parts) > offset + 3 else '',
+                row.update(_watch_token=watch_token, _watch_notification_token=parts[offset + 6] if len(parts) > offset + 6 else '',
+                           _progress_status_token=parts[offset + 3] if len(parts) > offset + 3 else '',
                            _progress_hook_token=hook, _progress_alert_token=alert, _automation_alert_token=automation_token)
         lab_rows_by_socket[socket_name] = lab_count
 
@@ -3937,6 +3941,85 @@ def relaunch_terminal_automations(body: AutomationRecovery, request: Request) ->
                 errors.append({"logical_name": logical, "reason": str(exc.detail if isinstance(exc, HTTPException) else exc)})
         _invalidate_workspace_term_caches()
     return {"sessions": sessions, "skipped": skipped, "errors": errors}
+
+
+class TerminalWatchBody(BaseModel):
+    name: str
+    tmux_socket: str
+    tmux_id: str
+    created: int
+    mode: Literal['pin', 'remind', 'close', 'cancel']
+    due_at: float = Field(default=0, ge=0, allow_inf_nan=False)
+    watch_id: str | None = None
+    report_id: str | None = None
+
+
+@router.post('/api/term/watch')
+def watch_terminal(body: TerminalWatchBody, request: Request) -> dict:
+    """Pin the latest notification, schedule one reminder, or close that watch.
+
+    The same endpoint is available through lab api describe/call. Watches live
+    with the exact tmux incarnation and survive browser/backend restarts.
+    """
+    auth.require_admin(request)
+    active = auth.request_root(request)
+    vaults = _known_vaults(active)
+    prefixes = _tmux_discovery_prefixes_all(vaults)
+    if not any(body.name.startswith(prefix) for prefix in prefixes):
+        raise HTTPException(400, 'Invalid terminal name')
+    root = _resolve_session_vault_root(body.name, active, vaults)
+    info = _load_meta(root).get(body.name)
+    if not info or not info.get('workspace_id'):
+        raise HTTPException(404, 'Terminal ownership is no longer available')
+    _require_workspace_access(request, active, root, info['workspace_id'])
+    rows = _tmux_list(prefixes, prune_draining=False, progress=True)
+    if rows is None:
+        raise HTTPException(503, 'Could not inspect terminal; watch was preserved')
+    row = next((row for row in rows if row['name'] == body.name
+                and row['tmux_socket'] == body.tmux_socket and row['tmux_id'] == body.tmux_id
+                and row['created'] == body.created), None)
+    if not row:
+        raise HTTPException(409, 'This terminal is no longer running')
+    now = time.time()
+    current = row.get('terminal_watch')
+    if body.mode in ('close', 'cancel'):
+        if not current or current['mode'] == 'closed' or current['id'] != body.watch_id:
+            raise HTTPException(409, 'This watch has changed; refresh and try again')
+        if body.mode == 'close' and (current.get('report') or {}).get('id') != body.report_id:
+            raise HTTPException(409, 'A newer notification arrived; review it before closing')
+        value = ({**current, 'mode': 'closed', 'closed_report_id': body.report_id, 'updated_at': now}
+                 if body.mode == 'close' else None)
+    else:
+        if body.mode == 'remind' and not now < body.due_at <= now + 7 * 86400:
+            raise HTTPException(422, 'Choose a reminder within the next seven days')
+        value = terminal_watch.create(row, body.mode, now=now,
+                                     due_at=body.due_at if body.mode == 'remind' else 0)
+    # Atomic compare-and-set: a delayed request must never affect a replacement
+    # session, another watch, or a newer report arriving during this request.
+    checks = [f'#{{==:#{{session_id}},{row["tmux_id"]}}}', f'#{{==:#{{session_created}},{row["created"]}}}']
+    for option, token in ((terminal_watch.OPTION, row['_watch_token']),
+                          ('@lab_status', row['_progress_status_token']),
+                          ('@lab_notification', row['_watch_notification_token']),
+                          ('@lab_progress_alert', row['_progress_alert_token']),
+                          ('@lab_automation_alert', row['_automation_alert_token'])):
+        if not re.fullmatch(r'[A-Za-z0-9+/=]*', token):
+            raise HTTPException(409, 'Invalid terminal state; watch was preserved')
+        checks.append('#{==:#{' + option + '},' + token + '}')
+    condition = checks[0]
+    for check in checks[1:]:
+        condition = '#{&&:' + condition + ',' + check + '}'
+    token = terminal_status.encode(value) if value else ''
+    command = 'set-option -t ' + _shell_quote(row['tmux_id']) + ' ' + terminal_watch.OPTION + ' ' + _shell_quote(token)
+    try:
+        result = subprocess.run(_tmux_command(row['tmux_socket'], 'if-shell', '-F', '-t', '=' + row['name'] + ':',
+            condition, command, 'display-message -p lab-watch-changed'),
+            capture_output=True, text=True, timeout=5, env=_tmux_child_env())
+    except (OSError, subprocess.TimeoutExpired):
+        raise HTTPException(503, 'Could not save terminal watch; refresh before retrying')
+    if result.returncode or 'lab-watch-changed' in result.stdout:
+        raise HTTPException(409, 'Terminal changed before saving; refresh and try again')
+    _invalidate_workspace_term_caches()
+    return {'watch': terminal_watch.view(value, row)}
 
 
 @router.delete("/api/term/sessions/{name}")

@@ -2031,6 +2031,11 @@
   .term-notifications[hidden] { display: none; }
   .term-notifications.history-open { top:auto; bottom:max(12px, env(safe-area-inset-bottom)); pointer-events: auto; padding: 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-secondary); box-shadow: 0 8px 28px #0006; }
   .term-notification-group { flex:none; min-width:0; }
+  .term-notification-watched { position:relative; }
+  .term-notification-watched .term-notification { padding-right:39px; }
+  .term-notification-dismiss { position:absolute; top:5px; right:5px; z-index:1; width:27px; height:27px; border:0; border-radius:4px; background:#0003; color:#fff; font:22px/1 system-ui,sans-serif; cursor:pointer; pointer-events:auto; }
+  .term-notification-dismiss:hover { background:#0006; }
+  .term-notification-dismiss:focus-visible { outline:2px solid #fff; outline-offset:1px; }
   .term-notification-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:6px; margin-top:5px; pointer-events:auto; }
   .term-notification-actions button { padding:6px 9px; border:1px solid var(--border); border-radius:5px; background:var(--bg-secondary); color:var(--text-primary); font:inherit; font-size:12px; cursor:pointer; }
   .term-notification-actions button:hover { border-color:var(--accent); }
