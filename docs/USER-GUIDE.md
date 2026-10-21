@@ -665,7 +665,11 @@ card while you read it. The notification center and touch devices show full card
 
 A pinned or due reminder keeps the terminal's latest notification visible at
 the top right, even after opening the terminal, reviewing a finish or receiving
-a working status. New alerts replace its contents. A terminal without an alert
+a working status. When work resumes, the watched card turns yellow and shows
+**Working** with an ellipsis, matching the terminal's current status. Its retained
+message is marked **Last notification**; a previous finish no longer leaves a
+green checkmark. Active overdue/reconnect alerts retain their warning status.
+New alerts replace its contents. A terminal without an alert
 gets a yellow **Check terminal** card. Use the card's corner **×** to close that
 watch and hide the displayed alert; it remains in notification history, and a
 newer alert can appear normally. Closing leaves the agent's reported status

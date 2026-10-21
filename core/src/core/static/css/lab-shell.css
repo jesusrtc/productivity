@@ -2077,7 +2077,7 @@
   .term-notification.active-alert::before { content: ''; position: absolute; left: 4px; top: 10px; bottom: 10px; width: 3px; border-radius: 2px; background: currentColor; pointer-events: none; }
   .term-notification { display: flex; flex: none; align-items: center; gap: 11px; width: 100%; box-sizing: border-box; padding: 13px 14px; border: 1px solid #42a477; border-radius: 8px; background: #1c6848; color: #fff; box-shadow: 0 3px 9px #0005; font: inherit; font-size: 13px; line-height: 1.4; text-align: left; cursor: pointer; pointer-events: auto; }
   .term-notification.attention { background: #9c3038; border-color: #dc6b74; }
-  .term-notification.automation-reminder { background:#6a5517; border-color:#d29922; }
+  .term-notification.working, .term-notification.automation-reminder { background:#6a5517; border-color:#d29922; }
   .term-notification:hover { filter: brightness(1.12); }
   .term-notification:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .term-notification:disabled { cursor: progress; opacity: .65; }

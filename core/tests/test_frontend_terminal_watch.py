@@ -27,6 +27,35 @@ assert(rejected,'unknown time rejected');console.log(JSON.stringify({passed:true
     assert result['passed']
 
 
+def test_watched_working_status_preserves_the_notification_and_active_alerts():
+    result = _run_node(CLOCK + 'document.getElementById=()=>null;' + MODULE + NOTIFICATIONS + r'''
+const C=window.LabTerminalCompletion,N=window.LabTerminalNotifications;
+const s={...session('finished'),workspace_id:'demo',vault:'owner',llm_controlled:true};
+s.terminal_status.message='Tests passed';
+s.terminal_watch={mode:'pin',id:'watch',report:s.terminal_status};
+const snapshot={'owner::demo':[s]};N.update(snapshot);
+const saved=s.terminal_watch.report;
+assert(N.items()[0].state==='finished','current completion is green');
+C.input(s,'continue\r');
+assert(N.items()[0].state==='working'&&N.items({history:true})[0].state==='working','submitted input immediately makes watched cards yellow in both views');
+s.terminal_status=report('working',2,'Implementing');N.update(snapshot);
+assert(N.items()[0].state==='working'&&N.items()[0].report_id===saved.id&&N.items()[0].message===saved.message,'working changes presentation while retaining exact notification');
+for(const kind of ['stale','reconnect','automation']){
+ const alert={...report('attention',3,'Check status'),kind,active:true,source:s.terminal_status.id};
+ const field={stale:'terminal_progress',reconnect:'terminal_recovery_alert',automation:'terminal_automation_alert'}[kind];
+ s[field]=kind==='stale'?{alert}:alert;s.terminal_watch.report=alert;N.update(snapshot);
+ assert(N.items()[0].state==='attention'&&N.items()[0].kind===kind,'working cannot hide active '+kind+' alert');
+ delete s[field];N.update(snapshot);
+ assert(N.items()[0].state==='working'&&!N.items()[0].kind,'resolved '+kind+' cannot keep a stale alert status');
+}
+s.terminal_watch={mode:'closed',report:saved,closed_report_id:saved.id};N.update(snapshot);
+assert(!N.items().length&&N.items({history:true})[0].state==='finished','closed history retains the original event status');
+assert(saved.state==='finished'&&s.terminal_status.state==='working','presentation never mutates saved notification or agent status');
+console.log(JSON.stringify({passed:true}));
+''')
+    assert result['passed']
+
+
 def test_native_terminal_watch_menu_and_notifications_in_chrome(
         native_creation_tmux, native_creation_client, seed_workspace, tmp_path):
     run, socket, _ = native_creation_tmux
@@ -59,6 +88,7 @@ def test_native_terminal_watch_menu_and_notifications_in_chrome(
             body = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
             if self.path == '/fixture/report':
                 value = report(body['state'], body['revision'], body['message'])
+                run('set-option','-t',name,'@lab_llm','1')
                 run('set-option','-t',name,'@lab_status',terminal_status.encode(value))
                 if body['state'] != 'working':
                     run('set-option','-t',name,'@lab_notification',terminal_status.encode(value))
@@ -126,24 +156,34 @@ assert(Math.abs(host.getBoundingClientRect().top-96)<1,'pinned card stays at top
 card().click();await until(()=>opened===1);assert(card(),'opening leaves watch visible');
 await send('attention',1,'Choose <branch> & review');
 assert(card().textContent.includes('Choose <branch> & review')&&!card().querySelector('branch'),'newest real alert replaces pin and escapes content');
-await send('working',2,'Implementing');assert(card().textContent.includes('Choose <branch>'),'working retains last alert');
+await send('working',2,'Implementing');
+assert(card().textContent.includes('Choose <branch>')&&card().classList.contains('working')
+ &&getComputedStyle(card()).backgroundColor==='rgb(106, 85, 23)','working retains last alert and turns yellow');
 await send('finished',3,'Tests passed');LabTerminalCompletion.acknowledge('',termSessions[0]);N.render();
 assert(card()?.textContent.includes('Tests passed'),'reviewing green cannot clear pinned card');
+LabTerminalCompletion.input(termSessions[0],'continue\r');
+assert(card().classList.contains('working')&&card().querySelector('.term-notification-icon').textContent==='…'
+ &&card().querySelector('.term-notification-context').textContent.includes('Working · Pinned')
+ &&card().querySelector('.term-notification-message').textContent==='Last notification: Tests passed'
+ &&!card().title.includes('Finished'),'submitted input immediately replaces stale green and finished heading');
+await send('working',4,'Continuing');
+assert(card().classList.contains('working')&&getComputedStyle(card()).backgroundColor==='rgb(106, 85, 23)','new WIP report keeps watched card yellow');
 const currentWatch=termSessions[0].terminal_watch.id;
 // Recreate the entire module; data comes from the native session, not browser storage.
 (0,eval)(NOTIFICATION_SOURCE);configure();await refresh();
-assert(card()?.textContent.includes('Tests passed')&&termSessions[0].terminal_watch.id===currentWatch,'fresh module restores server watch');
+assert(card()?.textContent.includes('Tests passed')&&card().classList.contains('working')
+ &&termSessions[0].terminal_watch.id===currentWatch,'fresh module restores yellow watch and retained completion');
 host.querySelector('[data-notification-watch-close]').click();await until(()=>termSessions[0].terminal_watch.mode==='closed'&&!card());
-assert(!card()&&!N.items().length&&termSessions[0].terminal_status.state==='finished','corner X hides exact alert without changing agent status');
+assert(!card()&&!N.items().length&&termSessions[0].terminal_status.state==='working','corner X hides exact retained alert without changing WIP status');
 N.showHistory(true);assert(host.textContent.includes('Tests passed'),'closed alert remains in searchable history');N.showHistory(false);
-await send('attention',4,'A new question');assert(N.items().length===1&&!card(),'closing cannot suppress a newer normal request');
+await send('attention',5,'A new question');assert(N.items().length===1&&!card(),'closing cannot suppress a newer normal request');
 const key=LabTerminalCompletion.key(termSessions[0]);
 await N.setWatch(termSessions[0],'remind',{due_at:Date.now()/1000+.35});
 assert(!card(),'scheduled watch remains quiet before deadline');
 await until(()=>!!card());assert(card().textContent.includes('A new question'),'wake timer shows retained last alert at deadline');
 host.querySelector('[data-notification-watch-close]').click();await until(()=>termSessions[0].terminal_watch.mode==='closed'&&!card());
 assert(!host.querySelector('.term-notification')&&N.items({history:true}).length===1,'X closes reminder, retains history');
-await choose('pin');await send('working',5,'Continuing');
+await choose('pin');await send('working',6,'Continuing');
 assert(card()?.textContent.includes('A new question'),'final pinned latest notification survives a new working report');
 for(const width of [320,400]){host.style.width=width+'px';assert(host.scrollWidth<=width+2,'close control fits narrow layout');}
 assert(!errors.length,errors.join('; '));document.body.dataset.result='pass';

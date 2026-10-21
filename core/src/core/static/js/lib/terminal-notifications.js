@@ -76,14 +76,19 @@
         const age = Math.max(30, Math.floor((Date.now() / 1000 - (session.terminal_progress?.since || 0)) / 60));
         const message = !watching && active && report.kind === 'stale'
           ? `WIP · No progress update for ${age} min · Last report: ${session.terminal_progress.message || 'No report yet'}` : report.message;
-        const item = {key, session, owner, report_id:report.id, state:report.state, kind:report.kind, source:report.source, targets:report.targets,
+        // A watch retains the last notification, not its old completion color.
+        // Match the tab's live working state (including submitted input), while
+        // keeping active supervisor alerts and the exact report used by close.
+        const working = !!watching && details.indicator === 'working'
+          && ![details.progress_alert, details.recovery_alert, details.automation_alert].some(alert => alert?.id === report.id);
+        const item = {key, session, owner, report_id:report.id, state:working ? 'working' : report.state, kind:working ? null : report.kind, source:report.source, targets:report.targets,
           created_at:report.updated_at, revision:report.revision,
           active, mute:watching ? null : mute, watch:watching ? watch : null, message:message || (report.state === 'attention' ? 'Needs your input' : 'Work finished')};
         // Prefer the native row over another workspace's shared view.
         if (!unique.has(key) || scope === `${owner.vault}::${owner.workspace_id}`) unique.set(key, item);
       }
     }
-    const priority = row => ['automation','watch'].includes(row.kind) ? 1 : row.state === 'attention' ? 0 : 2;
+    const priority = row => row.state === 'working' || ['automation','watch'].includes(row.kind) ? 1 : row.state === 'attention' ? 0 : 2;
     return [...unique.values()].sort((a, b) => (history ? 0 : priority(a) - priority(b))
       || (b.created_at || 0) - (a.created_at || 0) || b.revision - a.revision);
   }
@@ -128,7 +133,7 @@
   }
   function stateFor(row) {
     return (row.kind ? row.kind === 'reconnect' ? 'Reconnect failed' : row.kind === 'watch' ? 'Check terminal' : row.kind === 'automation' ? 'Check automation status' : row.kind === 'stale' ? 'Progress overdue' : 'Status not closed'
-      : row.state === 'attention' ? 'Needs input' : 'Finished') + (historyOpen && !row.active ? ' · History' : '')
+      : row.state === 'working' ? 'Working' : row.state === 'attention' ? 'Needs input' : 'Finished') + (historyOpen && !row.active ? ' · History' : '')
       + (row.watch ? row.watch.mode === 'pin' ? ' · Pinned' : ' · Reminder' : '')
       + (row.mute ? ' · Snoozed until ' + new Date(row.mute.until * 1000).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}) : '');
   }
@@ -185,9 +190,10 @@
     let html = rows.map(row => {
       const icon = bridge?.icon?.(row) || '💻';
       const {label, status:state, date} = row;
+      const message = (row.state === 'working' ? 'Last notification: ' : '') + row.message;
       const time = historyOpen && Number.isFinite(date.getTime())
         ? `<time class="term-notification-time" datetime="${date.toISOString()}">${escape(date.toLocaleString())}</time>` : '';
-      const card = `<button type="button" class="term-notification ${row.state}${['automation','watch'].includes(row.kind) ? ' automation-reminder' : ''}${row.watch ? ' watched-notification' : ''}${row.active ? ' active-alert' : ''}" data-active="${row.active}" data-key="${escape(row.key)}" data-report-id="${escape(row.report_id)}"${opening.has(row.key) ? ' disabled' : ''} aria-label="${escape(label + ' · ' + state + ' · ' + row.message)}" title="${escape(label + ' · ' + state + ' · ' + row.message)}"><span class="term-notification-icon" aria-hidden="true">${['automation','watch'].includes(row.kind) ? '?' : row.state === 'attention' ? '!' : '✓'}</span><span class="term-notification-copy"><span class="term-notification-heading"><span class="term-notification-terminal-icon" aria-hidden="true">${icon}</span><span class="term-notification-context">${escape(label + ' · ' + state)}</span></span><span class="term-notification-message">${escape(row.message)}</span>${time}</span><span aria-hidden="true">↗</span></button>`;
+      const card = `<button type="button" class="term-notification ${row.state}${['automation','watch'].includes(row.kind) ? ' automation-reminder' : ''}${row.watch ? ' watched-notification' : ''}${row.active ? ' active-alert' : ''}" data-active="${row.active}" data-key="${escape(row.key)}" data-report-id="${escape(row.report_id)}"${opening.has(row.key) ? ' disabled' : ''} aria-label="${escape(label + ' · ' + state + ' · ' + message)}" title="${escape(label + ' · ' + state + ' · ' + message)}"><span class="term-notification-icon" aria-hidden="true">${['automation','watch'].includes(row.kind) ? '?' : row.state === 'working' ? '…' : row.state === 'attention' ? '!' : '✓'}</span><span class="term-notification-copy"><span class="term-notification-heading"><span class="term-notification-terminal-icon" aria-hidden="true">${icon}</span><span class="term-notification-context">${escape(label + ' · ' + state)}</span></span><span class="term-notification-message">${escape(message)}</span>${time}</span><span aria-hidden="true">↗</span></button>`;
       if (row.watch) return `<div class="term-notification-group term-notification-watched">${card}<button type="button" class="term-notification-dismiss" data-notification-watch-close data-key="${escape(row.key)}" data-report-id="${escape(row.report_id)}" data-watch-id="${escape(row.watch.id)}" aria-label="Close watched notification" title="Close watched notification"${saving.has(row.key) ? ' disabled' : ''}>×</button></div>`;
       if (row.kind === 'reconnect' && row.active) return `<div class="term-notification-group">${card}<div class="term-notification-actions"><button type="button" data-notification-reconnect${saving.has(row.key) ? ' disabled' : ''}>Reconnect</button></div></div>`;
       return row.kind && row.active ? `<div class="term-notification-group">${card}<div class="term-notification-actions"><button type="button" data-notification-snooze aria-label="Snooze reminder for 30 minutes">Snooze 30 min</button></div></div>` : card;

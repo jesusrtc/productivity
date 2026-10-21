@@ -138,7 +138,13 @@ hover/focus state. Reduced motion removes the width animation. Ordinary alerts,
 the searchable notification center and touch devices retain full cards.
 
 Once pinned or due, the card follows the latest alert and stays visible through
-working transitions, terminal navigation and green acknowledgements. Without an
+working transitions, terminal navigation and green acknowledgements. When the
+terminal reports working or receives a submitted LLM message, the watched card
+uses yellow, an ellipsis and **Working**, while retaining **Last notification**
+text and its exact report ID. It no longer displays a stale green finish during
+WIP. Active supervisor alerts keep their warning status; closed/history-only
+events retain their original status. This display never changes agent reports
+or task completion. Without an
 alert, it shows a yellow manual-check message. Its separate corner **×** stops
 watching and hides exactly that displayed alert while keeping history and the
 actual agent status. A new alert can still appear. Only these explicitly watched

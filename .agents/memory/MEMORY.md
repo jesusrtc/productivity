@@ -1,5 +1,7 @@
 # Memory index
 
+- [Watched notifications follow working status](watched-notifications-follow-working-status.md) — yellow Working while a watched terminal resumes, retained message and exact close target, active warnings preserved.
+
 - [Agent progress checkpoints](agent-progress-checkpoints.md) — 20-minute meaningful reports, independent 30-minute stale alerts, Copilot lifecycle reminders and explicit completion preserved.
 
 - [Managed rules refresh on client reload](managed-rules-refresh-on-client-reload.md) — shared template and safe writer for every installation; preserve custom instructions and capture the loaded scope.

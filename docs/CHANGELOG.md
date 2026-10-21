@@ -5,6 +5,13 @@ guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 
 ## 2026-10-21
 
+### Match watched notifications to working terminals
+
+- Replace stale green completion cards with yellow **Working** and an ellipsis
+  when work resumes, including immediately after submitting an LLM message.
+  Retain the last notification text and exact close target. Preserve active
+  supervisor warnings, history and the agent's actual reported status.
+
 ### Fold watched notifications into hover strips
 
 - Show watched floating notifications as compact colored status strips; reveal
