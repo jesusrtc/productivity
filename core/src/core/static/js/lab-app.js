@@ -1106,7 +1106,7 @@
   // ─── File-type icons (VS Code Explorer-style) ───────────────────────────
   // One shared extension → icon mapping for every sidebar/tree file row.
   // Shared SVGs styled after familiar logos (Python snakes, Jupyter
-  // moons, JS/TS squares, markdown mark…) so types read at a glance — no
+  // moons, JS/TS squares, memo emoji…) so types read at a glance — no
   // external assets. The markup is a fixed-size span so rows align
   // regardless of icon shape. Symlinked entries get a small corner-arrow
   // overlay (`ft-ln`), mirroring VS Code's symlink icon decoration.
@@ -1118,7 +1118,8 @@
     if ((node && node.type === 'image') || ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'ico', 'bmp'].includes(ext)) { cls = 'ft-img'; }
     else if (['mp4', 'webm', 'mov', 'm4v'].includes(ext)) { cls = 'ft-vid'; }
     else if (ext === 'ipynb') { cls = 'ft-nb'; }
-    else if (ext === 'md' || ext === 'markdown' || ext === 'rst') { cls = 'ft-md'; }
+    else if (ext === 'md' || ext === 'markdown') { cls = 'ft-md'; }
+    else if (ext === 'rst') { cls = 'ft-rst'; }
     else if (ext === 'py') { cls = 'ft-py'; }
     else if (['js', 'mjs', 'cjs', 'jsx'].includes(ext)) { cls = 'ft-js'; }
     else if (ext === 'ts' || ext === 'tsx') { cls = 'ft-ts'; }
@@ -21667,7 +21668,7 @@
     // File
     if (filterVal && !node.name.toLowerCase().includes(filterVal)) return '';
     const kind = node.type === 'markdown' ? 'markdown' : (node.type === 'text' ? 'text' : 'file');
-    const icon = node.type === 'markdown' ? '📄' : (node.type === 'text' ? '📝' : '📦');
+    const icon = node.type === 'markdown' ? '📝' : (node.type === 'text' ? '📝' : '📦');
     const active = path === cerebroActivePath ? ' active' : '';
     return `<li>
       <div class="row ${kind}${active}${symlinkClass(node)}" data-path="${cerebroEsc(path)}"${symlinkTitle(node)}>

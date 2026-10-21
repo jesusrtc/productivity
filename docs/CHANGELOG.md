@@ -5,6 +5,11 @@ guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 
 ## 2026-10-21
 
+### Use the memo-and-pencil icon for Markdown files
+
+- Show 📝 for `.md` and `.markdown` files across file lists, linked assets,
+  terminal tabs and notification cards. Preserve icon alignment and symlink marks.
+
 ### Recover disconnected automations before notifying
 
 - Restore the automation's configured spacing (five seconds by default) for

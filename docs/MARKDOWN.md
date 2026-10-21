@@ -1,5 +1,8 @@
 # Rich Markdown and collapsible content
 
+Markdown files (`.md` / `.markdown`, case-insensitive) use 📝 as their file icon
+throughout Lab, including linked assets, terminal tabs and notification cards.
+
 Lab Markdown supports ordinary Markdown plus safe HTML, including native
 `<details>` / `<summary>` disclosures. Click the summary or focus it and press
 Enter or Space to expand a block. Use this for generation prompts, source code,

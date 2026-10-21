@@ -420,6 +420,8 @@ await evaluate("document.body.classList.remove('light-mode');document.body.style
       for case in icon_pixels:
        if case['zoom'] != 1:continue
        for icon in case['stats']:
+        # Markdown intentionally uses the memo emoji, replacing the legacy SVG.
+        if icon['name'].endswith('.md'):continue
         assert icon['mean'] <= .1 and icon['max'] <= 20, (case['theme'],icon)
       rendered=(tmp_path/'rendered.html').read_text()
       match=re.search(r'<pre id="result">(.*?)</pre>',rendered,re.S)

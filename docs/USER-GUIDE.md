@@ -914,6 +914,10 @@ does not authorize edits. Preserve sibling documents and tabs. If present,
 
 ## Documents and foldable supporting material
 
+Markdown files (`.md` and `.markdown`, including uppercase extensions) use the
+📝 memo-and-pencil icon in file lists, linked assets, terminal tabs and their
+notifications.
+
 Lab reads Markdown documents and supports HTML disclosures:
 
 ```markdown
