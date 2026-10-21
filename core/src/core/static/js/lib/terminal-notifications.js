@@ -187,7 +187,7 @@
       const {label, status:state, date} = row;
       const time = historyOpen && Number.isFinite(date.getTime())
         ? `<time class="term-notification-time" datetime="${date.toISOString()}">${escape(date.toLocaleString())}</time>` : '';
-      const card = `<button type="button" class="term-notification ${row.state}${['automation','watch'].includes(row.kind) ? ' automation-reminder' : ''}${row.watch ? ' watched-notification' : ''}${row.active ? ' active-alert' : ''}" data-active="${row.active}" data-key="${escape(row.key)}" data-report-id="${escape(row.report_id)}"${opening.has(row.key) ? ' disabled' : ''} title="${escape(label + ' · ' + state + ' · ' + row.message)}"><span class="term-notification-icon" aria-hidden="true">${['automation','watch'].includes(row.kind) ? '?' : row.state === 'attention' ? '!' : '✓'}</span><span class="term-notification-copy"><span class="term-notification-heading"><span class="term-notification-terminal-icon" aria-hidden="true">${icon}</span><span class="term-notification-context">${escape(label + ' · ' + state)}</span></span><span class="term-notification-message">${escape(row.message)}</span>${time}</span><span aria-hidden="true">↗</span></button>`;
+      const card = `<button type="button" class="term-notification ${row.state}${['automation','watch'].includes(row.kind) ? ' automation-reminder' : ''}${row.watch ? ' watched-notification' : ''}${row.active ? ' active-alert' : ''}" data-active="${row.active}" data-key="${escape(row.key)}" data-report-id="${escape(row.report_id)}"${opening.has(row.key) ? ' disabled' : ''} aria-label="${escape(label + ' · ' + state + ' · ' + row.message)}" title="${escape(label + ' · ' + state + ' · ' + row.message)}"><span class="term-notification-icon" aria-hidden="true">${['automation','watch'].includes(row.kind) ? '?' : row.state === 'attention' ? '!' : '✓'}</span><span class="term-notification-copy"><span class="term-notification-heading"><span class="term-notification-terminal-icon" aria-hidden="true">${icon}</span><span class="term-notification-context">${escape(label + ' · ' + state)}</span></span><span class="term-notification-message">${escape(row.message)}</span>${time}</span><span aria-hidden="true">↗</span></button>`;
       if (row.watch) return `<div class="term-notification-group term-notification-watched">${card}<button type="button" class="term-notification-dismiss" data-notification-watch-close data-key="${escape(row.key)}" data-report-id="${escape(row.report_id)}" data-watch-id="${escape(row.watch.id)}" aria-label="Close watched notification" title="Close watched notification"${saving.has(row.key) ? ' disabled' : ''}>×</button></div>`;
       if (row.kind === 'reconnect' && row.active) return `<div class="term-notification-group">${card}<div class="term-notification-actions"><button type="button" data-notification-reconnect${saving.has(row.key) ? ' disabled' : ''}>Reconnect</button></div></div>`;
       return row.kind && row.active ? `<div class="term-notification-group">${card}<div class="term-notification-actions"><button type="button" data-notification-snooze aria-label="Snooze reminder for 30 minutes">Snooze 30 min</button></div></div>` : card;
@@ -197,7 +197,27 @@
     const list = historyOpen ? host.querySelector('[data-notification-list]') : host;
     if (list._notificationHtml === html) return;
     const scroll = host.scrollTop;
+    const expanded = new Set([...list.querySelectorAll('.term-notification-watched')]
+      .filter(group => group.matches(':hover, :focus-within'))
+      .map(group => group.querySelector('.term-notification')?.dataset.key));
+    const focused = document.activeElement?.closest?.('.term-notification-watched');
+    const focusCard = focused?.querySelector('.term-notification');
+    const focus = focusCard && {key:focusCard.dataset.key, report:focusCard.dataset.reportId,
+      close:document.activeElement.hasAttribute('data-notification-watch-close')};
     list._notificationHtml = html; list.innerHTML = html;
+    host.querySelectorAll('.term-notification-watched').forEach(group => {
+      const card = group.querySelector('.term-notification');
+      if (!historyOpen && expanded.has(card.dataset.key)) group.classList.add('notification-expanded');
+      group.addEventListener('pointerleave', () => group.classList.remove('notification-expanded'));
+      group.addEventListener('focusout', () => queueMicrotask(() => {
+        if (!group.matches(':hover, :focus-within')) group.classList.remove('notification-expanded');
+      }));
+      if (focus?.key === card.dataset.key) {
+        const control = focus.close && focus.report === card.dataset.reportId
+          ? group.querySelector('[data-notification-watch-close]') : card;
+        if (!control.disabled) control.focus({preventScroll:true});
+      }
+    });
     host.scrollTop = scroll;
     host.querySelectorAll('.term-notification').forEach(button => {
       button.onclick = () => void open(button.dataset.key, button.dataset.reportId)

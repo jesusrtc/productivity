@@ -656,6 +656,13 @@ minutes**, **1 hour**, **2 hours**, **6 hours**, or **Tomorrow at 9 AM**. Tomorr
 uses the browser's local date and time. The menu shows the saved reminder time
 and offers **Stop watching / cancel reminder**.
 
+On computers with a mouse, watched notifications float as a narrow colored strip
+showing the status symbol and active marker. Hover or keyboard-focus a strip to
+expand its full card and corner **×**. It folds when neither the pointer nor
+keyboard focus is inside. Each strip keeps
+its card's height, so other notifications stay in place. Updates retain the open
+card while you read it. The notification center and touch devices show full cards.
+
 A pinned or due reminder keeps the terminal's latest notification visible at
 the top right, even after opening the terminal, reviewing a finish or receiving
 a working status. New alerts replace its contents. A terminal without an alert

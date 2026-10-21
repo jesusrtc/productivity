@@ -2037,6 +2037,19 @@
   .term-notification-dismiss { position:absolute; top:5px; right:5px; z-index:1; width:27px; height:27px; border:0; border-radius:4px; background:#0003; color:#fff; font:22px/1 system-ui,sans-serif; cursor:pointer; pointer-events:auto; }
   .term-notification-dismiss:hover { background:#0006; }
   .term-notification-dismiss:focus-visible { outline:2px solid #fff; outline-offset:1px; }
+  /* Watched cards reveal their contents over the page without changing height. */
+  @media (hover: hover) and (pointer: fine) {
+    .term-notifications:not(.history-open) .term-notification-watched { width:56px; max-width:100%; align-self:flex-end; overflow:hidden; border-radius:8px; transition:width .16s ease; }
+    .term-notifications:not(.history-open) .term-notification-watched > .term-notification { width:min(392px, calc(100vw - 32px)); }
+    .term-notifications:not(.history-open) .term-notification-watched > .term-notification-dismiss { visibility:hidden; opacity:0; }
+    .term-notifications:not(.history-open) .term-notification-watched :is(.term-notification-copy, .term-notification > span:last-child) { visibility:hidden; opacity:0; }
+    .term-notifications:not(.history-open) .term-notification-watched:is(:hover, :focus-within, .notification-expanded) { width:min(392px, calc(100vw - 32px)); }
+    .term-notifications:not(.history-open) .term-notification-watched:is(:hover, :focus-within, .notification-expanded) > .term-notification-dismiss { visibility:visible; opacity:1; }
+    .term-notifications:not(.history-open) .term-notification-watched:is(:hover, :focus-within, .notification-expanded) :is(.term-notification-copy, .term-notification > span:last-child) { visibility:visible; opacity:1; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .term-notifications:not(.history-open) .term-notification-watched { transition:none; }
+  }
   .term-notification-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:6px; margin-top:5px; pointer-events:auto; }
   .term-notification-actions button { padding:6px 9px; border:1px solid var(--border); border-radius:5px; background:var(--bg-secondary); color:var(--text-primary); font:inherit; font-size:12px; cursor:pointer; }
   .term-notification-actions button:hover { border-color:var(--accent); }

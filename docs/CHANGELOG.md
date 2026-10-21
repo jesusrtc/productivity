@@ -5,6 +5,12 @@ guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 
 ## 2026-10-21
 
+### Fold watched notifications into hover strips
+
+- Show watched floating notifications as compact colored status strips; reveal
+  full text and × on hover or keyboard focus, preserving height and open state
+  through updates. Keep full cards in history, on touch devices and for ordinary alerts.
+
 ### Use the memo-and-pencil icon for Markdown files
 
 - Show 📝 for `.md` and `.markdown` files across file lists, linked assets,

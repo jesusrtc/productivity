@@ -130,6 +130,13 @@ one reminder in 10/30 minutes, 1/2/6 hours, or tomorrow at 9 AM in the browser's
 local timezone. The submenu shows the current deadline and a cancellation action.
 Fixed main and shared document terminals use the same controls.
 
+Floating watched cards have a compact mouse/trackpad view: the colored strip
+shows only the status symbol and active marker. Hover or keyboard focus expands
+that card and reveals its text and ×; mouse leave/blur folds it again. Expansion
+keeps card height and adjacent rows stable, and background updates retain the
+hover/focus state. Reduced motion removes the width animation. Ordinary alerts,
+the searchable notification center and touch devices retain full cards.
+
 Once pinned or due, the card follows the latest alert and stays visible through
 working transitions, terminal navigation and green acknowledgements. Without an
 alert, it shows a yellow manual-check message. Its separate corner **×** stops

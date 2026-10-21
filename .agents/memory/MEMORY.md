@@ -904,3 +904,5 @@
 - [Automation reconnects use three spaced attempts](automation-reconnects-three-attempts.md) — configured five-second command spacing, three retries two minutes apart, failure-only red main cards and persistent guarded recovery.
 
 - [Markdown files use the memo icon](markdown-files-use-memo-icon.md) — 📝 for .md/.markdown across files, assets, terminals and notifications; preserve shared geometry and symlinks.
+
+- [Watched notifications expand on hover](watched-notifications-expand-on-hover.md) — compact colored status strips, full hover/focus cards, stable height, retained open state and full history/touch views.
