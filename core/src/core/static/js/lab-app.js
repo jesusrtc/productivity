@@ -13197,7 +13197,7 @@
     // sessions if the source/alias later disappears. The user can paste the
     // source name again from + New when they want to reattach it.
     const toRestore = saved.filter(s =>
-      s && s.name && s.kind !== 'attached' && !s.task_terminal_retired_at && !liveLogicalNames.has(s.name)
+      s && s.name && s.kind !== 'attached' && !s.subagent && !s.task_terminal_retired_at && !liveLogicalNames.has(s.name)
     );
     // Assistant links user-created sessions; entering Tasks must not revive
     // every saved terminal or allocate a default agent.
@@ -13826,7 +13826,19 @@
 
   function _termSubtabParents(state, sessions = termSessions) {
     const live = new Map(sessions.filter(session => session.logical_name).map(session => [session.logical_name, session]));
-    const explicit=Object.assign(Object.create(null), Object.fromEntries(Object.entries(state.tabParents || {}).filter(([child, parent]) =>
+    const saved = Object.fromEntries(sessions.filter(session => session.parent_terminal && !(state.tabRoots || []).includes(session.logical_name))
+      .filter(session => {
+        const expected = session.subagent?.parent, parent = live.get(session.parent_terminal);
+        return !expected || parent && parent.name === expected.name && parent.tmux_socket === expected.tmux_socket
+          && parent.tmux_id === expected.tmux_id && (parent.created ?? parent.created_at) === expected.created;
+      }).map(session => [session.logical_name, session.parent_terminal]));
+    const links = _termNormalizeGroupState({tabParents:{...saved, ...state.tabParents}}).tabParents;
+    for (const session of sessions) {
+      const expected = session.subagent?.parent, parent = live.get(links[session.logical_name]);
+      if (expected && parent?.name === expected.name && (parent.tmux_socket !== expected.tmux_socket
+          || parent.tmux_id !== expected.tmux_id || (parent.created ?? parent.created_at) !== expected.created)) delete links[session.logical_name];
+    }
+    const explicit=Object.assign(Object.create(null), Object.fromEntries(Object.entries(links).filter(([child, parent]) =>
       live.has(child) && live.has(parent)
       && (window.LabObjectives?.sameTerminalObjective?.(live.get(child), live.get(parent)) ?? true))));
     const parents=window.LabObjectives?.terminalParents?.(sessions,explicit) || explicit;
@@ -13983,13 +13995,14 @@
 
   function _termSubtabRenderer(state, sessions, pill) {
     const contextParents = _termSubtabParents(state, sessions);
+    const sessionsByLogical = new Map(sessions.map(session => [session.logical_name, session]));
     const blocks = new Map(sessions.map(session => [session.logical_name, window.LabObjectives?.terminalTaskBlock?.(session)]));
     // Task members render individually in task order. Keep real parent links
     // for inherited context, appearance, recovery and explicit primary roles.
-    const parents = Object.fromEntries(Object.entries(contextParents).filter(([child, parent]) => !blocks.get(child) && !blocks.get(parent)));
+    const parents = Object.fromEntries(Object.entries(contextParents).filter(([child, parent]) =>
+      sessionsByLogical.get(child)?.subagent || !blocks.get(child) && !blocks.get(parent)));
     const mains = new Map([..._termDisplayMains(state, sessions, contextParents)].filter(([parent, child]) => blocks.get(parent) === blocks.get(child)));
     const mergedInto = new Map([...mains].map(([parent, child]) => [child, parent]));
-    const sessionsByLogical = new Map(sessions.map(session => [session.logical_name, session]));
     // The parent keeps its identity; its tab connects to the chosen child.
     const workingRows = new Set(mains.keys());
     for (const session of sessions) {

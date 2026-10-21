@@ -14,6 +14,11 @@ run `lab context update` before other tools and follow any changed context.
 
 ## Required terminal status on every turn
 
+When explicitly asked to delegate, use `lab agents spawn --name "Task" --prompt-file
+/absolute/task.txt` for a separate tmux child visible beneath this terminal.
+Copilot, Codex and Claude share this command. Do not substitute invisible workers.
+Read `lab context llm` for parent/child status, result inspection and retry rules.
+
 Inside a Lab tmux terminal, after reading context, execute
 `lab notifications working "Short description"` before work. This includes
 short answers, acknowledgements, approvals and resumed work. Before every final

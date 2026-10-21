@@ -733,6 +733,48 @@ Add `--json '{"history":true}'` to `terminal-notifications` to list history.
 center with the bell switch on; `--json '{"open":false}'` turns it off. **Load more** and the close button
 are also available through `lab ui inspect` and `lab ui click`.
 
+## Launch visible subagents
+
+Ask a Copilot, Codex or Claude terminal to delegate work to subagents. Lab's shared
+agent instructions direct it to create separate tmux sessions beneath that exact
+parent terminal. The children appear through the normal terminal refresh, without
+switching your selected terminal. Their hierarchy survives client/backend reloads
+and inherits the parent's task block and task visibility rules. Ordinary new
+terminals keep their independent placement.
+
+Agents use the same commands across all three providers:
+
+```bash
+lab agents spawn --name "Review tests" --prompt-file /absolute/review-task.txt
+lab agents spawn --agent claude --name "Investigate" --prompt "Inspect the failing test and report findings."
+lab agents children
+lab agents read CHILD_ID --lines 200
+```
+
+The provider defaults to the calling terminal's provider; `--agent` chooses
+Copilot, Codex or Claude explicitly. The provider must be installed and enabled
+for that vault. Children inherit the owning vault, workspace and launch folder,
+and use the existing provider settings, permissions and Lab context. Each starts
+a fresh conversation. Give it a concrete assignment, relevant context and the
+expected result; coordinate edits when agents share files. The parent's unsaved
+conversation and drafts are not copied automatically.
+
+Each child reports its own yellow/red/green status. **children** lists those
+reports; **read** captures bounded recent output, including retained provider-exit
+errors, without opening the terminal,
+reviewing green or changing either agent's status. Check results before treating
+delegated work as complete. Children of task terminals stay nested within their
+task's block. Existing parent hover/expansion and close-with-descendants controls
+apply. A recreated parent never adopts a former child's exact-session link.
+
+**spawn** prints a request UUID before contacting Lab. After a timeout, retry the
+same assignment with `--request-id UUID` to retrieve the existing launch instead
+of duplicating it. Stopped children require a new explicit launch; reloading Lab
+never replays their assignments. Launch from inside the owning Lab tmux terminal,
+not a guessed browser selection. The APIs are discoverable with
+`lab api routes --search subagents`. Client reloads refresh the managed instruction
+section, and existing agents learn the commands through `lab context update`.
+
 ## Change metadata through Lab
 
 Discover the relevant CLI with `lab --help` and each command's `--help`. Use

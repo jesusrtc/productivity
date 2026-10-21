@@ -36,7 +36,7 @@ assert 'Lab user guide' in argv[2] and str(agent_context.guide_path('user-guide'
 assert env['LAB_VAULT']==str(root) and env['LAB_ASSISTANT_HOME']==str(root)
 assert env['LAB_DOCUMENT_CONTEXT']==context
 commands=sorted(name for name in sys.modules if name.startswith('lab.commands.'))
-assert commands==['lab.commands.agents','lab.commands.context'],commands
+assert commands==['lab.commands.agents','lab.commands.context','lab.commands.subagents'],commands
 assert 'lab.assistant' not in sys.modules
 print(json.dumps({'commands':commands,'launches':len(calls)}))
 ''', str(tmp_path), alias], capture_output=True, text=True)
@@ -60,6 +60,7 @@ def test_all_help_errors_aliases_and_completion_match_eager_click_registration()
         'link': [('link', 'link_group')],
         'notebook': [('notebook', 'notebook_group')],
         'notifications': [('notifications', 'notifications_cmd')],
+        'progress': [('progress', 'progress_group')],
         'objective': [('objective', 'objective_group')],
         'ref': [('ref', 'ref_group')],
         'repo': [('repo', 'repo_group')],

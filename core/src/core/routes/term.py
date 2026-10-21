@@ -1620,7 +1620,7 @@ def _reconstruct_meta_entry(
                 entry["agent_session_id"] = s["agent_session_id"]
             if s.get("cwd"):
                 entry["cwd"] = s["cwd"]
-            for key in ("label", "summary", "linked_file", "linked_scope", "linked_task", "automation_appearance"):
+            for key in ("label", "summary", "linked_file", "linked_scope", "linked_task", "automation_appearance", "parent_terminal", "subagent"):
                 if s.get(key):
                     entry[key] = s[key]
             break
@@ -2223,6 +2223,7 @@ class NewSession(BaseModel):
     startup_health_command: str = Field(default="", max_length=16000)
     startup_guidelines: list[terminal_automations.Guideline] = Field(default_factory=list, max_length=20)
     automation_appearance: terminal_automations.Appearance | None = None
+    initial_prompt_file: str | None = Field(default=None, max_length=4096)
 
 
 class AttachSession(BaseModel):
@@ -2289,6 +2290,9 @@ def _session_rows_for_root(
         if saved:
             for key in ("label", "summary", "linked_file", "linked_scope", "linked_task", "automation_appearance"):
                 if saved.get(key):
+                    row[key] = saved[key]
+            for key in ('parent_terminal', 'subagent'):
+                if key in saved:
                     row[key] = saved[key]
         rows.append(row)
     # Agent titles/tasks and capture-pane summaries are useful in the active
@@ -3275,6 +3279,8 @@ def create_session(body: NewSession, request: Request) -> dict:
     if body.startup_command is not None and (kind != "terminal" or not body.startup_command.strip()
                                              or "\x00" in body.startup_command):
         raise HTTPException(400, "Startup commands require a plain terminal and a non-empty command")
+    if body.initial_prompt_file and (kind != 'claude' or body.restore):
+        raise HTTPException(400, 'Initial tasks require an explicit agent launch')
 
     active_root = auth.request_root(request)
     root = _vault_root_for(active_root, body.vault)
@@ -3308,6 +3314,8 @@ def create_session(body: NewSession, request: Request) -> dict:
         )
     if body.restore and saved_session.get('task_terminal_retired_at'):
         raise HTTPException(409, 'This task terminal expired. Open it explicitly to resume.')
+    if body.restore and saved_session.get('subagent'):
+        raise HTTPException(409, 'Delegated agents require an explicit new launch; their tasks are never replayed on restore.')
     saved_scope = saved_session.get("linked_scope")
     owns_workspace = body.workspace_id and body.workspace_id not in {
         SELF_WORKSPACE_ID, CEREBRO_WORKSPACE_ID, LOGS_WORKSPACE_ID,
@@ -3521,6 +3529,8 @@ def create_session(body: NewSession, request: Request) -> dict:
         context_args = ['--workspace', body.workspace_id] if owns_workspace else []
         if context_objective:
             context_args += ['--objective', context_objective]
+        if body.initial_prompt_file:
+            context_args += ['--prompt-file', body.initial_prompt_file]
         cmd_argv = [sys.executable, "-m", "lab", "agents", "run", "--vault", str(root),
                     *context_args, agent, "--", *cmd_argv[1:]]
 
@@ -3555,6 +3565,8 @@ def create_session(body: NewSession, request: Request) -> dict:
                 "-c",
                 str(cwd),
                 cmd_str,
+                *([';', 'set-window-option', '-t', '=' + tmux_name + ':', 'remain-on-exit', 'on']
+                  if body.initial_prompt_file else []),
             ),
             capture_output=True,
             text=True,
@@ -3620,7 +3632,7 @@ def create_session(body: NewSession, request: Request) -> dict:
         _upsert_workspace_session(root, body.workspace_id, entry)
         saved = _workspace_session_by_name(root, body.workspace_id).get(logical)
         if saved:
-            for key in ("label", "summary", "linked_file", "linked_scope", "linked_task", "automation_appearance"):
+            for key in ("label", "summary", "linked_file", "linked_scope", "linked_task", "automation_appearance", "parent_terminal", "subagent"):
                 if saved.get(key):
                     meta[tmux_name][key] = saved[key]
             if any(saved.get(key) for key in ("label", "summary", "linked_file", "linked_scope", "linked_task", "automation_appearance")):

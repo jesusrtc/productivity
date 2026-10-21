@@ -152,6 +152,29 @@ cards have a close control; ordinary progress/automation reminders keep snoozing
 The close request checks both the watch ID and latest report ID, so an obsolete
 control cannot close a replacement notification.
 
+Delegated agents use `lab agents spawn --name "Task" --prompt-file /absolute/task.txt`
+from their parent Lab tmux terminal. Copilot, Codex and Claude share the command;
+`--agent` overrides the inherited provider. Lab saves the child relationship with
+the exact parent socket, session ID and creation time, inherits its workspace and
+folder, and renders it beneath the parent, including inside task blocks. Each
+child has its own conversation, terminal output and explicit status reports.
+`lab agents children` lists reports and `lab agents read CHILD_ID` captures recent
+output without acknowledging a finish. Providers keep their ordinary configured
+permissions. The shared context and managed instruction template teach these
+commands to all clients; no client-specific instruction edits are required.
+
+`POST /api/term/subagents`, `/api/term/subagents/list` and `/api/term/subagents/read`
+require an authorized administrator and exact live parent identity. Launches use
+a request UUID, a workspace lease and a process/file lock to prevent duplicate
+concurrent launches. Retry timeouts with the same `--request-id`; a stopped child
+is returned as stopped. Retain exited provider panes so their errors can still
+be inspected; output reads validate the child incarnation atomically.
+Assignments are stored in owner-readable private launch files and supplied as
+literal provider prompts, not shell input; they are never saved in workspace
+metadata or replayed by automatic restore. Browser parent links persist with the
+saved terminal and cannot attach to a recreated parent. The regular close-family
+confirmation still includes all nested descendants.
+
 Session-local `@lab_watch` stores the mode, absolute deadline and fallback report.
 The existing batched listing exposes `terminal_watch` to every client; the browser
 wakes the card at its deadline and rechecks on visibility changes. If the browser

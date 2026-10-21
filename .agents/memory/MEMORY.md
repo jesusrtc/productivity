@@ -1,5 +1,7 @@
 # Memory index
 
+- [Delegated agents have visible child terminals](subagents-have-visible-child-terminals.md) — shared Copilot/Codex/Claude spawn, children and read commands, exact calling-parent identity, persistent task nesting and independent reports.
+
 - [Watched notifications follow working status](watched-notifications-follow-working-status.md) — yellow Working while a watched terminal resumes, retained message and exact close target, active warnings preserved.
 
 - [Agent progress checkpoints](agent-progress-checkpoints.md) — 20-minute meaningful reports, independent 30-minute stale alerts, Copilot lifecycle reminders and explicit completion preserved.

@@ -19,10 +19,12 @@ def agents_group() -> None:
               help='Pin Lab commands in this agent process to an owning vault.')
 @click.option('--workspace', 'workspace_id', help='Owning workspace ID, including launches in linked worktrees.')
 @click.option('--objective', 'objective_id', help='Owning Objective ID within that workspace.')
+@click.option('--prompt-file', type=click.Path(path_type=Path, exists=True, dir_okay=False),
+              help='Read an initial task from a UTF-8 file; keep the provider interactive.')
 @click.argument('agent', type=click.Choice(agent_context.AGENTS))
 @click.argument('args', nargs=-1, type=click.UNPROCESSED)
 def run(vault: Path | None, workspace_id: str | None, objective_id: str | None,
-        agent: str, args: tuple[str, ...]) -> None:
+        prompt_file: Path | None, agent: str, args: tuple[str, ...]) -> None:
     """Launch AGENT with framework context and its own repository instructions.
 
     Example: lab agents run codex -- resume --last
@@ -39,6 +41,11 @@ def run(vault: Path | None, workspace_id: str | None, objective_id: str | None,
     if objective_id:
         env['LAB_CONTEXT_OBJECTIVE'] = objective_id
     try:
+        if prompt_file:
+            prompt = prompt_file.read_text(encoding='utf-8')
+            if not prompt.strip() or '\x00' in prompt or len(prompt) > 66000:
+                raise agent_context.ContextError('Initial task must contain 1–66000 characters without NUL bytes')
+            args = (*args, *(['--interactive', prompt] if agent == 'copilot' else ['--', prompt]))
         argv, env = agent_context.prepare_launch(agent, list(args), env=env)
         terminal, previous_llm = None, ''
         try:
@@ -60,7 +67,7 @@ def run(vault: Path | None, workspace_id: str | None, objective_id: str | None,
                 except terminal_context.TerminalContextError:
                     pass
             raise
-    except (agent_context.ContextError, OSError) as exc:
+    except (agent_context.ContextError, OSError, UnicodeError) as exc:
         raise click.ClickException(str(exc)) from exc
 
 
@@ -158,3 +165,9 @@ def doctor(require_cli: bool) -> None:
 
 # Both lab agents context and the singular lab agent alias read the same guide.
 agents_group.add_command(context_cmd)
+
+# Imported only with this command group, preserving the CLI's lazy startup.
+from lab.commands.subagents import spawn, children, read_child
+agents_group.add_command(spawn)
+agents_group.add_command(children)
+agents_group.add_command(read_child)

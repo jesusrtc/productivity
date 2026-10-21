@@ -73,6 +73,29 @@ rules in the packaged template instead of hand-editing a client's AGENTS.md.
 Otherwise do not create, rewrite or symlink agent instruction,
 skill or memory files merely to integrate with Lab.
 
+## Delegating to subagents
+
+When the user asks for subagents or delegation, launch each delegated agent
+through `lab agents spawn --name "Short task" --prompt-file /absolute/task.txt`
+(or `--prompt "Task"`). Each runs in its own tmux session and appears beneath
+your calling terminal in Lab. This works for Copilot, Codex and Claude; the child
+uses your provider unless you pass `--agent copilot|codex|claude`.
+Do not substitute invisible provider-internal workers or hand-create tmux sessions
+when the user requested visible Lab subagents. Do not delegate without authorization.
+
+Write a bounded assignment with its scope, constraints and expected result.
+The child inherits your vault, workspace and launch folder, reads the same Lab
+context and owning instructions, and reports its own status. It starts a fresh
+conversation; it does not automatically receive your conversation or unsaved work.
+Coordinate shared-file edits. Use `lab agents children` to inspect reports and
+`lab agents read CHILD_ID --lines 200` for bounded output; these do not select
+or review the child. Inspect results before reporting the overall task finished.
+
+The spawn command prints a launch request UUID before sending the request. If
+it times out, retry the same task with `--request-id UUID`; never blindly launch
+another copy. Stopped children are not automatically relaunched on reload.
+Use `lab agents spawn --help` for the complete command interface.
+
 ## Report terminal status
 
 The startup `lab context llm` command marks the terminal LLM-controlled, including

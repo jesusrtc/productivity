@@ -5,6 +5,17 @@ guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 
 ## 2026-10-21
 
+### Launch delegated agents as visible child terminals
+
+- Add shared **lab agents spawn / children / read** commands for Copilot, Codex
+  and Claude. Start each subagent in a fresh tmux session beneath the exact
+  calling terminal, preserving workspace, folder, task grouping and independent
+  agent reports through reloads.
+- Teach the workflow through packaged launch/context instructions and the
+  automatically refreshed managed section. Support provider selection, literal
+  file prompts, bounded output reads and idempotent launch request IDs. Reject
+  replaced parents/children and never replay stopped assignments on restore.
+
 ### Match watched notifications to working terminals
 
 - Replace stale green completion cards with yellow **Working** and an ellipsis
