@@ -1,5 +1,6 @@
 """Delegate to visible Lab child terminals from any supported agent CLI."""
 import uuid
+from pathlib import Path
 
 import click
 
@@ -24,7 +25,9 @@ def parent_identity():
 @click.option('--prompt', help='Task for this child; use --prompt-file for multiline tasks.')
 @click.option('--prompt-file', type=click.File('r', encoding='utf-8'), help='UTF-8 task file; - reads stdin.')
 @click.option('--request-id', type=click.UUID, help='Reuse this UUID when retrying a launch; prevents duplicates.')
-def spawn(agent, name, prompt, prompt_file, request_id):
+@click.option('--context-file', type=click.File('r', encoding='utf-8'), help='Parent brief, decisions, constraints and expected results.')
+@click.option('--include-file', 'context_files', multiple=True, type=click.Path(), help='Include a bounded UTF-8 reference file from the parent folder.')
+def spawn(agent, name, prompt, prompt_file, request_id, context_file, context_files):
     """Launch a subagent in its own tmux session beneath this LLM terminal."""
     from lab import api_client
     if (prompt is None) == (prompt_file is None):
@@ -39,7 +42,8 @@ def spawn(agent, name, prompt, prompt_file, request_id):
     click.echo('Launch request: ' + ident, err=True)
     api_client.output(api_client.request('POST', '/api/term/subagents', body={
         'parent':parent_identity(), 'request_id':ident, 'agent':agent,
-        'label':name.strip(), 'prompt':text}, timeout=60))
+        'label':name.strip(), 'prompt':text, 'context':context_file.read(64001) if context_file else '',
+        'context_files':[str(Path(path).expanduser().absolute()) for path in context_files]}, timeout=60))
 
 
 @click.command('children')

@@ -1,5 +1,7 @@
 # Memory index
 
+- [Agent files belong to requests and delegated assignments](agent-files-by-request.md) — double-click document modal, exact reported file attribution, Objective-independent grouping and bounded parent context handoff.
+
 - [Delegated agents have visible child terminals](subagents-have-visible-child-terminals.md) — shared Copilot/Codex/Claude spawn, children and read commands, exact calling-parent identity, persistent task nesting and independent reports.
 
 - [Watched notifications follow working status](watched-notifications-follow-working-status.md) — yellow Working while a watched terminal resumes, retained message and exact close target, active warnings preserved.

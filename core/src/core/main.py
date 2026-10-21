@@ -578,6 +578,8 @@ def create_app() -> FastAPI:
     app.include_router(term_route.router)
     from core.subagent_terminals import router as subagent_terminals_router
     app.include_router(subagent_terminals_router)
+    from core.agent_work_history import router as agent_work_history_router
+    app.include_router(agent_work_history_router)
     app.include_router(terminal_cleanup_route.router)
     from core.task_terminal_cleanup import router as task_terminal_cleanup_router
     app.include_router(task_terminal_cleanup_router)

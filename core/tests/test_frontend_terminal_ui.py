@@ -160,7 +160,7 @@ def test_terminal_sessions_support_orientation_and_responsive_labels() -> None:
     assert 'id="termSessionList" role="tablist"' in html
     assert 'aria-orientation="vertical"' in html
     assert 'id="termActiveSession"' in html
-    assert 'ondblclick="termRenameCurrent()"' in html
+    assert 'ondblclick="termOpenCurrentDetails()"' in html
     assert 'id="termOrientationSelect"' in html
     assert 'id="termDetailSelect"' not in html
     assert 'id="termSessionsResizer" role="separator"' in html
@@ -358,7 +358,7 @@ def test_terminal_tabs_support_colored_dividers() -> None:
     assert 'id="termCreateGroupBtn"' not in html
     assert 'id="termGroupBtn"' not in html
     assert 'id="termRenameBtn"' not in html
-    assert 'ondblclick="termRenameCurrent()"' in html
+    assert 'ondblclick="termOpenCurrentDetails()"' in html
     assert 'id="termGroupMenu"' in html
     assert "const _TERM_GROUPS_KEY = 'labTermGroups-v1'" in source
     assert "function termCreateDivider(sessionName = termCurrentSession, position" in source

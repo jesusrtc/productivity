@@ -1,0 +1,29 @@
+.agent-work-overlay { z-index:270; }
+.agent-work-overlay .doc-modal-files { width:300px; max-width:35%; }
+.agent-work-filters { display:flex; flex-direction:column; gap:9px; padding:12px; color:var(--text-secondary); font-size:12px; }
+.agent-work-filters input[type=search] { width:100%; min-width:0; box-sizing:border-box; padding:8px; color:var(--text-primary); background:var(--bg-secondary); border:1px solid var(--border); border-radius:5px; }
+.agent-work-filters label { display:flex; align-items:center; gap:5px; }
+.agent-work-group { margin-bottom:10px; border-bottom:1px solid var(--border); padding-bottom:8px; }
+.agent-work-group summary { cursor:pointer; padding:8px; color:var(--text-primary); font-size:12px; overflow-wrap:anywhere; }
+.agent-work-group summary small,.agent-work-origin,.agent-work-group .doc-modal-file small { display:block; color:var(--text-secondary); font-size:10px; margin-top:4px; }
+.agent-work-origin { padding:0 8px 5px; overflow-wrap:anywhere; }
+.agent-work-group .doc-modal-file span { min-width:0; }
+.agent-work-group .doc-modal-file strong { font-weight:500; }
+.agent-work-group .doc-modal-file small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.agent-work-preview { padding:24px; box-sizing:border-box; }
+.agent-work-preview .doc { color:var(--text-primary); line-height:1.7; font-size:15px; }
+.agent-work-preview .doc h1 { font-size:30px; margin:20px 0; }
+.agent-work-preview .doc h2 { font-size:24px; margin:24px 0 12px; }
+.agent-work-preview .doc h3 { font-size:19px; margin:20px 0 10px; }
+.agent-work-preview .doc pre { overflow:auto; padding:12px; border-radius:6px; background:var(--bg-primary); }
+.agent-work-brief { padding:10px 12px; border:1px solid var(--border); border-radius:6px; color:var(--text-secondary); margin-bottom:20px; }
+.agent-work-brief summary { cursor:pointer; }
+.agent-work-brief pre,.agent-work-code { white-space:pre-wrap; overflow-wrap:anywhere; font-size:12px; }
+.agent-work-file-header { display:flex; align-items:center; flex-wrap:wrap; gap:10px; font-size:12px; color:var(--text-secondary); }
+.agent-work-file-header > span { flex:1; min-width:0; overflow-wrap:anywhere; }
+.agent-work-file-header button,.agent-work-file-header a { padding:5px 9px; border:1px solid var(--border); border-radius:4px; background:var(--bg-tertiary); color:var(--text-primary); cursor:pointer; font:inherit; text-decoration:none; }
+.agent-work-file-note { font-size:11px; color:var(--text-secondary); margin-bottom:24px; }
+.agent-work-image { max-width:100%; height:auto; }
+.agent-work-pdf { width:100%; height:65vh; border:0; }
+.agent-work-empty { color:var(--text-secondary); padding:10px; font-size:12px; }
+@media(max-width:650px) { .agent-work-overlay .doc-modal-box { width:98vw; height:96dvh; } .agent-work-overlay .doc-modal-files { width:38%; max-width:45%; } .agent-work-preview { padding:12px; } }

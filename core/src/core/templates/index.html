@@ -25,6 +25,8 @@ window.ensureLiveMarkdownEditor = (function () {
 <script src="/static/js/lib/document-terminal.js?v={{ ASSET_V }}" defer></script>
 <script src="/static/js/lib/terminal-completion.js?v={{ ASSET_V }}" defer></script>
 <script src="/static/js/lib/terminal-notifications.js?v={{ ASSET_V }}" defer></script>
+<script src="/static/js/lib/agent-work-history.js?v={{ ASSET_V }}" defer></script>
+<link rel="stylesheet" href="/static/css/agent-work-history.css?v={{ ASSET_V }}">
 <script src="/static/js/lib/terminal-folder.js?v={{ ASSET_V }}" defer></script>
 <link rel="stylesheet" href="/static/css/terminal-folder.css?v={{ ASSET_V }}">
 <script src="/static/js/lib/workspace-documents.js?v={{ ASSET_V }}" defer></script>
@@ -309,7 +311,7 @@ window.ensureLiveMarkdownEditor = (function () {
   <div class="term-header">
     <span class="title">Terminal</span>
     <button id="termShowAllBtn" class="term-all-switch" type="button" role="switch" aria-checked="false" aria-label="Show all terminals" title="Show all task statuses" onclick="termToggleAllTerminals()"><span>Show all</span><span class="term-all-switch-track" aria-hidden="true"></span></button>
-    <span class="term-active-session" id="termActiveSession" aria-live="polite" tabindex="0" onpointerenter="_termShowSessionTooltip(this)" onpointerleave="_termScheduleSessionTooltipHide()" onfocus="_termShowSessionTooltip(this)" onblur="_termScheduleSessionTooltipHide()" ondblclick="termRenameCurrent()"></span>
+    <span class="term-active-session" id="termActiveSession" aria-live="polite" tabindex="0" onpointerenter="_termShowSessionTooltip(this)" onpointerleave="_termScheduleSessionTooltipHide()" onfocus="_termShowSessionTooltip(this)" onblur="_termScheduleSessionTooltipHide()" ondblclick="termOpenCurrentDetails()" onkeydown="if(event.key==='Enter'){event.preventDefault();termOpenCurrentDetails()}"></span>
     <button id="termCopyAttachBtn" onclick="termCopyAttachCmd()" title="Copy read-only tmux attach command">&#x1F4CB;</button>
     <button id="termSettingsBtn" onclick="termOpenSettings()" title="Terminal settings" aria-label="Terminal settings">&#x2699;</button>
   </div>

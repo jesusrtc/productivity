@@ -43,8 +43,8 @@ def run(vault: Path | None, workspace_id: str | None, objective_id: str | None,
     try:
         if prompt_file:
             prompt = prompt_file.read_text(encoding='utf-8')
-            if not prompt.strip() or '\x00' in prompt or len(prompt) > 66000:
-                raise agent_context.ContextError('Initial task must contain 1–66000 characters without NUL bytes')
+            if not prompt.strip() or '\x00' in prompt or len(prompt.encode('utf-8')) > 120000:
+                raise agent_context.ContextError('Initial task must contain 1–120000 UTF-8 bytes without NUL bytes')
             args = (*args, *(['--interactive', prompt] if agent == 'copilot' else ['--', prompt]))
         argv, env = agent_context.prepare_launch(agent, list(args), env=env)
         terminal, previous_llm = None, ''
@@ -171,3 +171,6 @@ from lab.commands.subagents import spawn, children, read_child
 agents_group.add_command(spawn)
 agents_group.add_command(children)
 agents_group.add_command(read_child)
+from lab.commands.agent_work import work, files
+agents_group.add_command(work)
+agents_group.add_command(files)

@@ -152,6 +152,33 @@ cards have a close control; ordinary progress/automation reminders keep snoozing
 The close request checks both the watch ID and latest report ID, so an obsolete
 control cannot close a replacement notification.
 
+Double-click an LLM tab or active terminal name to open **Files changed**;
+secondary-click has the same action and retains **Rename tab**. Ordinary shells
+still rename on double-click. The read-only document modal groups explicit file
+reports by request/delegated assignment, supports keyword search and optional
+descendant rollup, and previews current Markdown, text, image and PDF content.
+Missing/deleted files retain their entries. Opening it does not review terminal
+notifications or change Objective tasks. These assignments are separate from
+Objective tasks/subtasks/checklists.
+
+`lab agents work start --title "Request"` creates a group; `--id` resumes a
+delegated group and `--parent` links a sub-assignment. `lab agents files record`
+records created/modified/deleted/renamed paths owned by that agent. `work show`
+or `files list --include-children` reads the ledger; `work finish --summary`
+records the result, independently of terminal status. The local owner-readable
+`agent-work.sqlite3` in Lab's global configuration directory stores assignment
+links, exact canonical socket/name/session-ID/creation-time identities and file
+paths, report timestamps and bounded hashes. No Objective metadata is changed.
+This is an agent-reported attribution ledger, not a Git dirty-file inference or
+version archive. Unreported past changes require evidence before attribution.
+
+`POST /api/term/work/history` checks an authorized administrator and exact live
+terminal identity; file preview/content endpoints use recorded IDs and admin
+access. Previews cap inline text at 2 MB, escape code and sanitize Markdown.
+HTML downloads as an attachment. Image/PDF responses use a sandbox CSP. Relative
+Markdown image references resolve from the recorded document's directory.
+`terminal-work-history` is the equivalent named Lab UI command.
+
 Delegated agents use `lab agents spawn --name "Task" --prompt-file /absolute/task.txt`
 from their parent Lab tmux terminal. Copilot, Codex and Claude share the command;
 `--agent` overrides the inherited provider. Lab saves the child relationship with
@@ -162,6 +189,17 @@ child has its own conversation, terminal output and explicit status reports.
 output without acknowledging a finish. Providers keep their ordinary configured
 permissions. The shared context and managed instruction template teach these
 commands to all clients; no client-specific instruction edits are required.
+
+`--context-file` supplies a focused parent brief and repeated `--include-file`
+attaches selected UTF-8 reference text with absolute source paths. Each reference
+is bounded to 32 KB, at most 16 files; combined context is at most 64,000 characters
+and the complete launch prompt at most 120,000 UTF-8 bytes. Lab also injects the
+parent's current request title, ID and recorded context, never its raw conversation,
+and registers the linked child assignment. Parents must supply relevant user
+context, decisions, constraints, permitted edit scope and expected results;
+children resume the supplied ID, report only their own changed files and return
+validation. Inspect those results before completing the parent request. Registering
+the child brief preserves any result a fast child has already reported.
 
 `POST /api/term/subagents`, `/api/term/subagents/list` and `/api/term/subagents/read`
 require an authorized administrator and exact live parent identity. Launches use

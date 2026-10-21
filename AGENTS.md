@@ -16,6 +16,13 @@ When the user requests subagents, use `lab agents spawn --name "Task" --prompt-f
 /absolute/task.txt` so each Copilot, Codex or Claude agent runs in a separate tmux
 terminal nested beneath its calling parent in Lab. Read the delegation and retry
 rules in `lab context llm`; inspect child results before reporting overall completion.
+
+Record each request with `lab agents work start --title "Request"`, the exact files
+you change with `lab agents files record PATH ...`, and its result with
+`lab agents work finish --summary "Result"`. These are agent assignments, not
+Objective tasks. Parents pass relevant context with spawn's `--context-file` and
+`--include-file`; children resume their supplied assignment ID and record their
+own file changes. Read the full rules in `lab context llm`.
 <!-- lab:managed-context:end -->
 
 # Lab framework repo

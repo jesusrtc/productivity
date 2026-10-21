@@ -34,10 +34,11 @@ context=subprocess.run([sys.executable,'-m','lab','context','llm'],capture_outpu
 subprocess.run([sys.executable,'-m','lab','notifications','working','Checking delegated task'],check=True)
 print('CHILD_RESULT_LITERAL_READY',flush=True)
 subprocess.run([sys.executable,'-m','lab','notifications','finished','Delegated task verified'],check=True)
-with open({str(receipt)!r},'w') as output:
+with open({str(receipt)+'.tmp'!r},'w') as output:
  json.dump({{'argv':sys.argv[1:],'cwd':os.getcwd(),'tmux':os.environ.get('TMUX'),'pane':os.environ.get('TMUX_PANE'),
  'vault':os.environ.get('LAB_VAULT'),'workspace':os.environ.get('LAB_CONTEXT_WORKSPACE'),
- 'context_ok':context.returncode==0 and 'lab agents spawn' in context.stdout}},output)
+ 'context_ok':context.returncode==0 and all(rule in context.stdout for rule in ['lab agents spawn','lab agents work','lab agents files','--context-file'])}},output)
+os.replace({str(receipt)+'.tmp'!r},{str(receipt)!r})
 time.sleep(60)
 '''
         executable = folder / agent; executable.write_text(script); executable.chmod(0o700)

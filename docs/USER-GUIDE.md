@@ -733,6 +733,54 @@ Add `--json '{"history":true}'` to `terminal-notifications` to list history.
 center with the bell switch on; `--json '{"open":false}'` turns it off. **Load more** and the close button
 are also available through `lab ui inspect` and `lab ui click`.
 
+## See files changed by an agent
+
+Double-click an agent terminal tab or its active terminal name to open **Files
+changed**. The modal has a searchable file list and a document preview, grouped
+by **requests and delegated assignments**. These groups describe work given to
+an LLM by you or its parent/chief of staff; they are independent of Objective
+tasks, subtasks and checklists. Secondary-click **Files changed…** opens the same
+view; **Rename tab** remains in that menu. Plain shell tabs still rename on
+double-click.
+
+**Include delegated work** also shows assignments linked to that agent's
+requests, including nested delegation. Each group identifies its reporting
+agent, parent assignment, status, request, context and result. Search keywords
+match request titles, briefs, file paths and change types. Click a file to preview
+Markdown, text/code, images or PDFs; other formats offer a download. Deleted or
+moved files keep their history entry. Previews show the **current file**, not a
+snapshot of the earlier version. Opening this view never reviews a finish or
+changes the selected task or terminal status.
+
+Agents maintain this record with the same commands across Copilot, Codex and
+Claude:
+
+```bash
+lab agents work start --title "Prepare report" --request-file /absolute/request.txt
+lab agents files record --operation created /absolute/report.md
+lab agents files record --operation modified /absolute/code.py
+lab agents files record --operation renamed --previous-path /absolute/old.md /absolute/new.md
+lab agents files record --operation deleted /absolute/removed.md
+lab agents files list --include-children
+lab agents work finish --summary "Report and checks completed"
+```
+
+Start a separate group for each new request. `work start --parent ASSIGNMENT_ID`
+links a sub-assignment; `--id ASSIGNMENT_ID` resumes the assignment supplied to a
+child. `--context-file` records relevant decisions and constraints. Record only
+files that agent actually changed, including generated artifacts, never another
+agent's edits or files it only read. File reporting is explicit attribution, not
+a filesystem audit: earlier unreported edits do not automatically appear, and a
+whole repository's dirty files cannot establish who edited them. Repeated edits
+to a path update its entry within that request. Records persist locally through
+client/backend reloads and remain scoped to the exact terminal incarnation.
+Finishing an assignment does not replace `lab notifications finished/attention`.
+
+For UI automation, `lab ui --client VIEW_ID command terminal-work-history --json
+'{"name":"EXACT_SESSION_NAME"}'` opens the same modal. Then use `lab ui inspect`,
+`fill` and `click` for its search and controls. Discover history/preview endpoints
+with `lab api routes --search /api/term/work`; they require administrator access.
+
 ## Launch visible subagents
 
 Ask a Copilot, Codex or Claude terminal to delegate work to subagents. Lab's shared
@@ -746,6 +794,7 @@ Agents use the same commands across all three providers:
 
 ```bash
 lab agents spawn --name "Review tests" --prompt-file /absolute/review-task.txt
+lab agents spawn --name "Write report" --prompt-file /absolute/assignment.txt --context-file /absolute/brief.txt --include-file /absolute/reference.md
 lab agents spawn --agent claude --name "Investigate" --prompt "Inspect the failing test and report findings."
 lab agents children
 lab agents read CHILD_ID --lines 200
@@ -756,14 +805,22 @@ Copilot, Codex or Claude explicitly. The provider must be installed and enabled
 for that vault. Children inherit the owning vault, workspace and launch folder,
 and use the existing provider settings, permissions and Lab context. Each starts
 a fresh conversation. Give it a concrete assignment, relevant context and the
-expected result; coordinate edits when agents share files. The parent's unsaved
-conversation and drafts are not copied automatically.
+expected result; coordinate edits when agents share files. Put relevant user
+context, decisions, constraints, permitted edit scope and expected results in
+`--context-file`. Repeat `--include-file` to attach selected UTF-8 references
+(up to 16 files, 32 KB each; combined context at most 64,000 characters). Only
+share relevant, authorized content. Lab injects the parent request title, ID and
+recorded context, adds the supplied brief/references and links the child's work
+assignment. Its prompt includes the assignment ID to resume and instructions to
+report changed files and results. Raw parent conversations are not automatically
+copied. Children follow this workflow when further delegation is authorized.
 
 Each child reports its own yellow/red/green status. **children** lists those
 reports; **read** captures bounded recent output, including retained provider-exit
 errors, without opening the terminal,
 reviewing green or changing either agent's status. Check results before treating
-delegated work as complete. Children of task terminals stay nested within their
+delegated work as complete, including their reported files and validation.
+Children of task terminals stay nested within their
 task's block. Existing parent hover/expansion and close-with-descendants controls
 apply. A recreated parent never adopts a former child's exact-session link.
 

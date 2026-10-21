@@ -5,6 +5,19 @@ guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 
 ## 2026-10-21
 
+### Inspect agent files by request and delegated assignment
+
+- Double-click an agent tab/name or choose **Files changed…** to open a searchable
+  document-style modal. Group created, modified, renamed and deleted files by the
+  agent's requests, optionally including delegated descendants. Preview current
+  files and inspect briefs/results without changing Objective tasks or status.
+- Add shared **lab agents work** and **files** commands with persistent, exact
+  terminal attribution. Teach all supported LLMs through packaged context and
+  refreshed managed instructions to record their own changes and results.
+- Add bounded parent brief/reference handoff to **spawn**, linked child
+  assignments and explicit scope/result instructions. Preserve a fast child's
+  completed state when attaching its parent context.
+
 ### Launch delegated agents as visible child terminals
 
 - Add shared **lab agents spawn / children / read** commands for Copilot, Codex

@@ -14479,10 +14479,15 @@
       return true;
     };
     const watchMenu = session && !session.automation_missing
-      ? '<button role="menuitem" class="term-group-menu-row" data-action="watch">Watch / remind…</button>' : '';
+      ? '<button role="menuitem" class="term-group-menu-row" data-action="watch">Watch / remind…</button>'
+        + ((session.llm_controlled || session.kind === 'claude' || ['copilot','codex','claude'].includes(session.agent))
+          ? '<button role="menuitem" class="term-group-menu-row" data-action="work-history">Files changed…</button>' : '') : '';
     const chooseWatch = action => {
-      if (action !== 'watch') return false;
-      if (menuScope === _termGroupScopeKey()) termOpenWatchMenu(session, anchor);
+      if (!['watch','work-history'].includes(action)) return false;
+      if (menuScope === _termGroupScopeKey()) {
+        if (action === 'work-history') void termOpenSessionDetails(session.name);
+        else termOpenWatchMenu(session, anchor);
+      }
       return true;
     };
     if(window.LabObjectives?.terminalMain?.(parentSession || session)){
@@ -15073,6 +15078,18 @@
     if (termCurrentSession) termRenameSession(termCurrentSession);
   }
 
+  function termOpenSessionDetails(name) {
+    const session = termSessions.find(row => row.name === name);
+    if (session && (session.llm_controlled || session.kind === 'claude' || ['copilot','codex','claude'].includes(session.agent))) {
+      return window.LabAgentWorkHistory?.open(session).catch(error => explorerToast(error.message,true));
+    }
+    return termRenameSession(name);
+  }
+
+  function termOpenCurrentDetails() {
+    if (termCurrentSession) return termOpenSessionDetails(termCurrentSession);
+  }
+
   function _termRenderActiveSessionHeader() {
     const el = document.getElementById('termActiveSession');
     const statusSummary = document.getElementById('termStatusSummary');
@@ -15533,7 +15550,7 @@
         e.stopPropagation();
         if (e.metaKey || e.ctrlKey || _termTabSelection().size > 1) return;
         const name = node.getAttribute('data-name');
-        termRenameSession(name);
+        void termOpenSessionDetails(name);
       });
       node.addEventListener('keydown', (e) => {
         if (e.key !== 'Enter' && e.key !== ' ') return;
@@ -22388,11 +22405,17 @@
   }
 
   _termInstallTaskLinkActions();
+  window.LabAgentWorkHistory?.configure({icon:path => fileIconHtml(path), prepare:ensureMarked, error:message => explorerToast(message,true)});
   if(LAB_IS_ADMIN)window.LabUiControl?.start({
     context:()=>({workspace:currentWorkspace?.name||'',vault:_workspaceVaultId(currentWorkspace)||currentVaultId,
       path:currentWorkspace?.path||'',document:_workspaceDocPath||null,
       terminals:(termSessions||[]).map(s=>({name:s.name,logical_name:s.logical_name,label:s.label,state:s.state}))}),
     actions:{
+      'terminal-work-history':p=>{
+        const rows=termSessions.filter(row=>row.name===p.name||row.logical_name===p.name);
+        if(rows.length!==1)throw Error('Choose the exact agent terminal.');
+        return window.LabAgentWorkHistory.open(rows[0]);
+      },
       'terminal-status':async p=>{
         const workspace=_termActiveWorkspaceId(),vault=_termVaultId();
         const rows=(termSessions||[]).filter(s=>!p.name||s.name===p.name||s.logical_name===p.name);

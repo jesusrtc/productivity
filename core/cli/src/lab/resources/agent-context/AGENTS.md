@@ -96,6 +96,40 @@ it times out, retry the same task with `--request-id UUID`; never blindly launch
 another copy. Stopped children are not automatically relaunched on reload.
 Use `lab agents spawn --help` for the complete command interface.
 
+## Record requests, assignments and changed files
+
+Before changing files for a new user request, run
+`lab agents work start --title "Request summary"` (add `--request-file` for the
+request and `--context-file` for decisions/constraints). These are agent work
+assignments, completely separate from Objective tasks and their checklists.
+For a delegated assignment, resume the `--id` supplied in its launch prompt.
+Use `--parent ASSIGNMENT_ID` for a sub-assignment. Track each request separately.
+
+After edits, record the exact files you created/changed with
+`lab agents files record --operation modified /absolute/file ...` or `created`.
+Use `deleted` for removed files and `renamed --previous-path OLD NEW` for renames.
+Record generated documents, code, notebooks, images and other artifacts too.
+Do not claim files another agent changed, a whole Git dirty set, or files you only
+read. `lab agents files list` audits your record. Before the final status/reply,
+run `lab agents work finish --summary "Result and validation"`; status dots still
+require `lab notifications finished/attention` independently. Update the file
+record again if further edits are needed. Report tracking failures explicitly.
+
+Before delegating, give the child its bounded assignment, relevant user context,
+decisions, constraints, permitted file scope and expected results. Use
+`lab agents spawn --context-file /absolute/brief.txt --include-file /absolute/reference.md`
+alongside its `--name` and `--prompt-file`. Only include relevant, authorized file
+content; do not copy unrelated conversations, credentials or every file in a repo.
+Lab also injects the parent request title, ID and recorded context, and links the
+child's assignment. The raw parent conversation is not copied automatically.
+Children follow the same rules if asked to delegate further. Inspect the child’s
+reported files and results before marking the parent request complete.
+
+Double-clicking an agent terminal shows its reported files grouped by request
+and delegated assignment. This is an attribution record, not a full filesystem
+audit or an Objective task status. Earlier unrecorded edits cannot be attributed
+retroactively without evidence.
+
 ## Report terminal status
 
 The startup `lab context llm` command marks the terminal LLM-controlled, including

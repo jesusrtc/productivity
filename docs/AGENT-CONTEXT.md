@@ -10,6 +10,24 @@ live notebooks, metadata, tasks, terminals and local servers. Lab defers
 project conventions, content, skills, and memory policy to the workspace and
 the user.
 
+The packaged guide, launch bootstrap and managed instruction template also teach
+Copilot, Codex and Claude to track each request with `lab agents work start`,
+report their own changed files through `lab agents files record`, and finish the
+assignment with a result summary before reporting terminal completion. These
+request/delegation groups are independent of Objective tasks. Double-clicking
+an agent opens the corresponding file-history modal. Tracking is explicit; it
+does not infer attribution from another agent's dirty files or reconstruct
+unreported historical work.
+
+Delegating parents provide a focused brief, relevant user context, decisions,
+constraints, permitted scope and expected results via `lab agents spawn
+--context-file … --include-file …`. Lab injects the recorded parent context and
+request identity, selected bounded references and the child's linked assignment
+ID. Children resume that ID and follow the same reporting/context workflow when
+further delegation is authorized. The raw parent conversation is not copied.
+Client reloads receive these rules through the normal managed refresh; running
+agents receive them with `lab context update`.
+
 META lists existing scope-owned skill folders alongside instructions at the
 vault, workspace, Objective and separately selected folder/worktree levels.
 The paths checked at each root are `skills`, `content/skills`, `.agents/skills`,

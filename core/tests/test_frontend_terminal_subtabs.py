@@ -21,6 +21,7 @@ RENDER += _js_between('  let _termNotificationHighlight =', '  async function _t
 PILL = _js_between('  function _termTaskStatusLabel(', '  function _termTaskPlaceholderHtml(')
 ASSOCIATION = _js_between('  function _termSessionAssociationHtml(', '  function _termTaskStatusLabel(')
 ALL_TOGGLE = _js_between('  function termSetWipOnly(', '  function termSetRecentEnabled(')
+DETAILS = _js_between('  function termOpenSessionDetails(name)', '  function _termRenderActiveSessionHeader()')
 FILE_ICON = _js_between('  function fileIconHtml(', '  function buildSidebarTree(')
 OBJECTIVE_ACTIVATE = _js_between('  function _termActivateObjectiveTerminal(', '  async function _termActivateTab(')
 OBJECTIVES = LAB_APP.parent / 'lib/workspace-objectives.js'
@@ -232,6 +233,7 @@ window.marked={};window.DOMPurify={};window.LabMarkdownEditor={create:(node,opti
 const _termActivateTab=async name=>{termCurrentSession=name;termRenderSessionList()};
 const termDetach=()=>{termCurrentSession=null;},termShowEmpty=()=>{};
 const renamed=[],termRenameSession=name=>renamed.push(name);
+const filesOpened=[];window.LabAgentWorkHistory={open:async session=>filesOpened.push(session.name)};
 const termToggleCollapse=()=>document.body.classList.toggle('term-collapsed'),_termRememberVisibility=()=>{},_termVisibilityKey=()=>workspace,termStartPeriodicRefresh=()=>{};
 const fixture={enabled:true,revision:'fixture',focused:['one','two','empty'],terminal_links:Object.fromEntries(termSessions.map(s=>[s.session_id,{objective_id:s.name==='other'?'two':'one',task_id:s.name}])),objectives:['one','two','empty'].map((id,i)=>({id,name:id,color:['#58a6ff','#bc8cff','#ffa657'][i],path:'/workspace/'+id,purpose:'',tasks:(id==='one'?['a','b','c']:id==='two'?['other']:[]).map(name=>({id:name,title:name,children:[],status:'in_progress',done:false})),resources:[],worktrees:[],shared_assets:[],unassigned_assets:[],archived_assets:[]}))};
 window.parentMutations=[];
@@ -252,7 +254,7 @@ LabObjectives.connect({context:()=>({workspace_id:workspace,vault,path:'/workspa
 '''.replace('ORIENTATION', repr(orientation))
     header_toggle = next(line.strip() for line in INDEX_HTML.read_text().splitlines() if 'id="termShowAllBtn"' in line)
     css = LAB_SHELL_CSS.read_text() + (LAB_SHELL_CSS.parent / 'workspace-objectives.css').read_text()
-    page = '<!doctype html><meta charset="utf-8"><style>'+css+' .term-panel{width:680px}.term-tabs-open{--term-sessions-width:230px}#sidebar{position:fixed;left:0;top:40px;width:230px;height:calc(100vh - 40px);overflow:auto}#content{margin-left:240px;width:calc(100vw - 920px)}</style><body class="term-open"><button id="outside">Outside</button><div class="repo-tabs"></div><aside id="sidebar"><section data-objectives-sidebar></section></aside><main id="content"></main><section class="term-panel term-sessions-full '+('term-sessions-horizontal' if orientation=='horizontal' else '')+'"><div class="term-header"><span class="title">Terminal</span>'+header_toggle+'</div><div class="term-stage"><div class="term-session-switcher term-tabs-open"><div class="term-sessions" id="termSessionList"></div></div></div></section><div id="termGroupMenu" class="term-group-menu" hidden></div><script>'+OBJECTIVES.read_text()+AUTOMATIONS+COMPLETION+'</script><script>'+GROUPS+MOVES+RENDER+ASSOCIATION+PILL+ALL_TOGGLE+OBJECTIVE_ACTIVATE+FILE_ICON+setup+'</script>'
+    page = '<!doctype html><meta charset="utf-8"><style>'+css+' .term-panel{width:680px}.term-tabs-open{--term-sessions-width:230px}#sidebar{position:fixed;left:0;top:40px;width:230px;height:calc(100vh - 40px);overflow:auto}#content{margin-left:240px;width:calc(100vw - 920px)}</style><body class="term-open"><button id="outside">Outside</button><div class="repo-tabs"></div><aside id="sidebar"><section data-objectives-sidebar></section></aside><main id="content"></main><section class="term-panel term-sessions-full '+('term-sessions-horizontal' if orientation=='horizontal' else '')+'"><div class="term-header"><span class="title">Terminal</span>'+header_toggle+'</div><div class="term-stage"><div class="term-session-switcher term-tabs-open"><div class="term-sessions" id="termSessionList"></div></div></div></section><div id="termGroupMenu" class="term-group-menu" hidden></div><script>'+OBJECTIVES.read_text()+AUTOMATIONS+COMPLETION+'</script><script>'+GROUPS+MOVES+RENDER+ASSOCIATION+PILL+ALL_TOGGLE+OBJECTIVE_ACTIVATE+FILE_ICON+DETAILS+setup+'</script>'
     (tmp_path / 'fixture.html').write_text(page)
     class Handler(SimpleHTTPRequestHandler):
         def log_message(self, *args): pass
@@ -601,7 +603,7 @@ const fs=require('node:fs');
  assert(await evaluate(`!document.querySelector('.term-display-main .sess-completion')&&termCurrentSession===automationName&&!LabTerminalCompletion.meta(workspace,termSessions.find(s=>s.name===automationName))`),'one click on the already selected merged tab immediately acknowledges its actual child');
  const renamePoint=await point('.term-display-main');
  for(const clickCount of [1,2]){await send('Input.dispatchMouseEvent',{type:'mousePressed',...renamePoint,button:'left',clickCount});await send('Input.dispatchMouseEvent',{type:'mouseReleased',...renamePoint,button:'left',clickCount})}
- assert(await evaluate(`renamed.at(-1)===automationName&&termCurrentSession===automationName`),'double-click retains Rename after tab review');
+ assert(await evaluate(`filesOpened.at(-1)===automationName&&termCurrentSession===automationName`),'double-click opens the actual LLM child file history after tab review');
  await evaluate(`termSessions.find(s=>s.name===automationName).terminal_status=report('finished',4);termRenderSessionList()`);
  await click('.term-display-main .sess-completion');
  assert(await evaluate(`!document.querySelector('.term-display-main .sess-completion')&&termCurrentSession===automationName&&!LabTerminalCompletion.meta(workspace,termSessions.find(s=>s.name===automationName))`),'direct green-dot click acknowledges the merged child without changing the selected console');

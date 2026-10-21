@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 
 from core import auth
 from core.routes import term
-from lab import paths
+from lab import paths, agent_work
 from lab.workspace_identity import operation_lease
 
 router = APIRouter()
@@ -39,6 +39,8 @@ class Launch(Parent):
     label: str = Field(min_length=1, max_length=120)
     prompt: str = Field(min_length=1, max_length=64000)
     agent: str | None = Field(default=None, pattern=r'^(copilot|codex|claude)$')
+    context: str = Field(default='', max_length=64000)
+    context_files: list[str] = Field(default_factory=list, max_length=16)
 
 
 class Read(Parent):
@@ -124,7 +126,7 @@ def launch(body: Launch, request: Request):
     root, parent, _ = _parent(body.parent, request)
     folder = paths.vault_state_dir(root) / 'subagents'
     folder.mkdir(parents=True, exist_ok=True, mode=0o700)
-    fingerprint = hashlib.sha256(json.dumps([body.agent, body.label.strip(), body.prompt], ensure_ascii=False).encode()).hexdigest()
+    fingerprint = hashlib.sha256(json.dumps([body.agent, body.label.strip(), body.prompt, body.context, body.context_files], ensure_ascii=False).encode()).hexdigest()
     try:
         lease = operation_lease(root, parent['workspace_id'])
     except ValueError as exc:
@@ -156,12 +158,48 @@ def launch(body: Launch, request: Request):
         if agent not in term.vault_config.supported_agents(root):
             raise HTTPException(400, f'{agent} is not enabled for this vault')
         parent_saved = saved.get(parent['logical_name'], {})
+        from core.agent_work_history import canonical
+        parent_identity = canonical(parent)
+        parent_assignment = agent_work.current(parent_identity)
+        create_parent = not parent_assignment or parent_assignment['status'] == 'finished'
+        if create_parent:
+            parent_assignment = {'id':str(uuid.uuid4()), 'title':'Delegation: ' + body.label.strip(), 'context':''}
+        context = []
+        if parent_assignment:
+            context.append('Parent request: ' + parent_assignment['title'] + '\n'
+                + 'Parent assignment ID: ' + parent_assignment['id'] + '\n' + parent_assignment['context'])
+        if body.context and body.context != parent_assignment['context']:
+            context.append('Parent briefing:\n' + body.context)
+        for file in body.context_files:
+            path = Path(parent['cwd']) / Path(file).expanduser()
+            path = path.resolve()
+            if not path.is_file():
+                raise HTTPException(422, f'Context file not found: {path}')
+            if path.stat().st_size > 32000:
+                raise HTTPException(422, f'Context file exceeds 32000 bytes: {path}')
+            try:
+                text = path.read_text(encoding='utf-8')
+            except UnicodeError:
+                raise HTTPException(422, f'Context file must be UTF-8: {path}')
+            context.append('Reference file: ' + str(path) + '\n' + text)
+        context = '\n\n'.join(context)
+        if len(context) > 64000:
+            raise HTTPException(422, 'Parent context exceeds 64000 characters; provide a focused brief')
         task = ('You are a delegated subagent named ' + body.label.strip() + '.\n'
                 'Your parent Lab terminal is ' + parent['name'] + '.\n'
                 'Run lab context llm before working. Work only on the assignment below.\n'
                 'Report working, attention or finished from your own terminal as instructed.\n'
-                'Return concrete results and validation for your parent to inspect.\n\n'
-                'Assignment:\n' + body.prompt)
+                'Return concrete results and validation for your parent to inspect.\n'
+                'Your request/assignment ID is ' + ident + '. Continue it with '
+                'lab agents work start --id ' + ident + ' --title ' + term._shell_quote(body.label.strip()) + '.\n'
+                'Record the exact files you change with lab agents files record.\n\n'
+                + ('Context from parent:\n' + context + '\n\n' if context else '')
+                + 'Assignment:\n' + body.prompt)
+        if '\x00' in task or len(task.encode('utf-8')) > 120000:
+            raise HTTPException(422, 'The combined assignment and context must fit within 120000 UTF-8 bytes without NUL bytes')
+        if create_parent:
+            parent_assignment = agent_work.start(parent_identity, parent_assignment['title'],
+                request=body.prompt, context=body.context, assignment_id=parent_assignment['id'])
         prompt_file = folder / (body.request_id.hex + '.txt')
         # No prompt text in persisted launch commands, workspace metadata or logs.
         try:
@@ -188,6 +226,8 @@ def launch(body: Launch, request: Request):
             meta = term._load_meta(root)
             meta[created['name']].update(parent_terminal=parent['logical_name'], subagent=record)
             term._save_meta(root, meta)
+        agent_work.start(canonical(current), body.label.strip(), request=body.prompt, context=context,
+            parent_id=parent_assignment['id'] if parent_assignment else None, assignment_id=ident, register=True)
         term._invalidate_workspace_term_caches()
         return {'request_id':ident, 'already_launched':False,
                 'child':next(row for row in _children(root, parent, rows) if row['id'] == ident)}

@@ -19,6 +19,13 @@ When explicitly asked to delegate, use `lab agents spawn --name "Task" --prompt-
 Copilot, Codex and Claude share this command. Do not substitute invisible workers.
 Read `lab context llm` for parent/child status, result inspection and retry rules.
 
+Start a request with `lab agents work start --title "Request"`; record the exact
+files you change with `lab agents files record PATH ...`, and finish that record
+with `lab agents work finish --summary "Result"`. Delegated agents resume the
+assignment ID supplied by their parent. Parent agents pass a focused brief and
+needed file context using spawn's `--context-file` / `--include-file` options.
+These requests/assignments are separate from Objective tasks and checklists.
+
 Inside a Lab tmux terminal, after reading context, execute
 `lab notifications working "Short description"` before work. This includes
 short answers, acknowledgements, approvals and resumed work. Before every final
