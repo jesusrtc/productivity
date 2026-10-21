@@ -273,7 +273,9 @@ automations**. Each automation has **Seconds between launches**, defaulting to
 **5 seconds** for both existing and new definitions. The first command starts
 immediately; Lab waits the configured interval before starting each next terminal.
 Choose 0 to disable the delay, or any value up to 300 seconds. The preview shows
-the saved interval. Commands still run independently; this delay does not wait
+the saved interval. This same saved interval also separates manual reconnects,
+connection renewal and automatic reconnects, including the five-second default.
+Commands still run independently; this delay does not wait
 for a previous command to finish. Empty or relative folders use the chosen task's
 Objective folder. Secondary-clicking an existing terminal → **Launch automation…**
 also requires a WIP task: the automation's first row nests beneath that terminal,
@@ -281,6 +283,24 @@ with the remaining steps beneath its first row, using the parent's launch folder
 The chosen task owns the whole automation group. Pausing it hides the group and
 parks its console immediately; click the paused task to inspect it again.
 See [Terminals](TERMINALS.md#terminal-automations).
+
+Lab automatically reconnects disconnected automation SSH/tmux/Mosh connections
+and monitored services. Scripts that launch a connection are recognized while
+that connection is running. It makes up to **3 attempts**, **2 minutes apart**,
+and checks each attempt after **30 seconds**. Successful recovery stays quiet.
+If all three fail, one red **Reconnect failed** notification on the group's main
+terminal identifies the failed connections. Click **Reconnect** to start a fresh
+attempt cycle using their saved commands, or open the card to inspect the main.
+
+The retry count and deadlines survive browser/backend restarts. The backend
+monitors independently of open browsers, with a two-minute grace after startup
+or waking. Paused/completed tasks, running manual work, unknown status and
+multi-pane sessions do not trigger retries. Closing or recreating a terminal
+does not transfer an old retry cycle. Finite local commands remain available
+through the existing manual ↻ control. The agent's actual status is preserved.
+Use `lab api describe GET /api/term/automations/recovery` to inspect the supervisor;
+`POST /api/term/automations/recovery/check` runs its normal guarded check. Set
+`LAB_AUTOMATION_RECOVERY=0` before starting Lab to disable automatic recovery.
 
 Open **Icon and text color** in an automation to choose its terminal-outline,
 service (such as GitHub), emoji or uploaded PNG icon. Main tabs default to green

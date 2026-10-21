@@ -39,7 +39,7 @@
   function snoozeAlert(key, reportId) {
     // Match the displayed report and incarnation; an old control cannot mute
     // a replacement alert or alter the agent's working/attention/finished state.
-    const item = items({history:true}).find(row => row.key === key && row.report_id === reportId);
+    const item = findItem(key, reportId);
     if (!item?.kind || !item.active) return false;
     reloadMutes();
     mutes[key] = {report_id:reportId, ...(item.kind === 'automation' ? {source:item.source} : {}),
@@ -61,9 +61,9 @@
         const watch = session.terminal_watch;
         const watching = watch && (watch.mode === 'pin' || watch.mode === 'remind' && watch.due_at <= Date.now() / 1000);
         const report = watching ? watch.report : history ? details.notification || (watch?.mode === 'closed' ? watch.report : null)
-          : details.progress_alert || direct || details.automation_alert || details.report;
+          : details.progress_alert || (direct?.state === 'attention' ? direct : null) || details.recovery_alert || direct || details.automation_alert || details.report;
         if (!report || !['attention', 'finished'].includes(report.state)
-            || !history && !watching && !details.progress_alert && !details.automation_alert && !direct) continue;
+            || !history && !watching && !details.progress_alert && !details.automation_alert && !details.recovery_alert && !direct) continue;
         const closed = watch?.mode === 'closed' && watch.closed_report_id === report.id;
         if (!history && closed) continue;
         const key = completion.key(session);
@@ -71,12 +71,12 @@
         if (!history && mute && !watching) continue;
         const owner = {workspace_id:session.workspace_id || scope.slice(separator + 2),
           vault:session.vault || scope.slice(0, separator)};
-        const active = !closed && (!!watching || !mute && (details.progress_alert?.id === report.id || details.automation_alert?.id === report.id
+        const active = !closed && (!!watching || !mute && (details.progress_alert?.id === report.id || details.automation_alert?.id === report.id || details.recovery_alert?.id === report.id
           || details.indicator === report.state && details.report?.id === report.id));
         const age = Math.max(30, Math.floor((Date.now() / 1000 - (session.terminal_progress?.since || 0)) / 60));
         const message = !watching && active && report.kind === 'stale'
           ? `WIP · No progress update for ${age} min · Last report: ${session.terminal_progress.message || 'No report yet'}` : report.message;
-        const item = {key, session, owner, report_id:report.id, state:report.state, kind:report.kind, source:report.source,
+        const item = {key, session, owner, report_id:report.id, state:report.state, kind:report.kind, source:report.source, targets:report.targets,
           created_at:report.updated_at, revision:report.revision,
           active, mute:watching ? null : mute, watch:watching ? watch : null, message:message || (report.state === 'attention' ? 'Needs your input' : 'Work finished')};
         // Prefer the native row over another workspace's shared view.
@@ -86,6 +86,10 @@
     const priority = row => ['automation','watch'].includes(row.kind) ? 1 : row.state === 'attention' ? 0 : 2;
     return [...unique.values()].sort((a, b) => (history ? 0 : priority(a) - priority(b))
       || (b.created_at || 0) - (a.created_at || 0) || b.revision - a.revision);
+  }
+
+  function findItem(key, reportId) {
+    return [...items(), ...items({history:true})].find(row => row.key === key && row.report_id === reportId);
   }
 
   function buttonHtml() {
@@ -105,7 +109,7 @@
   }
 
   async function open(key, reportId) {
-    const item = items({history:true}).find(row => row.key === key && row.report_id === reportId);
+    const item = findItem(key, reportId);
     if (!item || opening.has(key)) return false;
     opening.add(key); render();
     try {
@@ -123,7 +127,7 @@
       row.session.notification_context?.objective, row.session.label || row.session.logical_name || row.session.name].filter(Boolean).join(' / ');
   }
   function stateFor(row) {
-    return (row.kind ? row.kind === 'watch' ? 'Check terminal' : row.kind === 'automation' ? 'Check automation status' : row.kind === 'stale' ? 'Progress overdue' : 'Status not closed'
+    return (row.kind ? row.kind === 'reconnect' ? 'Reconnect failed' : row.kind === 'watch' ? 'Check terminal' : row.kind === 'automation' ? 'Check automation status' : row.kind === 'stale' ? 'Progress overdue' : 'Status not closed'
       : row.state === 'attention' ? 'Needs input' : 'Finished') + (historyOpen && !row.active ? ' · History' : '')
       + (row.watch ? row.watch.mode === 'pin' ? ' · Pinned' : ' · Reminder' : '')
       + (row.mute ? ' · Snoozed until ' + new Date(row.mute.until * 1000).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}) : '');
@@ -185,6 +189,7 @@
         ? `<time class="term-notification-time" datetime="${date.toISOString()}">${escape(date.toLocaleString())}</time>` : '';
       const card = `<button type="button" class="term-notification ${row.state}${['automation','watch'].includes(row.kind) ? ' automation-reminder' : ''}${row.watch ? ' watched-notification' : ''}${row.active ? ' active-alert' : ''}" data-active="${row.active}" data-key="${escape(row.key)}" data-report-id="${escape(row.report_id)}"${opening.has(row.key) ? ' disabled' : ''} title="${escape(label + ' · ' + state + ' · ' + row.message)}"><span class="term-notification-icon" aria-hidden="true">${['automation','watch'].includes(row.kind) ? '?' : row.state === 'attention' ? '!' : '✓'}</span><span class="term-notification-copy"><span class="term-notification-heading"><span class="term-notification-terminal-icon" aria-hidden="true">${icon}</span><span class="term-notification-context">${escape(label + ' · ' + state)}</span></span><span class="term-notification-message">${escape(row.message)}</span>${time}</span><span aria-hidden="true">↗</span></button>`;
       if (row.watch) return `<div class="term-notification-group term-notification-watched">${card}<button type="button" class="term-notification-dismiss" data-notification-watch-close data-key="${escape(row.key)}" data-report-id="${escape(row.report_id)}" data-watch-id="${escape(row.watch.id)}" aria-label="Close watched notification" title="Close watched notification"${saving.has(row.key) ? ' disabled' : ''}>×</button></div>`;
+      if (row.kind === 'reconnect' && row.active) return `<div class="term-notification-group">${card}<div class="term-notification-actions"><button type="button" data-notification-reconnect${saving.has(row.key) ? ' disabled' : ''}>Reconnect</button></div></div>`;
       return row.kind && row.active ? `<div class="term-notification-group">${card}<div class="term-notification-actions"><button type="button" data-notification-snooze aria-label="Snooze reminder for 30 minutes">Snooze 30 min</button></div></div>` : card;
     }).join('');
     if (historyOpen && !rows.length) html += '<p class="term-notification-empty">' + (all.length ? 'No matching notifications.' : 'No notifications yet.') + '</p>';
@@ -205,6 +210,17 @@
         if (row) void setWatch(row.session, 'close', {watch_id:row.watch.id, report_id:row.report_id})
           .then(() => (host.querySelector('[data-notification-search]') || document.querySelector('[data-terminal-notification-center]'))?.focus({preventScroll:true}))
           .catch(error => bridge?.error(error.message));
+      };
+    });
+    host.querySelectorAll('[data-notification-reconnect]').forEach(button => {
+      button.onclick = async () => {
+        const card = button.closest('.term-notification-group').querySelector('.term-notification');
+        const row = findItem(card.dataset.key, card.dataset.reportId);
+        if (!row || saving.has(row.key)) return;
+        saving.add(row.key); render();
+        try { await bridge?.reconnect?.(row); }
+        catch (error) { bridge?.error(error.message || 'Could not reconnect automation.'); }
+        finally { saving.delete(row.key); render(); }
       };
     });
     host.querySelectorAll('[data-notification-snooze]').forEach(button => {

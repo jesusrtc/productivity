@@ -1,7 +1,9 @@
-"""Explicit recovery of workspace automations; reads never replay a launch."""
+"""Owned automation liveness and recovery; ordinary reads never replay a launch."""
 from __future__ import annotations
 
 import json
+import fcntl
+from contextlib import contextmanager
 import os
 from pathlib import Path
 import re
@@ -44,7 +46,9 @@ def remember(folder: Path, session: dict, command: str, shell: str,
              request_id: str | None = None) -> dict:
     with terminal_automations.lock:
         rows = read(folder)
-        row = {"command": command, "shell": shell, "cwd": session["cwd"],
+        previous = rows.get(session["logical_name"], {})
+        row = {**{key: previous[key] for key in ("automation_id", "launch_delay_seconds", "remote_seen") if key in previous},
+               "command": command, "shell": shell, "cwd": session["cwd"],
                "label": session.get("label") or session["logical_name"],
                "name": session["name"], "tmux_socket": session["tmux_socket"],
                "launch_id": uuid.uuid4().hex, "updated_at": time.time(),
@@ -53,6 +57,50 @@ def remember(folder: Path, session: dict, command: str, shell: str,
         rows[session["logical_name"]] = row
         save(folder, rows)
         return row
+
+
+@contextmanager
+def recovery_queue(folder, *, blocking=True):
+    """Serialize recovery across workers/restarts, without the catalog lock."""
+    lock = terminal_automations.launch_lock(folder, 'recovery')
+    if not lock.acquire(blocking=blocking):
+        yield False
+        return
+    try:
+        path = folder / '.lab' / 'automation-recovery.lock'
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open('a') as handle:
+            os.chmod(path, 0o600)
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | (0 if blocking else fcntl.LOCK_NB))
+            except BlockingIOError:
+                yield False
+                return
+            try:
+                yield True
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    finally:
+        lock.release()
+
+
+def configure(folder, logical, automation_id, delay):
+    with terminal_automations.lock:
+        rows = read(folder)
+        if logical in rows:
+            rows[logical].update(automation_id=automation_id, launch_delay_seconds=delay)
+            save(folder, rows)
+
+
+def launch_delay(folder, run):
+    catalog = terminal_automations.read(folder)
+    recipe = next((row for row in catalog['automations'] if row['id'] == run.get('automation_id')), None)
+    if recipe is None and not run.get('automation_id'):
+        matches = [row for row in catalog['automations'] if any(
+            step['command'] == run['command'] and step['label'] == run.get('label') for step in row['steps'])]
+        recipe = matches[0] if len(matches) == 1 else None
+    value = (recipe or run).get('launch_delay_seconds', 5)
+    return float(value) if type(value) in (int, float) and 0 <= value <= 300 else 5.0
 
 
 def adopt_legacy(folder: Path, meta: dict, workspace_id: str) -> dict:
@@ -120,6 +168,8 @@ def connection_kind(command: str) -> str:
         return "tmux"
     if re.search(r"(?:^|[\s;|&])(?:[^\s;|&]*/)?ssh\s", command):
         return "ssh"
+    if re.search(r"(?:^|[\s;|&])(?:[^\s;|&]*/)?mosh\s", command):
+        return "mosh"
     return "process"
 
 
@@ -172,6 +222,6 @@ def status(run: dict, live: dict | None, listing_known: bool,
         if check.returncode != 1:
             return result
     reason = "Terminal session ended" if live is None else {
-        "ssh": "SSH disconnected", "tmux": "tmux client disconnected", "process": "Process exited",
+        "ssh": "SSH disconnected", "tmux": "tmux client disconnected", "mosh": "Mosh disconnected", "process": "Process exited",
     }[kind]
     return {**result, "state": "stopped", "can_relaunch": True, "reason": reason}

@@ -60,7 +60,8 @@ def _workspace(root, workspace, live):
         if current and (current['name'] != run.get('name') or current['tmux_socket'] != run.get('tmux_socket')):
             current = None
         group['members'].append((logical, run, current))
-    return list(groups.values())
+    return [{**group, 'root': root, 'workspace': workspace, 'folder': folder, 'saved': saved}
+            for group in groups.values()]
 
 
 def groups(roots, listing):
@@ -92,21 +93,21 @@ def groups(roots, listing):
     return result, known, warnings
 
 
-def persist(row, alert):
+def persist(row, alert, *, option=OPTION, token_key='_automation_alert_token'):
     """CAS protects the main incarnation, pane and previous reminder."""
     from core.routes import term
-    token = row.get('_automation_alert_token', '')
+    token = row.get(token_key, '')
     if not re.fullmatch(r'[A-Za-z0-9+/=]*', token):
         return False
     checks = [f'#{{==:#{{session_id}},{row["tmux_id"]}}}',
               f'#{{==:#{{session_created}},{row["created"]}}}',
               f'#{{==:#{{pane_id}},{row["pane_id"]}}}',
               f'#{{==:#{{pane_pid}},{row["pane_pid"]}}}',
-              '#{==:#{' + OPTION + '},' + token + '}']
+              '#{==:#{' + option + '},' + token + '}']
     condition = checks[0]
     for check in checks[1:]:
         condition = '#{&&:' + condition + ',' + check + '}'
-    command = 'set-option -t ' + shlex.quote(row['tmux_id']) + ' ' + OPTION + ' ' + terminal_status.encode(alert)
+    command = 'set-option -t ' + shlex.quote(row['tmux_id']) + ' ' + option + ' ' + terminal_status.encode(alert)
     process = subprocess.run(term._tmux_command(row['tmux_socket'], 'if-shell', '-F', '-t', '=' + row['name'] + ':',
         condition, command, 'display-message -p lab-automation-reminder-skipped'),
         capture_output=True, text=True, timeout=5, env=term._tmux_child_env())

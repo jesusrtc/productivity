@@ -457,6 +457,10 @@ async def lifespan(app: FastAPI):
     app.state.terminal_progress = terminal_progress.Supervisor()
     progress_worker = asyncio.create_task(terminal_progress.run(app)) if os.environ.get('LAB_TERMINAL_PROGRESS') != '0' else None
 
+    from core import automation_recovery
+    app.state.automation_recovery = automation_recovery.Supervisor()
+    recovery_worker = asyncio.create_task(automation_recovery.run(app)) if os.environ.get('LAB_AUTOMATION_RECOVERY') != '0' else None
+
     # Print useful URLs on boot (absorbed from gdiff's on_startup).
     try:
         from core.diff_parser import get_registered_repos
@@ -474,6 +478,12 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        if recovery_worker:
+            recovery_worker.cancel()
+            try:
+                await recovery_worker
+            except asyncio.CancelledError:
+                pass
         if progress_worker:
             progress_worker.cancel()
             try:
@@ -571,6 +581,8 @@ def create_app() -> FastAPI:
     app.include_router(task_terminal_cleanup_router)
     from core.terminal_progress import router as terminal_progress_router
     app.include_router(terminal_progress_router)
+    from core.automation_recovery import router as automation_recovery_router
+    app.include_router(automation_recovery_router)
     app.include_router(workspace_documents_route.router)
     app.include_router(objectives_route.router)
     app.include_router(servers_route.router)

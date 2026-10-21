@@ -5,6 +5,18 @@ guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 
 ## 2026-10-21
 
+### Recover disconnected automations before notifying
+
+- Restore the automation's configured spacing (five seconds by default) for
+  manual reconnects, merged renewal and automatic reconnect batches.
+- Retry disconnected SSH/tmux/Mosh connections and monitored services at most
+  three times, two minutes apart, with a 30-second confirmation window.
+- Notify only after the third failure: one red card on the group's main with
+  **Reconnect**. Preserve history, session identities, logs and agent status.
+- Persist retry budgets/deadlines across restarts, coordinate manual/automatic
+  requests, and protect paused tasks, live/manual work, unknown reads and replaced
+  or closed sessions. Expose the independent supervisor through the shared API.
+
 ### Watch terminal notifications and schedule reminders
 
 - Add **Watch / remind…** to terminal-tab secondary-click menus, with pinning,

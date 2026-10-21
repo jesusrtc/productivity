@@ -29,7 +29,7 @@ def decode(token):
 
 
 def latest(row, fallback=None):
-    reports = [row.get('terminal_status'), row.get('terminal_notification'), row.get('terminal_automation_alert'),
+    reports = [row.get('terminal_recovery_alert'), row.get('terminal_status'), row.get('terminal_notification'), row.get('terminal_automation_alert'),
                row.get('terminal_progress', {}).get('alert'), fallback]
     alerts = [report for report in reports if report and terminal_status.decode(terminal_status.encode(report))
               and report['state'] in ('attention', 'finished')]

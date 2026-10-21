@@ -293,7 +293,11 @@ Set **Seconds between launches** in the automation's workspace settings to
 change this interval (0–300 seconds, including fractions); 0 disables waiting.
 Existing definitions without this field also use 5 seconds. The first command
 starts immediately, with no extra wait after the last. The launch preview shows
-the saved delay. Commands run independently. For dependent operations,
+the saved delay. The same configured interval applies between manual reconnects,
+merged-tab renewals and automatic reconnect attempts for the group. Recovery uses
+the current recipe setting, with its saved value or five seconds as a legacy
+fallback. The first eligible reconnect starts immediately and there is no wait
+after the last. Commands run independently. For dependent operations,
 combine them in one command, for example `npm run build && npm run dev`.
 An exited command prints its exit code and leaves an interactive shell with the
 logs retained. Automation tabs show their saved names, or a linked asset's name,
@@ -362,6 +366,41 @@ the child's optional **Background service check**. This check runs in the origin
 working directory: exit 0 means running, exit 1 means stopped, and other failures
 or a timeout mean unknown. It is only used when no foreground process remains.
 
+The backend also monitors SSH/tmux/Mosh connections, wrappers observed launching
+those connections, and services with a saved background check. After a known
+disconnect it automatically makes at most **three reconnect attempts**, with
+**120 seconds between starts for that terminal**. It waits 30 seconds after each
+attempt before accepting a still-running process as recovered or a known stopped
+process as failed. Running processes establish connection liveness, not the health
+or completion of work inside a remote session. Unknown reads preserve state.
+Ordinary finite local commands use manual recovery.
+
+Only after the third known failure does Lab emit a red **Reconnect failed** card
+on the closest automation main. One card lists the failed terminals; **Reconnect**
+uses their exact saved launch IDs and starts a fresh cycle. A successful/manual
+recovery resolves the red card while retaining history. Agent status and dots are
+not changed. The card remains accessible even if an ordinary green finish is newer.
+The existing blue ↻ and explicit merged renewal remain available during retries.
+
+Attempts, next deadlines, confirmation windows and observed session identities
+are kept in the private `.lab/terminal-automation-runs.json`. Launch and reconnect
+commands reuse the same archived-output and fresh liveness guards. A per-workspace
+queue coordinates manual/automatic requests across backend processes; configured
+waits release the shared catalog lock. Paused/completed owners, manually running
+work, unknown reads, additional panes/windows, closed terminals and replacement
+session incarnations are not automatically replayed. Explicit manual recovery
+can restore a closed terminal and resets its retry cycle.
+
+The independent supervisor checks every 10 seconds, with a 120-second startup/wake
+grace and no catch-up burst. Deadlines persist across restarts. It runs with the
+browser closed; failure cards appear when Lab is next opened. Set
+`LAB_AUTOMATION_RECOVERY=0` to disable it. Its settings and last result are available
+at `GET /api/term/automations/recovery`; `POST .../recovery/check` performs the same
+check, requiring administrator access. Both are discoverable with `lab api`.
+Failure reports use session-local `@lab_reconnect_alert` and the existing batched
+notification feed, including borrowed/shared views. Regular reads do not execute
+launch commands.
+
 The automation's first row owns the chosen task; its children inherit that task
 even when launched beneath a generic workspace or Objective main. Existing parent
 ownership is preserved. Pausing the task hides the entire automation group and
@@ -401,8 +440,9 @@ an explicit later launch starts a new group. If a later child fails to spawn,
 earlier children remain running and the picker reports the failure. Restoring a
 stopped terminal opens a shell without automatically replaying its command.
 Original commands and launch-time guidelines are kept privately in
-`.lab/terminal-automation-runs.json` for explicit recovery and merged-tab renewal;
-passive refresh, browser reconnect and status polling never replay them.
+`.lab/terminal-automation-runs.json` for explicit recovery, merged-tab renewal and
+the bounded connection-recovery supervisor. Passive refresh, browser WebSocket
+reconnect and status polling never replay them.
 
 ## Terminal tab names
 

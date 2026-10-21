@@ -107,7 +107,7 @@ class Automation(Decoration):
     id: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,80}$")
     name: str = Field(min_length=1, max_length=120)
     launch_delay_seconds: float = Field(default=5.0, ge=0, le=300, allow_inf_nan=False,
-                                      description="Seconds to wait between starting terminals; 0 disables the delay.")
+                                      description="Seconds between initial launches and reconnects; 0 disables the delay.")
     steps: list[Step] = Field(min_length=1, max_length=20)
 
     @field_validator("name")

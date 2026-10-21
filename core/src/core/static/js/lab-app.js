@@ -16188,6 +16188,13 @@
       const workspaceId = _termActiveWorkspaceId();
       if (workspaceId) await _termRefreshSessionsForWorkspaceId(workspaceId);
     },
+    reconnect:async item => {
+      const result = await window.LabTerminalAutomations.relaunch({id:item.owner.workspace_id,vault:item.owner.vault}, item.targets || []);
+      await window.LabWorkspaceDocuments?.poll(true);
+      const workspaceId = _termActiveWorkspaceId();
+      if (workspaceId) await _termRefreshSessionsForWorkspaceId(workspaceId);
+      if (result.errors?.length) throw Error(result.errors.map(row => row.reason).join('; '));
+    },
     highlight:_termHighlightNotification,
     error:message => explorerToast(message, true),
     icon:_termNotificationIcon,
@@ -22396,7 +22403,10 @@
       'terminal-notifications':async(p={})=>{await window.LabWorkspaceDocuments.poll(true);return window.LabTerminalNotifications.items({history:p.history===true});},
       'terminal-notification-center':(p={})=>window.LabTerminalNotifications.showHistory(p.open!==false),
       'terminal-notification-open':async p=>{
-        const rows=window.LabTerminalNotifications.items({history:true}).filter(row=>row.session.name===p.name||row.key===p.key);
+        const candidates=[...window.LabTerminalNotifications.items(),...window.LabTerminalNotifications.items({history:true})]
+          .filter(row=>(row.session.name===p.name||row.key===p.key)&&(!p.report_id||row.report_id===p.report_id));
+        const rows=[...new Map(candidates.map(row=>[row.key+'::'+row.report_id,row])).values()];
+        if(!rows.length&&p.report_id)return {opened:false};
         if(rows.length!==1)throw Error('Choose an exact terminal message from terminal-notifications.');
         return {opened:await window.LabTerminalNotifications.open(rows[0].key,p.report_id||rows[0].report_id)};
       },
