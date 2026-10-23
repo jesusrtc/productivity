@@ -123,6 +123,9 @@ without approving or resuming the task. Alerts appear in the workspace and the
 shared notification center, including while another workspace is selected.
 Acknowledgements target the displayed alert only. The next reminder has a new
 identity. Existing terminal notification behavior remains separate.
+Discovery uses Lab's bounded filesystem guard per vault. An unresponsive disk
+does not hold the remaining vaults or repeatedly launch identical stuck scans;
+the notification API reports unavailable vaults separately.
 
 Disable admission and stop active runs before moving/deleting or changing the
 kind/status of a workspace. Active runners hold the same workspace operation

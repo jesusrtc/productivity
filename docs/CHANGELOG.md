@@ -7,6 +7,8 @@ guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 
 ### Coordinate local missions through installed agent CLIs
 
+- Isolate stalled vault directory scans with Lab's bounded filesystem guard;
+  keep healthy vault missions and notifications responsive.
 - Add the Agentic workspace type with one persistent coordinator conversation,
   mission/task hierarchy, five concurrent executors, dependencies and priorities.
   Use Codex CLI, Copilot CLI or Claude Code with existing local accounts and

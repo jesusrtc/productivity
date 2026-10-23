@@ -258,6 +258,8 @@ process identities before admitting work. Lost executions require inspection and
 an explicit retry, rather than replaying uncertain side effects. Disable **Start
 new work automatically** to stop admission; stop active tasks before moving,
 deleting or changing the workspace's kind/status.
+An unresponsive registered disk is isolated during workspace discovery, so
+healthy vaults can continue scheduling and showing their notifications.
 
 Existing workspace/vault instructions, skills and memory files remain owned by
 their scopes. Lab stores mission memory, exact run contexts and evidence locally

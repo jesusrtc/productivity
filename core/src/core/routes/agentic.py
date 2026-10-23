@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from contextlib import closing
 import mimetypes
+import os
 from pathlib import Path
 import shutil
 
@@ -24,16 +25,17 @@ def notifications(request: Request):
     auth.require_admin(request)
     from core.agentic_runtime import Supervisor
     result = []
-    registry = {str(Path(v['path']).resolve()): v['id'] for v in paths.read_vault_registry().get('vaults', [])}
-    for vault, workspace, ident in Supervisor().workspaces(request.app.state.index_cache.root):
+    registry = {os.path.abspath(v['path']): v['id'] for v in paths.read_vault_registry().get('vaults', [])}
+    scanner = Supervisor()
+    for vault, workspace, ident in scanner.workspaces(request.app.state.index_cache.root):
         if not (workspace / '.lab/agentic/state.sqlite3').is_file():
             continue
         metadata = storage.read_json(paths.workspace_file(vault, ident))
         for row in Store(workspace).notifications():
             result.append({**row, 'type': 'agentic', 'key': f'agentic:{workspace}:{row["task_id"] or "coordinator"}',
-                           'workspace_id': ident, 'workspace_path': str(workspace), 'vault': registry.get(str(vault.resolve()), vault.name),
+                           'workspace_id': ident, 'workspace_path': str(workspace), 'vault': registry.get(os.path.abspath(vault), vault.name),
                            'label': ' / '.join(filter(None, [metadata.get('title') or metadata.get('name') or ident, row['mission'], row['title']]))})
-    return {'notifications': result}
+    return {'notifications': result, 'unavailable_vaults': scanner.errors}
 
 
 def scope(request, workspace_id, vault):

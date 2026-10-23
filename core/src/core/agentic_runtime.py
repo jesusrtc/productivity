@@ -287,22 +287,35 @@ class Supervisor:
 
     def workspaces(self, active_root):
         from lab import naming
+        from core import fsguard
+        from fastapi import HTTPException
         roots = [Path(active_root)]
         roots += [Path(v['path']) for v in paths.read_vault_registry().get('vaults', [])]
-        for root in dict.fromkeys(roots):
+        def scan(root):
+            rows = []
             parent = naming.workspaces_dir(root)
             if not parent.is_dir():
-                continue
+                return rows
             for folder in parent.iterdir():
+                fsguard.checkpoint()
                 file = naming.workspace_metadata_file(folder)
                 if not file.is_file():
                     continue
                 try:
                     data = json.loads(file.read_text())
                     if data.get('kind') == 'agentic' and data.get('status', 'active') == 'active':
-                        yield root, folder, data['id']
+                        rows.append((root, folder, data['id']))
                 except (OSError, ValueError, KeyError):
                     log.warning('Could not inspect agentic workspace %s', file)
+            return rows
+        for root in dict.fromkeys(roots):
+            try:
+                rows = fsguard.guarded(root, scan, root, timeout=2,
+                                       operation_key=('agentic-workspaces',))
+                self.errors.pop(str(root), None)
+                yield from rows
+            except (HTTPException, OSError) as exc:
+                self.errors[str(root)] = str(getattr(exc, 'detail', exc))
 
     def tick_workspace(self, vault, workspace, workspace_id):
         store = Store(workspace)

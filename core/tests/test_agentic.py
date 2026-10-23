@@ -172,6 +172,38 @@ def test_supervisor_retains_unknown_and_live_runs_and_stops_only_owned_orphan(st
     assert store.detail('t')['task']['status'] == 'failed'
 
 
+def test_stalled_vault_does_not_block_other_missions_or_repeat_scans(seed_workspace, monkeypatch, tmp_path):
+    import threading
+    from core import fsguard, agentic_runtime
+    from lab import naming
+    folder = seed_workspace('healthy')
+    file = folder / 'workspace.json'
+    file.write_text(json.dumps({**json.loads(file.read_text()), 'kind': 'agentic'}))
+    stalled = tmp_path / 'stalled'
+    release = threading.Event()
+    scans = []
+    original_dir, original_guard = naming.workspaces_dir, fsguard.guarded
+    def directory(root):
+        if root == stalled:
+            scans.append(root)
+            release.wait(2)
+        return original_dir(root)
+    monkeypatch.setattr(naming, 'workspaces_dir', directory)
+    monkeypatch.setattr(fsguard, 'guarded', lambda root, fn, *args, **kw:
+                        original_guard(root, fn, *args, **{**kw, 'timeout': .03}))
+    monkeypatch.setattr(agentic_runtime.paths, 'read_vault_registry', lambda:
+                        {'vaults': [{'id': 'healthy', 'path': str(folder.parent.parent)}]})
+    supervisor = agentic_runtime.Supervisor()
+    try:
+        for _ in range(2):
+            rows = list(supervisor.workspaces(stalled))
+            assert [row[2] for row in rows] == ['healthy']
+            assert str(stalled) in supervisor.errors
+        assert len(scans) == 1
+    finally:
+        release.set()
+
+
 def test_reused_process_identity_is_not_live(monkeypatch):
     from core import agentic_runtime as runtime
     class Process:
