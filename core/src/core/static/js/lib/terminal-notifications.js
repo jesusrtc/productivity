@@ -1,6 +1,6 @@
 // Active alerts by default; the center also includes each terminal's last alert.
 (() => {
-  let scopes = {}, bridge, agentic = [];
+  let scopes = {}, bridge;
   const pageSize = 20;
   let historyOpen = false, visibleCount = pageSize, searchQuery = '';
   const muteStorageKey = 'labTerminalNotificationMutes-v1';
@@ -89,8 +89,7 @@
       }
     }
     const priority = row => row.state === 'working' || ['automation','watch'].includes(row.kind) ? 1 : row.state === 'attention' ? 0 : 2;
-    const missionAlerts = agentic.filter(row => history || row.active);
-    return [...unique.values(), ...missionAlerts].sort((a, b) => (history ? 0 : priority(a) - priority(b))
+    return [...unique.values()].sort((a, b) => (history ? 0 : priority(a) - priority(b))
       || (b.created_at || 0) - (a.created_at || 0) || b.revision - a.revision);
   }
 
@@ -119,10 +118,6 @@
     if (!item || opening.has(key)) return false;
     opening.add(key); render();
     try {
-      if (item.type === 'agentic') {
-        await window.LabAgentic.openNotification(item);
-        return true;
-      }
       const session = await bridge?.open(item);
       if (!session) return false;
       if (item.state === 'finished' && !item.watch) window.LabTerminalCompletion.acknowledge('', session, reportId);
@@ -133,7 +128,6 @@
   }
 
   function labelFor(row) {
-    if (row.type === 'agentic') return row.label;
     return bridge?.label?.(row) || [row.session.notification_context?.workspace || row.owner.workspace_id,
       row.session.notification_context?.objective, row.session.label || row.session.logical_name || row.session.name].filter(Boolean).join(' / ');
   }
@@ -162,7 +156,7 @@
     // Search the complete history before paging, including owning context.
     const filtered = terms.length ? all.filter(row => {
       const text = normalize([row.label, row.status, row.state, row.message, row.date.toLocaleString(),
-        row.session?.logical_name, row.session?.name, row.owner?.workspace_id || row.workspace_id, row.owner?.vault || row.vault].join(' '));
+        row.session.logical_name, row.session.name, row.owner.workspace_id, row.owner.vault].join(' '));
       return terms.every(term => text.includes(term));
     }) : all;
     const rows = historyOpen ? filtered.slice(0, visibleCount) : filtered;
@@ -194,7 +188,7 @@
       if (count.textContent !== summary) count.textContent = summary;
     }
     let html = rows.map(row => {
-      const icon = row.type === 'agentic' ? '◎' : bridge?.icon?.(row) || '💻';
+      const icon = bridge?.icon?.(row) || '💻';
       const {label, status:state, date} = row;
       const message = (row.state === 'working' ? 'Last notification: ' : '') + row.message;
       const time = historyOpen && Number.isFinite(date.getTime())
@@ -315,6 +309,5 @@
     snooze(key, reportId) { return snoozeAlert(key, reportId); },
     toggleHistory() { return showHistory(!historyOpen); },
     update(value) { scopes = value; render(); },
-    updateAgentic(value) { agentic = value; render(); },
     configure(value) { bridge = value; render(); }};
 })();

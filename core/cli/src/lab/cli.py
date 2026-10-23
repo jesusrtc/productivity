@@ -12,7 +12,6 @@ _COMMANDS = {
     'ui': ('ui', 'ui_group'),
     'workspace': ('workspace', 'workspace_group'),
     'objective': ('objective', 'objective_group'),
-    'mission': ('mission', 'mission_group'),
     'assistant': ('assistant', 'assistant_group'),
     'config': ('config', 'config_group'),
     'agents': ('agents', 'agents_group'),

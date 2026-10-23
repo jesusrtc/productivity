@@ -1,7 +1,5 @@
 # Memory index
 
-- [Agentic workspaces use local CLIs](agentic-workspaces-use-local-clis.md) — one coordinator chat, missions and five executors; Codex/Copilot/Claude accounts, inspectable evidence, native notebooks and local scheduling.
-
 - [Agent files belong to requests and delegated assignments](agent-files-by-request.md) — double-click document modal, exact reported file attribution, Objective-independent grouping and bounded parent context handoff.
 
 - [Delegated agents have visible child terminals](subagents-have-visible-child-terminals.md) — shared Copilot/Codex/Claude spawn, children and read commands, exact calling-parent identity, persistent task nesting and independent reports.

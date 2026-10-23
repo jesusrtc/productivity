@@ -182,7 +182,6 @@ Use the detailed topics for the work you are doing:
 | `lab context tasks` | Assistant tasks, checklist ownership and recurrence |
 | `lab context meetings` | Assistant meetings and document ownership |
 | `lab context objectives` | Workspace Objectives, tasks, assets and terminals |
-| `lab context agentic` | Local mission coordinator, executors, schedules and evidence |
 | `lab context migrations` | Data formats and migration procedures |
 
 `lab agent context` and `lab agents context` are aliases. Add `--path` to a
@@ -210,69 +209,6 @@ or edit workspace files. Outside tmux, update prints the current context each
 time without saving a version. Existing agents that predate this check must be
 asked once to run `lab context llm` and follow its startup/every-turn instructions;
 an updated file alone cannot teach an already running agent the new rule.
-
-## Work with an agentic workspace
-
-Choose **Agentic** as the type when creating a workspace, or run:
-
-```bash
-lab workspace new my-mission --kind agentic
-```
-
-The workspace opens one coordinator chat beside **Missions**. Describe an outcome;
-the coordinator confirms its understanding and a short plan, asks for missing
-information and delegates independent work. Select a mission to see its tasks
-and outcomes. Click a task for its result, exact assignments, execution history,
-tool activity, checkpoints, files and source links. The task dialog leaves the
-chat available. Notebooks use Lab's existing viewer and `lab notebook exec`.
-Lab preloads the complete startup context for coordinator planning turns;
-executors perform the tool work and further skill/file inspection.
-
-**Settings** shows the effective Codex CLI, Copilot CLI or Claude Code agent and
-model inherited from Lab. An override applies to subsequent runs without losing
-the workspace conversation or evidence. Use locally installed, authenticated
-CLIs; Lab does not connect directly to a model API. Codex and Claude use their
-automatic permission review modes. Copilot uses its local stdio protocol and
-shows requested operations with **Allow once / Deny** inside the task. Missing
-access becomes a task blocker; the coordinator can continue other work.
-
-Up to five task executors run alongside one coordinator. Dependencies and
-priority determine admission. Pause/stop requests interrupt the owned process;
-capacity is released after it stops. Resume starts a fresh run with the saved
-assignment, history and checkpoint, so agents inspect previous effects first.
-Tasks waiting for input or review release capacity. **Approve** releases a
-preview's dependent work; opening a result or notification never approves it.
-Explicit approval in chat is associated with the current preview.
-
-Ask for interval checks or five-field cron schedules, such as “check this PR
-every ten minutes until it merges.” **Schedules** shows deadlines and pause/resume
-controls. Checks reuse their task and keep separate execution histories; missed
-ticks coalesce and unchanged result fingerprints do not notify again. Input and
-review reminders default to two hours; configure the interval or snooze a task.
-Results and blockers also appear in Lab's notification center across workspaces.
-Reviewing a notification hides that alert; a later reminder can appear again.
-
-The local Lab server schedules work independently of open browser tabs. Keep
-the server and computer awake for execution; after downtime it checks persisted
-process identities before admitting work. Lost executions require inspection and
-an explicit retry, rather than replaying uncertain side effects. Disable **Start
-new work automatically** to stop admission; stop active tasks before moving,
-deleting or changing the workspace's kind/status.
-An unresponsive registered disk is isolated during workspace discovery, so
-healthy vaults can continue scheduling and showing their notifications.
-
-Existing workspace/vault instructions, skills and memory files remain owned by
-their scopes. Lab stores mission memory, exact run contexts and evidence locally
-under the workspace's `.lab/agentic/`. In a managed mission run, the existing
-`lab agents work`, `lab agents files` and `lab notifications` commands record that
-run without requiring a tmux terminal. File/status reports do not finish a task;
-the runner validates its final result separately. Mission delegation is performed
-by the coordinator's plan; ordinary terminal delegation still uses `lab agents spawn`.
-
-Use `lab mission --workspace my-mission ls`, `say`, `task`, `apply`, `checkpoint`
-and `settings` for the same state through the CLI. `lab api routes --search
-agentic` discovers the UI endpoints. See [Agentic workspaces](AGENTIC-WORKSPACES.md)
-for permissions, data ownership, recovery and verification.
 
 ## Launch agents and use terminals
 

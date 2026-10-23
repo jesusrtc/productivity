@@ -3,26 +3,14 @@
 User-facing changes to Lab are recorded here alongside updates to the user
 guide. This log starts on 2026-10-09; earlier repository history remains in Git.
 
-## 2026-10-22
+## 2026-10-23
 
-### Coordinate local missions through installed agent CLIs
+### Revert Agentic workspaces
 
-- Isolate stalled vault directory scans with Lab's bounded filesystem guard;
-  keep healthy vault missions and notifications responsive.
-- Add the Agentic workspace type with one persistent coordinator conversation,
-  mission/task hierarchy, five concurrent executors, dependencies and priorities.
-  Use Codex CLI, Copilot CLI or Claude Code with existing local accounts and
-  inherited provider/model settings; retain history when changing providers.
-- Show task results, immutable assignments, execution activity, checkpoints,
-  source links and supporting files in a central dialog beside the chat. Reuse
-  Lab notebook execution and viewers. Keep explicit preview approval gates.
-- Add local interval/cron schedules, deduplicated checks, two-hour blocked/review
-  reminders, snooze and cross-workspace notifications. Retain exact process
-  identities across backend/browser restarts and require explicit retry after
-  uncertain execution failure.
-- Expose mission state through `lab mission` and authenticated APIs. Support
-  existing work/file/status reporting in managed runs without a tmux terminal;
-  display Copilot's one-time permission requests within the task.
+- Remove the Agentic workspace interface, mission CLI, local scheduling and
+  coordinator runtime, restoring the previous workspace behavior.
+- Preserve existing workspace files and the ordinary agent terminals,
+  delegation, work history and notification features.
 
 ## 2026-10-21
 

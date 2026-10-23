@@ -178,16 +178,12 @@ class Workspace:
     # (its valid values depend on the chosen agent, so we don't enum it).
     agent: str | None = None
     model: str | None = None
-    kind: str = "standard"
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Workspace:
-        if data.get('kind', 'standard') not in ('standard', 'agentic'):
-            raise ModelError('kind must be standard or agentic')
         return cls(
             id=_validate_id(data.get("id", "")),
             name=str(data.get("name", "")),
-            kind=data.get('kind', 'standard'),
             description=str(data.get("description", "")),
             status=_parse_enum(WorkspaceStatus, data.get("status", "active"), field_name="status"),
             tags=list(data.get("tags", []) or []),
@@ -211,7 +207,6 @@ class Workspace:
         return {
             "id": self.id,
             "name": self.name,
-            **({"kind": self.kind} if self.kind != "standard" else {}),
             "description": self.description,
             "status": self.status.value,
             "tags": list(self.tags),

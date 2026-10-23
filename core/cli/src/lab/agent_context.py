@@ -20,7 +20,7 @@ TOPICS = {'overview': 'AGENTS.md', 'markdown': 'markdown.md',
           'meetings': 'meetings.md', 'tasks': 'tasks.md',
           'objectives': 'objectives.md', 'cli': 'cli.md',
           'migrations': 'migrations.md', 'user-guide': 'USER-GUIDE.md',
-          'changelog': 'CHANGELOG.md', 'agentic': 'AGENTIC-WORKSPACES.md'}
+          'changelog': 'CHANGELOG.md'}
 DOCUMENTS = {'user-guide': 'Lab user guide', 'changelog': 'Lab changelog'}
 AGENTS = ('codex', 'claude', 'copilot')
 CONTEXT_VERSION_OPTION = '@lab_context_version'
@@ -31,7 +31,7 @@ class ContextError(RuntimeError):
 
 
 def guide_path(topic: str = 'overview') -> Path:
-    if topic in DOCUMENTS or topic == 'agentic':
+    if topic in DOCUMENTS:
         # Editable checkouts read the canonical docs; wheels/sdists carry copies
         # made by the package build, independent of the developer's checkout.
         source = Path(__file__).resolve()

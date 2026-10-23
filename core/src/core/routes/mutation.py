@@ -102,7 +102,6 @@ def _root_for_vault(request: Request, vault: str | None) -> Path:
 class NewWorkspace(BaseModel):
     id: str | None = None
     name: str | None = Field(default=None, max_length=80)
-    kind: Literal['standard', 'agentic'] = 'standard'
     vault: str | None = None
     description: str = ""
     priority: str | None = None
@@ -127,11 +126,6 @@ def rename_workspace(workspace_id: str, body: RenameWorkspace, request: Request,
     _validate_pid(workspace_id)
     old = paths.workspace_dir(root, workspace_id)
     from core import notebook_kernel
-    from lab.agentic_store import require_idle
-    try:
-        require_idle(old)
-    except ValueError as exc:
-        raise HTTPException(409, str(exc)) from exc
     if notebook_kernel.workspace_busy(root, old):
         raise HTTPException(status_code=409, detail="Wait for the running notebook cell to finish before renaming this workspace")
     _run_lab(["workspace", "rename", workspace_id, body.name], root=root)
@@ -205,12 +199,6 @@ def delete_workspace(workspace_id: str, body: DeleteWorkspace,
     if not pdir.is_dir() or not paths.workspace_file(root, workspace_id).is_file():
         raise HTTPException(status_code=404, detail="Workspace not found")
 
-    from lab.agentic_store import require_idle
-    try:
-        require_idle(pdir)
-    except ValueError as exc:
-        raise HTTPException(409, str(exc)) from exc
-
     from core import notebook_kernel
     from core.routes import servers, term
 
@@ -260,7 +248,7 @@ def create_workspace(body: NewWorkspace, request: Request) -> dict:
             workspace_id = f"{base}-{suffix}"
             suffix += 1
     _validate_pid(workspace_id)
-    args = ["workspace", "new", workspace_id, '--kind', body.kind]
+    args = ["workspace", "new", workspace_id]
     if name is not None:
         args += ["--name", name]
     if body.description:

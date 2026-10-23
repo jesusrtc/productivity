@@ -564,7 +564,6 @@ def _discover_monorepo_workspaces(root: str | Path | None = None) -> list[dict]:
             # change without renaming the workspace directory or terminal ids.
             "name": workspace_id,
             "display_name": display_name,
-            "kind": data.get('kind', 'standard'),
             "is_workspace": True,
             "path": str(workspace_dir),
             "repos": repos,
