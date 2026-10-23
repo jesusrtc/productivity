@@ -77,6 +77,30 @@ window.LabObjectives={load:async()=>{},terminalObjective:()=>({id:'exact-objecti
 '''
 
 
+def test_mission_notifications_share_center_without_terminal_acknowledgements():
+    result = _run_node(CLOCK + r'''
+document.getElementById=()=>null;
+''' + MODULE + NOTIFICATIONS + r'''
+(async()=>{
+const N=window.LabTerminalNotifications, calls=[];
+window.LabAgentic={openNotification:async row=>{calls.push(row.report_id)}};
+N.configure({open:async()=>{throw Error('Mission alerts are not terminal sessions')}});
+const first={type:'agentic',key:'mission:/vault/workspace:t',report_id:'one',state:'attention',active:true,created_at:100,label:'Workspace / Mission / Task',message:'Review preview',workspace_id:'demo',vault:'owner'};
+N.updateAgentic([first]);
+assert(N.items().length===1&&N.items()[0].label.includes('Mission'),'mission visible across scopes');
+assert(await N.open(first.key,'one'),'mission navigation works');
+assert(calls.join(',')==='one','exact notification is delegated');
+N.updateAgentic([{...first,active:false}]);
+assert(!N.items().length&&N.items({history:true}).length===1,'review retained in history');
+N.updateAgentic([{...first,report_id:'two'}]);
+assert(!await N.open(first.key,'one'),'stale click cannot review a replacement');
+assert(N.items()[0].report_id==='two','later reminder is active');
+console.log(JSON.stringify({passed:true}));
+})();
+''')
+    assert result['passed']
+
+
 def test_notification_navigation_uses_owner_incarnation_and_cancels_late_reads():
     result = _run_node(CLOCK + MODULE + r'''
 document.body={classList:{add(){},remove(){},contains:()=>false}};

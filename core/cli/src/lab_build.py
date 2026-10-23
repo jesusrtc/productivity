@@ -5,7 +5,7 @@ import shutil
 from setuptools.command.build_py import build_py
 from setuptools.command.sdist import sdist
 
-NAMES = ('USER-GUIDE.md', 'CHANGELOG.md')
+NAMES = ('USER-GUIDE.md', 'CHANGELOG.md', 'AGENTIC-WORKSPACES.md')
 
 
 def docs_dir():

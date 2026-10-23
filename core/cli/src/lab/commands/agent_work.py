@@ -2,13 +2,15 @@
 import click
 import sqlite3
 
-from lab import agent_work, terminal_context
+from lab import agent_work, agentic_work, terminal_context
 from lab.api_client import output
 
 
 def _call(fn, *args, **kwargs):
     try:
-        output(fn(agent_work.identity(), *args, **kwargs))
+        managed = agentic_work.current()
+        output(getattr(agentic_work, fn.__name__)(managed, *args, **kwargs) if managed
+               else fn(agent_work.identity(), *args, **kwargs))
     except (ValueError, OSError, sqlite3.Error, terminal_context.TerminalContextError) as exc:
         raise click.ClickException(str(exc)) from exc
 

@@ -388,6 +388,7 @@
 
   async function selectRepo(workspaceKey, {initialLoad = false, historySettled = false} = {}) {
     if (!workspaceKey) return;
+    window.LabAgentic?.leave();
     window.LabScopeLinks?.closeExternal();
     currentWorkspace = workspacesList.find(p => p.path === workspaceKey)
       || workspacesList.find(p => p.name === workspaceKey);
@@ -437,7 +438,8 @@
       // race guard knows a doc is on its way and doesn't stomp the doc
       // render. If no remembered doc, _workspaceDocPath is null and
       // showWorkspaceInfo paints the dashboard as usual.
-      const remembered = getLastWorkspaceDoc(currentWorkspace.path);
+      const remembered = currentWorkspace.kind === 'agentic' ? null : getLastWorkspaceDoc(currentWorkspace.path);
+      if (currentWorkspace.kind === 'agentic') termClose();
       _workspaceDocPath = remembered || null;
       if (!remembered) paintWorkspaceShell();
       if (initialLoad) afterColdPageQuiet(hydrateWorkspaceChrome);
@@ -445,7 +447,7 @@
       if (remembered) openWorkspaceDoc(remembered);
       // Workspace-scoped terminal panel: auto-open + attach latest session (if any).
       // Skip under ?ui_check=1 so headless validator reaches network idle.
-      if (!(new URLSearchParams(location.search).get('ui_check') === '1')) {
+      if (currentWorkspace.kind !== 'agentic' && !(new URLSearchParams(location.search).get('ui_check') === '1')) {
         const terminalWorkspaceId = currentWorkspace.name;
         const restoreTerminal = () => {
           if (typeof _termIsScopeActive === 'function' && !_termIsScopeActive(terminalWorkspaceId)) return;
@@ -7965,7 +7967,9 @@
       if (LAB_IS_ADMIN) html += `<button class="repo-tab${isSelf && _contextSubView === 'admin' ? ' active' : ''}" onclick="${isSelf ? 'selfShowAdmin()' : "goToProductivity({subview:'admin'})"}">&#x2699; Admin</button>`;
       if (LAB_IS_ADMIN) html += `<button class="repo-tab objectives-demo-tab${isSelf && _contextSubView === 'objectives-demo' ? ' active' : ''}" onclick="${isSelf ? 'selfShowObjectivesDemo()' : "goToProductivity({subview:'objectives-demo'})"}">&#x25CE; Objectives demo</button>`;
     } else if (currentWorkspace.is_workspace) {
-      html += window.LabObjectives?.tabsHtml(currentWorkspace.path,!proxyOpen && !currentRepo) || '';
+      html += currentWorkspace.kind === 'agentic'
+        ? `<button class="repo-tab${overviewActive?' active':''}" onclick="goToWorkspace(${escAttr(JSON.stringify(currentWorkspace.path))})">Missions</button>`
+        : window.LabObjectives?.tabsHtml(currentWorkspace.path,!proxyOpen && !currentRepo) || '';
     }
 
     // One tab per declared server (workspace.json proxies) — clicking it opens
@@ -11066,6 +11070,12 @@
 
   async function _loadWorkspaceInfo({preserveScroll = false, keepShell = false, backgroundRefresh = false} = {}) {
     if (!currentWorkspace || !currentWorkspace.is_workspace) return;
+    if (currentWorkspace.kind === 'agentic' && !currentRepo && !_workspaceDocPath) {
+      const scope = {workspace_id:currentWorkspace.name,vault:_workspaceVaultId(currentWorkspace),path:currentWorkspace.path};
+      await _refreshWorkspaceSidebar({preserveScroll, backgroundRefresh});
+      if (currentWorkspace?.path === scope.path && !currentRepo && !_workspaceDocPath && _contextSubView !== 'files') await window.LabAgentic?.open(document.getElementById('content'), scope);
+      return;
+    }
     void window.LabObjectives?.load();
     // Startup reconciliation and file polls must not replace a newer
     // Objective library, task view or editor with the retired dashboard.
@@ -18586,6 +18596,7 @@
   // strips the mutually-exclusive body classes; the destination init will
   // assert its own.
   function _swapViewState({preserveHomeTerminal = false} = {}) {
+    window.LabAgentic?.leave();
     window.LabObjectives?.leave();
     // Save the outgoing notebook position while its layout is still intact.
     // Reading cell geometry after shell/tab changes forces an intermediate
@@ -21242,6 +21253,7 @@
     const error = document.getElementById('vaultWorkspaceError');
     if (!modal || !form) return;
     form.reset();
+    document.getElementById('vaultWorkspaceKindLabel').hidden = false;
     _vaultWorkspaceRenameTarget = null;
     _vaultWorkspaceCreateVault = vault.id;
     _vaultWorkspaceCreateMethod = method;
@@ -21267,6 +21279,7 @@
     if (vault.unavailable) return;
     openVaultWorkspaceModal(vault);
     _vaultWorkspaceRenameTarget = {id: workspace.name, path: workspace.path, vault: vaultId};
+    document.getElementById('vaultWorkspaceKindLabel').hidden = true;
     document.getElementById('vaultWorkspaceTitle').textContent = 'Rename workspace';
     document.getElementById('vaultWorkspaceSubmit').textContent = 'Save name';
     document.getElementById('vaultWorkspaceContextLabel').textContent = 'In';
@@ -21314,7 +21327,7 @@
       const response = await fetch(url, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(renameTarget ? {name} : {name, vault: vaultId}),
+        body: JSON.stringify(renameTarget ? {name} : {name, vault: vaultId, kind:form.elements.namedItem('kind').value}),
       });
       const created = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(created.detail || (renameTarget ? 'Could not rename workspace' : 'Workspace creation failed'));
@@ -22244,6 +22257,16 @@
 
   // Cerebro view: when URL carries ?view=cerebro, we bypass the
   // workspace/repo init path entirely and render the mdview-style browser.
+  window.LabAgentic?.connect({
+    navigate: async path => {workspacesList=await fetchRepos();await goToWorkspace(path);await showWorkspaceInfo();},
+    ready: () => ensureMarked(),
+    renderNotebook: (cells, container) => {
+      container.innerHTML = cells.map(cell => renderNotebookCell(cell)).join('');
+      activateNotebookScripts(container);
+    },
+    openFile: (path, root) => openWorkspaceDocModal(path, {root}),
+    settings: () => window.LabSettingsCenter?.open?.(),
+  });
   window.LabObjectives?.connect({
     fileIcon: fileIconHtml,
     activeTerminal:()=>termSessions.find(t=>t.name===termCurrentSession),

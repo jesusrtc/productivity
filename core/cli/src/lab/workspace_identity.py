@@ -254,6 +254,8 @@ def rename_workspace(root: Path, workspace_id: str, name: str) -> dict:
     workspace_id = id_at(paths.workspace_dir(root, workspace_id))
     with identity_lock(root), workspace_operation(root, workspace_id):
         old = paths.workspace_dir(root, workspace_id)
+        from lab.agentic_store import require_idle
+        require_idle(old)
         if old.is_symlink() or old.resolve() != old or not old.is_relative_to(root):
             raise ValueError("Cannot rename a linked workspace folder")
         metadata = naming.workspace_metadata_file(old)

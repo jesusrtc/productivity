@@ -69,7 +69,7 @@ def _parse_until_to_iso(spec: str) -> str:
 
 _WORKSPACE_SETTABLE = {
     "description", "status", "priority", "due", "loe", "tags", "labels", "name",
-    "agent", "model",
+    "agent", "model", "kind",
 }
 
 
@@ -107,14 +107,16 @@ def open_workspace(workspace_id, vault, client):
 @click.option("--due", default=None, help="Due date YYYY-MM-DD")
 @click.option("--tags", default="", help="Comma-separated tags")
 @click.option("--labels", default="", help="Comma-separated MP labels")
+@click.option("--kind", type=click.Choice(['standard', 'agentic']), default='standard', help='Workspace experience')
 def new(workspace_id: str, name: str | None, description: str, priority: str | None, due: str | None,
-        tags: str, labels: str) -> None:
+        tags: str, labels: str, kind: str = 'standard') -> None:
     """Create a new workspace under workspaces/<id>/."""
     root = paths.find_monorepo_root()
     try:
         workspace = Workspace.from_dict({
             "id": workspace_id,
             "name": name if name is not None else workspace_id,
+            "kind": kind,
             "description": description,
             "status": "active",
             "priority": priority,
@@ -266,7 +268,16 @@ def set_field(workspace_id: str, field: str, value: str) -> None:
     except ModelError as exc:
         raise click.ClickException(str(exc)) from exc
 
-    storage.write_json(pjson, data)
+    if field in ('kind', 'status'):
+        from lab.agentic_store import require_idle
+        try:
+            with workspace_identity.workspace_operation(root, pid):
+                require_idle(pjson.parent)
+                storage.write_json(pjson, data)
+        except ValueError as exc:
+            raise click.ClickException(str(exc)) from exc
+    else:
+        storage.write_json(pjson, data)
     click.echo(f"{pid}.{field} = {data[field]!r}")
 
 
@@ -406,8 +417,14 @@ def rm(workspace_id: str, yes: bool) -> None:
         )
 
     pid = workspace_identity.id_at(pdir)
-    shutil.rmtree(pdir)
-    workspace_identity.forget_workspace(root, pid)
+    from lab.agentic_store import require_idle
+    try:
+        with workspace_identity.workspace_operation(root, pid):
+            require_idle(pdir)
+            shutil.rmtree(pdir)
+            workspace_identity.forget_workspace(root, pid)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
     click.echo(f"removed {pid}")
 
 

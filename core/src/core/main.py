@@ -460,6 +460,9 @@ async def lifespan(app: FastAPI):
     from core import automation_recovery
     app.state.automation_recovery = automation_recovery.Supervisor()
     recovery_worker = asyncio.create_task(automation_recovery.run(app)) if os.environ.get('LAB_AUTOMATION_RECOVERY') != '0' else None
+    from core import agentic_runtime
+    app.state.agentic_supervisor = agentic_runtime.Supervisor()
+    agentic_worker = asyncio.create_task(agentic_runtime.run(app)) if os.environ.get('LAB_AGENTIC_SUPERVISOR') != '0' else None
 
     # Print useful URLs on boot (absorbed from gdiff's on_startup).
     try:
@@ -478,6 +481,12 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        if agentic_worker:
+            agentic_worker.cancel()
+            try:
+                await agentic_worker
+            except asyncio.CancelledError:
+                pass
         if recovery_worker:
             recovery_worker.cancel()
             try:
@@ -564,6 +573,8 @@ def create_app() -> FastAPI:
     app.include_router(appstate_route.router)
     app.include_router(index_route.router)
     app.include_router(workspace_route.router)
+    from core.routes.agentic import router as agentic_router
+    app.include_router(agentic_router)
     app.include_router(task_route.router)
     app.include_router(markdown_route.router)
     app.include_router(notebook_route.router)
@@ -728,6 +739,8 @@ def create_app() -> FastAPI:
         _STATIC_DIR / "css" / "task-schedule.css",
         _STATIC_DIR / "js" / "lib" / "workspace-objectives.js",
         _STATIC_DIR / "css" / "workspace-objectives.css",
+        _STATIC_DIR / "js" / "lib" / "agentic-workspace.js",
+        _STATIC_DIR / "css" / "agentic-workspace.css",
         _STATIC_DIR / "js" / "views" / "objectives-demo.js",
         _STATIC_DIR / "js" / "lib" / "window-dock.js",
         _STATIC_DIR / "css" / "window-dock.css",

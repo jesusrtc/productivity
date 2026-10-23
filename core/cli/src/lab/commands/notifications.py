@@ -6,7 +6,7 @@ import uuid
 
 import click
 
-from lab import terminal_context, terminal_status
+from lab import agentic_work, terminal_context, terminal_status
 
 
 @click.command('notifications')
@@ -26,10 +26,15 @@ def notifications_cmd(state: str, message: str) -> None:
     report = {'version': 1, 'state': state, 'message': message.strip(),
               'id': uuid.uuid4().hex, 'revision': time.monotonic_ns() // 1000, 'updated_at': time.time()}
     try:
+        managed = agentic_work.current()
+        if managed:
+            ident = agentic_work.report(managed, state, report['message'])
+            click.echo(f'{state}: mission run {ident}' + (f' · {report["message"]}' if report['message'] else ''))
+            return
         terminal = terminal_context.current()
         terminal.set_option(terminal_status.OPTION, terminal_status.encode(report))
         if state in ('attention', 'finished'):
             terminal.set_option(terminal_status.NOTIFICATION_OPTION, terminal_status.encode(report))
-    except terminal_context.TerminalContextError as exc:
+    except (ValueError, OSError, terminal_context.TerminalContextError) as exc:
         raise click.ClickException(str(exc)) from exc
     click.echo(f'{state}: {terminal.name}' + (f' · {report["message"]}' if report['message'] else ''))
